@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -47,9 +47,9 @@
     ("ff" . consult-find)
     ("fr" . consult-ripgrep)
     ("T" . treemacs-add-and-display-current-project)
-    ("xb" . lispm-desktop-xwidget-browse-url)
-    ("xs" . lispm-desktop-xwidget-search)
-    ("xu" . lispm-desktop-xwidget-open-current-url))
+    ("xb" . lispm-browser-browse-url)
+    ("xs" . lispm-browser-web-search)
+    ("xu" . lispm-browser-open-url-at-point))
   "Key suffixes bound under the evil leader key, paired with their commands.")
 
 (declare-function lispm-desktop-sidebar-focus "lispm-desktop-sidebar" ())

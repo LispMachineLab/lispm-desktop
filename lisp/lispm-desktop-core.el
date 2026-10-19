@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -32,8 +32,8 @@
 (defconst lispm-desktop-directory
   (file-name-directory
    (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
-  "The desktop's directory, desktop/ of LispM's repository: the parent of
-its lisp/ directory.")
+  "The desktop's directory, a checkout of lispm-desktop: the parent of its
+lisp/ directory.")
 
 (defgroup lispm-desktop nil
   "LispM's Emacs distribution."

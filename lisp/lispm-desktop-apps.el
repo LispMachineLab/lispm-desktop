@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -54,8 +54,8 @@
     (editor :name "Emacs" :icon emacs :menus lispm-desktop-editor-menus
             :activate lispm-desktop-editor-activate)
     (browser :name "Browser" :icon "netscape" :menus lispm-desktop-browser-menus
-             :activate lispm-desktop-browser-show :visible lispm-desktop-xwidget-available-p
-             :running lispm-desktop-browser--buffers)
+             :activate lispm-desktop-browser-show :visible lispm-browser-available-p
+             :running lispm-browser-tabs)
     (settings :name "Control Panels" :icon "control-panels" :menus lispm-desktop-settings-menus
               :activate lispm-desktop-settings-show :visible lispm-desktop-settings-open-p))
   "The applications, in the Application menu's order: (KEY . PROPERTIES).

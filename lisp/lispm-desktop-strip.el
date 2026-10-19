@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -73,14 +73,14 @@
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
 (defvar lispm-desktop-picture-position)
-(defvar lispm-desktop-browser-home-url)
+(defvar lispm-browser-home-url)
 (defvar battery-echo-area-format)
 (declare-function battery-format "battery" (format alist))
 (declare-function lispm-desktop--color "lispm-desktop-surface" ())
 (declare-function lispm-desktop-choose-picture "lispm-desktop-surface" (file))
 (declare-function lispm-desktop-remove-picture "lispm-desktop-surface" ())
 (declare-function lispm-desktop-arrange-icons "lispm-desktop-surface" ())
-(declare-function lispm-desktop-browser-clear-history "lispm-desktop-browser-places" ())
+(declare-function lispm-browser-clear-history "lispm-browser-places" ())
 (declare-function lispm-desktop-browser-edit-bookmarks "lispm-desktop-browser-places" ())
 
 (defgroup lispm-desktop-strip nil
@@ -170,8 +170,8 @@ covers the desktop, Arrange Icons, and the panel."
   "Return the Internet module's menu: the home page, the history, the
 bookmarks, and the panel."
   `((:label "Change Home Page…"
-            :action ,(lambda () (lispm-desktop-settings--change 'lispm-desktop-browser-home-url "Home page: ")))
-    (:label "Clear History…" :action lispm-desktop-browser-clear-history)
+            :action ,(lambda () (lispm-desktop-settings--change 'lispm-browser-home-url "Home page: ")))
+    (:label "Clear History…" :action lispm-browser-clear-history)
     (:label "Edit Bookmarks…" :action lispm-desktop-browser-edit-bookmarks)
     separator
     ,(lispm-desktop-strip--panel-item 'browser)))

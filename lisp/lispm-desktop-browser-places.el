@@ -1,9 +1,9 @@
-;;; lispm-desktop-browser-places.el --- The browser's history and bookmarks  -*- lexical-binding: t; -*-
+;;; lispm-desktop-browser-places.el --- The browser's History and Bookmarks pane  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -25,10 +25,7 @@
 
 ;; What the browser remembers, as Netscape Communicator remembered it: the
 ;; pages visited, its History, and the pages kept, its bookmarks.
-;;
-;;   page --finished loading--> history, a file of its own
-;;   Add Bookmark --> Emacs's own bookmarks (bookmark.el), with xwidget's
-;;                    handler, so `bookmark-jump' opens them too
+;; lispm-browser-places.el keeps them; this file shows them.
 ;;
 ;; Both list in a pane at the browser window's left, a tab choosing one:
 ;; History by day, the most recent first, and bookmarks in the order they
@@ -42,173 +39,22 @@
 (require 'bookmark)
 (require 'seq)
 (require 'subr-x)
+(require 'lispm-browser-places)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-browser)
 
-(declare-function xwidget-webkit-uri "xwidget.c" (xwidget))
-(declare-function xwidget-webkit-title "xwidget.c" (xwidget))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-sidebar--toolbar-button "lispm-desktop-sidebar" (label command help row &optional state))
 
-;;;; History
-
-(defcustom lispm-desktop-browser-history-file (locate-user-emacs-file "lispm-desktop-browser-history.eld")
-  "File keeping the pages the browser visited."
-  :type 'file
-  :group 'lispm-desktop)
-
-(defcustom lispm-desktop-browser-history-size 1000
-  "How many pages the browser's history keeps, the most recently visited."
-  :type 'natnum
-  :group 'lispm-desktop)
-
-(defvar lispm-desktop-browser--history nil
-  "Pages visited, the most recent first: (URL TITLE LAST-VISIT VISITS).
-LAST-VISIT is a `float-time'.  Read from `lispm-desktop-browser-history-file'
-when first wanted.")
-
-(defvar lispm-desktop-browser--history-loaded nil
-  "Non-nil once the history was read from its file.")
-
-(defvar lispm-desktop-browser--history-timer nil
-  "Idle timer writing the history to its file after a change.")
-
-(defun lispm-desktop-browser--load-history ()
-  "Return the history, read from its file the first time."
-  (unless lispm-desktop-browser--history-loaded
-    (setq lispm-desktop-browser--history-loaded t
-          lispm-desktop-browser--history
-          (and (file-readable-p lispm-desktop-browser-history-file)
-               (ignore-errors
-                 (with-temp-buffer
-                   (insert-file-contents lispm-desktop-browser-history-file)
-                   (read (current-buffer)))))))
-  lispm-desktop-browser--history)
-
-(defun lispm-desktop-browser--save-history ()
-  "Write the history to `lispm-desktop-browser-history-file'."
-  (setq lispm-desktop-browser--history-timer nil)
-  (when lispm-desktop-browser--history-loaded
-    (ignore-errors
-      (with-temp-file lispm-desktop-browser-history-file
-        (let ((print-length nil)
-              (print-level nil))
-          (insert ";; The pages lispm-desktop's browser visited.  -*- mode: lisp-data -*-\n")
-          (prin1 lispm-desktop-browser--history (current-buffer))
-          (insert "\n"))))))
-
-(defun lispm-desktop-browser--history-changed ()
-  "Write the history once Emacs is idle, and redraw what lists it."
-  (unless lispm-desktop-browser--history-timer
-    (setq lispm-desktop-browser--history-timer
-          (run-with-idle-timer 2 nil #'lispm-desktop-browser--save-history)))
-  (lispm-desktop-browser--places-changed))
-
-(defun lispm-desktop-browser-history-add (url title)
-  "Note that the page at URL, titled TITLE, was visited just now.
-Only web and file pages are kept, each once, at its latest visit."
-  (when (and (stringp url) (string-match-p "\\`\\(https?\\|file\\|ftp\\):" url))
-    (let* ((history (lispm-desktop-browser--load-history))
-           (old (assoc url history))
-           (title (if (string-empty-p (or title "")) (or (nth 1 old) url) title)))
-      (setq lispm-desktop-browser--history
-            (seq-take (cons (list url title (float-time) (1+ (or (nth 3 old) 0)))
-                            (delq old history))
-                      lispm-desktop-browser-history-size))
-      (lispm-desktop-browser--history-changed))))
-
-(defun lispm-desktop-browser-history-remove (url)
-  "Forget the visits to the page at URL."
-  (setq lispm-desktop-browser--history (assoc-delete-all url (lispm-desktop-browser--load-history)))
-  (lispm-desktop-browser--history-changed))
-
-(defun lispm-desktop-browser-clear-history ()
-  "Forget every page visited, after asking."
-  (interactive)
-  (when (yes-or-no-p "Forget every page the browser visited? ")
-    (lispm-desktop-browser--load-history)
-    (setq lispm-desktop-browser--history nil)
-    (lispm-desktop-browser--history-changed)))
-
-(defun lispm-desktop-browser--note-load (xwidget type)
-  "Add the page XWIDGET finished loading to the history.
-This follows `xwidget-webkit-callback' with its arguments, XWIDGET and
-the event TYPE: xwidget has no hook of its own for a finished load."
-  (when (and (eq type 'load-changed)
-             (equal (nth 3 last-input-event) "load-finished"))
-    (lispm-desktop-browser-history-add (ignore-errors (xwidget-webkit-uri xwidget))
-                                       (ignore-errors (xwidget-webkit-title xwidget)))))
-
-(defun lispm-desktop-browser--history-day (time)
-  "Return the heading TIME, a `float-time', is listed under in the History."
-  (let ((days (- (time-to-days (current-time)) (time-to-days time))))
-    (cond ((<= days 0) "Today")
-          ((= days 1) "Yesterday")
-          ((< days 7) (format-time-string "%A" time))
-          ((< days 14) "Last Week")
-          (t "Earlier"))))
-
-;;;; Bookmarks
-
-(defun lispm-desktop-browser--bookmark-p (bookmark)
-  "Return non-nil when BOOKMARK, a bookmark record, is a web page's."
-  (and (bookmark-prop-get bookmark 'page)
-       (eq (bookmark-prop-get bookmark 'handler) 'xwidget-webkit-bookmark-jump-handler)))
-
-(defun lispm-desktop-browser-bookmarks ()
-  "Return the browser's bookmarks, in the order they were made: (NAME . URL)."
-  (bookmark-maybe-load-default-file)
-  (mapcar (lambda (bookmark)
-            (cons (bookmark-name-from-full-record bookmark) (bookmark-prop-get bookmark 'page)))
-          (reverse (seq-filter #'lispm-desktop-browser--bookmark-p bookmark-alist))))
-
-(defun lispm-desktop-browser--bookmark-name (title)
-  "Return a name for a bookmark titled TITLE that no bookmark has yet."
-  (let ((name (if (string-empty-p title) "Untitled" title))
-        (count 1))
-    (while (bookmark-get-bookmark name 'noerror)
-      (setq count (1+ count)
-            name (format "%s <%d>" title count)))
-    name))
-
-(defun lispm-desktop-browser-add-bookmark ()
-  "Bookmark the shown page under its title, as Netscape's Add Bookmark did.
-A page already bookmarked is not bookmarked twice."
-  (interactive)
-  (let* ((buffer (lispm-desktop-browser--shown-buffer))
-         (url (and buffer (lispm-desktop-browser--uri buffer))))
-    (unless url
-      (user-error "No page is shown"))
-    (if (rassoc url (lispm-desktop-browser-bookmarks))
-        (message "Already bookmarked: %s" url)
-      (let ((name (lispm-desktop-browser--bookmark-name (lispm-desktop-browser--title buffer))))
-        (bookmark-store name
-                        `((page . ,url)
-                          (handler . xwidget-webkit-bookmark-jump-handler)
-                          (last-modified . ,(current-time)))
-                        nil)
-        (message "Bookmarked: %s" name)))
-    (lispm-desktop-browser--places-changed)))
-
-(defun lispm-desktop-browser-delete-bookmark (name)
-  "Delete the bookmark NAME."
-  (bookmark-delete name)
-  (lispm-desktop-browser--places-changed))
-
-(defun lispm-desktop-browser-rename-bookmark (name)
-  "Rename the bookmark NAME, asking for its new name."
-  (let ((new (string-trim (read-string (format "Rename “%s” to: " name) name))))
-    (unless (or (string-empty-p new) (equal new name))
-      (bookmark-rename name new)
-      (lispm-desktop-browser--places-changed))))
+;;;; The Bookmarks menu
 
 (defun lispm-desktop-browser--bookmark-items ()
   "Return the items of the Bookmarks menu: Add Bookmark and Edit Bookmarks,
 then a bookmark each, as Netscape's Bookmarks menu had them."
-  (let ((bookmarks (lispm-desktop-browser-bookmarks)))
-    `((:label "Add Bookmark" :action lispm-desktop-browser-add-bookmark
-              :enabled ,(and (lispm-desktop-browser--shown-buffer) t)
-              :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-add-bookmark))
+  (let ((bookmarks (lispm-browser-bookmarks)))
+    `((:label "Add Bookmark" :action lispm-browser-add-bookmark
+              :enabled ,(and (lispm-browser-shown-buffer) t)
+              :key ,(lispm-desktop-browser--key 'lispm-browser-add-bookmark))
       (:label "Edit Bookmarks…" :action lispm-desktop-browser-edit-bookmarks
               :checked ,(eq (lispm-desktop-browser--places-shown) 'bookmarks)
               :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-edit-bookmarks))
@@ -216,7 +62,7 @@ then a bookmark each, as Netscape's Bookmarks menu had them."
       ,@(if bookmarks
             (mapcar (pcase-lambda (`(,name . ,url))
                       (list :label (truncate-string-to-width name 48 nil nil "…")
-                            :action (lambda () (lispm-desktop-browser-open-url url))))
+                            :action (lambda () (lispm-browser-open-url url))))
                     bookmarks)
           '((:label "No Bookmarks" :action ignore :enabled nil))))))
 
@@ -237,7 +83,7 @@ then a bookmark each, as Netscape's Bookmarks menu had them."
 (defun lispm-desktop-browser--personal-toolbar ()
   "Return the personal toolbar, the address window's mode line: a button
 per bookmark, as Netscape's personal toolbar held them."
-  (let ((bookmarks (lispm-desktop-browser-bookmarks)))
+  (let ((bookmarks (lispm-browser-bookmarks)))
     (concat
      (propertize " " 'display '(space :width (8) :height (26) :ascent 70))
      (if bookmarks
@@ -245,7 +91,7 @@ per bookmark, as Netscape's personal toolbar held them."
                       (lispm-desktop-sidebar--toolbar-button
                        (concat " " (lispm-desktop-browser--ribbon) " "
                                (truncate-string-to-width name 22 nil nil "…") " ")
-                       (lambda () (interactive) (lispm-desktop-browser-open-url url))
+                       (lambda () (interactive) (lispm-browser-open-url url))
                        url 'mode-line 'lispm-desktop-platinum-button))
                     bookmarks " ")
        (propertize "Bookmarks you add show here." 'face 'lispm-desktop-platinum-toolbar-label)))))
@@ -324,7 +170,7 @@ button closing the pane."
         (erase-buffer)
         (pcase lispm-desktop-browser--places-view
           ('bookmarks
-           (let ((bookmarks (lispm-desktop-browser-bookmarks)))
+           (let ((bookmarks (lispm-browser-bookmarks)))
              (dolist (bookmark bookmarks)
                (insert (lispm-desktop-browser--place-line (cdr bookmark)
                                                           (concat " " (lispm-desktop-browser--ribbon) " " (car bookmark))
@@ -334,11 +180,11 @@ button closing the pane."
                                    'face 'shadow)))
              (setq lispm-desktop-platinum-info (lispm-desktop-browser--places-count (length bookmarks) "bookmark"))))
           (_
-           (let ((history (lispm-desktop-browser--load-history))
+           (let ((history (lispm-browser-history))
                  (heading nil))
              (dolist (entry history)
                (pcase-let ((`(,url ,title ,time) entry))
-                 (let ((day (lispm-desktop-browser--history-day time)))
+                 (let ((day (lispm-browser-history-day time)))
                    (unless (equal day heading)
                      (setq heading day)
                      (insert (propertize (concat " " day "\n") 'face 'bold)))
@@ -369,7 +215,7 @@ toolbar."
   "Open the page of the row at point, in a new tab when NEW-TAB."
   (interactive "P")
   (when-let* ((url (lispm-desktop-browser--place-at)))
-    (lispm-desktop-browser-open-url url new-tab)))
+    (lispm-browser-open-url url new-tab)))
 
 (defun lispm-desktop-browser-places-open-new-tab ()
   "Open the page of the row at point in a new tab."
@@ -390,14 +236,14 @@ toolbar."
   (interactive)
   (when-let* ((url (lispm-desktop-browser--place-at)))
     (if-let* ((name (get-text-property (point) 'lispm-desktop-browser-bookmark)))
-        (lispm-desktop-browser-delete-bookmark name)
-      (lispm-desktop-browser-history-remove url))))
+        (lispm-browser-delete-bookmark name)
+      (lispm-browser-history-remove url))))
 
 (defun lispm-desktop-browser-places-rename ()
   "Rename the bookmark of the row at point."
   (interactive)
   (if-let* ((name (get-text-property (point) 'lispm-desktop-browser-bookmark)))
-      (lispm-desktop-browser-rename-bookmark name)
+      (lispm-browser-rename-bookmark name)
     (user-error "Only a bookmark can be renamed")))
 
 (defun lispm-desktop-browser-places-context-menu (event)
@@ -419,7 +265,7 @@ toolbar."
                      (:label "Delete Bookmark" :action lispm-desktop-browser-places-delete))
                  '((:label "Forget Page" :action lispm-desktop-browser-places-delete)
                    separator
-                   (:label "Clear History…" :action lispm-desktop-browser-clear-history))))))))))
+                   (:label "Clear History…" :action lispm-browser-clear-history))))))))))
 
 (defun lispm-desktop-browser-places-switch ()
   "Show the other list, bookmarks or history."
@@ -512,9 +358,9 @@ deleted, or close the pane when it shows them."
     (lispm-desktop-browser--show-places 'bookmarks)))
 
 (defun lispm-desktop-setup-browser-places ()
-  "Keep the browser's history as pages load, and write it when Emacs quits."
-  (advice-add 'xwidget-webkit-callback :after #'lispm-desktop-browser--note-load)
-  (add-hook 'kill-emacs-hook #'lispm-desktop-browser--save-history))
+  "Redraw the pane and the personal toolbar as the history and the
+bookmarks change."
+  (add-hook 'lispm-browser-places-changed-hook #'lispm-desktop-browser--places-changed))
 
 (provide 'lispm-desktop-browser-places)
 ;;; lispm-desktop-browser-places.el ends here

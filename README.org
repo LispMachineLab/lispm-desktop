@@ -1,10 +1,26 @@
 #+title: LispM Desktop
 
+#+HTML: <p align="center"><a href="https://github.com/LispMachineLab/lispm-desktop/actions/workflows/test.yml"><img src="https://github.com/LispMachineLab/lispm-desktop/actions/workflows/test.yml/badge.svg" alt="test" /></a></p>
+
 LispM's Emacs distribution: Emacs set up as a workspace for coding agents, ready from the first
-start.  [[file:../README.org][LispM]], in =lisp/= beside this directory, runs agents inside Emacs; LispM Desktop gives
-them a place to work, and puts Claude Code, Codex and Hermes beside them when you have those
-installed.  It lives in LispM's repository and runs the LispM next to it; installing LispM as a
-package leaves it out.
+start.  [[https://github.com/LispMachineLab/lispm-agent][LispM Agent]] runs agents inside Emacs;
+LispM Desktop gives them a place to work, and puts Claude Code, Codex and Hermes beside them when
+you have those installed.  Its browser is
+[[https://github.com/LispMachineLab/lispm-browser][LispM Browser]], drawn as Netscape
+Communicator's window was.  In code, the prefix is ~lispm-desktop-~.
+
+* The LispM projects
+
+LispM is three projects, each a repository of its own under
+[[https://github.com/LispMachineLab][LispMachineLab]]:
+
+| [[https://github.com/LispMachineLab/lispm-agent][lispm-agent]]     | LispM Agent: AI agents that run inside Emacs, their conversations org documents, their tools Elisp |
+| *lispm-desktop*   | LispM Desktop, this repository: Emacs laid out as Mac OS 9's desktop, a workspace for agents, ready from the first start |
+| [[https://github.com/LispMachineLab/lispm-browser][lispm-browser]]   | LispM Browser: a WebKit browser in Emacs, with tabs, keyboard hints and Chrome extensions |
+
+The agents and the browser each stand on their own; LispM Desktop runs both, the agents in its
+sidebar and the browser as one of its applications, and installs them at its first start (see
+[[*Installation][Installation]]).
 
 * What you get
 
@@ -117,13 +133,13 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   the edge, and over to the right edge past the desktop's middle, where the strip turns round,
   its tab to the left; the strip moves once the mouse is let go.  =C-c B= hides it and shows it
   again, as the Control Strip control panel's hot key did.  All of it is kept for the next start.
-- *A browser*, when Emacs is built with xwidgets: an application of its own, opened from the
+- *A browser*, when Emacs is built with xwidgets: [[https://github.com/LispMachineLab/lispm-browser][LispM Browser]], an application of its own, opened from the
   desktop or the λ menu and brought forward from the Application menu.  Its window is laid out
   as Netscape Communicator's was, in the theme's colours: the navigation toolbar (Back,
   Forward, Reload, Home, Search, History, Stop, and the Netscape N, its meteors falling while a
   page loads), the location toolbar (the Bookmarks button, the page's icon, the address), the
   personal toolbar of bookmarks, a row of tabs, and a status bar with the padlock, the progress
-  bar and "Document: Done".  It keeps a history of the pages visited (=lispm-desktop-browser-history-file=)
+  bar and "Document: Done".  It keeps a history of the pages visited (=lispm-browser-history-file=)
   and bookmarks, which are Emacs's own (=bookmark.el=), so =bookmark-jump= opens them too; both
   list in a pane at the window's left (History, Bookmarks › Edit Bookmarks), where a click
   opens a page, a middle click opens it in a new tab and a right click renames, deletes or
@@ -144,7 +160,7 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   one for the page in front: its popup hangs from the page's top right, or it is told it was
   clicked.  Manage Extensions lists them, to press, open the options of (in a tab of their own),
   turn on and off, reload or remove.  Their tabs are the browser's pages, their questions are
-  asked in the minibuffer, and they live in =lispm-desktop-browser-extensions-directory=.  Most of
+  asked in the minibuffer, and they live in =lispm-browser-extensions-directory=.  Most of
   the module is ported from [[https://github.com/driceroland/Search][Search]], a WebKit browser for
   macOS, with the script Search puts in every extension to fill in the Chrome APIs WebKit lacks
   (notifications, offscreen documents, a worker's WebSockets, user scripts, the side panel as a
@@ -153,7 +169,7 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   of its own, a wallet's approval of a transaction, is a Mac window whose page takes the keyboard.
   Bookmarks, history and downloads stay the browser's (an extension finds them empty), and no app
   on the Mac is spoken to (native messaging).  An Emacs started with
-  =LISPM_DESKTOP_WEBEXT_VERBOSE= set lists what extensions write to their consoles as errors and
+  =LISPM_BROWSER_WEBEXT_VERBOSE= set lists what extensions write to their consoles as errors and
   warnings with their errors, for finding out why one fails.
 - *Windows out on the screen*, on macOS (see [[*Mac OS and X][Mac OS and X]]), as a virtual machine's in Parallels' Coherence or
   VMware's Unity: drop a floating window, the Finder's, the editor's, the browser's or a control
@@ -217,15 +233,15 @@ and most distributions' are), git and curl, on macOS or GNU/Linux.
 Try it without touching your configuration:
 
 #+begin_src sh
-git clone https://github.com/RyanKung/lispm ~/lispm
-emacs --init-directory ~/lispm/desktop
+git clone https://github.com/LispMachineLab/lispm-desktop ~/lispm-desktop
+emacs --init-directory ~/lispm-desktop
 #+end_src
 
 or make it your configuration (move an existing =~/.emacs.d= and =~/.emacs= out of the way first):
 
 #+begin_src sh
-git clone https://github.com/RyanKung/lispm ~/lispm
-ln -s ~/lispm/desktop ~/.emacs.d
+git clone https://github.com/LispMachineLab/lispm-desktop ~/lispm-desktop
+ln -s ~/lispm-desktop ~/.emacs.d
 emacs
 #+end_src
 
@@ -233,12 +249,20 @@ emacs
 versions among it.
 
 The first start asks whether you edit with vim or Emacs keys and which appearance you want,
-installs the packages (a few minutes, once), and offers to install the icon font agents' marks
-are drawn with.
+installs the packages (a few minutes, once), LispM Agent and LispM Browser among them, and
+offers to install the icon font agents' marks are drawn with.  Each of the two is found where
+it already is: on ~load-path~, else in a checkout beside the desktop's (=../lispm-agent=,
+=../lispm-browser=), else installed from its repository with package-vc.  To work on all three,
+clone them side by side:
 
-Then give LispM a model: with ~OPENAI_API_KEY~ or ~ANTHROPIC_API_KEY~ set in Emacs's environment
-nothing more is needed; for any other server, local or hosted, see LispM's
-[[https://github.com/RyanKung/lispm#backends][Backends]] and put the settings in your =personal.el=.
+#+begin_src sh
+git clone https://github.com/LispMachineLab/lispm-agent ~/lispm-agent
+git clone https://github.com/LispMachineLab/lispm-browser ~/lispm-browser
+#+end_src
+
+Then give LispM Agent a model: with ~OPENAI_API_KEY~ or ~ANTHROPIC_API_KEY~ set in Emacs's environment
+nothing more is needed; for any other server, local or hosted, see LispM Agent's
+[[https://github.com/LispMachineLab/lispm-agent#backends][Backends]] and put the settings in your =personal.el=.
 
 Optional, and picked up when present:
 
@@ -246,9 +270,8 @@ Optional, and picked up when present:
   (~hermes~) on ~PATH~;
 - [[https://rustup.rs][Rust]] (~cargo~), to build the terminals' module (=make native= builds it by
   hand);
-- Swift (Xcode or its command line tools), on macOS 15.4 and later, to build the module that runs
-  Chrome extensions in the browser, the first time one is added (=make webext= builds it by
-  hand);
+- Swift (Xcode or its command line tools), on macOS 15.4 and later, to build LispM Browser's
+  module that runs Chrome extensions, the first time one is added;
 - the Maple Mono NF CN font, whose glyphs keep terminal columns aligned, CJK included
   (=brew install --cask font-maple-mono-nf-cn= on macOS);
 - a spell checker (aspell, hunspell or ispell) for Flyspell;
@@ -410,30 +433,34 @@ for the next start, as dragging the desktop's icons keeps their places
 An existing configuration can use lispm-desktop as a library instead:
 
 #+begin_src emacs-lisp
-(add-to-list 'load-path "~/lispm/desktop/lisp")
+(add-to-list 'load-path "~/lispm-desktop/lisp")
 (setq lispm-desktop-editing-style 'vim)           ; or 'emacs; nil asks
 (require 'lispm-desktop)
 (lispm-desktop-setup)
 ;; ... your settings
 #+end_src
 
-LispM comes from the repository's =lisp/=, unless a copy of it is already on ~load-path~.
+LispM Agent and LispM Browser are found as at the first start: on ~load-path~, else beside the
+desktop's checkout, else installed with package-vc.
 
 * Updating
 
 #+begin_src sh
-git -C ~/lispm pull
+git -C ~/lispm-desktop pull
 #+end_src
 
-updates LispM and the desktop together; =M-x package-upgrade-all= updates the packages.  When the
+updates the desktop; =M-x package-vc-upgrade-all= updates LispM Agent and LispM Browser where
+package-vc installed them (=git pull= in their checkouts where you keep them beside it), and
+=M-x package-upgrade-all= the other packages.  When the
 update changed the terminals' module, the next start rebuilds it in the background, terminals
 running in Eat until it is ready.
 
 * Tests
 
 =make test= runs the ERT tests in batch; =make compile= byte-compiles every module against the
-installed packages, to check for warnings, and leaves no =.elc= files behind.
+installed packages, to check for warnings, and leaves no =.elc= files behind.  Both need
+LispM Browser: a checkout beside this one, or another named by =LISPM_BROWSER= (its =lisp/=).
 
 * License
 
-GPL-3.0-or-later.  See [[file:../LICENSE][LICENSE]].
+GPL-3.0-or-later.  See [[file:LICENSE][LICENSE]].

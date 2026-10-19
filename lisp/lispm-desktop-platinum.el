@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -2450,13 +2450,13 @@ bottom line, which the menu's outline then draws, as on Mac OS 9."
   (lispm-desktop-popup-alert
    'note "LispM, a Lisp Machine for agents, inside Emacs."
    '(("OK" ok default))
-   (format "lispm-desktop, Emacs %s.  github.com/RyanKung/lispm" emacs-version)))
+   (format "lispm-desktop, Emacs %s.  github.com/LispMachineLab/lispm-desktop" emacs-version)))
 
-(declare-function lispm-desktop-xwidget-available-p "lispm-desktop-browser" ())
+(declare-function lispm-browser-available-p "lispm-browser" ())
 
 (defun lispm-desktop-platinum--browser-p ()
   "Return non-nil when the embedded browser can run in this Emacs."
-  (and (fboundp 'lispm-desktop-xwidget-available-p) (lispm-desktop-xwidget-available-p)))
+  (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
 
 (defvar lispm-desktop-platinum-menus-function nil
   "Function returning the frontmost application's menus, or nil.

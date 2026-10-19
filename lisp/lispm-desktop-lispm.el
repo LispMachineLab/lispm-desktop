@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -38,13 +38,14 @@
 ;; - its chats are laid out as terminals, on the left of the main area,
 ;;   with the files they open on the right.
 ;;
-;; LispM is the one in this repository, lisp/ beside desktop/, unless a
-;; copy of it is already on `load-path'.
+;; LispM is lispm-agent, found or installed by lispm-desktop-deps.el: a
+;; copy already on `load-path', else a checkout beside the desktop's, else
+;; one package-vc installs from its repository.
 
 ;;; Code:
 
 (require 'lispm-desktop-ai)
-(require 'package)
+(require 'lispm-desktop-deps)
 
 (defvar lispm-desktop-agent-map)
 (defvar lispm-desktop-conversation-modes)
@@ -64,34 +65,6 @@
 (declare-function lispm-agent-view "lispm-core" (agent))
 (declare-function lispm--read-role "lispm" (prompt))
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
-
-(defconst lispm-desktop-lispm-directory
-  (expand-file-name "../lisp" lispm-desktop-directory)
-  "LispM's sources: lisp/ of the repository holding the desktop.")
-
-(defun lispm-desktop-lispm--requirements (file)
-  "Return the packages FILE, a package's main file, requires and lacks."
-  (seq-remove (lambda (dep)
-                (or (eq (car dep) 'emacs)
-                    (package-installed-p (car dep) (cadr dep))))
-              (package-desc-reqs
-               (with-temp-buffer
-                 (insert-file-contents file)
-                 (package-buffer-info)))))
-
-(defun lispm-desktop-lispm-ensure ()
-  "Make LispM loadable, installing what it depends on when missing.
-A copy already on `load-path' is used as it is; else the repository's
-own, `lispm-desktop-lispm-directory', joins it.  The packages LispM's
-Package-Requires names are installed as package.el would install them
-for the package."
-  (unless (locate-library "lispm.el" t)
-    (add-to-list 'load-path lispm-desktop-lispm-directory))
-  (when-let* ((file (locate-library "lispm.el" t))
-              (missing (lispm-desktop-lispm--requirements file)))
-    (package-refresh-contents)
-    (dolist (dep missing)
-      (package-install (car dep)))))
 
 ;;;; Sessions as lispm-desktop-ai sees them
 
@@ -195,7 +168,7 @@ With a prefix argument, choose its ROLE."
 
 (defun lispm-desktop-setup-lispm ()
   "Load LispM and register its agents with the agent tools."
-  (lispm-desktop-lispm-ensure)
+  (lispm-desktop-deps-ensure 'lispm)
   (require 'lispm)
   (setf (alist-get 'lispm lispm-desktop-agent-emacs-agents)
         (list :name "LispM"

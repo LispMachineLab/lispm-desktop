@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 
-;; Emacs runs this file when desktop/ of LispM's repository is its init
+;; Emacs runs this file when a checkout of lispm-desktop is its init
 ;; directory: linked from ~/.emacs.d, or named with emacs --init-directory.
 ;; Your own settings go in personal.el beside it (`lispm-desktop-user-file'),
 ;; which git ignores.

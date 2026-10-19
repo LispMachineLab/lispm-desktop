@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -50,6 +50,9 @@
 ;;; Code:
 
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-deps)
+;; The browser is lispm-browser, which the desktop's browser files require.
+(lispm-desktop-deps-ensure 'lispm-browser)
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
@@ -61,8 +64,6 @@
 (require 'lispm-desktop-coherence)
 (require 'lispm-desktop-browser)
 (require 'lispm-desktop-browser-places)
-(require 'lispm-desktop-browser-hints)
-(require 'lispm-desktop-browser-extensions)
 (require 'lispm-desktop-surface)
 (require 'lispm-desktop-editor)
 (require 'lispm-desktop-buffer-manager)
@@ -169,7 +170,6 @@ Customize.  A batch Emacs asks nothing: Emacs keys, Dracula."
     (lispm-desktop-setup-finder)
     (lispm-desktop-setup-browser)
     (lispm-desktop-setup-browser-places)
-    (lispm-desktop-setup-browser-hints)
     (lispm-desktop-setup-settings)
     (lispm-desktop-setup-strip)
     (setq lispm-desktop--set-up t)
@@ -179,9 +179,6 @@ Customize.  A batch Emacs asks nothing: Emacs keys, Dracula."
     (lispm-desktop-setup-lispm)
     ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
     (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
-    ;; After init too, so personal.el can still turn extensions off, and
-    ;; before anything opens a page, which would run none.
-    (add-hook 'window-setup-hook #'lispm-desktop-setup-browser-extensions -10)
     (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
     (when first
       (lispm-desktop--offer-fonts)

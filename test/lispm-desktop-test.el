@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -246,7 +246,7 @@ an error loading it is signalled once the redisplay is done."
         (should-not (advice-function-member-p #'lispm-desktop--load-pending-theme
                                               pre-redisplay-function))))))
 
-(ert-deftest lispm-desktop-test-lispm-requirements ()
+(ert-deftest lispm-desktop-test-deps-requirements ()
   "Of a package's requirements, those not installed are returned; Emacs never."
   (let ((file (make-temp-file "lispm-desktop-test-" nil ".el"
                               (concat ";;; lispm-desktop-test-pkg.el --- A test  -*- lexical-binding: t; -*-\n"
@@ -255,25 +255,31 @@ an error loading it is signalled once the redisplay is done."
                                       ";;; Commentary:\n;;; Code:\n"
                                       "(provide 'lispm-desktop-test-pkg)\n;;; lispm-desktop-test-pkg.el ends here\n"))))
     (unwind-protect
-        (should (equal (mapcar #'car (lispm-desktop-lispm--requirements file)) '(lispm-desktop-test-missing)))
+        (should (equal (mapcar #'car (lispm-desktop-deps--requirements file)) '(lispm-desktop-test-missing)))
       (delete-file file))))
 
-(ert-deftest lispm-desktop-test-lispm-ensure-uses-checkout ()
-  "A LispM already on `load-path' is used: `load-path' is left as it is."
-  (let ((load-path '("/elsewhere")))
-    (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) "/checkout/lisp/lispm.el"))
-              ((symbol-function 'lispm-desktop-lispm--requirements) #'ignore))
-      (lispm-desktop-lispm-ensure)
-      (should (equal load-path '("/elsewhere"))))))
-
-(ert-deftest lispm-desktop-test-lispm-ensure-uses-the-repository ()
-  "With no LispM on `load-path', the repository's own lisp/ joins it, the
-one beside the desktop."
-  (let ((load-path nil))
-    (cl-letf (((symbol-function 'locate-library) #'ignore))
-      (lispm-desktop-lispm-ensure)
-      (should (equal load-path (list lispm-desktop-lispm-directory)))))
-  (should (file-exists-p (expand-file-name "lispm.el" lispm-desktop-lispm-directory))))
+(ert-deftest lispm-desktop-test-deps-found-in-order ()
+  "A project already on `load-path' is used as it is; else a checkout beside
+the desktop's joins `load-path'; else package-vc installs it from its
+repository, lisp/ holding its sources."
+  (let ((installed nil)
+        (found nil)
+        (load-path '("/elsewhere")))
+    (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) found))
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'package-vc-install) (lambda (spec) (push spec installed))))
+      (setq found "/elsewhere/lispm-browser.el")
+      (lispm-desktop-deps-ensure 'lispm-browser)
+      (should (equal load-path '("/elsewhere")))
+      (setq found nil)
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
+                 (lambda (name) (and (equal name "lispm-agent") "/beside/lispm-agent/lisp"))))
+        (lispm-desktop-deps-ensure 'lispm)
+        (should (equal load-path '("/beside/lispm-agent/lisp" "/elsewhere")))
+        (should-not installed)
+        (lispm-desktop-deps-ensure 'lispm-browser))
+      (should (equal installed '((lispm-browser :url "https://github.com/LispMachineLab/lispm-browser"
+                                                :lisp-dir "lisp")))))))
 
 (ert-deftest lispm-desktop-test-directory ()
   "`lispm-desktop-directory' is the checkout, holding the agents' icons and the Hermes bridge."
@@ -413,16 +419,16 @@ box runs the buffer's own close function."
 (ert-deftest lispm-desktop-test-web-title ()
   "Web follows the views where the browser can run, lit while it is in
 front; without xwidgets it is left out."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'always)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
             ((symbol-function 'lispm-desktop-browser-workspace-p) #'ignore))
     (let ((bar (lispm-desktop-platinum-menu-bar)))
       (should (equal (last (mapcar #'car bar) 2) '(lispm-desktop-view-shells lispm-desktop-view-web)))
       (should-not (get-text-property 0 'lispm-desktop-platinum-highlighted (nth 2 (car (last bar)))))))
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'always)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
             ((symbol-function 'lispm-desktop-browser-workspace-p) #'always))
     (let ((web (nth 2 (car (last (lispm-desktop-platinum-menu-bar))))))
       (should (get-text-property 0 'lispm-desktop-platinum-highlighted web))))
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
     (should-not (memq 'lispm-desktop-view-web (lispm-desktop-test--menu-bar-titles)))))
 
 (ert-deftest lispm-desktop-test-desktop-darkens-selected-icons ()
@@ -432,9 +438,9 @@ front; without xwidgets it is left out."
 
 (ert-deftest lispm-desktop-test-desktop-items ()
   "The browser's icon shows where the browser can run; the Trash is last."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
     (should (equal (mapcar #'car (lispm-desktop--items)) '(home editor control-panels trash))))
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'always))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'always))
     (should (equal (mapcar #'car (lispm-desktop--items))
                    '(home editor browser control-panels trash)))))
 
@@ -442,7 +448,7 @@ front; without xwidgets it is left out."
   "Icons with no place stand in the column at the right edge, the Trash in
 the bottom corner; one put elsewhere stands there, measured from the edges
 nearest it, kept whole on the desktop; the others keep to free cells."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10))))
     (pcase-let ((`(,cell-width . ,cell-height) (lispm-desktop--cell-size)))
       (let ((lispm-desktop-icon-places nil))
@@ -480,7 +486,7 @@ nearest it, kept whole on the desktop; the others keep to free cells."
 
 (ert-deftest lispm-desktop-test-desktop-drop-keeps-the-others ()
   "Dropping an icon keeps every other where it stands and saves them all."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
             ((symbol-function 'window-body-width) (lambda (&rest _) 800))
             ((symbol-function 'window-body-height) (lambda (&rest _) 601))
@@ -519,7 +525,7 @@ nearest it, kept whole on the desktop; the others keep to free cells."
   "Reads that come back empty, as the mouse is looked at between moves, do
 not end the drag, nor do moves Emacs reports: the icon is still dropped
 where it is let go."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
             ((symbol-function 'window-body-width) (lambda (&rest _) 800))
             ((symbol-function 'window-body-height) (lambda (&rest _) 601))
@@ -558,7 +564,7 @@ where it is let go."
   "The dragged copy follows the pointer pixel by pixel, keeping it where it
 grabbed the icon, and only the drop snaps the icon to the grid; Escape
 gives the drag up, the icon left where it was."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
             ((symbol-function 'window-body-width) (lambda (&rest _) 800))
             ((symbol-function 'window-body-height) (lambda (&rest _) 601))
@@ -608,7 +614,7 @@ gives the drag up, the icon left where it was."
 (ert-deftest lispm-desktop-test-desktop-right-click-menu ()
   "A right click on the desktop offers Arrange Icons and the picture; on an
 icon, Open first."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
     (let ((shown nil)
           (key nil)
           (lispm-desktop-icon-places '((home :left 10 :top 10))))
@@ -630,7 +636,7 @@ icon, Open first."
   "A double click opens the icon, even when its first click strayed a few
 pixels; a press let go after a jitter is a click, and a drop back on the
 icon's own cell saves nothing."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
             ((symbol-function 'window-body-width) (lambda (&rest _) 800))
             ((symbol-function 'window-body-height) (lambda (&rest _) 601))
@@ -684,7 +690,7 @@ icon's own cell saves nothing."
   "The dragged copy is the icon alone and its name inverted, as Mac OS 9's
 drag image was, no piece of the desktop about them; the icon stands
 centred at the top of its cell, its name under it."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
             ((symbol-function 'string-pixel-width) (lambda (&rest _) 40)))
     (let ((lispm-desktop-picture nil))
@@ -733,7 +739,7 @@ is made; until then, and for a picture at its own size, from itself."
   "The arrow keys step through the icons, wrapping; the selected one's name
 is inverted, and a click finds the icon drawn under it, the Trash in the
 bottom corner."
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
     (with-current-buffer (lispm-desktop-buffer)
       (setq lispm-desktop--selected nil)
       (lispm-desktop-select-next)
@@ -976,12 +982,12 @@ header and its bottom line put away, and down to its height again."
                      '(lispm-desktop-lambda lispm-desktop-menu-file lispm-desktop-menu-view lispm-desktop-menu-go
                                             lispm-desktop-menu-special))))
     (let ((lispm-desktop-apps--frontmost 'browser))
-      (cl-letf (((symbol-function 'lispm-desktop-browser-extensions-supported-p) #'ignore))
+      (cl-letf (((symbol-function 'lispm-browser-extensions-supported-p) #'ignore))
         (should (equal (lispm-desktop-test--menu-bar-titles)
                        '(lispm-desktop-lambda lispm-desktop-browser-file lispm-desktop-browser-view lispm-desktop-browser-go
                                               lispm-desktop-browser-bookmarks lispm-desktop-browser-window))))
       ;; Where pages can run Chrome extensions, they have a menu.
-      (cl-letf (((symbol-function 'lispm-desktop-browser-extensions-supported-p) #'always))
+      (cl-letf (((symbol-function 'lispm-browser-extensions-supported-p) #'always))
         (should (equal (lispm-desktop-test--menu-bar-titles)
                        '(lispm-desktop-lambda lispm-desktop-browser-file lispm-desktop-browser-view lispm-desktop-browser-go
                                               lispm-desktop-browser-bookmarks lispm-desktop-browser-extensions-menu
@@ -1014,13 +1020,13 @@ the floating browser rolls up."
   "The Application menu lists the applications, the one in front checked;
 the browser only where it can run."
   (let ((lispm-desktop-apps--frontmost 'editor))
-    (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
       (let ((items (lispm-desktop-apps-application-items)))
         (should (equal (mapcar (lambda (item) (plist-get item :label)) items)
                        '("Desktop" "Emacs")))
         (should (plist-get (nth 1 items) :checked))
         (should (equal (cdr (lispm-desktop-apps-application)) "Emacs"))))
-    (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'always))
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'always))
       (should (= 3 (length (lispm-desktop-apps-application-items)))))))
 
 (ert-deftest lispm-desktop-test-documents-go-to-the-editor ()
@@ -2532,81 +2538,11 @@ _NET_SUPPORTING_WM_CHECK names, or to `gone' for a destroyed window."
                  (lispm-desktop-test--x-properties '((0 . 7) (7 . gone)))))
         (should (lispm-desktop-exwm-wanted-p 'x))))))
 
-;;;; The browser's history and bookmarks
-
-(defmacro lispm-desktop-test--with-places (&rest body)
-  "Run BODY with an empty history and bookmark list, in files of their own."
-  (declare (indent 0))
-  `(let* ((directory (make-temp-file "lispm-desktop-places" t))
-          (lispm-desktop-browser-history-file (expand-file-name "history.eld" directory))
-          (lispm-desktop-browser--history nil)
-          (lispm-desktop-browser--history-loaded nil)
-          (lispm-desktop-browser--history-timer nil)
-          (bookmark-default-file (expand-file-name "bookmarks" directory))
-          (bookmark-alist nil)
-          (bookmark-bookmarks-timestamp nil)
-          (bookmark-save-flag nil))
-     (unwind-protect
-         (cl-letf (((symbol-function 'run-with-idle-timer) #'ignore))
-           ,@body)
-       (delete-directory directory t))))
-
-(ert-deftest lispm-desktop-test-history-keeps-each-page-once ()
-  "A page visited again moves to the top with its visits counted; only web
-and file pages are kept, and only so many."
-  (lispm-desktop-test--with-places
-    (let ((lispm-desktop-browser-history-size 2))
-      (lispm-desktop-browser-history-add "https://a.example/" "A")
-      (lispm-desktop-browser-history-add "about:blank" "")
-      (lispm-desktop-browser-history-add "https://b.example/" "B")
-      (lispm-desktop-browser-history-add "https://a.example/" "")
-      (should (equal (mapcar #'car lispm-desktop-browser--history)
-                     '("https://a.example/" "https://b.example/")))
-      (should (equal (nth 1 (car lispm-desktop-browser--history)) "A"))
-      (should (= (nth 3 (car lispm-desktop-browser--history)) 2))
-      (lispm-desktop-browser-history-add "https://c.example/" "C")
-      (should (equal (mapcar #'car lispm-desktop-browser--history)
-                     '("https://c.example/" "https://a.example/"))))))
-
-(ert-deftest lispm-desktop-test-history-is-saved-and-read ()
-  "The history is written to its file and read back from it."
-  (lispm-desktop-test--with-places
-    (lispm-desktop-browser-history-add "https://a.example/" "A")
-    (lispm-desktop-browser--save-history)
-    (setq lispm-desktop-browser--history nil
-          lispm-desktop-browser--history-loaded nil)
-    (should (equal (car (car (lispm-desktop-browser--load-history))) "https://a.example/"))))
-
-(ert-deftest lispm-desktop-test-history-days ()
-  "History is listed under the day of each visit."
-  (let ((now (float-time)))
-    (should (equal (lispm-desktop-browser--history-day now) "Today"))
-    (should (equal (lispm-desktop-browser--history-day (- now 86400)) "Yesterday"))
-    (should (equal (lispm-desktop-browser--history-day (- now (* 10 86400))) "Last Week"))
-    (should (equal (lispm-desktop-browser--history-day (- now (* 40 86400))) "Earlier"))))
-
-(ert-deftest lispm-desktop-test-bookmarks-are-emacs-bookmarks ()
-  "A page bookmarked is an Emacs bookmark xwidget can open; it is kept
-once, and the browser lists only web pages' bookmarks, oldest first."
-  (lispm-desktop-test--with-places
-    (bookmark-store "notes" '((filename . "/tmp/notes.org")) nil)
-    (cl-letf (((symbol-function 'lispm-desktop-browser--shown-buffer) (lambda () (current-buffer)))
-              ((symbol-function 'lispm-desktop-browser--title) (lambda (_) "Example"))
-              ((symbol-function 'lispm-desktop-browser--uri) (lambda (_) "https://example.com/")))
-      (lispm-desktop-browser-add-bookmark)
-      (lispm-desktop-browser-add-bookmark))
-    (should (equal (lispm-desktop-browser-bookmarks) '(("Example" . "https://example.com/"))))
-    (should (eq (bookmark-prop-get "Example" 'handler) 'xwidget-webkit-bookmark-jump-handler))
-    (should (equal (lispm-desktop-browser--bookmark-name "Example") "Example <2>"))
-    (let ((labels (mapcar (lambda (item) (and (consp item) (plist-get item :label)))
-                          (lispm-desktop-browser--bookmark-items))))
-      (should (equal labels '("Add Bookmark" "Edit Bookmarks…" nil "Example"))))
-    (lispm-desktop-browser-delete-bookmark "Example")
-    (should-not (lispm-desktop-browser-bookmarks))))
+;;;; The browser
 
 (ert-deftest lispm-desktop-test-browser-keys-show-in-menus ()
   "The browser's Command keys show beside their menu items."
-  (should (equal (lispm-desktop-browser--key 'lispm-desktop-browser-add-bookmark) "M-d"))
+  (should (equal (lispm-desktop-browser--key 'lispm-browser-add-bookmark) "M-d"))
   (let ((lispm-desktop-browser--navigation '(:page t :back t :forward t)))
     (should (equal (plist-get (car (lispm-desktop-browser--go-items)) :key) "M-["))))
 
@@ -2622,7 +2558,7 @@ typed still goes in beside the region, and other keys keep their ways."
         (interprogram-paste-function nil)
         (global (current-global-map))
         (buffer (lispm-desktop-browser--address-buffer)))
-    (cl-letf (((symbol-function 'lispm-desktop-browser--shown-buffer) #'ignore)
+    (cl-letf (((symbol-function 'lispm-browser-shown-buffer) #'ignore)
               ((symbol-function 'lispm-desktop-browser--bookmarks-button) (lambda () "Bookmarks"))
               ((symbol-function 'lispm-desktop-platinum-icon) (lambda (_) "*"))
               ((symbol-function 'lispm-desktop-clipboard-text) (lambda () "example.com")))
@@ -2636,8 +2572,8 @@ typed still goes in beside the region, and other keys keep their ways."
                         (lispm-desktop-browser-focus-address)
                         (execute-kbd-macro (kbd keys))
                         (lispm-desktop-browser--edited-address)))
-              (should (equal (lispm-desktop-browser--target (type "github.com/RyanKung/lispm"))
-                             "https://github.com/RyanKung/lispm"))
+              (should (equal (lispm-browser-input-url (type "github.com/LispMachineLab/lispm-desktop"))
+                             "https://github.com/LispMachineLab/lispm-desktop"))
               (should (equal (type "C-y") "lispm.org"))
               (should (equal (type "M-v") "example.com"))
               ;; Moving and copying leave the address as it was.
@@ -2664,7 +2600,7 @@ typed still goes in beside the region, and other keys keep their ways."
         (loading t))
     (with-temp-buffer
       (setq-local xwidget-webkit--loading-p t)
-      (cl-letf (((symbol-function 'lispm-desktop-browser--shown-buffer)
+      (cl-letf (((symbol-function 'lispm-browser-shown-buffer)
                  (let ((buffer (current-buffer)))
                    (lambda () (setq-local xwidget-webkit--loading-p loading) buffer))))
         (lispm-desktop-browser--turn-throbber)
@@ -2681,9 +2617,9 @@ typed still goes in beside the region, and other keys keep their ways."
 positions, the keys, the browser's pages."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
   (skip-unless (image-type-available-p 'svg))
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'always)
-            ((symbol-function 'lispm-desktop-browser--load-history) (lambda () '(("u" "t" 0 1))))
-            ((symbol-function 'lispm-desktop-browser-bookmarks) (lambda () nil)))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
+            ((symbol-function 'lispm-browser-history) (lambda () '(("u" "t" 0 1))))
+            ((symbol-function 'lispm-browser-bookmarks) (lambda () nil)))
     (with-current-buffer (lispm-desktop-settings--buffer)
       (pcase-dolist (`(,panel . ,labels)
                      '((themes "Dracula" "Platinum")
@@ -2769,14 +2705,14 @@ its window is open."
                             (lispm-desktop-platinum-lambda-items))))
     (should settings)
     (should (member "Appearance" (mapcar (lambda (item) (plist-get item :label))
-                                      (funcall (plist-get settings :submenu))))))
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+                                         (funcall (plist-get settings :submenu))))))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
     (cl-letf (((symbol-function 'lispm-desktop-settings-open-p) #'ignore))
       (should-not (member "Control Panels" (mapcar (lambda (item) (plist-get item :label))
-                                             (lispm-desktop-apps-application-items)))))
+                                                   (lispm-desktop-apps-application-items)))))
     (cl-letf (((symbol-function 'lispm-desktop-settings-open-p) #'always))
       (should (member "Control Panels" (mapcar (lambda (item) (plist-get item :label))
-                                         (lispm-desktop-apps-application-items)))))))
+                                               (lispm-desktop-apps-application-items)))))))
 
 ;;;; lispm-desktop-coherence
 
@@ -2849,15 +2785,15 @@ hide, and Hide Desktop is not offered."
     (cl-letf (((symbol-function 'display-graphic-p) #'ignore))
       (should (string-match-p "terminal" (lispm-desktop-coherence-unsupported 'screen)))))
   (should-error (lispm-desktop-hide-desktop) :type 'user-error)
-  (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
     (should-not (member "Hide Desktop" (mapcar (lambda (item) (and (consp item) (plist-get item :label)))
-                                             (lispm-desktop-apps-application-items))))))
+                                               (lispm-desktop-apps-application-items))))))
 
 (ert-deftest lispm-desktop-test-coherence-application-menu ()
   "The Application menu begins with Hide Desktop, or Show Desktop while the
 desktop is hidden, where windows can go out."
   (let ((lispm-desktop-apps--frontmost 'desktop))
-    (cl-letf (((symbol-function 'lispm-desktop-xwidget-available-p) #'ignore)
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
               ((symbol-function 'lispm-desktop-coherence-available-p) #'always))
       (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore))
         (let ((items (lispm-desktop-apps-application-items)))
@@ -3449,124 +3385,6 @@ no function keys, and no Super keys where no key is Super."
     (should-not (lispm-desktop-popup--keyboard-p (kbd "s-a"))))
   (should (lispm-desktop-popup--keyboard-p (kbd "M-c"))))
 
-(defvar xwidget-list)
-
-(ert-deftest lispm-desktop-test-browser-keeps-script-callbacks ()
-  "A script's callback is kept from the garbage collector until WebKit
-calls it, and let go then; a script sent without one keeps nothing.  A
-symbol stands in for the xwidget, which batch Emacs cannot make, and the
-primitive handing scripts to WebKit is stubbed."
-  (let ((lispm-desktop-browser--script-callbacks nil)
-        (xwidget (make-symbol "xwidget"))
-        (sent nil)
-        (answers nil))
-    (cl-letf (((symbol-function 'xwidget-webkit-execute-script)
-               (lambda (xwidget script &optional fun) (push (list xwidget script fun) sent))))
-      (lispm-desktop-browser--run-script xwidget "1 + 1")
-      (should (equal sent `((,xwidget "1 + 1" nil))))
-      (should-not lispm-desktop-browser--script-callbacks)
-      (lispm-desktop-browser--run-script xwidget "document.title" (lambda (value) (push value answers)))
-      (let ((answered (nth 2 (car sent))))
-        (should (functionp answered))
-        (should (equal (mapcar #'car lispm-desktop-browser--script-callbacks) (list answered)))
-        (should (eq (nth 1 (car lispm-desktop-browser--script-callbacks)) xwidget))
-        (funcall answered "Title")
-        (should (equal answers '("Title")))
-        (should-not lispm-desktop-browser--script-callbacks)))))
-
-(ert-deftest lispm-desktop-test-browser-prunes-script-callbacks ()
-  "Callbacks WebKit never calls are let go as scripts are sent: once a
-minute old, those of closed pages all, those of open pages but the
-newest few.  Younger ones are all kept, a closed page's too."
-  (let* ((open (make-symbol "open"))
-         (closed (make-symbol "closed"))
-         (xwidget-list (list open))
-         (now (float-time))
-         (old (- now lispm-desktop-browser--script-callback-age 1))
-         (young-closed (list 'young-closed closed now))
-         (old-open-1 (list 'old-open-1 open old))
-         (old-closed (list 'old-closed closed old))
-         (old-open-2 (list 'old-open-2 open old))
-         (old-open-3 (list 'old-open-3 open old))
-         (lispm-desktop-browser--script-callbacks
-          (list young-closed old-open-1 old-closed old-open-2 old-open-3))
-         (lispm-desktop-browser--script-callbacks-kept 2))
-    (cl-letf (((symbol-function 'xwidget-webkit-execute-script) #'ignore))
-      (lispm-desktop-browser--run-script open "1 + 1" #'ignore))
-    (should (equal (cdr lispm-desktop-browser--script-callbacks)
-                   (list young-closed old-open-1 old-open-2)))
-    (should (eq (nth 1 (car lispm-desktop-browser--script-callbacks)) open))))
-
-(ert-deftest lispm-desktop-test-browser-script-callers-keep-callbacks ()
-  "The favicon lookup and the hints send their scripts through
-`lispm-desktop-browser--run-script', so the lambdas they pass are kept."
-  (require 'lispm-desktop-browser-hints)
-  (let ((lispm-desktop-browser--script-callbacks nil)
-        (xwidget (make-symbol "xwidget"))
-        (sent nil))
-    (cl-letf (((symbol-function 'xwidget-webkit-execute-script)
-               (lambda (_xwidget _script &optional fun) (push fun sent)))
-              ((symbol-function 'xwidget-at) (lambda (_pos) xwidget))
-              ((symbol-function 'lispm-desktop-browser--page-xwidget) (lambda () xwidget)))
-      (with-temp-buffer
-        (lispm-desktop-browser--look-up-favicon (current-buffer) "https://example.org/"))
-      (lispm-desktop-browser-first-field)
-      (should (= (length sent) 2))
-      (should (seq-every-p #'functionp sent))
-      (should (equal (mapcar #'car lispm-desktop-browser--script-callbacks) sent)))))
-
-(ert-deftest lispm-desktop-test-browser-hint-labels ()
-  "Hint labels are distinct and all as long, so none begins another: one
-letter each while the letters suffice, two when they do not."
-  (require 'lispm-desktop-browser-hints)
-  (let ((lispm-desktop-browser-hint-characters "asd"))
-    (should (equal (lispm-desktop-browser-hint-labels 3) '("a" "s" "d")))
-    (let ((labels (lispm-desktop-browser-hint-labels 7)))
-      (should (= (length labels) 7))
-      (should (= (length (delete-dups (copy-sequence labels))) 7))
-      (should (seq-every-p (lambda (label) (= (length label) 2)) labels))
-      (should (equal (car labels) "aa")))
-    (should-not (lispm-desktop-browser-hint-labels 0))))
-
-(defvar xwidget-list)
-
-(ert-deftest lispm-desktop-test-browser-drops-events-of-killed-xwidgets ()
-  "An xwidget event reaches `xwidget-event-handler' only while its xwidget
-is in `xwidget-list'; other events pass.  Symbols stand in for xwidgets,
-which batch Emacs cannot make: the guard only compares them."
-  (let* ((live (make-symbol "live"))
-         (killed (make-symbol "killed"))
-         (xwidget-list (list live)))
-    (should (lispm-desktop-browser--xwidget-event-live-p
-             `(xwidget-event load-changed ,live "load-finished")))
-    (should-not (lispm-desktop-browser--xwidget-event-live-p
-                 `(xwidget-event load-changed ,killed "load-finished")))
-    (should-not (lispm-desktop-browser--xwidget-event-live-p
-                 `(xwidget-event javascript-callback ,killed ignore "answer")))
-    (let ((last-input-event `(xwidget-event load-changed ,killed "load-started")))
-      (should-not (lispm-desktop-browser--xwidget-event-live-p)))
-    (should (lispm-desktop-browser--xwidget-event-live-p ?a))))
-
-(ert-deftest lispm-desktop-test-browser-keeps-killed-xwidgets ()
-  "A killed buffer's xwidgets are kept from the garbage collector until a
-timer lets them go, and a buffer without xwidgets keeps nothing."
-  (let ((lispm-desktop-browser--killed-xwidgets nil)
-        (xwidget (make-symbol "xwidget"))
-        (xwidgets nil)
-        (timers nil))
-    (cl-letf (((symbol-function 'get-buffer-xwidgets) (lambda (_) xwidgets))
-              ((symbol-function 'run-at-time)
-               (lambda (_time _repeat function &rest args) (push (cons function args) timers))))
-      (with-temp-buffer (lispm-desktop-browser--keep-killed-xwidgets))
-      (should-not lispm-desktop-browser--killed-xwidgets)
-      (should-not timers)
-      (setq xwidgets (list xwidget))
-      (with-temp-buffer (lispm-desktop-browser--keep-killed-xwidgets))
-      (should (equal lispm-desktop-browser--killed-xwidgets (list xwidget)))
-      (should (= (length timers) 1))
-      (apply (caar timers) (cdar timers))
-      (should-not lispm-desktop-browser--killed-xwidgets))))
-
 (ert-deftest lispm-desktop-test-term-keys ()
   "Keys send the bytes terminals expect: cursor keys follow the program's
 mode, C-c C-c sends C-c, and Escape reaches the program."
@@ -3901,189 +3719,6 @@ menu of the module beside, as along the menu bar."
                    nil)))
         (should (equal (lispm-desktop-strip--walk (lispm-desktop-strip--modules) 0) '(nil . 0)))
         (should (equal opened '(appearance mail appearance)))))))
-
-;;;; Chrome extensions in the browser
-
-(ert-deftest lispm-desktop-test-extensions-only-on-a-mac-with-pages ()
-  "Pages run extensions only in the Mac build with xwidgets, on macOS 15.4
-or later."
-  (let ((system-type 'gnu/linux))
-    (should-not (lispm-desktop-browser-extensions-supported-p)))
-  (let ((system-type 'darwin))
-    (cl-letf (((symbol-function 'featurep) (lambda (feature &rest _) (memq feature '(ns xwidget-internal)))))
-      (let ((lispm-desktop-browser-extensions--macos-version "15.3.2"))
-        (should-not (lispm-desktop-browser-extensions-supported-p)))
-      (let ((lispm-desktop-browser-extensions--macos-version "15.4"))
-        (should (lispm-desktop-browser-extensions-supported-p)))
-      (let ((lispm-desktop-browser-extensions--macos-version "27.0"))
-        (should (lispm-desktop-browser-extensions-supported-p))))))
-
-(ert-deftest lispm-desktop-test-extensions-know-a-page-by-its-view ()
-  "A page is named to the module by its view's address, which Emacs prints
-with its xwidget; a killed xwidget names none."
-  (should (eql (lispm-desktop-browser-extensions--address-in "#<xwidget 3 0x600001c2a0f0>")
-               #x600001c2a0f0))
-  (should-not (lispm-desktop-browser-extensions--address-in "#<killed xwidget>"))
-  (should-not (lispm-desktop-browser-extensions--address-in "#<buffer *scratch*>")))
-
-(ert-deftest lispm-desktop-test-extensions-read-store-pages ()
-  "The extension of a Chrome Web Store page is read from its address, on the
-store itself over HTTPS only."
-  (let ((id "ddkjiahejlhfcafbddmgiahcphecmpfh"))
-    (should (equal (lispm-desktop-browser-extensions--store-id
-                    (concat "https://chromewebstore.google.com/detail/ublock-origin-lite/" id))
-                   id))
-    (should (equal (lispm-desktop-browser-extensions--store-id
-                    (concat "https://chromewebstore.google.com/detail/" id "?hl=en"))
-                   id))
-    (should (equal (lispm-desktop-browser-extensions--store-id
-                    (concat "https://chrome.google.com/webstore/detail/name/" id "/reviews"))
-                   id))
-    (should-not (lispm-desktop-browser-extensions--store-id
-                 (concat "http://chromewebstore.google.com/detail/name/" id)))
-    (should-not (lispm-desktop-browser-extensions--store-id
-                 (concat "https://evil.example/detail/name/" id)))
-    (should-not (lispm-desktop-browser-extensions--store-id
-                 (concat "https://chromewebstore.google.com/detail/name/" id "a")))
-    (should-not (lispm-desktop-browser-extensions--store-id nil))))
-
-(ert-deftest lispm-desktop-test-extensions-stale-module ()
-  "The module is stale when a source of it is newer than its library."
-  (let* ((source (make-temp-file "lispm-desktop-webext" t))
-         (lispm-desktop-browser-extensions-source-directory source)
-         (library (expand-file-name ".build/release/liblispm_desktop_webext.dylib" source))
-         (swift (expand-file-name "Sources/LispmDesktopWebext/Host.swift" source)))
-    (unwind-protect
-        (progn
-          (should-not (lispm-desktop-browser-extensions--module-file))
-          (make-directory (file-name-directory library) t)
-          (make-directory (file-name-directory swift) t)
-          (dolist (file (list (expand-file-name "Package.swift" source) swift))
-            (write-region "" nil file)
-            (set-file-times file (time-subtract nil 60)))
-          (write-region "" nil library)
-          (should (equal (lispm-desktop-browser-extensions--module-file) library))
-          (should-not (lispm-desktop-browser-extensions--stale-p))
-          (set-file-times swift (time-add nil 60))
-          (should (lispm-desktop-browser-extensions--stale-p)))
-      (delete-directory source t))))
-
-(ert-deftest lispm-desktop-test-extensions-events ()
-  "The module's events: a message shows, a change forgets the list and runs
-the hook, and a question is asked after the filter returns and answered,
-no when quit."
-  (let ((lispm-desktop-browser-extensions--installed '((:id "a")))
-        (changed nil)
-        (answers nil)
-        (later nil)
-        (reply 'yes))
-    (cl-letf (((symbol-function 'run-at-time)
-               (lambda (_time _repeat function &rest args) (push (cons function args) later)))
-              ((symbol-function 'yes-or-no-p)
-               (lambda (prompt)
-                 (should (string-match-p "Add “X 1”\\?\n  • Block\n  • Read\n" prompt))
-                 (pcase reply ('yes t) ('no nil) ('quit (signal 'quit nil)))))
-              ((symbol-function 'lispm-desktop-webext-module-answer)
-               (lambda (id value) (push (cons id value) answers))))
-      (let ((lispm-desktop-browser-extensions-changed-hook (list (lambda () (setq changed t)))))
-        (lispm-desktop-webext--event "changed" "null")
-        (should changed)
-        (should (eq lispm-desktop-browser-extensions--installed 'unread)))
-      (let ((shown nil))
-        (cl-letf (((symbol-function 'message)
-                   (lambda (format &rest args) (setq shown (apply #'format-message format args)))))
-          (lispm-desktop-webext--event "message" "\"X is installed\""))
-        (should (equal shown "X is installed")))
-      (let ((ask "{\"request\":7,\"question\":\"Add “X 1”?\",\"details\":[\"Block\",\"Read\"]}"))
-        (lispm-desktop-webext--event "ask" ask)
-        (should-not answers)
-        (pcase-let ((`(,function . ,args) (pop later)))
-          (apply function args))
-        (should (equal answers '((7 . 1))))
-        (setq reply 'no answers nil)
-        (lispm-desktop-webext--event "ask" ask)
-        (pcase-let ((`(,function . ,args) (pop later))) (apply function args))
-        (should (equal answers '((7))))
-        (setq reply 'quit answers nil)
-        (lispm-desktop-webext--event "ask" ask)
-        (pcase-let ((`(,function . ,args) (pop later)))
-          (should-error (apply function args) :type 'quit))
-        (should (equal answers '((7))))))))
-
-(ert-deftest lispm-desktop-test-extensions-open-tabs ()
-  "An extension's new tab opens in the browser, made for the extension's
-page when it is one, and the module is answered with its view."
-  (let ((calls nil)
-        (answers nil))
-    (cl-letf (((symbol-function 'lispm-desktop-browser--window) #'always)
-              ((symbol-function 'lispm-desktop-webext-module-expect-page)
-               (lambda (url)
-                 (push (list 'expect url) calls)
-                 (string-prefix-p "chrome-extension:" url)))
-              ((symbol-function 'lispm-desktop-browser-new-tab)
-               (lambda (url) (push (list 'tab url) calls)))
-              ((symbol-function 'xwidget-webkit-goto-uri)
-               (lambda (_xwidget url) (push (list 'go url) calls)))
-              ((symbol-function 'lispm-desktop-browser-extensions--address)
-               (lambda (_xwidget) 42))
-              ((symbol-function 'lispm-desktop-webext-module-answer)
-               (lambda (id value) (push (cons id value) answers))))
-      ;; The extension's page: the tab opens blank and is sent there, as
-      ;; `xwidget-webkit-browse-url' would take chrome-extension: for a host.
-      (lispm-desktop-browser-extensions--open
-       '(:url "chrome-extension://abc/welcome.html" :active t :request 3))
-      (should (equal (reverse calls) '((expect "chrome-extension://abc/welcome.html")
-                                       (tab "about:blank")
-                                       (go "chrome-extension://abc/welcome.html"))))
-      (should (equal answers '((3 . 42))))
-      ;; A website opens straight away; asked for nothing back, nothing is
-      ;; answered.
-      (setq answers nil calls nil)
-      (lispm-desktop-browser-extensions--open '(:url "https://example.com/" :active t))
-      (should (equal (reverse calls) '((expect "https://example.com/") (tab "https://example.com/"))))
-      (should-not answers))))
-
-(ert-deftest lispm-desktop-test-extensions-follow-the-page-in-front ()
-  "The module hears which page is in front, once it runs."
-  (let ((lispm-desktop-browser-extensions--started t)
-        (told nil)
-        (address 1))
-    (with-temp-buffer
-      (let ((page (current-buffer)))
-        (cl-letf (((symbol-function 'lispm-desktop-browser-extensions--front-buffer) (lambda () page))
-                  ((symbol-function 'xwidget-at) (lambda (_) 'xwidget))
-                  ((symbol-function 'lispm-desktop-browser-extensions--address) (lambda (_) address))
-                  ((symbol-function 'lispm-desktop-webext-module-activate) (lambda (a) (push a told))))
-          (lispm-desktop-browser-extensions--follow)
-          (setq address 2)
-          (lispm-desktop-browser-extensions--follow)
-          (should (equal told '(2 1)))
-          (let ((lispm-desktop-browser-extensions--started nil))
-            (lispm-desktop-browser-extensions--follow))
-          (should (equal told '(2 1))))))))
-
-(ert-deftest lispm-desktop-test-extensions-menu ()
-  "The Extensions menu has each running extension's button, its badge in
-the label, then adding them, from the page shown when it is a store page."
-  (let ((lispm-desktop-browser-extensions--started t)
-        (lispm-desktop-browser-extensions--installed
-         '((:id "a" :name "Blocker" :loaded t :badge "12" :actionEnabled t)
-           (:id "b" :name "Off" :enabled nil :loaded nil))))
-    (cl-letf (((symbol-function 'lispm-desktop-browser-extensions--shown-store-id) #'ignore))
-      (let ((items (lispm-desktop-browser-extensions--menu-items)))
-        (should (equal (plist-get (car items) :label) "Blocker [12]"))
-        (should (eq (nth 1 items) 'separator))
-        (should (equal (plist-get (nth 2 items) :label) "Add This Extension"))
-        (should-not (plist-get (nth 2 items) :enabled))
-        (should-not (seq-find (lambda (item) (equal (plist-get item :label) "Off"))
-                              (seq-filter #'consp items)))))
-    (cl-letf (((symbol-function 'lispm-desktop-browser-extensions--shown-store-id)
-               (lambda () "ddkjiahejlhfcafbddmgiahcphecmpfh")))
-      (should (plist-get (nth 2 (lispm-desktop-browser-extensions--menu-items)) :enabled))))
-  (let ((lispm-desktop-browser-extensions--started nil))
-    (cl-letf (((symbol-function 'lispm-desktop-browser-extensions--shown-store-id) #'ignore))
-      (should (equal (plist-get (car (lispm-desktop-browser-extensions--menu-items)) :label)
-                     "Add This Extension")))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

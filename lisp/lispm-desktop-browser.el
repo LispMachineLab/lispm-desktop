@@ -1,9 +1,9 @@
-;;; lispm-desktop-browser.el --- The embedded browser  -*- lexical-binding: t; -*-
+;;; lispm-desktop-browser.el --- The browser, drawn as Netscape Communicator  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -23,58 +23,23 @@
 
 ;;; Commentary:
 
-;; The embedded WebKit browser: an application on the desktop (see
-;; lispm-desktop-apps.el) with its own workspace and menus, a Mac OS 9 browser window
-;; (title bar, toolbar, address field, tabs), and helpers that open URLs in
-;; it.  Requires an Emacs built with xwidgets.
+;; The browser is lispm-browser, LispM's WebKit browser, which keeps the
+;; tabs, the history and bookmarks, the hints and the Chrome extensions.
+;; This file makes it an application on the desktop (see
+;; lispm-desktop-apps.el) with its own workspace and menus, and draws its
+;; window as Mac OS 9's: title bar, toolbars, address field, tabs and
+;; status bar.  Requires an Emacs built with xwidgets.
 
 ;;; Code:
 
-(require 'browse-url)
 (require 'cl-lib)
 (require 'delsel)
-(require 'lispm-desktop-apps)
 (require 'format-spec)
-(require 'thingatpt)
 (require 'url-parse)
-(require 'url-util)
-
-(defun lispm-desktop-xwidget-available-p ()
-  "Return non-nil when xwidget webkit browsing is available."
-  (and (featurep 'xwidget-internal)
-       (fboundp 'xwidget-webkit-browse-url)))
-
-(defun lispm-desktop-xwidget-normalize-url (url)
-  "Normalize URL for xwidget browsing."
-  (if (string-match-p "\\`[[:alpha:]][[:alnum:]+.-]*://" url)
-      url
-    (concat "https://" url)))
-
-(defcustom lispm-desktop-xwidget-search-url "https://duckduckgo.com/?q=%s"
-  "Address searched for what is typed in the location field that is no
-address, %s standing for the words searched."
-  :type 'string
-  :group 'lispm-desktop)
-
-(defun lispm-desktop-xwidget-browse-url (url)
-  "Open URL using xwidget webkit when available."
-  (interactive (list (read-string "URL: " (or (thing-at-point-url-at-point) ""))))
-  (if (lispm-desktop-xwidget-available-p)
-      (xwidget-webkit-browse-url (lispm-desktop-xwidget-normalize-url url))
-    (browse-url (lispm-desktop-xwidget-normalize-url url))))
-
-(defun lispm-desktop-xwidget-search (query)
-  "Search QUERY using xwidget webkit when available."
-  (interactive (list (read-string "Search: " (or (thing-at-point 'symbol t) ""))))
-  (lispm-desktop-xwidget-browse-url (format lispm-desktop-xwidget-search-url (url-hexify-string query))))
-
-(defun lispm-desktop-xwidget-open-current-url ()
-  "Open the URL at point using xwidget webkit when available."
-  (interactive)
-  (let ((url (thing-at-point-url-at-point)))
-    (unless url
-      (user-error "No URL at point"))
-    (lispm-desktop-xwidget-browse-url url)))
+(require 'lispm-browser)
+(require 'lispm-browser-places)
+(require 'lispm-browser-extensions)
+(require 'lispm-desktop-apps)
 
 ;;;; Browser
 ;;
@@ -96,7 +61,7 @@ address, %s standing for the words searched."
 ;;
 ;; The address window is a real buffer, so the address is edited in place.
 ;; A timer keeps it in step with the page while it is not being edited.
-;; History and bookmarks are lispm-desktop-browser-places.el's.
+;; The History and Bookmarks pane is lispm-desktop-browser-places.el's.
 ;;
 ;; The window is drawn in one of two ways, as the editor's is, and its zoom
 ;; box moves it from one to the other:
@@ -113,10 +78,6 @@ address, %s standing for the words searched."
 (declare-function xwidget-webkit-uri "xwidget" (xwidget))
 (declare-function xwidget-webkit-goto-uri "xwidget" (xwidget uri))
 (declare-function xwidget-webkit-browse-url "xwidget" (url &optional new-session))
-(declare-function xwidget-webkit-back "xwidget" ())
-(declare-function xwidget-webkit-forward "xwidget" ())
-(declare-function xwidget-webkit-reload "xwidget" ())
-(declare-function xwidget-webkit-stop "xwidget" ())
 (declare-function xwidget-webkit-back-forward-list "xwidget.c" (xwidget &optional limit))
 (declare-function xwidget-webkit-goto-history "xwidget.c" (xwidget rel-pos))
 (declare-function xwidget-webkit-estimated-load-progress "xwidget.c" (xwidget))
@@ -130,24 +91,8 @@ address, %s standing for the words searched."
 (defconst lispm-desktop-browser-workspace-name "Browser"
   "Name of the workspace holding the embedded browser.")
 
-(defcustom lispm-desktop-browser-home-url "https://duckduckgo.com"
-  "Page a new browser tab opens, and Home goes to."
-  :type 'string
-  :group 'lispm-desktop)
-
 (defconst lispm-desktop-browser-address-buffer-name " *Browser Address*"
   "Name of the address window's buffer; the leading space keeps it unlisted.")
-
-(defconst lispm-desktop-browser-tab-width 24
-  "Maximum width in columns of a browser tab's title.")
-
-(defvar lispm-desktop-browser--tab-order nil
-  "Browser tab buffers in the order they were opened.
-Buffer names follow page titles, so they cannot order the tabs.")
-
-(defun lispm-desktop-browser--buffers ()
-  "Return the live browser tabs, in the order they were opened."
-  (setq lispm-desktop-browser--tab-order (seq-filter #'buffer-live-p lispm-desktop-browser--tab-order)))
 
 (defun lispm-desktop-browser-workspace-p ()
   "Return non-nil when the browser workspace is selected."
@@ -190,132 +135,14 @@ or else in the main area."
   (get-buffer-window lispm-desktop-browser-address-buffer-name
                      (and (lispm-desktop-browser-floating-p) lispm-desktop-browser--frame)))
 
-(defun lispm-desktop-browser--uri (&optional buffer)
-  "Return the address of the page in browser BUFFER, by default the shown tab."
-  (when-let* ((buffer (or buffer (and (lispm-desktop-browser--window)
-                                      (window-buffer (lispm-desktop-browser--window)))))
-              (xwidget (with-current-buffer buffer (xwidget-at (point-min)))))
-    (xwidget-webkit-uri xwidget)))
-
-(defun lispm-desktop-browser--title (buffer)
-  "Return the page title of browser BUFFER, from its buffer name."
-  (let ((name (string-trim (buffer-name buffer) "\\*" "\\*")))
-    (string-trim (replace-regexp-in-string "\\`xwidget[- ]webkit: ?" "" name))))
-
-(defun lispm-desktop-browser--target (input)
-  "Return the address to visit for address bar INPUT.
-A local host (localhost or 127.0.0.1, with any port or path) is served over
-http; input that names a scheme, or a dotted host without spaces, is an
-address; anything else is a search."
-  (cond ((string-match-p "\\`\\(localhost\\|127\\.0\\.0\\.1\\)\\([:/]\\|\\'\\)" input)
-         (concat "http://" input))
-        ((or (string-match-p "\\`[a-z][a-z0-9+.-]*://" input)
-             (and (string-match-p "\\." input) (not (string-match-p " " input))))
-         (lispm-desktop-xwidget-normalize-url input))
-        (t (format lispm-desktop-xwidget-search-url (url-hexify-string input)))))
-
-(defconst lispm-desktop-browser--paste-script
-  "(function (text) {
-  var field = document.activeElement;
-  if (field && typeof field.setRangeText === 'function') {
-    field.setRangeText(text, field.selectionStart, field.selectionEnd, 'end');
-    field.dispatchEvent(new InputEvent('input', {bubbles: true,
-      inputType: 'insertFromPaste', data: text}));
-  } else {
-    document.execCommand('insertText', false, text);
-  }
-})(%s);"
-  "Script inserting a text, its JSON-encoded argument, at the page's caret.
-Text fields take it through `setRangeText', which leaves it verbatim, and
-are told by an input event, so scripted pages see the change;
-`insertText' would have WebKit turn straight quotes into curly ones.
-Rich-text editors, which have no such method, take `insertText'.")
-
-(defun lispm-desktop-browser--paste (text)
-  "Insert TEXT verbatim at the caret of the shown page's focused field.
-The text travels as a JSON string literal, so quotes and newlines in it
-cannot break out of `lispm-desktop-browser--paste-script'."
-  (lispm-desktop-browser--run-script (xwidget-webkit-current-session)
-                                     (format lispm-desktop-browser--paste-script (json-encode text))))
-
-(defun lispm-desktop-browser-open-external ()
-  "Open the shown browser tab's page in the system's default browser.
-Sites needing browser extensions, such as MetaMask or 1Password, work
-there; the embedded WebKit view has no extension support."
-  (interactive)
-  (if-let* ((uri (lispm-desktop-browser--uri)))
-      (browse-url-default-browser uri)
-    (user-error "No page is shown")))
-
-(defun lispm-desktop-browser--in-page (command)
-  "Run COMMAND, a WebKit navigation command, in the shown browser tab.
-Navigating discards an unsubmitted edit of the address, as a desktop browser
-does: the address window shows the page's real address again at once."
-  (when-let* ((window (lispm-desktop-browser--window)))
-    (with-selected-window window
-      (funcall command))
-    (lispm-desktop-browser--sync t)))
-
-(defun lispm-desktop-browser-back ()
-  "Go back a page in the shown browser tab."
-  (interactive)
-  (lispm-desktop-browser--in-page #'xwidget-webkit-back))
-
-(defun lispm-desktop-browser-forward ()
-  "Go forward a page in the shown browser tab."
-  (interactive)
-  (lispm-desktop-browser--in-page #'xwidget-webkit-forward))
-
-(defun lispm-desktop-browser-reload ()
-  "Load the shown browser tab's page again."
-  (interactive)
-  (lispm-desktop-browser--in-page #'xwidget-webkit-reload))
-
-(defun lispm-desktop-browser-home ()
-  "Go to `lispm-desktop-browser-home-url' in the shown browser tab."
-  (interactive)
-  (lispm-desktop-browser--in-page
-   (lambda () (xwidget-webkit-goto-uri (xwidget-at (point-min)) lispm-desktop-browser-home-url))))
-
-(defun lispm-desktop-browser-stop ()
-  "Stop loading the shown browser tab's page."
-  (interactive)
-  (lispm-desktop-browser--in-page #'xwidget-webkit-stop))
-
 (defun lispm-desktop-browser-search ()
   "Select the location field for a search: what is typed there that is not
-an address is searched for, see `lispm-desktop-browser--target'."
+an address is searched for, see `lispm-browser-input-url'."
   (interactive)
   (lispm-desktop-browser-focus-address))
 
-(defun lispm-desktop-browser--shown-buffer ()
-  "Return the shown browser tab's buffer, or nil."
-  (when-let* ((window (lispm-desktop-browser--window)))
-    (window-buffer window)))
-
-(defun lispm-desktop-browser-open-url (url &optional new-tab)
-  "Show the page at URL in the shown browser tab, or in a new tab when
-NEW-TAB or when none is shown.  The browser comes in front."
-  (let ((window (lispm-desktop-browser--window)))
-    (cond ((and window (not new-tab))
-           (with-current-buffer (window-buffer window)
-             (xwidget-webkit-goto-uri (xwidget-at (point-min)) url))
-           (lispm-desktop-browser--sync t))
-          (window (lispm-desktop-browser-new-tab url))
-          (t (lispm-desktop-browser-show)
-             (lispm-desktop-browser-open-url url)))
-    (unless (eq (lispm-desktop-apps-frontmost) 'browser)
-      (lispm-desktop-browser-show))))
-
-(defun lispm-desktop-browser-close-shown-tab ()
-  "Close the shown browser tab, see `lispm-desktop-browser-close-tab'."
-  (interactive)
-  (when-let* ((window (lispm-desktop-browser--window)))
-    (lispm-desktop-browser-close-tab (window-buffer window))))
-
 ;;;;; Menus
 
-(declare-function lispm-desktop-browser-add-bookmark "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser-edit-bookmarks "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser-show-history "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser--bookmark-items "lispm-desktop-browser-places" ())
@@ -326,14 +153,14 @@ NEW-TAB or when none is shown.  The browser comes in front."
 (defun lispm-desktop-browser--file-items ()
   "Return the items of the browser's File menu."
   (let ((page (and (lispm-desktop-browser--window) t)))
-    `((:label "New Tab" :action lispm-desktop-browser-new-tab)
+    `((:label "New Tab" :action lispm-browser-new-tab)
       (:label "Open Location…" :action lispm-desktop-browser-focus-address
               :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-focus-address))
-      (:label "Close Tab" :action lispm-desktop-browser-close-shown-tab :enabled ,page)
+      (:label "Close Tab" :action lispm-browser-close-shown-tab :enabled ,page)
       separator
-      (:label "Open in Default Browser" :action lispm-desktop-browser-open-external :enabled ,page)
+      (:label "Open in Default Browser" :action lispm-browser-open-external :enabled ,page)
       separator
-      (:label "Quit Browser" :action lispm-desktop-browser-quit))))
+      (:label "Quit Browser" :action lispm-browser-quit))))
 
 (defun lispm-desktop-browser--view-items ()
   "Return the items of the browser's View menu: full screen or floating,
@@ -344,17 +171,17 @@ then reloading and stopping, as Netscape's View menu had them."
       (:label "Floating Window" :action lispm-desktop-browser-float
               :checked ,(lispm-desktop-browser-floating-p))
       separator
-      (:label "Reload" :action lispm-desktop-browser-reload :enabled ,(plist-get nav :page)
-              :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-reload))
-      (:label "Stop Loading" :action lispm-desktop-browser-stop :enabled ,(plist-get nav :loading)
-              :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-stop)))))
+      (:label "Reload" :action lispm-browser-reload :enabled ,(plist-get nav :page)
+              :key ,(lispm-desktop-browser--key 'lispm-browser-reload))
+      (:label "Stop Loading" :action lispm-browser-stop :enabled ,(plist-get nav :loading)
+              :key ,(lispm-desktop-browser--key 'lispm-browser-stop)))))
 
 (defun lispm-desktop-browser--session-items ()
   "Return the shown tab's pages back and forward as Go menu items, the one
 shown checked, as Netscape's Go menu listed the window's pages.  Only
 WebKitGTK tells them; on macOS there are none."
   (when-let* (((fboundp 'xwidget-webkit-back-forward-list))
-              (buffer (lispm-desktop-browser--shown-buffer))
+              (buffer (lispm-browser-shown-buffer))
               (xwidget (with-current-buffer buffer (xwidget-at (point-min))))
               (pages (ignore-errors (xwidget-webkit-back-forward-list xwidget 8))))
     (pcase-let ((`(,back ,here ,forward) pages))
@@ -373,30 +200,27 @@ WebKitGTK tells them; on macOS there are none."
 the shown tab's pages."
   (let* ((nav lispm-desktop-browser--navigation)
          (pages (lispm-desktop-browser--session-items)))
-    `((:label "Back" :action lispm-desktop-browser-back :enabled ,(plist-get nav :back)
-              :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-back))
-      (:label "Forward" :action lispm-desktop-browser-forward :enabled ,(plist-get nav :forward)
-              :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-forward))
-      (:label "Home" :action lispm-desktop-browser-home :enabled ,(plist-get nav :page))
+    `((:label "Back" :action lispm-browser-back :enabled ,(plist-get nav :back)
+              :key ,(lispm-desktop-browser--key 'lispm-browser-back))
+      (:label "Forward" :action lispm-browser-forward :enabled ,(plist-get nav :forward)
+              :key ,(lispm-desktop-browser--key 'lispm-browser-forward))
+      (:label "Home" :action lispm-browser-home :enabled ,(plist-get nav :page))
       ,@(when pages (cons 'separator pages)))))
 
 (defun lispm-desktop-browser--window-items ()
   "Return the items of the browser's Window menu: History, then a tab each,
 the shown one checked, as Mac OS 9's Window menus listed an application's
 windows."
-  (let ((shown (lispm-desktop-browser--shown-buffer)))
+  (let ((shown (lispm-browser-shown-buffer)))
     `((:label "History" :action lispm-desktop-browser-show-history
               :checked ,(eq (lispm-desktop-browser--places-shown) 'history)
               :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-show-history))
       separator
       ,@(mapcar (lambda (buffer)
-                  (list :label (truncate-string-to-width (lispm-desktop-browser--title buffer) 48 nil nil "…")
-                        :action (lambda () (lispm-desktop-browser-select-tab buffer))
+                  (list :label (truncate-string-to-width (lispm-browser-title buffer) 48 nil nil "…")
+                        :action (lambda () (lispm-browser-select-tab buffer))
                         :checked (eq buffer shown)))
-                (lispm-desktop-browser--buffers)))))
-
-(declare-function lispm-desktop-browser-extensions-supported-p "lispm-desktop-browser-extensions" ())
-(declare-function lispm-desktop-browser-extensions--menu-items "lispm-desktop-browser-extensions" ())
+                (lispm-browser-tabs)))))
 
 (defun lispm-desktop-browser-menus ()
   "Return the browser's menus, for the menu bar while it is in front.
@@ -405,9 +229,9 @@ Extensions is among them where pages can run Chrome extensions."
     (lispm-desktop-browser-view "View" lispm-desktop-browser--view-items)
     (lispm-desktop-browser-go "Go" lispm-desktop-browser--go-items)
     (lispm-desktop-browser-bookmarks "Bookmarks" lispm-desktop-browser--bookmark-items)
-    ,@(when (and (fboundp 'lispm-desktop-browser-extensions-supported-p)
-                 (lispm-desktop-browser-extensions-supported-p))
-        '((lispm-desktop-browser-extensions-menu "Extensions" lispm-desktop-browser-extensions--menu-items)))
+    ,@(when (and (fboundp 'lispm-browser-extensions-supported-p)
+                 (lispm-browser-extensions-supported-p))
+        '((lispm-desktop-browser-extensions-menu "Extensions" lispm-browser-extensions--menu-items)))
     (lispm-desktop-browser-window "Window" lispm-desktop-browser--window-items)))
 
 ;;;;; Drawing Netscape's chrome
@@ -616,13 +440,13 @@ when SECURE, open and grey when not."
   "Timer turning the throbber while the shown page loads.")
 
 (defconst lispm-desktop-browser-tools
-  '((back "Back" lispm-desktop-browser-back "Go back a page" :back)
-    (forward "Forward" lispm-desktop-browser-forward "Go forward a page" :forward)
-    (reload "Reload" lispm-desktop-browser-reload "Load the page again" :page)
-    (home "Home" lispm-desktop-browser-home "Go to the home page" :page)
+  '((back "Back" lispm-browser-back "Go back a page" :back)
+    (forward "Forward" lispm-browser-forward "Go forward a page" :forward)
+    (reload "Reload" lispm-browser-reload "Load the page again" :page)
+    (home "Home" lispm-browser-home "Go to the home page" :page)
     (search "Search" lispm-desktop-browser-search "Type a search in the location field" t)
     (history "History" lispm-desktop-browser-show-history "List the pages visited" t)
-    (stop "Stop" lispm-desktop-browser-stop "Stop loading the page" :loading))
+    (stop "Stop" lispm-browser-stop "Stop loading the page" :loading))
   "The navigation toolbar's buttons: (ICON LABEL COMMAND HELP ENABLED).
 ENABLED is t, or a key of `lispm-desktop-browser--navigation' saying when.")
 
@@ -665,7 +489,7 @@ to Netscape's own page."
                               (list 'throbber frame pressed)
                               (lambda () (lispm-desktop-browser--draw-throbber frame pressed)))
                 'help-echo "Go to the home page" 'pointer 'arrow 'lispm-desktop-platinum-target target
-                'keymap (lispm-desktop-browser--press-map #'lispm-desktop-browser-home 'header-line))))
+                'keymap (lispm-desktop-browser--press-map #'lispm-browser-home 'header-line))))
 
 (defun lispm-desktop-browser--toolbar ()
   "Return the navigation toolbar, the address window's header line: big
@@ -678,7 +502,7 @@ buttons, an icon over each name, and the throbber at the right end."
 (defun lispm-desktop-browser--turn-throbber ()
   "Turn the throbber one frame while the shown page loads; stop it, still,
 once the page rests."
-  (let ((loading (when-let* ((buffer (lispm-desktop-browser--shown-buffer)))
+  (let ((loading (when-let* ((buffer (lispm-browser-shown-buffer)))
                    (buffer-local-value 'xwidget-webkit--loading-p buffer))))
     (if loading
         (setq lispm-desktop-browser--throbber-frame
@@ -691,30 +515,12 @@ once the page rests."
       (with-current-buffer buffer
         (force-mode-line-update)))))
 
-(defun lispm-desktop-browser--navigation-state ()
-  "Return what the shown tab can do, see `lispm-desktop-browser--navigation'.
-Where WebKit cannot tell the pages back and forward, as on macOS, Back and
-Forward are open to any page."
-  (let* ((buffer (lispm-desktop-browser--shown-buffer))
-         (xwidget (and buffer (with-current-buffer buffer (xwidget-at (point-min)))))
-         (known (fboundp 'xwidget-webkit-back-forward-list))
-         (pages (and xwidget known (ignore-errors (xwidget-webkit-back-forward-list xwidget 1)))))
-    (list :page (and xwidget t)
-          :back (and xwidget (or (not known) (car pages)) t)
-          :forward (and xwidget (or (not known) (nth 2 pages)) t)
-          :loading (and buffer (buffer-local-value 'xwidget-webkit--loading-p buffer) t))))
-
 ;;;;; Status bar
-
-(defvar-local lispm-desktop-browser-status-note nil
-  "What the status bar of this page says instead of its state, or nil.
-Following a link from the keyboard and typing in a page tell their keys
-there.")
 
 (defun lispm-desktop-browser--status ()
   "Return the status bar of the page being drawn: the padlock, then the
 progress bar and what is loading, or Netscape's \"Document: Done\", or
-the page's `lispm-desktop-browser-status-note'."
+the page's `lispm-browser-status-note'."
   (let* ((xwidget (xwidget-at (point-min)))
          (uri (and xwidget (xwidget-webkit-uri xwidget)))
          (secure (and uri (string-prefix-p "https:" uri)))
@@ -733,7 +539,7 @@ the page's `lispm-desktop-browser-status-note'."
                           (if (and host (not (string-empty-p host)))
                               (format "Loading %s…" host)
                             "Loading…")))
-              (or lispm-desktop-browser-status-note "Document: Done")))))
+              (or lispm-browser-status-note "Document: Done")))))
 
 ;;;;; Address window
 
@@ -795,13 +601,13 @@ inhibited and the edit mark cleared."
     (setq lispm-desktop-browser--address-edited nil)
     (let ((inhibit-read-only t)
           (inhibit-modification-hooks t)
-          (page (lispm-desktop-browser--shown-buffer)))
+          (page (lispm-browser-shown-buffer)))
       (erase-buffer)
       (insert (propertize " " 'display `(space :width (8) :height (,lispm-desktop-browser-address-height)
                                                :ascent 65))
               (lispm-desktop-browser--bookmarks-button)
               (lispm-desktop-platinum--space 10)
-              (or (and page (lispm-desktop-browser--favicon page)) (lispm-desktop-platinum-icon "globe"))
+              (or (and page (lispm-browser-favicon page)) (lispm-desktop-platinum-icon "globe"))
               " "
               (propertize "Location:" 'face 'lispm-desktop-platinum-toolbar-label)
               " ")
@@ -851,7 +657,7 @@ This is a buffer-local `window-selection-change-functions' function."
   (when-let* ((input (lispm-desktop-browser--edited-address))
               ((not (string-empty-p input)))
               (window (lispm-desktop-browser--window))
-              (target (lispm-desktop-browser--target input)))
+              (target (lispm-browser-input-url input)))
     (with-current-buffer (window-buffer window)
       (xwidget-webkit-goto-uri (xwidget-at (point-min)) target))
     (lispm-desktop-browser--render-address target)
@@ -882,24 +688,24 @@ others, moving, selecting, killing, do as they always do."
 (defconst lispm-desktop-browser-keys
   '(("C-l" . lispm-desktop-browser-focus-address)
     ("M-l" . lispm-desktop-browser-focus-address)
-    ("M-[" . lispm-desktop-browser-back)
-    ("M-]" . lispm-desktop-browser-forward)
-    ("M-r" . lispm-desktop-browser-reload)
-    ("M-." . lispm-desktop-browser-stop)
-    ("M-d" . lispm-desktop-browser-add-bookmark)
+    ("M-[" . lispm-browser-back)
+    ("M-]" . lispm-browser-forward)
+    ("M-r" . lispm-browser-reload)
+    ("M-." . lispm-browser-stop)
+    ("M-d" . lispm-browser-add-bookmark)
     ("M-b" . lispm-desktop-browser-edit-bookmarks)
     ("M-y" . lispm-desktop-browser-show-history)
-    ("M-t" . lispm-desktop-browser-new-tab)
-    ("M-}" . lispm-desktop-browser-next-tab)
-    ("M-{" . lispm-desktop-browser-previous-tab)
-    ("M-e" . lispm-desktop-browser-extensions-press))
+    ("M-t" . lispm-browser-new-tab)
+    ("M-}" . lispm-browser-next-tab)
+    ("M-{" . lispm-browser-previous-tab)
+    ("M-e" . lispm-browser-extensions-press))
   "The browser's keys, Command keys as Netscape's were where Command is
 Meta: Command-[ and ] go back and forward, Command-D bookmarks the page,
 Command-B edits the bookmarks.  History is Command-Y, as macOS keeps
 Command-H for hiding.  Command-T opens a tab and Command-} and Command-{
 go to the next and the previous, as browsers with tabs do; on the page,
 Command-W closes the tab, see `lispm-desktop-setup-interface'.  Command-E
-presses an extension's button, see `lispm-desktop-browser-extensions-press'.")
+presses an extension's button, see `lispm-browser-extensions-press'.")
 
 (defun lispm-desktop-browser-bind-keys (map)
   "Bind `lispm-desktop-browser-keys' in keymap MAP."
@@ -919,7 +725,7 @@ presses an extension's button, see `lispm-desktop-browser-extensions-press'.")
 
 (defun lispm-desktop-browser--close-window (_window)
   "Close the browser window's shown tab, from its title bar's close box."
-  (lispm-desktop-browser-close-shown-tab))
+  (lispm-browser-close-shown-tab))
 
 (defun lispm-desktop-browser--zoom-box (_window)
   "Move the browser between full screen and floating, from its zoom box."
@@ -969,74 +775,24 @@ toolbar.
         (lispm-desktop-browser-address-mode)
         (current-buffer))))
 
-;;;;; Page icons
+;;;;; Titles
 ;;
-;; A tab shows its page's icon.  Once a page has loaded, a script reads the
-;; icon's address from the page; the icon is fetched once per address,
-;; without cookies, and decoded by the image backend:
-;;
-;;   page --script--> icon address --fetch--> bytes --decode--> image
-;;
+;; A tab shows its page's icon, which lispm-browser fetches, and its title.
 ;; Until the icon is known, or when the page has none, a globe stands in.
-
-(defconst lispm-desktop-browser--favicon-script
-  "(function () {
-  var link = document.querySelector('link[rel~=\"icon\"]')
-          || document.querySelector('link[rel=\"apple-touch-icon\"]');
-  var icon = link && link.href ? link.href
-           : location.protocol.indexOf('http') === 0
-             ? location.origin + '/favicon.ico' : '';
-  return location.href + '\\n' + icon;
-})()"
-  "Script returning the document's address and its icon's, on two lines.
-A page names its icon in a link element; failing that, browsers look for
-/favicon.ico at the page's origin.  The icon line is empty when there is
-none.  The document's address tells whose icon it is: while a page loads,
-the view's address is already the new page's but the document is the old.")
-
-(defvar lispm-desktop-browser--favicons (make-hash-table :test #'equal)
-  "Icon per icon address: an image, `pending' while fetched, `none' if unusable.")
-
-(defvar-local lispm-desktop-browser--favicon-source nil
-  "(PAGE . ICON): the page address this tab's icon was looked up for, and
-the icon's address, `pending' while the page is asked, or nil for none.")
-
-(defvar url-http-end-of-headers)
-(defvar url-http-response-status)
-
-(defun lispm-desktop-browser--favicon-image (data)
-  "Return icon DATA as an image a line high, or nil when it is no image.
-Formats Emacs recognizes are accepted, and ICO by its magic bytes: the
-macOS image backend decodes ICO when asked for PNG.  Anything else would
-draw as an empty box, so it is refused."
-  (when-let* ((type (or (image-type-from-data data)
-                        (and (string-prefix-p "\0\0\1\0" data) 'png))))
-    (create-image data type t
-                  :height (round (* 0.85 (frame-char-height)))
-                  :ascent 'center)))
-
-(defun lispm-desktop-browser--data-url-bytes (url)
-  "Return the bytes a data URL holds, or nil when URL is malformed."
-  (when (string-match "\\`data:[^,]*?\\(;base64\\)?," url)
-    (let ((base64 (match-beginning 1))
-          (payload (substring url (match-end 0))))
-      (if base64
-          (ignore-errors (base64-decode-string payload))
-        (encode-coding-string (url-unhex-string payload) 'utf-8)))))
 
 (defun lispm-desktop-browser--retitle ()
   "Name the browser window after the shown page, with the page's icon.
 Each tab's window bottom is named after its page too, not after the
 buffer, whose name WebKit prefixes."
-  (dolist (buffer (lispm-desktop-browser--buffers))
+  (dolist (buffer (lispm-browser-tabs))
     (with-current-buffer buffer
-      (setq lispm-desktop-platinum-title (lispm-desktop-browser--title buffer))))
+      (setq lispm-desktop-platinum-title (lispm-browser-title buffer))))
   (when-let* ((buffer (get-buffer lispm-desktop-browser-address-buffer-name)))
     (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
       (with-current-buffer buffer
-        (setq lispm-desktop-platinum-title (if shown (lispm-desktop-browser--title shown)
+        (setq lispm-desktop-platinum-title (if shown (lispm-browser-title shown)
                                              lispm-desktop-browser-workspace-name)
-              lispm-desktop-platinum-icon (or (and shown (lispm-desktop-browser--favicon shown))
+              lispm-desktop-platinum-icon (or (and shown (lispm-browser-favicon shown))
                                               (lispm-desktop-platinum-icon "globe")))))))
 
 (defun lispm-desktop-browser--redraw-tabs ()
@@ -1044,88 +800,7 @@ buffer, whose name WebKit prefixes."
   (lispm-desktop-browser--retitle)
   (force-mode-line-update t))
 
-(defun lispm-desktop-browser--store-favicon (icon data)
-  "Record icon address ICON as fetched with DATA, nil on failure, and redraw."
-  (puthash icon (or (and data (lispm-desktop-browser--favicon-image data)) 'none)
-           lispm-desktop-browser--favicons)
-  (lispm-desktop-browser--redraw-tabs))
-
-(defun lispm-desktop-browser--fetch-favicon (icon)
-  "Fetch the icon at address ICON, once, and store it as it arrives.
-A data URL is decoded in place; others are fetched without cookies, and
-only a successful response's body is kept."
-  (puthash icon 'pending lispm-desktop-browser--favicons)
-  (if (string-prefix-p "data:" icon)
-      (lispm-desktop-browser--store-favicon icon (lispm-desktop-browser--data-url-bytes icon))
-    (require 'url)
-    (url-retrieve
-     icon
-     (lambda (status)
-       (let ((data (and (not (plist-get status :error))
-                        (eql url-http-response-status 200)
-                        (bound-and-true-p url-http-end-of-headers)
-                        (buffer-substring-no-properties
-                         (1+ url-http-end-of-headers) (point-max)))))
-         (kill-buffer)
-         (lispm-desktop-browser--store-favicon icon data)))
-     nil t t)))
-
-(defun lispm-desktop-browser--look-up-favicon (buffer page)
-  "Ask browser BUFFER's PAGE for its icon address, then fetch the icon.
-Only web and data addresses are followed.  An answer arriving after the
-tab moved to another page is dropped.  An answer from another document
-than PAGE's, the one being replaced while PAGE loads, is no answer: the
-lookup is forgotten and runs again at the next redraw, which the finished
-load brings."
-  (with-current-buffer buffer
-    (setq lispm-desktop-browser--favicon-source (cons page 'pending))
-    (when-let* ((xwidget (xwidget-at (point-min))))
-      (lispm-desktop-browser--run-script
-       xwidget lispm-desktop-browser--favicon-script
-       (lambda (answer)
-         (when (and (buffer-live-p buffer)
-                    (equal (car (buffer-local-value 'lispm-desktop-browser--favicon-source buffer))
-                           page))
-           (pcase-let* ((`(,document ,icon) (and (stringp answer)
-                                                 (split-string answer "\n")))
-                        (icon (and icon
-                                   (string-match-p "\\`\\(?:https?\\|data\\):" icon)
-                                   icon)))
-             (with-current-buffer buffer
-               (setq lispm-desktop-browser--favicon-source
-                     (and (equal document page) (cons page icon))))
-             (when (and icon (equal document page)
-                        (not (gethash icon lispm-desktop-browser--favicons)))
-               (lispm-desktop-browser--fetch-favicon icon))
-             (lispm-desktop-browser--redraw-tabs))))))))
-
-(defun lispm-desktop-browser--favicon (buffer)
-  "Return browser BUFFER's page icon as a string showing it, or nil.
-Nil stands for an icon not known yet or absent.  A loaded page whose icon
-was not looked up yet has its lookup started."
-  (when-let* ((page (lispm-desktop-browser--uri buffer)))
-    (let ((source (buffer-local-value 'lispm-desktop-browser--favicon-source buffer)))
-      (cond ((buffer-local-value 'xwidget-webkit--loading-p buffer) nil)
-            ((not (equal (car source) page))
-             (lispm-desktop-browser--look-up-favicon buffer page)
-             nil)
-            ((stringp (cdr source))
-             (let ((image (gethash (cdr source) lispm-desktop-browser--favicons)))
-               (when (consp image)
-                 (propertize " " 'display image))))))))
-
 ;;;;; Tabs
-
-(defun lispm-desktop-browser--tab-command (function &rest args)
-  "Return an interactive command applying FUNCTION to ARGS."
-  (lambda () (interactive) (apply function args)))
-
-(defun lispm-desktop-browser--tab-keymap (command)
-  "Return the keymap of a tab atop the page, running COMMAND when clicked."
-  (let ((map (make-sparse-keymap)))
-    (keymap-set map "<tab-line> <down-mouse-1>" #'ignore)
-    (keymap-set map "<tab-line> <mouse-1>" command)
-    map))
 
 (defun lispm-desktop-browser--tab-line ()
   "Return the row of tabs atop the page: a tab per page, then + for a new one.
@@ -1136,51 +811,19 @@ when the page has none."
     (lispm-desktop-platinum-tabs
      (append
       (mapcar (lambda (buffer)
-                (list (concat (or (lispm-desktop-browser--favicon buffer) (lispm-desktop-platinum-icon "globe"))
+                (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
                               " "
-                              (truncate-string-to-width (lispm-desktop-browser--title buffer)
-                                                        lispm-desktop-browser-tab-width nil nil "…"))
+                              (truncate-string-to-width (lispm-browser-title buffer)
+                                                        lispm-browser-tab-width nil nil "…"))
                       (eq buffer shown)
-                      'keymap (lispm-desktop-browser--tab-keymap
-                               (lispm-desktop-browser--tab-command #'lispm-desktop-browser-select-tab buffer))
-                      'help-echo (or (lispm-desktop-browser--uri buffer) "Show this tab")
+                      'keymap (lispm-browser-tab-keymap
+                               (lispm-browser-tab-command #'lispm-browser-select-tab buffer))
+                      'help-echo (or (lispm-browser-uri buffer) "Show this tab")
                       'pointer 'arrow))
-              (lispm-desktop-browser--buffers))
-      (list (list "+" nil 'keymap (lispm-desktop-browser--tab-keymap #'lispm-desktop-browser-new-tab)
+              (lispm-browser-tabs))
+      (list (list "+" nil 'keymap (lispm-browser-tab-keymap #'lispm-browser-new-tab)
                   'help-echo "New tab" 'pointer 'arrow)))
      (- (window-pixel-width) (window-right-divider-width) (window-scroll-bar-width)))))
-
-(defun lispm-desktop-browser-select-tab (buffer)
-  "Show browser tab BUFFER in the browser window."
-  (when-let* ((window (lispm-desktop-browser--window)))
-    (set-window-buffer window buffer)
-    (lispm-desktop-browser--sync t)))
-
-(defun lispm-desktop-browser--step-tab (step)
-  "Show the browser tab STEP places from the one shown, wrapping around."
-  (let* ((tabs (lispm-desktop-browser--buffers))
-         (shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window))))
-         (index (or (seq-position tabs shown) 0)))
-    (when (cdr tabs)
-      (lispm-desktop-browser-select-tab (nth (mod (+ index step) (length tabs)) tabs)))))
-
-(defun lispm-desktop-browser-next-tab ()
-  "Show the browser's next tab."
-  (interactive)
-  (lispm-desktop-browser--step-tab 1))
-
-(defun lispm-desktop-browser-previous-tab ()
-  "Show the browser's previous tab."
-  (interactive)
-  (lispm-desktop-browser--step-tab -1))
-
-(defun lispm-desktop-browser-new-tab (&optional url)
-  "Open URL, by default `lispm-desktop-browser-home-url', in a new browser tab and
-show it."
-  (interactive)
-  (with-selected-window (or (lispm-desktop-browser--window) (lispm-desktop-agent--main-window))
-    (xwidget-webkit-browse-url (or url lispm-desktop-browser-home-url) t))
-  (lispm-desktop-browser--sync t))
 
 (declare-function lispm-desktop-show "lispm-desktop-surface" (&optional window))
 (declare-function lispm-desktop-empty-buffer "lispm-desktop-surface" ())
@@ -1191,32 +834,22 @@ show it."
 (defvar lispm-desktop-activate-hook)
 (defvar lispm-desktop-editor--frame)
 
-(defun lispm-desktop-browser-close-tab (buffer)
-  "Close browser tab BUFFER without asking, then show another tab.
-Closing the last tab quits the browser, see `lispm-desktop-browser-quit'."
-  (let ((window (lispm-desktop-browser--window))
-        (kill-buffer-query-functions nil))
-    (kill-buffer buffer)
-    (if-let* ((next (car (lispm-desktop-browser--buffers))))
-        (when (window-live-p window) (set-window-buffer window next))
-      (when-let* ((address (lispm-desktop-browser--address-window)))
-        (delete-window address))
-      ;; Nothing is left open: the browser quits, and the desktop comes in
-      ;; front with its icons.
-      (lispm-desktop-browser-quit)))
-  (lispm-desktop-browser--sync t))
-
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
 
-(defun lispm-desktop-browser-quit ()
-  "Quit the browser: close its tabs, its window and its workspace, and bring
-the desktop in front.  It opens again full screen or floating, as it was."
-  (interactive)
-  (lispm-desktop-browser--delete-frame)
-  (let ((kill-buffer-query-functions nil))
-    (mapc #'kill-buffer (lispm-desktop-browser--buffers))
-    (when-let* ((address (get-buffer lispm-desktop-browser-address-buffer-name)))
-      (kill-buffer address)))
+(defun lispm-desktop-browser--before-quit ()
+  "Close the browser's window as it quits, remembering where it floated.
+This is on `lispm-browser-before-quit-hook'."
+  (when-let* ((address (lispm-desktop-browser--address-window)))
+    (unless (lispm-desktop-browser-floating-p)
+      (delete-window address)))
+  (lispm-desktop-browser--delete-frame))
+
+(defun lispm-desktop-browser--quit ()
+  "Bring the desktop in front once the browser quit, and close its
+workspace; it opens again full screen or floating, as it was.  This is
+on `lispm-browser-quit-hook'."
+  (when-let* ((address (get-buffer lispm-desktop-browser-address-buffer-name)))
+    (kill-buffer address))
   (lispm-desktop-activate)
   (lispm-desktop-browser--close-workspace))
 
@@ -1235,11 +868,11 @@ What the shown tab can do is included, see
 `lispm-desktop-browser--navigation': a finished load redraws the tab line,
 whose page icons are looked up once a page has loaded, and the toolbar, whose
 buttons it enables."
-  (let ((shown (lispm-desktop-browser--shown-buffer)))
-    (list (lispm-desktop-browser--uri)
-          (mapcar #'buffer-name (lispm-desktop-browser--buffers))
+  (let ((shown (lispm-browser-shown-buffer)))
+    (list (lispm-browser-uri)
+          (mapcar #'buffer-name (lispm-browser-tabs))
           shown
-          (lispm-desktop-browser--navigation-state))))
+          (lispm-browser-navigation-state))))
 
 (defun lispm-desktop-browser--sync (&optional force)
   "Show the current page's address and tabs in the address window.
@@ -1315,7 +948,7 @@ The address window is fitted to its lines, see
 
 (defun lispm-desktop-browser-show ()
   "Show the browser, full screen or floating as it was last, with the most
-recent tab, opening `lispm-desktop-browser-home-url' when there is no tab.  The
+recent tab, opening `lispm-browser-home-url' when there is no tab.  The
 desktop's Browser icon runs this, and the browser comes in front."
   (interactive)
   ;; With the desktop hidden, the browser floats out on the computer's screen.
@@ -1336,13 +969,13 @@ no session of the workspace left comes along."
   (lispm-desktop-apps-set-frontmost 'browser)
   (let* ((fresh (let ((tab-bar-new-tab-choice #'lispm-desktop--new-tab-empty))
                   (lispm-desktop-workspace-enter lispm-desktop-browser-workspace-name)))
-         (browser (or shown (car (lispm-desktop-browser--buffers)))))
+         (browser (or shown (car (lispm-browser-tabs)))))
     (cond ((and browser fresh) (lispm-desktop-workspace-show-alone browser))
           (browser (unless (get-buffer-window browser)
                      (select-window (lispm-desktop-agent--main-window))
                      (pop-to-buffer-same-window browser)))
           (t (select-window (lispm-desktop-agent--main-window))
-             (xwidget-webkit-browse-url lispm-desktop-browser-home-url t)
+             (xwidget-webkit-browse-url lispm-browser-home-url t)
              (when fresh (tabspaces-reset-buffer-list))))
     (lispm-desktop-browser--ensure-layout)))
 
@@ -1384,7 +1017,7 @@ no session of the workspace left comes along."
 window, the window made when missing.  The floating windows left over the
 desktop show with it."
   (let ((screen (lispm-desktop-apps-screen))
-        (browser (or shown (car (lispm-desktop-browser--buffers)))))
+        (browser (or shown (car (lispm-browser-tabs)))))
     (unless (lispm-desktop-apps-hidden-p screen)
       (with-selected-frame screen
         (lispm-desktop--select-tab))
@@ -1396,7 +1029,7 @@ desktop show with it."
              (when shown (set-window-buffer (lispm-desktop-browser--window) shown)))
             (browser (set-window-buffer (frame-first-window) browser))
             (t (select-window (frame-first-window))
-               (xwidget-webkit-browse-url lispm-desktop-browser-home-url t)))
+               (xwidget-webkit-browse-url lispm-browser-home-url t)))
       (lispm-desktop-browser--ensure-layout))
     (lispm-desktop-platinum-show-window lispm-desktop-browser--frame)
     (lispm-desktop-apps-keep-on-desktop lispm-desktop-browser--frame)
@@ -1514,23 +1147,11 @@ full-screen workspace is in front; see `lispm-desktop-browser-show'."
              (force-mode-line-update t))
     (lispm-desktop-browser-show)))
 
-(defun lispm-desktop-browser--arrow-pointer (buffer)
-  "Show the arrow mouse pointer over the page in browser BUFFER.
-Emacs picks the pointer over a window itself, and the page is a character
-displaying the WebKit view, so it would otherwise get the text I-beam."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (setq-local void-text-area-pointer 'arrow)
-      (with-silent-modifications
-        (let ((inhibit-read-only t))
-          (put-text-property (point-min) (point-max) 'pointer 'arrow))))))
-
 (defun lispm-desktop-browser--setup ()
-  "Set up a new browser tab's buffer and append it to the tab order.
-Its tabs live in the address window, which stands at the top of the
-browser as its title bar, so the page shows neither a title bar of its own
-nor WebKit's title line.  The page is inserted after this mode hook runs,
-so the arrow pointer is applied once the current command finishes."
+  "Draw a new tab's page in the browser window: its tabs on Mac OS 9's,
+its status bar Netscape's.  Its title bar is the address window's, which
+stands at the top of the browser, so the page shows neither a title bar of
+its own nor WebKit's title line.  This is on `lispm-browser-tab-hook'."
   ;; The browser window's title bar is the address window's, above the
   ;; toolbar; the page's own top line holds the tabs, and WebKit's title
   ;; line would only repeat the title.
@@ -1544,150 +1165,67 @@ so the arrow pointer is applied once the current command finishes."
   ;; The unified copy and paste keys act on the page's selection and its
   ;; focused field, not on the buffer, which holds only the view.
   (setq-local lispm-desktop-copy-function #'xwidget-webkit-copy-selection-as-kill
-              lispm-desktop-paste-function #'lispm-desktop-browser--paste)
-  (run-at-time 0 nil #'lispm-desktop-browser--arrow-pointer (current-buffer))
-  (display-line-numbers-mode -1)
-  (setq lispm-desktop-browser--tab-order (append lispm-desktop-browser--tab-order (list (current-buffer)))))
+              lispm-desktop-paste-function #'lispm-browser-paste))
 
 (defun lispm-desktop-browser--on-workspace-select (&rest _)
   "Resume address synchronisation when the browser workspace is selected."
   (when (lispm-desktop-browser-workspace-p)
     (lispm-desktop-browser--ensure-layout)))
 
-;;;;; Late events of closed pages
-;;
-;; Closing a page could crash Emacs on macOS (Emacs 31.1, NS build): a
-;; segmentation fault in print_object, under `xwidget-log', under
-;; `xwidget-event-handler'.  The bug is Emacs's.  A page's WebKit view
-;; keeps a plain C pointer to its xwidget, in its navigation delegate and
-;; in the completion handler of each script it runs, and the garbage
-;; collector does not see it.  Killing the page's buffer kills its xwidget,
-;; which itself loads about:blank to silence the page, yet WebKit may still
-;; call back: a load or a script finishing after the kill posts an
-;; `xwidget-event' naming the xwidget, by then perhaps collected.  The
-;; handler first logs the event with %S, printing the freed object; the
-;; collector, marking the event while it waits to be read, may fault on it
-;; even before.  It is a race, lost now and then; stopping the page before
-;; killing it would not win it, as the kill loads a page of its own.
-;;
-;; So the xwidgets of a killed buffer are kept from the collector a minute,
-;; which keeps WebKit's pointer valid: its navigation callbacks then find
-;; the buffer dead and post nothing, and a finished script's event names a
-;; killed but valid xwidget.  And an event whose xwidget is no longer in
-;; `xwidget-list' is dropped before the handler runs.  `memq' finds the
-;; xwidget there or not without reading it; `xwidget-live-p' would read it,
-;; and on macOS a killed xwidget keeps its buffer, which it checks.
+;;;;; Setup
 
-(defvar xwidget-list)
-(declare-function get-buffer-xwidgets "xwidget.c" (buffer))
+;; Names the desktop's browser had before it became lispm-browser.
+(define-obsolete-variable-alias 'lispm-desktop-browser-home-url 'lispm-browser-home-url "0.2")
+(define-obsolete-variable-alias 'lispm-desktop-xwidget-search-url 'lispm-browser-search-url "0.2")
+(define-obsolete-variable-alias 'lispm-desktop-browser-history-file 'lispm-browser-history-file "0.2")
+(define-obsolete-variable-alias 'lispm-desktop-browser-history-size 'lispm-browser-history-size "0.2")
+(define-obsolete-variable-alias 'lispm-desktop-browser-hint-characters 'lispm-browser-hint-characters "0.2")
+(define-obsolete-variable-alias 'lispm-desktop-browser-extensions-enabled
+  'lispm-browser-extensions-enabled "0.2")
+(define-obsolete-variable-alias 'lispm-desktop-browser-extensions-directory
+  'lispm-browser-extensions-directory "0.2")
 
-(defvar lispm-desktop-browser--killed-xwidgets nil
-  "Xwidgets of killed buffers, kept from the garbage collector a minute.")
+(defun lispm-desktop-browser--adopt-old-files ()
+  "Give lispm-browser the history and the extensions the desktop's browser
+kept under their old names, once: each is moved to its new name unless
+something is there already."
+  (pcase-dolist (`(,old . ,new)
+                 `((,(locate-user-emacs-file "lispm-desktop-browser-history.eld")
+                    . ,lispm-browser-history-file)
+                   (,(locate-user-emacs-file "lispm-desktop-browser-extensions/")
+                    . ,lispm-browser-extensions-directory)))
+    (when (and (file-exists-p old) (not (file-exists-p new)))
+      (ignore-errors
+        (make-directory (file-name-directory (directory-file-name new)) t)
+        (rename-file (directory-file-name old) (directory-file-name new))))))
 
-(defun lispm-desktop-browser--keep-killed-xwidgets ()
-  "Keep the xwidgets of the buffer being killed from the garbage collector.
-They are let go a minute later, when WebKit has long called back for the
-last time.  This is on `kill-buffer-hook', which runs before the buffer's
-xwidgets are killed."
-  (when-let* (((fboundp 'get-buffer-xwidgets))
-              (xwidgets (get-buffer-xwidgets (current-buffer))))
-    (setq lispm-desktop-browser--killed-xwidgets
-          (append xwidgets lispm-desktop-browser--killed-xwidgets))
-    (run-at-time 60 nil #'lispm-desktop-browser--let-go-xwidgets xwidgets)))
+(defun lispm-desktop-browser--raise ()
+  "Bring the browser in front, unless it is.
+This is `lispm-browser-raise-function' on the desktop."
+  (unless (eq (lispm-desktop-apps-frontmost) 'browser)
+    (lispm-desktop-browser-show)))
 
-(defun lispm-desktop-browser--let-go-xwidgets (xwidgets)
-  "Let the garbage collector have XWIDGETS, of a buffer killed a minute ago."
-  (dolist (xwidget xwidgets)
-    (setq lispm-desktop-browser--killed-xwidgets
-          (delq xwidget lispm-desktop-browser--killed-xwidgets))))
+(defun lispm-desktop-browser--sync-now ()
+  "Show the page's address and tabs at once, see `lispm-desktop-browser--sync'."
+  (lispm-desktop-browser--sync t))
 
-(defun lispm-desktop-browser--xwidget-event-live-p (&optional event)
-  "Return non-nil unless EVENT is an `xwidget-event' of a killed xwidget.
-EVENT defaults to `last-input-event'.  As an advice of
-`xwidget-event-handler', this drops the events of killed xwidgets, which
-the handler would print although they may have been freed."
-  (let ((event (or event last-input-event)))
-    (or (not (eq (car-safe event) 'xwidget-event))
-        (memq (nth 2 event) (bound-and-true-p xwidget-list)))))
+(defvar lispm-browser-clipboard-function)
 
 (defun lispm-desktop-setup-browser ()
-  "Keep the late events of closed pages from crashing Emacs."
-  (add-hook 'kill-buffer-hook #'lispm-desktop-browser--keep-killed-xwidgets)
-  (advice-add 'xwidget-event-handler :before-while #'lispm-desktop-browser--xwidget-event-live-p))
-
-;;;;; Callbacks of page scripts
-;;
-;; A function given to `xwidget-webkit-execute-script' could crash Emacs on
-;; macOS (Emacs 31.1, NS build).  The bug is Emacs's.  Only GTK builds keep
-;; the function from the garbage collector, saved with the xwidget; on
-;; macOS it is held only by the completion handler WebKit runs when the
-;; script returns (src/nsxwidget.m), which the collector does not see.  A
-;; closure nothing else holds, such as a lambda written at the call, may
-;; then be collected while the script runs.  The handler tests the freed
-;; object with FUNCTIONP and posts an `xwidget-event' holding it, which
-;; `xwidget-event-handler' prints with `xwidget-log' and calls; the
-;; collector, marking the event while it waits to be read, may fault on it
-;; even before.  A symbol is safe, as an interned symbol is never collected.
-;;
-;; So pages are sent scripts by `lispm-desktop-browser--run-script', which
-;; keeps each callback in `lispm-desktop-browser--script-callbacks' until
-;; it is called, with the page's xwidget, which the event names.  On
-;; macOS, WebKit calls back only with a value: not when a script returns
-;; null or undefined, fails, or is blocked by the page's policy.  Such
-;; callbacks would be kept for ever, so the list is pruned as scripts are
-;; sent.  A callback a minute old, long after WebKit would have called
-;; it, is let go if its page is closed, its xwidget no longer in
-;; `xwidget-list'; of those whose page is open, only the newest few are
-;; kept.  A page just closed may still answer, so its callbacks are not
-;; let go at once.
-
-(declare-function xwidget-webkit-execute-script "xwidget.c" (xwidget script &optional fun))
-
-(defconst lispm-desktop-browser--script-callback-age 60
-  "Seconds a script's callback is kept at least, waiting to be called.")
-
-(defconst lispm-desktop-browser--script-callbacks-kept 32
-  "How many callbacks past that age are kept for open pages, the newest.")
-
-(defvar lispm-desktop-browser--script-callbacks nil
-  "Callbacks of scripts sent to pages, kept from the garbage collector.
-Each is (FUNCTION XWIDGET TIME): the function WebKit calls with the
-script's value, the page's xwidget, and when the script was sent.  The
-newest comes first.")
-
-(defun lispm-desktop-browser--prune-script-callbacks ()
-  "Let go of the callbacks of scripts WebKit will not call back for.
-A callback a minute old is let go when its page is closed; of those
-whose page is open, the newest `lispm-desktop-browser--script-callbacks-kept'
-are kept."
-  (let ((now (float-time))
-        (kept 0))
-    (setq lispm-desktop-browser--script-callbacks
-          (cl-remove-if-not
-           (lambda (entry)
-             (pcase-let ((`(,_ ,xwidget ,time) entry))
-               (or (< (- now time) lispm-desktop-browser--script-callback-age)
-                   (and (memq xwidget (bound-and-true-p xwidget-list))
-                        (<= (cl-incf kept) lispm-desktop-browser--script-callbacks-kept)))))
-           lispm-desktop-browser--script-callbacks))))
-
-(defun lispm-desktop-browser--run-script (xwidget script &optional callback)
-  "Run SCRIPT, JavaScript, in XWIDGET's page; call CALLBACK with its value.
-Unlike `xwidget-webkit-execute-script' on macOS, this keeps CALLBACK
-from the garbage collector until WebKit calls it.  On macOS WebKit
-calls it only with a value, never for null or undefined."
-  (if (null callback)
-      (xwidget-webkit-execute-script xwidget script)
-    (lispm-desktop-browser--prune-script-callbacks)
-    (let* ((entry (list nil xwidget (float-time)))
-           (answered (lambda (value)
-                       (setq lispm-desktop-browser--script-callbacks
-                             (delq entry lispm-desktop-browser--script-callbacks))
-                       (funcall callback value))))
-      (setcar entry answered)
-      (push entry lispm-desktop-browser--script-callbacks)
-      (xwidget-webkit-execute-script xwidget script answered))))
-
+  "Set lispm-browser up as the desktop's browser, drawn as Netscape's.
+Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
+  (lispm-desktop-browser--adopt-old-files)
+  (setq lispm-browser-window-function #'lispm-desktop-browser--window
+        lispm-browser-tab-window-function #'lispm-desktop-agent--main-window
+        lispm-browser-show-function #'lispm-desktop-browser-show
+        lispm-browser-raise-function #'lispm-desktop-browser--raise
+        lispm-browser-clipboard-function #'lispm-desktop-clipboard-text)
+  (add-hook 'lispm-browser-tab-hook #'lispm-desktop-browser--setup)
+  (add-hook 'lispm-browser-change-hook #'lispm-desktop-browser--sync-now)
+  (add-hook 'lispm-browser-redraw-hook #'lispm-desktop-browser--retitle)
+  (add-hook 'lispm-browser-before-quit-hook #'lispm-desktop-browser--before-quit)
+  (add-hook 'lispm-browser-quit-hook #'lispm-desktop-browser--quit)
+  (lispm-browser-setup 'none))
 
 (provide 'lispm-desktop-browser)
 ;;; lispm-desktop-browser.el ends here

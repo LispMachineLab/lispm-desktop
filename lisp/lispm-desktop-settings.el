@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -53,9 +53,9 @@
 (defvar lispm-desktop-picture)
 (defvar lispm-desktop-picture-position)
 (defvar lispm-desktop-icon-places)
-(defvar lispm-desktop-browser-home-url)
-(defvar lispm-desktop-xwidget-search-url)
-(defvar lispm-desktop-browser-history-size)
+(defvar lispm-browser-home-url)
+(defvar lispm-browser-search-url)
+(defvar lispm-browser-history-size)
 (defvar lispm-desktop-editor--frame)
 (defvar lispm-desktop-browser--frame)
 (defvar lispm-desktop-browser-floating)
@@ -69,11 +69,11 @@
 (declare-function lispm-desktop--hex-color "lispm-desktop-surface" (color))
 (declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
 (declare-function lispm-desktop-browser-floating-p "lispm-desktop-browser" ())
-(declare-function lispm-desktop-browser--load-history "lispm-desktop-browser-places" ())
-(declare-function lispm-desktop-browser-clear-history "lispm-desktop-browser-places" ())
-(declare-function lispm-desktop-browser-bookmarks "lispm-desktop-browser-places" ())
+(declare-function lispm-browser-history "lispm-browser-places" ())
+(declare-function lispm-browser-clear-history "lispm-browser-places" ())
+(declare-function lispm-browser-bookmarks "lispm-browser-places" ())
 (declare-function lispm-desktop-browser-edit-bookmarks "lispm-desktop-browser-places" ())
-(declare-function lispm-desktop-xwidget-available-p "lispm-desktop-browser" ())
+(declare-function lispm-browser-available-p "lispm-browser" ())
 
 (defconst lispm-desktop-settings-buffer-name " *Control Panels*"
   "Name of the control panel's window's buffer.")
@@ -99,7 +99,7 @@ the panel shows.")
 
 (defun lispm-desktop-settings--browser-p ()
   "Return non-nil when the browser can run, and so has settings."
-  (and (fboundp 'lispm-desktop-xwidget-available-p) (lispm-desktop-xwidget-available-p)))
+  (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
 
 (defun lispm-desktop-settings--panels ()
   "Return the panels that show here."
@@ -333,29 +333,29 @@ desktop's SVG cannot read."
 (defun lispm-desktop-settings--browser ()
   "Insert the Browser panel: home page, search, history and bookmarks."
   (lispm-desktop-settings--heading "Home Page")
-  (lispm-desktop-settings--note lispm-desktop-browser-home-url)
+  (lispm-desktop-settings--note lispm-browser-home-url)
   (insert lispm-desktop-settings--indent)
   (lispm-desktop-settings--button "Change…"
-                                  (lambda () (lispm-desktop-settings--change 'lispm-desktop-browser-home-url "Home page: "))
+                                  (lambda () (lispm-desktop-settings--change 'lispm-browser-home-url "Home page: "))
                                   "Change the page Home goes to")
   (insert "\n")
   (lispm-desktop-settings--heading "Search")
-  (lispm-desktop-settings--note lispm-desktop-xwidget-search-url)
+  (lispm-desktop-settings--note lispm-browser-search-url)
   (insert lispm-desktop-settings--indent)
   (lispm-desktop-settings--button "Change…"
-                                  (lambda () (lispm-desktop-settings--change 'lispm-desktop-xwidget-search-url
+                                  (lambda () (lispm-desktop-settings--change 'lispm-browser-search-url
                                                                              "Search address (%s for the words): "))
                                   "Change where what is typed in the location field is searched")
   (insert "\n")
   (lispm-desktop-settings--heading "History")
   (lispm-desktop-settings--note (format "%d pages visited are kept, of at most %d."
-                                        (length (lispm-desktop-browser--load-history)) lispm-desktop-browser-history-size))
+                                        (length (lispm-browser-history)) lispm-browser-history-size))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Clear History…" #'lispm-desktop-browser-clear-history
+  (lispm-desktop-settings--button "Clear History…" #'lispm-browser-clear-history
                                   "Forget every page visited")
   (insert "\n")
   (lispm-desktop-settings--heading "Bookmarks")
-  (lispm-desktop-settings--note (format "%d bookmarks." (length (lispm-desktop-browser-bookmarks))))
+  (lispm-desktop-settings--note (format "%d bookmarks." (length (lispm-browser-bookmarks))))
   (insert lispm-desktop-settings--indent)
   (lispm-desktop-settings--button "Edit Bookmarks…" #'lispm-desktop-browser-edit-bookmarks
                                   "List the bookmarks in the browser")

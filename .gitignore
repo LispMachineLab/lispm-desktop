@@ -17,10 +17,12 @@
 /tabspaces/
 /tabsession.el
 /lispm/
+/lispm-browser-history.eld
+/lispm-browser-extensions/
+# lispm-browser, checked out by CI
+/.deps/
 *.elc
 *~
 .DS_Store
 # lispm-desktop-term's Rust build
 /native/lispm-desktop-term/target/
-# lispm-desktop-webext's Swift build
-/native/lispm-desktop-webext/.build/

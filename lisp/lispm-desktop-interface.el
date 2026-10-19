@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -383,7 +383,6 @@ characters stay straight."
                '(lispm-desktop-sidebar--view-buffer-p lispm-desktop-sidebar-display-view))
   (setq switch-to-buffer-obey-display-actions t
         switch-to-buffer-in-dedicated-window 'pop)
-  (add-hook 'xwidget-webkit-mode-hook #'lispm-desktop-browser--setup)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-browser--on-workspace-select)
   ;; The floating browser follows the application in front, as the Finder
   ;; window does, and takes the keyboard back after a menu bar menu.
@@ -395,7 +394,7 @@ characters stay straight."
     ;; Command-W closes the tab, as in the Finder's and Control Panels'
     ;; windows; in the location field M-w copies, as in Emacs.
     (keymap-set xwidget-webkit-mode-map "C-y" #'lispm-desktop-paste)
-    (keymap-set xwidget-webkit-mode-map "M-w" #'lispm-desktop-browser-close-shown-tab))
+    (keymap-set xwidget-webkit-mode-map "M-w" #'lispm-browser-close-shown-tab))
   ;; Emacs opens on the desktop, as Mac OS did: no splash screen.
   (setq inhibit-startup-screen t
         ring-bell-function 'ignore
@@ -508,9 +507,9 @@ characters stay straight."
 
   (use-package nerd-icons)
 
-  (global-set-key (kbd "C-c x b") #'lispm-desktop-xwidget-browse-url)
-  (global-set-key (kbd "C-c x s") #'lispm-desktop-xwidget-search)
-  (global-set-key (kbd "C-c x u") #'lispm-desktop-xwidget-open-current-url)
+  (global-set-key (kbd "C-c x b") #'lispm-browser-browse-url)
+  (global-set-key (kbd "C-c x s") #'lispm-browser-web-search)
+  (global-set-key (kbd "C-c x u") #'lispm-browser-open-url-at-point)
 
   (use-package tramp
     :ensure nil

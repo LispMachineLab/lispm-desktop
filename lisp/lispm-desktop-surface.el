@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Ryan.K
 
 ;; Author: Ryan.K
-;; URL: https://github.com/RyanKung/lispm
+;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -59,7 +59,7 @@
 
 (declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
 (declare-function lispm-desktop-settings-open-folder "lispm-desktop-settings" ())
-(declare-function lispm-desktop-xwidget-available-p "lispm-desktop-browser" ())
+(declare-function lispm-browser-available-p "lispm-browser" ())
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
 (declare-function lispm-desktop-finder-home "lispm-desktop-finder" ())
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
@@ -84,7 +84,7 @@ A workspace's main area shows it where it holds nothing else.")
 
 (defun lispm-desktop--browser-p ()
   "Return non-nil when the embedded browser can run in this Emacs."
-  (and (fboundp 'lispm-desktop-xwidget-available-p) (lispm-desktop-xwidget-available-p)))
+  (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
 
 (defvar lispm-desktop-items
   '((home :label "Home" :icon "hard-disk-32" :command lispm-desktop-finder-home
