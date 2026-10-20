@@ -71,3 +71,9 @@ jobs:
               (require (quote comp))
               (native-compile (quote (lambda (x) (1+ x))))
               (princ (format "LispM runs %s\n" user-emacs-directory)))'
+      - name: Show what failed
+        if: failure()
+        run: |
+          sw_vers
+          xcode-select -p
+          grep -n -E 'error|rror:|clang|ld:' "$LISPM_HOME/install.log" | grep -v '^[0-9]*:  ' | head -n 40 || true
