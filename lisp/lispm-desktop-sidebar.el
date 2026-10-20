@@ -218,10 +218,25 @@ DETAIL, when non-nil, follows after a comma."
   (concat (format "%d %s%s" n singular (if (= n 1) "" "s"))
           (when detail (concat ", " detail))))
 
+(defun lispm-desktop-sidebar--keep-width (window)
+  "Preserve the width sidebar WINDOW has now, whatever changed it.
+Emacs preserves the width of a window's text, and forgets it as soon as
+that changes, as when the scroll bar widens the right fringe after the
+sidebar is shown, or a drag of its edge or \\[enlarge-window-horizontally]
+resizes it; the frame narrowing would then squeeze the sidebar with the
+main area.  This is a buffer-local `window-size-change-functions' function."
+  (when (window-parameter window 'window-side)
+    (window-preserve-size window t t)))
+
 (defun lispm-desktop-sidebar--display (buffer)
   "Show BUFFER as the left sidebar of this frame and return its window.
 The window is dedicated to BUFFER, so nothing else is ever shown in it:
-switching buffers there goes to the main area instead."
+switching buffers there goes to the main area instead.  It keeps its
+width while the frame changes size, the main area taking the difference
+as long as the frame is wide enough for both; a drag of its edge still
+resizes it, see `lispm-desktop-sidebar--keep-width'."
+  (with-current-buffer buffer
+    (add-hook 'window-size-change-functions #'lispm-desktop-sidebar--keep-width nil t))
   (display-buffer-in-side-window
    buffer `((side . left)
             (slot . -1)
