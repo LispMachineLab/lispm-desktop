@@ -888,11 +888,6 @@ Codex read as a new line.")
 (defun lispm-desktop-term-right () "Send Right." (interactive) (lispm-desktop-term--send (lispm-desktop-term--cursor-key "C")))
 (defun lispm-desktop-term-left () "Send Left." (interactive) (lispm-desktop-term--send (lispm-desktop-term--cursor-key "D")))
 
-(defun lispm-desktop-term-yank ()
-  "Paste the kill ring's newest text, as pasted."
-  (interactive)
-  (lispm-desktop-term-send-string (current-kill 0) nil t))
-
 (defun lispm-desktop-term-scroll-back (&optional lines)
   "Scroll the terminal's view LINES into its history, back when negative."
   (interactive "p")
