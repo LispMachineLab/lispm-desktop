@@ -203,6 +203,14 @@ the edge of the windows below, which runs across the strip."
                  (mapcar (lambda (view) (lispm-desktop-editor--tab view (eq (car view) shown)))
                          lispm-desktop-sidebar-views)
                  width))
+        ;; Point stays before the tabs and the strip unscrolled: a strip
+        ;; narrower than its tabs for a moment, as while the window is
+        ;; resized from its edges, would otherwise be scrolled to the end of
+        ;; the tabs, and stay so, the tabs out of sight.
+        (goto-char (point-min))
+        (dolist (strip (get-buffer-window-list buffer nil t))
+          (set-window-point strip (point-min))
+          (set-window-hscroll strip 0))
         (setq lispm-desktop-platinum-title (lispm-desktop-editor--title)
               ;; Only a floating window rolls up into its title bar.
               lispm-desktop-platinum-box-functions
@@ -234,6 +242,7 @@ the edge of the windows below, which runs across the strip."
               header-line-format nil
               cursor-type nil
               truncate-lines t
+              auto-hscroll-mode nil
               left-fringe-width 0
               right-fringe-width 0
               evil-emacs-state-cursor '(nil)

@@ -1218,6 +1218,32 @@ the last one uncovers the desktop."
       (lispm-desktop-platinum-close-window (selected-window))
       (should (equal (buffer-name (window-buffer)) lispm-desktop-editor-splash-buffer-name)))))
 
+(ert-deftest lispm-desktop-test-editor-strip-never-scrolls ()
+  "The title strip is never scrolled sideways: drawn, its point is before
+the tabs and its window unscrolled, as a strip scrolled to the tabs' end
+while it was narrower than they for a moment showed no tabs."
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((buffer (lispm-desktop-editor--strip-buffer)))
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-editor-frame) #'selected-frame)
+                    ((symbol-function 'lispm-desktop-sidebar-current-view) (lambda () 'files))
+                    ((symbol-function 'lispm-desktop-platinum-tabs)
+                     (lambda (_tabs width) (make-string (/ width (frame-char-width)) ?=))))
+            (with-current-buffer buffer
+              (should-not auto-hscroll-mode))
+            (set-window-buffer (selected-window) buffer)
+            (with-current-buffer buffer
+              (let ((inhibit-read-only t))
+                (insert (make-string 200 ?=))))
+            (set-window-point (selected-window) (with-current-buffer buffer (point-max)))
+            (set-window-hscroll (selected-window) 40)
+            (lispm-desktop-editor--render-strip)
+            (should (= (window-hscroll (selected-window)) 0))
+            (should (= (window-point (selected-window)) 1))
+            (should (= (with-current-buffer buffer (point)) 1)))
+        (kill-buffer buffer)))))
+
 (ert-deftest lispm-desktop-test-new-workspace-opens-on-the-desktop ()
   "A workspace opened onto *scratch* shows the desktop instead."
   (save-window-excursion
@@ -1525,6 +1551,38 @@ routing while the old workspace is still in front."
   "List windows count their items in the singular or the plural."
   (should (equal (lispm-desktop-sidebar--count 1 "session") "1 session"))
   (should (equal (lispm-desktop-sidebar--count 3 "session" "1 running") "3 sessions, 1 running")))
+
+(ert-deftest lispm-desktop-test-sidebar-keeps-width ()
+  "The frame narrowing, the main area gives up the columns and the sidebar
+keeps its own, also once its text narrowed, as its scroll bar narrows it
+by widening the fringe; the width dragged to is the one kept after."
+  (save-window-excursion
+    (delete-other-windows)
+    (let* ((frame (selected-frame))
+           (columns (window-total-width (frame-root-window frame)))
+           (lines (frame-height frame))
+           (buffer (get-buffer-create " lispm-desktop-test sidebar")))
+      (unwind-protect
+          (let* ((sidebar (lispm-desktop-sidebar--display buffer))
+                 (main (window-main-window frame))
+                 (width (window-total-width sidebar)))
+            (should (memq #'lispm-desktop-sidebar--keep-width
+                          (buffer-local-value 'window-size-change-functions buffer)))
+            ;; The text narrowing lifts what Emacs preserved.  The scroll
+            ;; bar narrows it by the fringe, which a batch Emacs's frame
+            ;; has none of: margins do here.
+            (set-window-margins sidebar 0 2)
+            ;; As redisplay runs it.
+            (lispm-desktop-sidebar--keep-width sidebar)
+            (set-frame-size frame (- columns 10) lines)
+            (should (= (window-total-width sidebar) width))
+            (should (= (window-total-width main) (- columns 10 width)))
+            (adjust-window-trailing-edge sidebar 4 t)
+            (lispm-desktop-sidebar--keep-width sidebar)
+            (set-frame-size frame columns lines)
+            (should (= (window-total-width sidebar) (+ width 4))))
+        (set-frame-size frame columns lines)
+        (kill-buffer buffer)))))
 
 (ert-deftest lispm-desktop-test-pressed-box-is-inverted ()
   "A box held down is lit from below, its square darkened."
@@ -2013,6 +2071,88 @@ is kept on that screen instead."
           (should-not moves)
           (should (equal (frame-parameter 'window 'size) '(400 . 300)))))))
 
+(defmacro lispm-desktop-test--with-edges (&rest body)
+  "Run BODY with the floating window of `lispm-desktop-test--window-frames'
+in its frame, the frame last given its size, 413 by 308 pixels.  In
+BODY, `sizes' holds the sizes given the window, the latest first."
+  (declare (indent 0))
+  `(lispm-desktop-test--with-frames lispm-desktop-test--window-frames
+       (let ((sizes nil))
+         (set-frame-parameter 'outer 'lispm-desktop-platinum-size '(413 . 308))
+         (set-frame-parameter 'outer 'lispm-desktop-platinum-sizes '((413 . 308)))
+         (cl-letf (((symbol-function 'set-frame-size)
+                    (lambda (frame width height &optional _)
+                      (push (list frame width height) sizes)
+                      (frame-put frame 'size (cons width height)))))
+           ,@body))))
+
+(ert-deftest lispm-desktop-test-window-frame-follows-edges ()
+  "On macOS the window system resizes a window or its frame dragged by an
+edge, behind Emacs's back.  Dragged by its left or top edge, the window
+moves in its frame, which follows it there; dragged by its edge, the
+frame changes alone, and the window takes the size it leaves it and
+stands in it again."
+  (lispm-desktop-test--with-edges
+    (should-not (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should-not moves)
+    ;; The window's top left corner, dragged in by 40 and 30 pixels.
+    (frame-put 'window 'position '(46 . 31))
+    (frame-put 'window 'size '(360 . 270))
+    (should (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should (equal (frame-position 'outer) '(134 . 79)))
+    (should (equal (frame-position 'window) '(6 . 1)))
+    (should-not sizes))
+  (lispm-desktop-test--with-edges
+    ;; The frame's top left corner, dragged out by 60 and 40 pixels.
+    (frame-put 'outer 'position '(34 . 9))
+    (frame-put 'outer 'size '(473 . 348))
+    (should (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should (equal sizes '((window 460 340))))
+    (should (equal (frame-position 'outer) '(34 . 9)))
+    ;; Emacs takes the window to stand in it still: it is moved anew.
+    (should (equal moves '((window 6 1) (window 7 1)))))
+  (lispm-desktop-test--with-edges
+    ;; Dragged in past the least a window grows to.
+    (frame-put 'outer 'size '(113 . 58))
+    (should (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should (equal sizes (list (list 'window (car lispm-desktop-platinum-window-min-size)
+                                     (cdr lispm-desktop-platinum-window-min-size))))))
+  (lispm-desktop-test--with-edges
+    ;; Rolled up, the window takes the frame's width only.
+    (set-frame-parameter 'window 'lispm-desktop-platinum-rolled-up '(buffer . 300))
+    (frame-put 'outer 'size '(463 . 348))
+    (should (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should (equal sizes '((window 450 300))))))
+
+(ert-deftest lispm-desktop-test-window-frame-keeps-its-own-sizes ()
+  "The frame's size changing is no drag of its edge when it is a size it
+was given lately, which the window system tells of late, when the
+window's own size changed, or when the frame's font did, as with a theme:
+the frame is then only given its size again."
+  (lispm-desktop-test--with-edges
+    (set-frame-parameter 'outer 'lispm-desktop-platinum-sizes '((413 . 308) (473 . 348)))
+    (frame-put 'outer 'size '(473 . 348))
+    (should-not (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should-not sizes))
+  (lispm-desktop-test--with-edges
+    (frame-put 'outer 'size '(473 . 348))
+    (frame-put 'window 'size '(420 . 310))
+    (should-not (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should-not sizes))
+  (lispm-desktop-test--with-edges
+    (set-frame-parameter 'outer 'lispm-desktop-platinum-font "Monaco 12")
+    (set-frame-parameter 'outer 'font "Monaco 16")
+    (frame-put 'outer 'size '(530 . 400))
+    (should-not (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should-not sizes)
+    (should-not moves))
+  (lispm-desktop-test--with-edges
+    ;; Not yet standing in it, as while it is being framed.
+    (frame-put 'window 'parent-frame 'screen)
+    (frame-put 'window 'position '(100 . 50))
+    (should-not (lispm-desktop-platinum--frame-follow 'window 'outer))
+    (should-not moves)))
+
 (ert-deftest lispm-desktop-test-outline-geometry ()
   "Moving, a window's outline is a band two pixels thick round its outer
 rectangle; growing, a line a pixel thick round it and, within, the
@@ -2052,6 +2192,41 @@ pixels: a checkerboard whose phase follows where the line is."
     (should (eq (plist-get (cdr image) :type) 'xbm))
     (should (equal (list (plist-get (cdr image) :data-width) (plist-get (cdr image) :data-height)) '(6 2)))
     (should-not (plist-member (cdr image) :width))))
+
+(ert-deftest lispm-desktop-test-outline-keeps-thin ()
+  "A frame kept to draw an outline's lines gets its font a pixel tall
+back once a theme, or a change to the default face, gave it the default
+font again, and is sized again in the desktop's colour; while it has
+that font, it is left as it is."
+  (lispm-desktop-test--with-frames '((line (font . "Monaco-1")
+                                           (lispm-desktop-platinum-thin-font . "Monaco-1")
+                                           (lispm-desktop-platinum-line . (1 14 0 nil 3))))
+    (let ((sizes nil))
+      (cl-letf (((symbol-function 'set-frame-font)
+                 (lambda (font _keep frames)
+                   (push (font-get font :size) sizes)
+                   (dolist (frame frames)
+                     (frame-put frame 'font (format "Monaco-%d" (font-get font :size))))))
+                ((symbol-function 'lispm-desktop-platinum--desktop-color) (lambda () "#6666CC")))
+        (lispm-desktop-platinum--keep-thin 'line)
+        (should-not sizes)
+        (should (frame-get 'line 'lispm-desktop-platinum-line))
+        ;; A theme enabled: the default face's font, a line 16 pixels
+        ;; tall, and the theme's background.
+        (frame-put 'line 'font "Monaco-12")
+        (frame-put 'line 'background-color "#FFFFFF")
+        (lispm-desktop-platinum--keep-thin 'line)
+        (should (equal sizes '(1)))
+        (should (equal (frame-get 'line 'font) "Monaco-1"))
+        (should (equal (frame-get 'line 'background-color) "#6666CC"))
+        (should-not (frame-get 'line 'lispm-desktop-platinum-line))
+        ;; A font that cannot be a pixel tall is not set again and again.
+        (cl-letf (((symbol-function 'set-frame-font)
+                   (lambda (_font _keep _frames) (push 'failed sizes))))
+          (frame-put 'line 'font "Bitmap-13")
+          (lispm-desktop-platinum--keep-thin 'line)
+          (lispm-desktop-platinum--keep-thin 'line)
+          (should (equal sizes '(failed 1))))))))
 
 (ert-deftest lispm-desktop-test-drag-keeps-in-front ()
   "What a drag draws comes back over whatever came in front of it, and is
