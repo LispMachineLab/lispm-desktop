@@ -145,6 +145,32 @@ LAYOUT is a list of (VALUE LEFT TOP WIDTH HEIGHT); the first holding X, Y
 wins."
   (car (seq-find (lambda (entry) (lispm-desktop-modal-inside-p (cdr entry) x y)) layout)))
 
+(defun lispm-desktop-modal-hold (over-p draw)
+  "Hold a control pressed with the mouse until the button rises, as Mac OS
+9's controls were: DRAW is called with t to draw it pushed in while the
+mouse is over it, and with nil to draw it out; OVER-P, called with a
+mouse event, says whether the event is over it.  Return non-nil when the
+button rose over the control, which is then chosen.  Escape or C-g gives
+up."
+  (let ((in t) (chosen nil))
+    (funcall draw t)
+    (track-mouse
+      (catch 'done
+        (while t
+          (let ((event (lispm-desktop-modal-read)))
+            (cond ((lispm-desktop-modal-cancel-p event) (throw 'done nil))
+                  ((lispm-desktop-modal-mouse-up-p event)
+                   (setq chosen (and (funcall over-p event) t))
+                   (throw 'done nil))
+                  ((mouse-movement-p event)
+                   (let ((over (and (funcall over-p event) t)))
+                     (unless (eq over in)
+                       (setq in over)
+                       (funcall draw over)))))))))
+    (when in
+      (funcall draw nil))
+    chosen))
+
 (defun lispm-desktop-modal-moved-p (delta)
   "Return non-nil when DELTA, (DX . DY) in pixels, is a move rather than a
 hand's jitter in a click: more than `double-click-fuzz' either way."

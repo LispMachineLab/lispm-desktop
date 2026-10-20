@@ -3031,6 +3031,29 @@ menu item three, drawn back as it was when asked."
     (insert-file-contents (expand-file-name "lisp/lispm-desktop-modal.el" lispm-desktop-directory))
     (should-not (re-search-forward "(require 'lispm-desktop" nil t))))
 
+(ert-deftest lispm-desktop-test-modal-hold ()
+  "A control held with the mouse is drawn pushed in only while the mouse
+is over it, and chosen only when the button rises over it; Escape gives
+up."
+  (let ((draws nil))
+    (cl-flet ((hold (events)
+                (setq draws nil)
+                (let ((unread-command-events events))
+                  (lispm-desktop-modal-hold (lambda (event) (eq (cadr event) 'on))
+                                            (lambda (in) (push in draws))))))
+      (should (hold '((mouse-movement off) (mouse-movement on) (mouse-1 on))))
+      (should (equal (reverse draws) '(t nil t nil)))
+      (should-not (hold '((mouse-movement off) (mouse-1 off))))
+      (should (equal (reverse draws) '(t nil)))
+      (should-not (hold '(escape)))
+      (should (equal (reverse draws) '(t nil))))))
+
+(ert-deftest lispm-desktop-test-store-grid-buttons-press-on-release ()
+  "The App Store's grid buttons are held pushed in from the press, as
+Mac OS 9's buttons were, and pressed as the mouse rises over them."
+  (should (eq (keymap-lookup lispm-desktop-store-grid-map "<down-mouse-1>")
+              #'lispm-desktop-store--grid-press)))
+
 (ert-deftest lispm-desktop-test-modal-moved-p ()
   "A move of the mouse by more than `double-click-fuzz' is a drag; less is
 a hand's jitter in a click."
