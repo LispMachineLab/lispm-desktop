@@ -269,17 +269,6 @@ another project still opens in that project's workspace."
     (select-window (display-buffer buffer '(lispm-desktop-main-area-display-file)))
     buffer))
 
-(defun lispm-desktop-sidebar--insert-styled-button (label action help)
-  "Insert LABEL, whose segments carry their own faces, as a button.
-The button sets no face, so icon fonts and colours inside LABEL survive."
-  (let ((beg (point)))
-    (insert label)
-    (make-text-button beg (point)
-                      'action (lambda (_) (funcall action))
-                      'follow-link t
-                      'help-echo help
-                      'mouse-face 'highlight)))
-
 (defconst lispm-desktop-sidebar-indent 18
   "Pixels each level of a list is indented by, the width of a triangle and gap.")
 
@@ -403,15 +392,6 @@ the right-hand column; clicking the row calls ACTION, described by HELP."
                       'follow-link t
                       'help-echo help
                       'mouse-face 'highlight)
-    (lispm-desktop-sidebar--mark-row beg (point))
-    (insert "\n")))
-
-(defun lispm-desktop-sidebar--insert-heading (name)
-  "Insert NAME as the heading of a group that does not fold."
-  (let ((beg (point)))
-    (insert (lispm-desktop-sidebar--blank '(space :width (8)))
-            (propertize name 'face '(:inherit (shadow lispm-desktop-platinum-list) :weight bold))
-            (lispm-desktop-sidebar--sorted-column nil))
     (lispm-desktop-sidebar--mark-row beg (point))
     (insert "\n")))
 

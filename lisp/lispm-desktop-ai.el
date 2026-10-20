@@ -288,11 +288,6 @@ built in first, then the others in the order they were defined."
                   (plist-get props :name) (plist-get props :program)))
     props))
 
-(defun lispm-desktop-agent--emacs-agent (agent)
-  "Return the properties of AGENT when it runs inside Emacs, else nil."
-  (let ((props (lispm-desktop-agent--props agent)))
-    (and (plist-get props :new) props)))
-
 (defun lispm-desktop-agent--emacs-buffer-agent (buffer)
   "Return the in-Emacs agent whose session BUFFER holds, or nil."
   (car (seq-find (lambda (entry)
