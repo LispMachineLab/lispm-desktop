@@ -50,6 +50,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
 (require 'lispm-desktop-update)
 
 (defvar lispm-desktop-color)
@@ -59,19 +60,11 @@
 (defvar lispm-browser-home-url)
 (defvar lispm-browser-search-url)
 (defvar lispm-browser-history-size)
-(defvar lispm-desktop-editor--frame)
-(defvar lispm-desktop-browser--frame)
-(defvar lispm-desktop-browser-floating)
-(defvar evil-emacs-state-cursor)
-(defvar evil-normal-state-cursor)
-(declare-function lispm-desktop-activate "lispm-desktop-surface" ())
 (declare-function lispm-desktop-choose-picture "lispm-desktop-surface" (file))
 (declare-function lispm-desktop-remove-picture "lispm-desktop-surface" ())
 (declare-function lispm-desktop-arrange-icons "lispm-desktop-surface" ())
 (declare-function lispm-desktop--color "lispm-desktop-surface" ())
 (declare-function lispm-desktop--hex-color "lispm-desktop-surface" (color))
-(declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
-(declare-function lispm-desktop-browser-floating-p "lispm-desktop-browser" ())
 (declare-function lispm-browser-history "lispm-browser-places" ())
 (declare-function lispm-browser-clear-history "lispm-browser-places" ())
 (declare-function lispm-browser-bookmarks "lispm-browser-places" ())
@@ -92,12 +85,6 @@ INSERT fills the window with the panel, ICON is its large icon in the
 Control Panels folder; VISIBLE, when given, is a function deciding whether
 the panel shows.")
 
-(defvar lispm-desktop-settings--frame nil
-  "The control panel's window's frame, while it is open.")
-
-(defvar lispm-desktop-settings--geometry nil
-  "Where the control panel's window was last: (LEFT TOP WIDTH HEIGHT) in pixels.")
-
 (defvar-local lispm-desktop-settings--panel 'themes
   "The panel the control panel's window shows.")
 
@@ -114,7 +101,7 @@ the panel shows.")
 
 (defun lispm-desktop-settings-open-p ()
   "Return non-nil while the control panel's window is open."
-  (frame-live-p lispm-desktop-settings--frame))
+  (lispm-desktop-app-window-open-p 'settings))
 
 ;;;; Controls
 ;;
@@ -599,29 +586,6 @@ The panels are `lispm-desktop-settings-panels'."
   (interactive)
   (lispm-desktop-settings-next-panel t))
 
-(defun lispm-desktop-settings--close-box (_window)
-  "Close the control panel's window, from its close box."
-  (lispm-desktop-settings-close))
-
-(defvar lispm-desktop-settings--shade nil
-  "The control panel's window's height while it is rolled up, or nil.")
-
-(defun lispm-desktop-settings--collapse-box (_window)
-  "Roll the control panel's window up into its title bar, or down again."
-  (when (lispm-desktop-settings-open-p)
-    (with-current-buffer (lispm-desktop-settings--buffer)
-      (if lispm-desktop-settings--shade
-          (progn (setq header-line-format '(:eval (lispm-desktop-settings--tabs)))
-                 (kill-local-variable 'mode-line-format)
-                 (lispm-desktop-platinum-roll-down lispm-desktop-settings--frame lispm-desktop-settings--shade)
-                 (setq lispm-desktop-settings--shade nil))
-        (setq lispm-desktop-settings--shade (frame-text-height lispm-desktop-settings--frame))
-        (setq header-line-format nil
-              mode-line-format nil)
-        (lispm-desktop-platinum-roll-up
-         lispm-desktop-settings--frame
-         (window-tab-line-height (frame-root-window lispm-desktop-settings--frame)))))))
-
 (defvar-local lispm-desktop-settings--width nil
   "The width in pixels the panel's group boxes were drawn for.")
 
@@ -644,32 +608,22 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
   "q" #'lispm-desktop-settings-close
   "M-w" #'lispm-desktop-settings-close)
 
-(define-derived-mode lispm-desktop-settings-mode special-mode "Control Panels"
+(define-derived-mode lispm-desktop-settings-mode lispm-desktop-app-window-mode "Control Panels"
   "Major mode of the control panel's window: a panel of settings, a tab each.
 \\{lispm-desktop-settings-mode-map}"
-  (visual-line-mode -1)
-  (setq-local cursor-type nil
-              evil-emacs-state-cursor '(nil)
-              evil-normal-state-cursor '(nil)
-              truncate-lines t
-              left-fringe-width 0
-              right-fringe-width 0
-              show-trailing-whitespace nil
-              lispm-desktop-platinum-info "Choices are kept for the next start."
+  (setq-local lispm-desktop-platinum-info "Choices are kept for the next start."
               header-line-format '(:eval (lispm-desktop-settings--tabs))
               lispm-desktop-platinum-title "Control Panels"
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "control-panels")
-              lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-settings--close-box
-                                                         :collapse #'lispm-desktop-settings--collapse-box))
+              lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
+                                                         :collapse #'lispm-desktop-app-window-collapse-box))
   ;; The pane the tabs choose among, lighter than the window's platinum.
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list-body)
   (add-hook 'window-size-change-functions #'lispm-desktop-settings--refit nil t)
   ;; The tabs fill the header line, their pane's edge under them.
   (face-remap-add-relative 'header-line '(:box nil :underline nil :overline nil))
   (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
-  (hl-line-mode -1)
-  (when (fboundp 'display-line-numbers-mode)
-    (display-line-numbers-mode -1)))
+  (hl-line-mode -1))
 
 (defun lispm-desktop-settings--buffer ()
   "Return the control panel's window's buffer, made when missing."
@@ -683,93 +637,27 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
   (let ((width 520)
         (height 500))
     (list (max 20 (/ (- (frame-inner-width screen) width) 2))
-          (+ (tab-bar-height screen t) 50)
+          (+ (lispm-desktop-app-window-menu-bar-height screen) 50)
           width height)))
 
-(defun lispm-desktop-settings--make-frame (screen)
-  "Return a control panel's window over SCREEN's desktop, not yet shown."
-  (pcase-let* ((`(,left ,top ,width ,height)
-                (or lispm-desktop-settings--geometry (lispm-desktop-settings--default-geometry screen)))
-               (frame (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (make-frame
-                         `((parent-frame . ,screen)
-                           (minibuffer . ,(minibuffer-window screen))
-                           (name . "Control Panels") (lispm-desktop-app . settings)
-                           (lispm-desktop-window . t) (top-visible . 30)
-                           (undecorated . t) (visibility . nil)
-                           (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                           (menu-bar-lines . 0) (tool-bar-lines . 0)
-                           (internal-border-width . 0)
-                           (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                           (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                           (user-position . t)
-                           (left . ,left) (top . ,top)
-                           (width . (text-pixels . ,width))
-                           (height . (text-pixels . ,height)))))))
-    (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum--color :chrome))
-    (let ((window (frame-root-window frame)))
-      (set-window-buffer window (lispm-desktop-settings--buffer))
-      (set-window-dedicated-p window t))
-    frame))
+(lispm-desktop-app-window-define 'settings
+  :name "Control Panels" :geometry #'lispm-desktop-settings--default-geometry
+  :buffer #'lispm-desktop-settings--buffer :roll 'chrome)
 
 (defun lispm-desktop-settings-show (&optional panel)
   "Open the control panel's window over the desktop, showing PANEL, a key of
 `lispm-desktop-settings-panels', or the panel it showed last."
   (interactive)
-  ;; With the desktop hidden, the window opens out on the computer's screen.
-  (unless (lispm-desktop-apps-hidden-p)
-    (lispm-desktop-activate))
-  (unless (lispm-desktop-settings-open-p)
-    (setq lispm-desktop-settings--frame (lispm-desktop-settings--make-frame (lispm-desktop-apps-screen))))
+  (lispm-desktop-app-window-ensure 'settings)
   (if panel
       (lispm-desktop-settings-select panel)
     (lispm-desktop-settings--render))
-  (lispm-desktop-platinum-show-window lispm-desktop-settings--frame)
-  (lispm-desktop-apps-keep-on-desktop lispm-desktop-settings--frame)
-  (lispm-desktop-platinum-raise-window lispm-desktop-settings--frame)
-  (select-frame-set-input-focus lispm-desktop-settings--frame)
-  (lispm-desktop-apps-set-frontmost 'settings))
+  (lispm-desktop-app-window-present 'settings))
 
 (defun lispm-desktop-settings-close ()
   "Close the control panel's window; the desktop comes in front."
   (interactive)
-  (when (lispm-desktop-settings-open-p)
-    (when lispm-desktop-settings--shade
-      (lispm-desktop-settings--collapse-box nil))
-    (setq lispm-desktop-settings--geometry (lispm-desktop-apps--geometry lispm-desktop-settings--frame))
-    (let ((frame lispm-desktop-settings--frame))
-      (lispm-desktop-apps-focus-after frame)
-      (delete-frame frame)
-      (setq lispm-desktop-settings--frame nil)))
-  (unless (lispm-desktop-apps-hidden-p)
-    (lispm-desktop-apps-set-frontmost 'desktop)))
-
-(defun lispm-desktop-settings--follow-frontmost (app)
-  "Show the control panel's window with the desktop and the floating applications;
-hide it from the full-screen editor and browser, as the Finder window.
-This is one of `lispm-desktop-apps-frontmost-functions'."
-  (when (and (lispm-desktop-settings-open-p)
-             ;; Out on the computer's screen, it stays where it is.
-             (not (lispm-desktop-apps-out-p lispm-desktop-settings--frame)))
-    (let ((shown (not (lispm-desktop-apps-full-screen-p app))))
-      (cond ((and shown (not (frame-visible-p lispm-desktop-settings--frame)))
-             (lispm-desktop-platinum-show-window lispm-desktop-settings--frame)
-             (when-let* ((front (pcase app
-                                  ('editor (bound-and-true-p lispm-desktop-editor--frame))
-                                  ('browser (bound-and-true-p lispm-desktop-browser--frame))))
-                         ((frame-live-p front)))
-               (lispm-desktop-platinum-raise-window front)))
-            ((and (not shown) (frame-visible-p lispm-desktop-settings--frame))
-             (lispm-desktop-platinum-hide-window lispm-desktop-settings--frame))))))
-
-(defun lispm-desktop-settings--refocus ()
-  "Give the control panel's window the keyboard back after a menu bar menu closes,
-while Control Panels is in front."
-  (when (and (eq (lispm-desktop-apps-frontmost) 'settings) (lispm-desktop-settings-open-p)
-             (frame-visible-p lispm-desktop-settings--frame)
-             (not (eq (selected-frame) lispm-desktop-settings--frame)))
-    (select-frame-set-input-focus lispm-desktop-settings--frame)))
+  (lispm-desktop-app-window-close 'settings))
 
 ;;;; Menus
 
@@ -819,8 +707,6 @@ its window follows the application in front and shows the theme's colours
 when they change."
   (setf (alist-get 'control-panels lispm-desktop-finder-folders)
         '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
-  (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-settings--follow-frontmost)
-  (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-settings--refocus)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95)
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render))
 

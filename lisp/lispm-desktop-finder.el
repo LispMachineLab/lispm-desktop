@@ -51,16 +51,13 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
 (require 'lispm-desktop-surface)
 
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
-(declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup--frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(defvar lispm-desktop-editor--frame)
-(defvar lispm-desktop-browser--frame)
-(defvar lispm-desktop-browser-floating)
 
 (defconst lispm-desktop-finder-buffer-name " *Finder*"
   "Name of the Finder window's buffer.")
@@ -70,12 +67,6 @@
 
 (defconst lispm-desktop-finder-icon-size 32
   "Side in pixels of an item's icon.")
-
-(defvar lispm-desktop-finder--frame nil
-  "The Finder window, a child frame of the screen, or nil when closed.")
-
-(defvar lispm-desktop-finder--geometry nil
-  "Where the Finder window was last: (LEFT TOP WIDTH HEIGHT) in pixels.")
 
 (defvar lispm-desktop-finder--had-focus nil
   "Non-nil while the Finder window was the desktop's last focused window.")
@@ -100,9 +91,6 @@
 
 (defvar-local lispm-desktop-finder--typed nil
   "(TEXT . TIME): the letters typed to select an item, and when.")
-
-(defvar-local lispm-desktop-finder--shade nil
-  "While the window is rolled up: its text height.")
 
 ;;;; Items
 
@@ -595,81 +583,54 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
   "C-g" #'lispm-desktop-finder-deselect
   "<remap> <self-insert-command>" #'lispm-desktop-finder-type-select)
 
-(defvar evil-emacs-state-cursor)
-(defvar evil-normal-state-cursor)
-
-(define-derived-mode lispm-desktop-finder-mode special-mode "Finder"
+(define-derived-mode lispm-desktop-finder-mode lispm-desktop-app-window-mode "Finder"
   "Major mode of the Finder window: a folder's items as large icons.
 \\{lispm-desktop-finder-mode-map}"
-  (visual-line-mode -1)
-  (setq-local cursor-type nil
-              truncate-lines t
-              left-fringe-width 0
-              right-fringe-width 0
-              show-trailing-whitespace nil
-              evil-emacs-state-cursor '(nil)
-              evil-normal-state-cursor '(nil)
-              header-line-format '(:eval (lispm-desktop-finder--header))
+  (setq-local header-line-format '(:eval (lispm-desktop-finder--header))
               mode-line-format '("" mode-line-format-right-align
                                  (:eval (lispm-desktop-platinum-mode-line-right)))
               lispm-desktop-platinum-title-menu-function #'lispm-desktop-finder--path-items
               lispm-desktop-context-menu-function #'lispm-desktop-finder--keyboard-menu
-              lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-finder--close-box
+              lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :zoom #'lispm-desktop-finder--zoom-box
-                                                         :collapse #'lispm-desktop-finder--collapse-box))
+                                                         :collapse #'lispm-desktop-app-window-collapse-box))
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
   (face-remap-add-relative 'header-line '(:box nil :underline nil :overline nil))
-  (when (fboundp 'display-line-numbers-mode)
-    (display-line-numbers-mode -1))
   (add-hook 'window-size-change-functions #'lispm-desktop-finder--render nil t))
 
 ;;;; The window
 
 (defun lispm-desktop-finder--default-geometry (screen)
   "Return where the Finder window opens first: the left of SCREEN's desktop."
-  (list 40 (+ (tab-bar-height screen t) 30)
+  (list 40 (+ (lispm-desktop-app-window-menu-bar-height screen) 30)
         (min 700 (round (* (frame-inner-width screen) 0.55)))
         (min 460 (round (* (frame-inner-height screen) 0.6)))))
 
-(defun lispm-desktop-finder--make-frame (screen)
-  "Return a Finder window over SCREEN's desktop, not yet shown."
-  (pcase-let* ((`(,left ,top ,width ,height)
-                (or lispm-desktop-finder--geometry (lispm-desktop-finder--default-geometry screen)))
-               (frame (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (make-frame
-                         `((parent-frame . ,screen)
-                           (minibuffer . ,(minibuffer-window screen))
-                           (name . "Finder") (lispm-desktop-finder . t) (lispm-desktop-app . desktop)
-                           (lispm-desktop-window . t) (top-visible . 30)
-                           (undecorated . t) (visibility . nil)
-                           (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                           (menu-bar-lines . 0) (tool-bar-lines . 0)
-                           (internal-border-width . 0)
-                           (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                           (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                           (user-position . t)
-                           (left . ,left) (top . ,top)
-                           (width . (text-pixels . ,width))
-                           (height . (text-pixels . ,height)))))))
-    (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum--color :chrome))
-    (let ((window (frame-root-window frame)))
-      (set-window-buffer window (lispm-desktop-finder--buffer))
-      (set-window-dedicated-p window t))
-    frame))
+(defun lispm-desktop-finder--closed ()
+  "Forget the Finder window once it closed: its buffer goes, and so does
+its having had the keyboard."
+  (setq lispm-desktop-finder--had-focus nil)
+  (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name)))
+    (kill-buffer buffer)))
+
+(lispm-desktop-app-window-define 'finder
+  :app 'desktop :name "Finder" :geometry #'lispm-desktop-finder--default-geometry
+  :buffer #'lispm-desktop-finder--buffer :roll 'chrome :on-close #'lispm-desktop-finder--closed
+  ;; The desktop coming in front leaves the windows as they lie, and the
+  ;; Finder window takes the keyboard back only when it had it.
+  :raise nil :refocus-p (lambda () lispm-desktop-finder--had-focus))
+
+(defun lispm-desktop-finder-frame ()
+  "Return the Finder window while it is open."
+  (lispm-desktop-app-window-frame 'finder))
 
 (defun lispm-desktop-finder-open-directory (directory)
   "Show DIRECTORY in the Finder window over the desktop, the desktop in front.
 DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
   (interactive "DFolder: ")
-  (lispm-desktop-activate)
-  (unless (frame-live-p lispm-desktop-finder--frame)
-    (setq lispm-desktop-finder--frame (lispm-desktop-finder--make-frame (lispm-desktop-apps-screen))))
+  (lispm-desktop-app-window-ensure 'finder)
   (lispm-desktop-finder--go directory (lispm-desktop-finder--in (and lispm-desktop-finder--directory t)))
-  (lispm-desktop-platinum-show-window lispm-desktop-finder--frame)
-  (lispm-desktop-apps-keep-on-desktop lispm-desktop-finder--frame)
-  (lispm-desktop-platinum-raise-window lispm-desktop-finder--frame)
-  (select-frame-set-input-focus lispm-desktop-finder--frame)
+  (lispm-desktop-app-window-present 'finder)
   (setq lispm-desktop-finder--had-focus t)
   (lispm-desktop-finder--render))
 
@@ -681,25 +642,12 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
 (defun lispm-desktop-finder-close ()
   "Close the Finder window."
   (interactive)
-  (when (frame-live-p lispm-desktop-finder--frame)
-    (lispm-desktop-finder--in (when lispm-desktop-finder--shade (lispm-desktop-finder--collapse-box nil)))
-    (setq lispm-desktop-finder--geometry (lispm-desktop-apps--geometry lispm-desktop-finder--frame))
-    (let ((frame lispm-desktop-finder--frame))
-      (lispm-desktop-apps-focus-after frame)
-      (delete-frame frame)
-      (setq lispm-desktop-finder--frame nil lispm-desktop-finder--had-focus nil)))
-  (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name)))
-    (kill-buffer buffer)))
-
-(defun lispm-desktop-finder--close-box (_window)
-  "Close the Finder window, from its close box."
-  (lispm-desktop-finder-close))
+  (lispm-desktop-app-window-close 'finder))
 
 (defun lispm-desktop-finder--zoom-box (_window)
   "Grow the Finder window over the desktop, or back, from its zoom box."
-  (when (frame-live-p lispm-desktop-finder--frame)
-    (let* ((frame lispm-desktop-finder--frame)
-           (screen (lispm-desktop-apps-window-screen frame))
+  (when-let* ((frame (lispm-desktop-finder-frame)))
+    (let* ((screen (lispm-desktop-apps-window-screen frame))
            (zoomed (frame-parameter frame 'lispm-desktop-finder-unzoom)))
       (if zoomed
           (pcase-let ((`(,left ,top ,width ,height) zoomed))
@@ -714,70 +662,26 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
             (pcase-let ((`(,x ,y ,w ,h) (lispm-desktop-apps--workarea frame)))
               (lispm-desktop-platinum-move-window frame (+ x 12) (+ y 12))
               (set-frame-size frame (- w 40) (- h 70) t))
-          (let ((top (+ (tab-bar-height screen t) 12)))
+          (let ((top (+ (lispm-desktop-app-window-menu-bar-height screen) 12)))
             (lispm-desktop-platinum-move-window frame 12 top)
             ;; The desktop's icons stay in sight at the right.
             (set-frame-size frame (- (frame-inner-width screen) 140)
                             (- (frame-inner-height screen) top 30) t)))))))
 
-(defun lispm-desktop-finder--collapse-box (_window)
-  "Roll the Finder window up into its title bar, or down again."
-  (when (frame-live-p lispm-desktop-finder--frame)
-    (lispm-desktop-finder--in
-      (if lispm-desktop-finder--shade
-          (progn (setq header-line-format '(:eval (lispm-desktop-finder--header))
-                       mode-line-format '("" mode-line-format-right-align
-                                          (:eval (lispm-desktop-platinum-mode-line-right))))
-                 (lispm-desktop-platinum-roll-down lispm-desktop-finder--frame lispm-desktop-finder--shade)
-                 (setq lispm-desktop-finder--shade nil))
-        (setq lispm-desktop-finder--shade (frame-text-height lispm-desktop-finder--frame))
-        (setq header-line-format nil
-              mode-line-format nil)
-        (lispm-desktop-platinum-roll-up
-         lispm-desktop-finder--frame
-         (window-tab-line-height (frame-root-window lispm-desktop-finder--frame)))))))
-
 ;;;; With the desktop
-
-(defun lispm-desktop-finder--follow-frontmost (app)
-  "Show the Finder window with the desktop, the control panels and the
-applications floating over it, the editor and browser too when they float;
-hide it from the full-screen editor and browser.
-This is one of `lispm-desktop-apps-frontmost-functions'."
-  (when (and (frame-live-p lispm-desktop-finder--frame)
-             ;; Out on the computer's screen, it stays where it is.
-             (not (lispm-desktop-apps-out-p lispm-desktop-finder--frame)))
-    (let ((shown (not (lispm-desktop-apps-full-screen-p app))))
-      (cond ((and shown (not (frame-visible-p lispm-desktop-finder--frame)))
-             (lispm-desktop-platinum-show-window lispm-desktop-finder--frame)
-             ;; The application in front stays over it.
-             (when-let* ((front (pcase app
-                                  ('editor (bound-and-true-p lispm-desktop-editor--frame))
-                                  ('browser (bound-and-true-p lispm-desktop-browser--frame))))
-                         ((frame-live-p front)))
-               (lispm-desktop-platinum-raise-window front)))
-            ((and (not shown) (frame-visible-p lispm-desktop-finder--frame))
-             (lispm-desktop-platinum-hide-window lispm-desktop-finder--frame))))))
 
 (defun lispm-desktop-finder--note-selected (&rest _)
   "Note that the Finder window has the keyboard once it is selected; its
 `lispm-desktop-app' parameter puts the desktop in front, see
 `lispm-desktop-apps--follow-window'.  This is a
 `window-selection-change-functions' function."
-  (when (and (frame-live-p lispm-desktop-finder--frame) (eq (selected-frame) lispm-desktop-finder--frame))
+  (when-let* ((frame (lispm-desktop-finder-frame))
+              ((eq (selected-frame) frame)))
     (setq lispm-desktop-finder--had-focus t)))
-
-(defun lispm-desktop-finder--refocus ()
-  "Give the Finder window the keyboard back after a menu bar menu closes,
-when it had it before."
-  (when (and lispm-desktop-finder--had-focus (eq (lispm-desktop-apps-frontmost) 'desktop)
-             (frame-live-p lispm-desktop-finder--frame) (frame-visible-p lispm-desktop-finder--frame)
-             (not (eq (selected-frame) lispm-desktop-finder--frame)))
-    (select-frame-set-input-focus lispm-desktop-finder--frame)))
 
 (defun lispm-desktop-finder-shown-p ()
   "Return non-nil while the Finder window is open."
-  (frame-live-p lispm-desktop-finder--frame))
+  (lispm-desktop-app-window-open-p 'finder))
 
 (defun lispm-desktop-finder--go-items ()
   "Return the items of the desktop's Go menu, moving the Finder window."
@@ -791,9 +695,7 @@ when it had it before."
       (:label "Home" :action lispm-desktop-finder-home))))
 
 (defun lispm-desktop-setup-finder ()
-  "Let the desktop's Finder window follow the application in front."
-  (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-finder--follow-frontmost)
-  (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-finder--refocus)
+  "Note when the desktop's Finder window has the keyboard."
   (add-hook 'window-selection-change-functions #'lispm-desktop-finder--note-selected))
 
 (provide 'lispm-desktop-finder)

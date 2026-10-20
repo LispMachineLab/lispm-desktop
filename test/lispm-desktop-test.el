@@ -1349,31 +1349,37 @@ them, up selecting the folder it came from."
           (should (equal lispm-desktop-finder--selected "init.el")))))
     (kill-buffer lispm-desktop-finder-buffer-name)))
 
-(ert-deftest lispm-desktop-test-finder-rolls-up ()
-  "The Finder window's collapse box rolls it up to its title bar, its
-header and its bottom line put away, and down to its height again."
+(ert-deftest lispm-desktop-test-window-rolls-up-its-chrome ()
+  "A floating window whose kind rolls its chrome, as the Finder window,
+Control Panels and the App Store do, rolls up to its title bar, its header
+and its bottom line put away, and down to its height again, its buffer
+untouched."
   (save-window-excursion
     (delete-other-windows)
-    (let ((lispm-desktop-finder--frame (selected-frame))
-          (rolls nil))
-      (set-window-buffer (selected-window) (lispm-desktop-finder--buffer))
-      (cl-letf (((symbol-function 'lispm-desktop-platinum-roll-up)
-                 (lambda (frame height) (push (list 'up frame height) rolls)))
-                ((symbol-function 'lispm-desktop-platinum-roll-down)
-                 (lambda (frame height) (push (list 'down frame height) rolls))))
-        (let ((height (frame-text-height)))
-          (lispm-desktop-finder--collapse-box nil)
-          (should (equal (car rolls) (list 'up (selected-frame) (window-tab-line-height))))
-          (lispm-desktop-finder--in
-            (should-not header-line-format)
-            (should-not mode-line-format))
-          (lispm-desktop-finder--collapse-box nil)
-          (should (equal (car rolls) (list 'down (selected-frame) height)))
-          (lispm-desktop-finder--in
-            (should header-line-format)
-            (should mode-line-format)
-            (should-not lispm-desktop-finder--shade)))))
-    (kill-buffer lispm-desktop-finder-buffer-name)))
+    (let ((frame (selected-frame))
+          (window (selected-window))
+          (lispm-desktop-app-window-kinds '((kind :roll chrome)))
+          (heights nil))
+      (with-temp-buffer
+        (setq-local header-line-format "Header")
+        (set-window-buffer window (current-buffer))
+        (set-frame-parameter frame 'lispm-desktop-window-kind 'kind)
+        (unwind-protect
+            (cl-letf (((symbol-function 'set-frame-height)
+                       (lambda (_frame height &optional _pretend _pixelwise) (push height heights))))
+              (let ((height (frame-text-height frame)))
+                (lispm-desktop-app-window-collapse-box window)
+                (should (lispm-desktop-app-window-rolled-p frame))
+                (should (eq (window-parameter window 'header-line-format) 'none))
+                (should (eq (window-parameter window 'mode-line-format) 'none))
+                (should (equal header-line-format "Header"))
+                (lispm-desktop-app-window-collapse-box window)
+                (should-not (lispm-desktop-app-window-rolled-p frame))
+                (should (= (car heights) height))
+                (should-not (window-parameter window 'header-line-format))
+                (should-not (window-parameter window 'mode-line-format))))
+          (set-frame-parameter frame 'lispm-desktop-window-kind nil)
+          (set-frame-parameter frame 'lispm-desktop-platinum-rolled-up nil))))))
 
 (ert-deftest lispm-desktop-test-views-ask-the-editor-first ()
   "A view is asked for through the editor, which comes forward first."
@@ -3477,24 +3483,6 @@ positions, the keys, the browser's pages."
           (button-activate button))
         (should (equal (car saved) '(lispm-desktop-editing-style . emacs)))))))
 
-(ert-deftest lispm-desktop-test-settings-close-rolls-down ()
-  "The control panel's window closed rolled up rolls down first, as the
-Finder window does: it opens again with its tabs, as tall as it was."
-  (let ((lispm-desktop-settings--frame (selected-frame))
-        (lispm-desktop-settings--shade 300)
-        (lispm-desktop-settings--geometry nil)
-        (rolled nil))
-    (cl-letf (((symbol-function 'lispm-desktop-settings--collapse-box)
-               (lambda (_window) (setq rolled t lispm-desktop-settings--shade nil)))
-              ((symbol-function 'lispm-desktop-apps--geometry)
-               (lambda (_frame) (should rolled) '(0 0 400 300)))
-              ((symbol-function 'lispm-desktop-apps-focus-after) #'ignore)
-              ((symbol-function 'delete-frame) #'ignore)
-              ((symbol-function 'lispm-desktop-apps-hidden-p) #'always))
-      (lispm-desktop-settings-close)
-      (should rolled)
-      (should (equal lispm-desktop-settings--geometry '(0 0 400 300))))))
-
 (ert-deftest lispm-desktop-test-control-panels-folder ()
   "The Control Panels folder is a Finder folder of a panel each: opening an
 item opens its panel, and nothing is made, renamed or thrown away there."
@@ -4863,6 +4851,18 @@ others share the application's frame, else the application's window."
                 (lispm-desktop-app-window-close-box (selected-window))
                 (should (eq closed 'elfeed)))
             (set-frame-parameter frame 'lispm-desktop-window-kind nil)))))))
+
+(ert-deftest lispm-desktop-test-app-window-modes ()
+  "The Finder window's, Control Panels' and the App Store's buffers derive
+from the floating windows' mode: no cursor, no fringes, no wrapped lines."
+  (dolist (mode '(lispm-desktop-finder-mode lispm-desktop-settings-mode lispm-desktop-store-mode))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'lispm-desktop-store--refit) #'ignore))
+        (funcall mode))
+      (should (derived-mode-p 'lispm-desktop-app-window-mode))
+      (should-not cursor-type)
+      (should truncate-lines)
+      (should (eql left-fringe-width 0)))))
 
 (ert-deftest lispm-desktop-test-list-check-box-pixels ()
   "Extensions Manager's check boxes: twelve pixels square, outlined; checked,
