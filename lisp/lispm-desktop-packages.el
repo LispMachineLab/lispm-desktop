@@ -39,9 +39,14 @@
   ;; A package is installed even when the `:if' of its declaration is
   ;; false, so a declaration that may not apply goes inside a `when'.
   (when (and (lispm-desktop-macos-p) (lispm-desktop-gui-p))
+    ;; Opened from the Dock, Emacs gets none of the shell's environment:
+    ;; take its PATH, and the API keys LispM's agents use.
     (use-package exec-path-from-shell
       :init
       (setq exec-path-from-shell-check-startup-files nil)
+      :config
+      (dolist (variable '("OPENAI_API_KEY" "ANTHROPIC_API_KEY"))
+        (add-to-list 'exec-path-from-shell-variables variable t))
       (exec-path-from-shell-initialize)))
 
   (use-package which-key

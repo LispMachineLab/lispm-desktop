@@ -53,6 +53,20 @@
 (setq native-comp-async-report-warnings-errors 'silent
       native-comp-async-jobs-number 2)
 
+;; GCC's driver, unless told which macOS to build for, works it out from
+;; Darwin's version, and since Apple numbered macOS after the year (26) the
+;; GCC of some Emacs builds, LispM.app's among them, works out a version
+;; such as 18.0, which clang refuses: nothing compiles.  Every macOS Emacs
+;; runs on is 11 or later.
+(defvar native-comp-driver-options)
+(when (and (eq system-type 'darwin)
+           (fboundp 'native-comp-available-p)
+           (native-comp-available-p))
+  (with-eval-after-load 'comp
+    (unless (string-search "-mmacosx-version-min=" (mapconcat #'identity native-comp-driver-options " "))
+      (setq native-comp-driver-options
+            (append native-comp-driver-options '("-mmacosx-version-min=11.0"))))))
+
 ;; Frames stay fully opaque: on macOS any transparency makes every redraw
 ;; composite the whole window, which made scrolling a terminal stutter.
 (dolist (frame-setting '((height . 40)
