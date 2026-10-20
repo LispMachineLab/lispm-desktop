@@ -23,9 +23,10 @@
 
 ;;; Commentary:
 
-;; The left sidebar and its views: files, shells and open buffers, plus the
-;; parts every view is built from (toolbar, chips, two-line entries).  The
-;; agents view lives in lispm-desktop-agent-list.el.
+;; The left sidebar, its registry of views and the parts every list view
+;; is built from: toolbar, column headings, rows and groups.  The files
+;; view lives here; every other view lives in its own file, beside what it
+;; lists, and adds itself with `lispm-desktop-sidebar-define-view'.
 
 ;;; Code:
 
@@ -40,18 +41,41 @@
 ;;
 ;;   none --files--> files --agents--> agents --agents--> none
 
-(declare-function lispm-desktop-agent--main-window "lispm-desktop-ai" ())
-(declare-function lispm-desktop-agent--project-directory "lispm-desktop-ai" ())
-(declare-function lispm-desktop-agent--fresh-name "lispm-desktop-ai" (agent directory))
-(declare-function lispm-desktop-agent--buffer-p "lispm-desktop-ai" (buffer))
-(declare-function lispm-desktop-agent--running-p "lispm-desktop-ai" (buffer))
-(declare-function lispm-desktop-agent-independent-environment "lispm-desktop-ai" (environment))
-(declare-function lispm-desktop-agent-list-visible-p "lispm-desktop-agent-list" ())
-(declare-function lispm-desktop-agent-list-show "lispm-desktop-agent-list" ())
-(declare-function lispm-desktop-agent-list-hide "lispm-desktop-agent-list" ())
-(declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
-(defvar explicit-shell-file-name)
-(defvar lispm-desktop-sidebar-views)
+(defvar lispm-desktop-sidebar-views nil
+  "Views the left sidebar can show, in the order of the editor's tabs.
+Each entry is (VIEW . PROPS), see `lispm-desktop-sidebar-define-view'.")
+
+(defun lispm-desktop-sidebar-define-view (view &rest props)
+  "Make VIEW one of the left sidebar's views, or redefine it in place.
+PROPS is a property list:
+  :title    the name its title bar and tab show
+  :icon     its Finder icon, see `lispm-desktop-platinum-icon'
+  :help     what its tab says it shows
+  :command  the command its menu bar title runs
+A list view, which the sidebar shows, hides and draws anew itself, names
+its list:
+  :buffer   the name of the list's buffer
+  :mode     the list buffer's major mode, which calls
+            `lispm-desktop-sidebar-setup-buffer'
+  :render   a function drawing the list into the current buffer
+Any other view gives the functions testing, showing and hiding it in the
+selected frame, each called with no arguments: :visible, :show and
+:hide.  Views are listed in the order they were first defined."
+  (if-let* ((entry (assq view lispm-desktop-sidebar-views)))
+      (setcdr entry props)
+    (setq lispm-desktop-sidebar-views
+          (append lispm-desktop-sidebar-views (list (cons view props))))))
+
+(defun lispm-desktop-sidebar--call (view what)
+  "Call VIEW's WHAT function, :visible, :show or :hide, and return its value.
+A list view uses the sidebar's own, see `lispm-desktop-sidebar-define-view'."
+  (if (plist-get (alist-get view lispm-desktop-sidebar-views) :buffer)
+      (funcall (pcase what
+                 (:visible #'lispm-desktop-sidebar-list-visible-p)
+                 (:show #'lispm-desktop-sidebar--show-list)
+                 (:hide #'lispm-desktop-sidebar--hide-list))
+               view)
+    (funcall (plist-get (alist-get view lispm-desktop-sidebar-views) what))))
 
 ;;;; Sidebar parts
 ;;
@@ -61,7 +85,7 @@
 ;; buttons, and the content is a list of one-line rows under column
 ;; headings.  The title bar and header stay put while the rows scroll.
 
-(defun lispm-desktop-sidebar--one-line (text width)
+(defun lispm-desktop-sidebar-one-line (text width)
   "Return TEXT collapsed to a single line and truncated to WIDTH columns."
   (truncate-string-to-width
    (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " text))
@@ -97,7 +121,7 @@ A space showing an icon, as an image or a stretch, stays."
       (setq end (1- end)))
     (substring label start end)))
 
-(defun lispm-desktop-sidebar--toolbar-button (label command help row &optional state)
+(defun lispm-desktop-sidebar-toolbar-button (label command help row &optional state)
   "Return LABEL as a bevel button calling COMMAND, described by HELP.
 It sits on toolbar ROW, the window line holding it: `tab-line',
 `header-line' or `mode-line'.  LABEL is shown in the list's face, its
@@ -146,7 +170,7 @@ toolbars are, it shows itself pushed in from the window's
 Each action is (LABEL COMMAND HELP [PRESSED]); PRESSED draws its button
 pushed in, as a toggle that is on."
   (mapconcat (pcase-lambda (`(,label ,command ,help ,pressed))
-               (lispm-desktop-sidebar--toolbar-button label command help row (and pressed 'pressed)))
+               (lispm-desktop-sidebar-toolbar-button label command help row (and pressed 'pressed)))
              actions (propertize " " 'display '(space :width (4)))))
 
 (defvar-local lispm-desktop-sidebar--faces nil
@@ -165,7 +189,7 @@ are not whole columns."
                                    (concat (lispm-desktop-sidebar--toolbar-buttons title-actions
                                                                                    'header-line)
                                            " "))
-                                 (lispm-desktop-sidebar--toolbar-button "⟳" refresh "Refresh"
+                                 (lispm-desktop-sidebar-toolbar-button "⟳" refresh "Refresh"
                                                                         'header-line))))
     (concat " " (lispm-desktop-sidebar--toolbar-buttons actions 'header-line)
             (propertize " " 'display
@@ -190,7 +214,7 @@ hold (LABEL COMMAND HELP [PRESSED]) entries, see
   (setq-local lispm-desktop-sidebar--header (list actions refresh title-actions)
               header-line-format '(:eval (lispm-desktop-sidebar--header-line))))
 
-(defun lispm-desktop-sidebar--setup-buffer ()
+(defun lispm-desktop-sidebar-setup-buffer ()
   "Set up the current buffer as sidebar content.
 Visual line mode is turned off explicitly, so `global-visual-line-mode'
 leaves the buffer alone and an overlong title is truncated, not wrapped.
@@ -214,7 +238,7 @@ selected item."
   (setq-local lispm-desktop-platinum-listed nil)
   (display-line-numbers-mode -1))
 
-(defun lispm-desktop-sidebar--count (n singular &optional detail)
+(defun lispm-desktop-sidebar-count (n singular &optional detail)
   "Return N SINGULAR things counted for a list window's bottom edge.
 DETAIL, when non-nil, follows after a comma."
   (concat (format "%d %s%s" n singular (if (= n 1) "" "s"))
@@ -256,7 +280,7 @@ See the :mode of `lispm-desktop-sidebar-views'."
                      (eq (buffer-local-value 'major-mode buffer) mode)))
                  lispm-desktop-sidebar-views)))
 
-(defun lispm-desktop-sidebar--view-buffer-p (buffer-or-name _action)
+(defun lispm-desktop-sidebar-view-buffer-p (buffer-or-name _action)
   "Return non-nil when BUFFER-OR-NAME is a sidebar list about to be shown.
 This is the `display-buffer-alist' condition keeping lists in the sidebar."
   (when-let* ((buffer (get-buffer buffer-or-name)))
@@ -271,10 +295,40 @@ it is shown in the sidebar, never in the main area."
       (lispm-desktop-sidebar-select view))
     (get-buffer-window buffer)))
 
-(defun lispm-desktop-sidebar--hide-buffer (name)
-  "Hide the sidebar window showing the buffer called NAME."
-  (when-let* ((window (get-buffer-window name)))
+(defun lispm-desktop-sidebar--list-buffer (view)
+  "Return the name of the buffer of list VIEW."
+  (plist-get (alist-get view lispm-desktop-sidebar-views) :buffer))
+
+(defun lispm-desktop-sidebar-list-visible-p (view)
+  "Return non-nil when list VIEW is shown in the selected frame."
+  (and (get-buffer-window (lispm-desktop-sidebar--list-buffer view)) t))
+
+(defun lispm-desktop-sidebar--show-list (view)
+  "Show list VIEW, drawn anew, on the left of this frame and return its window."
+  (let* ((props (alist-get view lispm-desktop-sidebar-views))
+         (buffer (get-buffer-create (plist-get props :buffer))))
+    (with-current-buffer buffer
+      (unless (derived-mode-p (plist-get props :mode))
+        (funcall (plist-get props :mode)))
+      (funcall (plist-get props :render))
+      (goto-char (point-min)))
+    (lispm-desktop-sidebar--display buffer)))
+
+(defun lispm-desktop-sidebar--hide-list (view)
+  "Hide list VIEW in the selected frame."
+  (when-let* ((window (get-buffer-window (lispm-desktop-sidebar--list-buffer view))))
     (delete-window window)))
+
+(defun lispm-desktop-sidebar-refresh-list (view)
+  "Draw list VIEW anew when it exists, point staying on the same line."
+  (when-let* ((buffer (get-buffer (lispm-desktop-sidebar--list-buffer view))))
+    (with-current-buffer buffer
+      (let ((line (line-number-at-pos))
+            (window (get-buffer-window buffer)))
+        (funcall (plist-get (alist-get view lispm-desktop-sidebar-views) :render))
+        (goto-char (point-min))
+        (forward-line (1- line))
+        (when window (set-window-point window (point)))))))
 
 (defun lispm-desktop-sidebar-show-in-main (buffer)
   "Show BUFFER in the main area and select it.
@@ -292,7 +346,7 @@ another project still opens in that project's workspace."
 (defvar-local lispm-desktop-sidebar--columns-width nil
   "The width in pixels the list's column headings were drawn for.")
 
-(defun lispm-desktop-sidebar--insert-columns (name meta)
+(defun lispm-desktop-sidebar-insert-columns (name meta)
   "Insert the column headings NAME and META, the list being sorted by META.
 NAME stands over the rows' names, past their indentation and icon.  The
 headings are drawn as wide as the list; the list is drawn again when its
@@ -356,7 +410,7 @@ shortened to fit between them."
                                          (max 0 room))
             (lispm-desktop-sidebar--sorted-column meta))))
 
-(defun lispm-desktop-sidebar--insert-entry (icon title meta action help &optional properties depth)
+(defun lispm-desktop-sidebar-insert-entry (icon title meta action help &optional properties depth)
   "Insert a one-line row and make it one button calling ACTION.
 The row shows ICON and TITLE, indented by DEPTH levels, and META, dimmed,
 in the right-hand column; HELP describes the button, which spans the row
@@ -372,7 +426,7 @@ row's text."
              (concat (lispm-desktop-sidebar--blank `(space :width (,(+ 8 lispm-desktop-sidebar-indent
                                                                        (* lispm-desktop-sidebar-indent (or depth 0))))))
                      icon (propertize " " 'face 'lispm-desktop-platinum-list))
-             (lispm-desktop-sidebar--one-line title 200)
+             (lispm-desktop-sidebar-one-line title 200)
              meta
              (lispm-desktop-sidebar--row-width)))
     (make-text-button beg (point)
@@ -385,11 +439,17 @@ row's text."
       (add-text-properties beg (point) properties))
     (insert "\n")))
 
+(defun lispm-desktop-sidebar-insert-empty (text)
+  "Insert the row of an empty list, saying TEXT."
+  (insert (lispm-desktop-sidebar--blank '(space :width (8)))
+          (propertize text 'face 'shadow)
+          (lispm-desktop-sidebar--sorted-column nil) "\n"))
+
 (defun lispm-desktop-sidebar--mark-row (beg end)
   "Draw the row from BEG to END as a list's row, a lit line atop it."
   (add-face-text-property beg end 'lispm-desktop-platinum-row t))
 
-(defun lispm-desktop-sidebar--insert-group (open name meta action help &optional directory)
+(defun lispm-desktop-sidebar-insert-group (open name meta action help &optional directory)
   "Insert a group's row: a disclosure triangle, OPEN or not, a folder and NAME.
 The folder is badged when DIRECTORY is a git repository.  META sits in
 the right-hand column; clicking the row calls ACTION, described by HELP."
@@ -400,7 +460,7 @@ the right-hand column; clicking the row calls ACTION, described by HELP."
                      (lispm-desktop-sidebar--blank '(space :width (6)))
                      (lispm-desktop-platinum-folder-icon directory)
                      (lispm-desktop-sidebar--blank '(space :width (6))))
-             (propertize (lispm-desktop-sidebar--one-line name 200)
+             (propertize (lispm-desktop-sidebar-one-line name 200)
                          'face '(:inherit lispm-desktop-platinum-list :weight bold))
              (propertize (or meta "") 'face 'shadow)
              (lispm-desktop-sidebar--row-width)))
@@ -411,96 +471,6 @@ the right-hand column; clicking the row calls ACTION, described by HELP."
                       'mouse-face 'highlight)
     (lispm-desktop-sidebar--mark-row beg (point))
     (insert "\n")))
-
-;;;; Shell sidebar
-
-(defconst lispm-desktop-shell-list-buffer-name "*Shells*"
-  "Name of the shell sidebar buffer.")
-
-(defun lispm-desktop-shell--buffer-p (buffer)
-  "Return non-nil when BUFFER is a live shell terminal, not an agent's."
-  (and (buffer-live-p buffer)
-       (memq (buffer-local-value 'major-mode buffer) '(eat-mode lispm-desktop-term-mode))
-       (not (lispm-desktop-agent--buffer-p buffer))
-       (lispm-desktop-agent--running-p buffer)))
-
-(defun lispm-desktop-shell-new (&optional directory)
-  "Start a new shell in DIRECTORY, by default the main window's project root.
-The shell is the user's, run as an independent process in a terminal, see
-`lispm-desktop-terminal-make'."
-  (interactive)
-  (let* ((directory (or directory
-                        (with-selected-window (lispm-desktop-agent--main-window)
-                          (lispm-desktop-agent--project-directory))))
-         (default-directory (file-name-as-directory directory))
-         (process-environment (lispm-desktop-agent-independent-environment process-environment))
-         (program (or explicit-shell-file-name (getenv "ESHELL") shell-file-name)))
-    (lispm-desktop-sidebar-show-in-main
-     (lispm-desktop-terminal-make (lispm-desktop-agent--fresh-name 'shell directory) program "-l")))
-  (lispm-desktop-shell-list-refresh))
-
-(defun lispm-desktop-shell-list--render ()
-  "Render the running shells into the current buffer."
-  (let ((inhibit-read-only t)
-        (shells (seq-filter #'lispm-desktop-shell--buffer-p (buffer-list))))
-    (erase-buffer)
-    (lispm-desktop-sidebar-set-toolbar
-     'shells #'lispm-desktop-shell-list-refresh
-     '(("New Shell" lispm-desktop-shell-new "New shell at the main window's project root")))
-    (setq lispm-desktop-platinum-info (lispm-desktop-sidebar--count (length shells) "shell"))
-    (lispm-desktop-sidebar--insert-columns "Name" "Directory")
-    (if (null shells)
-        (insert (lispm-desktop-sidebar--blank '(space :width (8)))
-                (propertize "No running shells" 'face 'shadow)
-                (lispm-desktop-sidebar--sorted-column nil) "\n")
-      (dolist (buffer shells)
-        (let ((directory (buffer-local-value 'default-directory buffer)))
-          (lispm-desktop-sidebar--insert-entry
-           (lispm-desktop-platinum-icon "computer")
-           (string-trim (buffer-name buffer) "\\*" "\\*")
-           (file-name-nondirectory (directory-file-name directory))
-           (apply-partially #'lispm-desktop-sidebar-show-in-main buffer)
-           (format "Show this shell, in %s" (abbreviate-file-name directory))))))))
-
-(defun lispm-desktop-shell-list-refresh (&rest _)
-  "Re-render the shell sidebar when it exists."
-  (interactive)
-  (when-let* ((buffer (get-buffer lispm-desktop-shell-list-buffer-name)))
-    (with-current-buffer buffer
-      (lispm-desktop-shell-list--render))))
-
-(defvar-keymap lispm-desktop-shell-list-mode-map
-  :doc "Keymap for the shell sidebar."
-  :parent special-mode-map
-  "g" #'lispm-desktop-shell-list-refresh
-  "+" #'lispm-desktop-shell-new
-  "n" #'forward-button
-  "p" #'backward-button
-  "TAB" #'forward-button
-  "<backtab>" #'backward-button)
-
-(define-derived-mode lispm-desktop-shell-list-mode special-mode "Shells"
-  "Sidebar listing running shells.
-\\{lispm-desktop-shell-list-mode-map}"
-  (lispm-desktop-sidebar--setup-buffer))
-
-(defun lispm-desktop-shell-list-show ()
-  "Show the shell sidebar on the left of this frame and return its window."
-  (let ((buffer (get-buffer-create lispm-desktop-shell-list-buffer-name)))
-    (with-current-buffer buffer
-      (unless (derived-mode-p 'lispm-desktop-shell-list-mode)
-        (lispm-desktop-shell-list-mode))
-      (lispm-desktop-shell-list--render)
-      (goto-char (point-min)))
-    (lispm-desktop-sidebar--display buffer)))
-
-(defun lispm-desktop-shell-list-visible-p ()
-  "Return non-nil when the shell sidebar is shown in the selected frame."
-  (and (get-buffer-window lispm-desktop-shell-list-buffer-name) t))
-
-(defun lispm-desktop-shell-list-hide ()
-  "Hide the shell sidebar in the selected frame."
-  (lispm-desktop-sidebar--hide-buffer lispm-desktop-shell-list-buffer-name))
 
 ;;;; Files sidebar
 
@@ -532,7 +502,7 @@ The shell is the user's, run as an independent process in a terminal, see
 Outside any project treemacs falls back to the buffer's directory."
   (require 'treemacs)
   (save-selected-window
-    (with-current-buffer (window-buffer (lispm-desktop-agent--main-window))
+    (with-current-buffer (window-buffer (lispm-desktop-platinum-main-window))
       (treemacs-add-and-display-current-project-exclusively))))
 
 (defun lispm-desktop-sidebar--files-hide ()
@@ -540,32 +510,16 @@ Outside any project treemacs falls back to the buffer's directory."
   (when-let* ((window (and (featurep 'treemacs) (treemacs-get-local-window))))
     (delete-window window)))
 
-(defconst lispm-desktop-sidebar-views
-  '((files :title "Files" :icon "disk" :command lispm-desktop-sidebar-files
-           :help "Project files"
-           :visible lispm-desktop-sidebar--files-visible-p
-           :show lispm-desktop-sidebar--files-show
-           :hide lispm-desktop-sidebar--files-hide)
-    (agents :title "Agents" :icon "robot" :mode lispm-desktop-agent-list-mode
-            :command lispm-desktop-sidebar-agents
-            :help "Agent sessions"
-            :visible lispm-desktop-agent-list-visible-p
-            :show lispm-desktop-agent-list-show
-            :hide lispm-desktop-agent-list-hide)
-    (shells :title "Shells" :icon "computer" :mode lispm-desktop-shell-list-mode
-            :command lispm-desktop-sidebar-shells
-            :help "Shells"
-            :visible lispm-desktop-shell-list-visible-p
-            :show lispm-desktop-shell-list-show
-            :hide lispm-desktop-shell-list-hide))
-  "Views the left sidebar can show, in the order of the editor's tabs.
-Each view names its TITLE, its Finder icon (see `lispm-desktop-platinum-icon'),
-the MODE of its list buffer when it has one, the COMMAND its menu bar title
-runs, and the functions that test, show and hide it in the selected frame.")
+(lispm-desktop-sidebar-define-view
+ 'files :title "Files" :icon "disk" :command 'lispm-desktop-sidebar-files
+ :help "Project files"
+ :visible #'lispm-desktop-sidebar--files-visible-p
+ :show #'lispm-desktop-sidebar--files-show
+ :hide #'lispm-desktop-sidebar--files-hide)
 
 (defun lispm-desktop-sidebar-current-view ()
   "Return the view the left sidebar shows, or nil when it is hidden."
-  (car (seq-find (lambda (view) (funcall (plist-get (cdr view) :visible)))
+  (car (seq-find (lambda (view) (lispm-desktop-sidebar--call (car view) :visible))
                  lispm-desktop-sidebar-views)))
 
 (defvar lispm-desktop-sidebar-prepare-function nil
@@ -584,10 +538,10 @@ Every other view is hidden first, so at most one is ever visible; see
     (funcall lispm-desktop-sidebar-prepare-function))
   (let ((current (lispm-desktop-sidebar-current-view)))
     (dolist (entry lispm-desktop-sidebar-views)
-      (when (funcall (plist-get (cdr entry) :visible))
-        (funcall (plist-get (cdr entry) :hide))))
+      (when (lispm-desktop-sidebar--call (car entry) :visible)
+        (lispm-desktop-sidebar--call (car entry) :hide)))
     (unless (eq view current)
-      (funcall (plist-get (alist-get view lispm-desktop-sidebar-views) :show))))
+      (lispm-desktop-sidebar--call view :show)))
   (run-hooks 'lispm-desktop-sidebar-change-hook)
   (force-mode-line-update t))
 
@@ -596,15 +550,9 @@ Every other view is hidden first, so at most one is ever visible; see
   (interactive)
   (lispm-desktop-sidebar-select 'files))
 
-(defun lispm-desktop-sidebar-shells ()
-  "Show the running shells in the left sidebar, or hide them when shown."
-  (interactive)
-  (lispm-desktop-sidebar-select 'shells))
-
-(defun lispm-desktop-sidebar-agents ()
-  "Show the agent sessions in the left sidebar, or hide them when shown."
-  (interactive)
-  (lispm-desktop-sidebar-select 'agents))
+(defvar lispm-desktop-sidebar-focus-view 'agents
+  "The view a hidden sidebar shows when the keyboard moves into it, see
+`lispm-desktop-sidebar-focus'.")
 
 (defun lispm-desktop-sidebar--window ()
   "Return the window of the left sidebar in the selected frame, or nil."
@@ -613,18 +561,16 @@ Every other view is hidden first, so at most one is ever visible; see
 (defun lispm-desktop-sidebar-focus ()
   "Move the keyboard into the left sidebar, or out of it to the main area.
 The sidebar is left out of `other-window', as Emacs leaves side windows
-out, so its list keys are reached this way; a hidden sidebar shows the
-Agents view first."
+out, so its list keys are reached this way; a hidden sidebar shows
+`lispm-desktop-sidebar-focus-view' first."
   (interactive)
   (let ((window (lispm-desktop-sidebar--window)))
     (cond ((and window (eq window (selected-window)))
-           (select-window (lispm-desktop-agent--main-window)))
+           (select-window (lispm-desktop-platinum-main-window)))
           (window (select-window window))
-          (t (lispm-desktop-sidebar-select 'agents)
+          (t (lispm-desktop-sidebar-select lispm-desktop-sidebar-focus-view)
              (when-let* ((window (lispm-desktop-sidebar--window)))
                (select-window window))))))
-
-
 
 (defun lispm-desktop-sidebar--close-side-window (_window)
   "Hide the sidebar's view, from a side window's close box.
@@ -638,10 +584,11 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   (and (lispm-desktop-sidebar-buffer-view buffer) 'yes))
 
 (defun lispm-desktop-setup-sidebar ()
-  "Let the sidebar's views close from their windows' close boxes, and its
-lists scroll as Finder's did."
+  "Let the sidebar's views close from their windows' close boxes, its lists
+scroll as Finder's did, and the project tree wear a list's toolbar."
   (setq lispm-desktop-platinum-side-window-close-function #'lispm-desktop-sidebar--close-side-window)
-  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar))
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar)
+  (add-hook 'treemacs-mode-hook #'lispm-desktop-sidebar--files-toolbar))
 
 (provide 'lispm-desktop-sidebar)
 ;;; lispm-desktop-sidebar.el ends here

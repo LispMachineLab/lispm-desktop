@@ -51,7 +51,6 @@
 (defvar lispm-interface)
 (defvar lispm-chat-agent)
 (defvar lispm-session-agent)
-(declare-function lispm-desktop-agent-list-refresh "lispm-desktop-agent-list" ())
 (declare-function lispm-sessions "lispm-runtime" ())
 (declare-function lispm-agent-display-buffer "lispm" (agent))
 (declare-function lispm-start "lispm-runtime" (&optional role root))
@@ -135,22 +134,13 @@ lispm-desktop-ai reads them."
                                                (symbol-name (lispm-agent-name agent))))
     (setq-local lispm-desktop-conversation-buffer t)))
 
-(defvar lispm-desktop-lispm--refresh-timer nil
-  "Pending refresh of the agents sidebar.")
-
 (defun lispm-desktop-lispm--changed (agent)
-  "Keep AGENT's buffer tagged, and refresh the agents sidebar soon."
+  "Keep AGENT's buffer tagged, and say its sessions changed."
   (let ((view (lispm-agent-view agent)))
     ;; /clear gives a standing agent a new session in the same chat.
     (when (buffer-live-p view)
       (with-current-buffer view (lispm-desktop-lispm--tag-buffer))))
-  (unless (timerp lispm-desktop-lispm--refresh-timer)
-    (setq lispm-desktop-lispm--refresh-timer
-          (run-with-idle-timer 0.3 nil
-                               (lambda ()
-                                 (setq lispm-desktop-lispm--refresh-timer nil)
-                                 (when (fboundp 'lispm-desktop-agent-list-refresh)
-                                   (lispm-desktop-agent-list-refresh)))))))
+  (run-hooks 'lispm-desktop-agents-changed-hook))
 
 ;;;; Commands
 
@@ -159,9 +149,7 @@ lispm-desktop-ai reads them."
 With a prefix argument, choose its ROLE."
   (interactive (list (and current-prefix-arg (lispm--read-role "Role"))))
   (if role
-      (lispm-desktop-agent--show (lispm-desktop-lispm-new (with-selected-window (lispm-desktop-agent--main-window)
-                                                          (lispm-desktop-agent--project-directory))
-                                              role))
+      (lispm-desktop-agent-show (lispm-desktop-lispm-new (lispm-desktop-agent-default-directory) role))
     (lispm-desktop-agent-new 'lispm)))
 
 (defun lispm-desktop-setup-lispm ()

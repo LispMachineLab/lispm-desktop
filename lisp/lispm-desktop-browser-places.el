@@ -44,7 +44,7 @@
 (require 'lispm-desktop-browser)
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-desktop-sidebar--toolbar-button "lispm-desktop-sidebar" (label command help row &optional state))
+(declare-function lispm-desktop-sidebar-toolbar-button "lispm-desktop-sidebar" (label command help row &optional state))
 
 ;;;; The Bookmarks menu
 
@@ -88,7 +88,7 @@ per bookmark, as Netscape's personal toolbar held them."
      (propertize " " 'display '(space :width (8) :height (26) :ascent 70))
      (if bookmarks
          (mapconcat (pcase-lambda (`(,name . ,url))
-                      (lispm-desktop-sidebar--toolbar-button
+                      (lispm-desktop-sidebar-toolbar-button
                        (concat " " (lispm-desktop-browser--ribbon) " "
                                (truncate-string-to-width name 22 nil nil "…") " ")
                        (lambda () (interactive) (lispm-browser-open-url url))
@@ -142,7 +142,7 @@ per bookmark, as Netscape's personal toolbar held them."
 (defun lispm-desktop-browser--places-tabs ()
   "Return the pane's tab line: a tab each for Bookmarks and History, and a
 button closing the pane."
-  (let ((close (lispm-desktop-sidebar--toolbar-button "✕" #'lispm-desktop-browser-hide-places
+  (let ((close (lispm-desktop-sidebar-toolbar-button "✕" #'lispm-desktop-browser-hide-places
                                                       "Close the pane" 'tab-line)))
     (concat (lispm-desktop-platinum-tabs
              (list (lispm-desktop-browser--places-tab 'bookmarks "Bookmarks")

@@ -86,6 +86,12 @@ Side windows and chrome windows, such as the browser's address window
   (sort (seq-filter #'lispm-desktop-platinum-main-window-p (window-list nil 'no-mini))
         (lambda (a b) (< (car (window-edges a)) (car (window-edges b))))))
 
+(defun lispm-desktop-platinum-main-window ()
+  "Return the most recently used window of the main area of this frame."
+  (or (car (sort (lispm-desktop-platinum-main-windows)
+                 (lambda (a b) (> (window-use-time a) (window-use-time b)))))
+      (selected-window)))
+
 ;;;; Title bars
 
 (defvar-local lispm-desktop-platinum-box-functions nil
