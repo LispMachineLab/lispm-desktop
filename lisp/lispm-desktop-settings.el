@@ -441,7 +441,7 @@ or a line an update, Restart to Update after them."
      (updates
       (dolist (update updates)
         (let* ((changes (plist-get update :changes))
-               (head (format "%s, %s" (plist-get update :name)
+               (head (format "%s, %s" (lispm-desktop-update-title update)
                              (lispm-desktop-settings--plural (length changes) "change"))))
           (insert lispm-desktop-settings--indent (propertize head 'face 'bold))
           (when changes

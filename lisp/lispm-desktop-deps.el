@@ -26,7 +26,7 @@
 ;; LispM Desktop runs two other LispM projects, each a repository of its
 ;; own: lispm-agent, LispM's agents, and lispm-browser, its browser.  Each
 ;; is found where it already is, else in a checkout beside the desktop's,
-;; else installed from its repository with package-vc:
+;; else its latest release is installed from its repository with package-vc:
 ;;
 ;;   on `load-path'        a copy the user's own init file put there
 ;;   ../lispm-agent/lisp   a checkout beside this one, as a developer
@@ -67,8 +67,9 @@ NAME is the directory of a checkout of it beside the desktop's.")
 (defun lispm-desktop-deps-ensure (feature)
   "Make FEATURE, a project of `lispm-desktop-deps', loadable.
 A copy already on `load-path' is used as it is; else a checkout beside the
-desktop's joins it, see `lispm-desktop-deps--checkout'; else the project
-is installed from its repository with package-vc.  The packages its main
+desktop's joins it, see `lispm-desktop-deps--checkout'; else the latest
+release of the project is installed from its repository with package-vc,
+the commit that last changed its Version header.  The packages its main
 file requires, and lacks, are installed."
   (pcase-let* ((`(,url ,checkout) (let ((spec (alist-get feature lispm-desktop-deps)))
                                     (list (plist-get spec :url) (plist-get spec :checkout))))
@@ -76,7 +77,7 @@ file requires, and lacks, are installed."
     (unless (locate-library file t)
       (if-let* ((directory (lispm-desktop-deps--checkout checkout)))
           (add-to-list 'load-path directory)
-        (package-vc-install (list feature :url url :lisp-dir "lisp"))))
+        (package-vc-install (list feature :url url :lisp-dir "lisp") :last-release)))
     (when-let* ((main (locate-library file t))
                 (missing (lispm-desktop-deps--requirements main)))
       (package-refresh-contents)

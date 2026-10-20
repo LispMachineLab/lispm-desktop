@@ -25,18 +25,22 @@
 
 ;; LispM runs from three git checkouts: lispm-desktop, lispm-agent and
 ;; lispm-browser, side by side in ~/.lispm as install.sh made them, or
-;; wherever a developer keeps them.  Software Update keeps each up to
-;; date with the branch it follows, as running install.sh again does:
+;; wherever a developer keeps them.  Each project releases its versions
+;; as tags of its main branch, v0.2.0 and on, and Software Update keeps
+;; each checkout at the latest release, as running install.sh again does:
 ;;
-;;   checking    fetches each checkout's branch in the background and
-;;               lists what is new; nothing changes yet
-;;   installing  moves each checkout on to what was fetched, as LispM
+;;   checking    fetches each checkout's branch and its tags in the
+;;               background and lists what the latest release brings;
+;;               nothing changes yet
+;;   installing  moves each checkout on to its latest release, as LispM
 ;;               quits, so that the code running never mixes old files
 ;;               and new; restarting LispM installs at once
 ;;
-;; A checkout with changes or commits of its own, or on no branch, is left
-;; as it is, as install.sh leaves it, and so is one installed as a
-;; package, which the package manager updates.  An update to LispM.app
+;; A checkout holding its latest release, or newer commits, as a
+;; developer's on the tip of main, is up to date.  One with changes or
+;; commits of its own, or on no branch, is left as it is, as install.sh
+;; leaves it, and so is one installed as a package, which the package
+;; manager updates.  An update to LispM.app
 ;; itself (install.sh, or macos/ of lispm-desktop) is installed by
 ;; install.sh, run once LispM has quit; it opens LispM again when done.
 ;;
@@ -94,6 +98,11 @@ first, and installs when told to."
     ("LispM Browser" . "lispm-browser.el"))
   "The LispM projects Software Update keeps up to date: (NAME . FILE), FILE
 a file of the project's lisp/ directory, as `locate-library' finds it.")
+
+(defconst lispm-desktop-update-release-regexp
+  "\\`v\\([0-9]+\\.[0-9]+\\.[0-9]+\\)\\'"
+  "What the tag of a release is: v and its version, as v0.2.0.
+A tag with more, as v0.3.0-rc1, is no release.")
 
 (defconst lispm-desktop-update-log-size 100
   "How many installs the log keeps.")
@@ -174,15 +183,16 @@ what it printed, trimmed, or nil when it failed, and what it said then."
 
 (defun lispm-desktop-update--git-steps (directory steps callback)
   "Run STEPS of git in DIRECTORY in the background, one after another.
-Each step is (ARGS . NEXT): NEXT is called with what git printed, or nil
-when it failed, and what it said then, and returns t to go on with the
-steps, or a result to stop with.  CALLBACK is called with the result, or
-nil when every step went on."
+Each step is (ARGS . NEXT): ARGS, or a function returning them once the
+steps before have run; NEXT is called with what git printed, or nil when
+it failed, and what it said then, and returns t to go on with the steps,
+or a result to stop with.  CALLBACK is called with the result, or nil
+when every step went on."
   (if (null steps)
       (funcall callback nil)
     (pcase-let ((`(,args . ,next) (car steps)))
       (lispm-desktop-update--git-async
-       directory args
+       directory (if (functionp args) (funcall args) args)
        (lambda (output errors)
          (let ((result (funcall next output errors)))
            (if (eq result t)
@@ -220,10 +230,35 @@ the checkout of one before it, as when the projects were one."
         (push (cons name top) checkouts)))
     (nreverse checkouts)))
 
+(defun lispm-desktop-update--release-version (tag)
+  "Return the version TAG releases, as \"0.2.0\" for v0.2.0, or nil when
+TAG is no release, see `lispm-desktop-update-release-regexp'."
+  (and tag (string-match lispm-desktop-update-release-regexp tag)
+       (match-string 1 tag)))
+
 (defun lispm-desktop-update-version (directory)
-  "Return the commit the checkout DIRECTORY holds and its date, as
-\"626d068, 2026-10-20\", or nil."
-  (lispm-desktop-update--git directory "log" "-1" "--format=%h, %cs"))
+  "Return what the checkout DIRECTORY holds, or nil: its release, as
+\"0.2.0\"; past it, the release, how many commits since and the commit,
+as \"0.2.0+3, 626d068\"; before the first release, the commit and its
+date, as \"626d068, 2026-10-20\"."
+  (let ((described (lispm-desktop-update--git directory "describe" "--tags" "--long"
+                                               "--match" "v[0-9]*" "--exclude" "*-*")))
+    (if (and described
+             (string-match "\\`\\(v.+\\)-\\([0-9]+\\)-g\\([0-9a-f]+\\)\\'" described))
+        (let ((tag (match-string 1 described))
+              (since (string-to-number (match-string 2 described)))
+              (commit (match-string 3 described)))
+          (if (zerop since)
+              (lispm-desktop-update--release-version tag)
+            (format "%s+%d, %s" (lispm-desktop-update--release-version tag) since commit)))
+      (lispm-desktop-update--git directory "log" "-1" "--format=%h, %cs"))))
+
+(defun lispm-desktop-update-title (update)
+  "Return what UPDATE is called: its project, and the version it brings,
+as \"LispM Desktop 0.3.0\"."
+  (string-join (delq nil (list (plist-get update :name)
+                               (lispm-desktop-update--release-version (plist-get update :release))))
+               " "))
 
 (defun lispm-desktop-update-installed ()
   "Return the checkouts of LispM and what each holds, (NAME DIRECTORY
@@ -244,45 +279,63 @@ worked out once, and again after a check or an install."
 its launcher and icon.")
 
 (defun lispm-desktop-update--check-checkout (name directory callback)
-  "Fetch the branch the checkout DIRECTORY of the project NAME follows, in
-the background, then call CALLBACK with what was found, a plist:
+  "Fetch the branch the checkout DIRECTORY of the project NAME follows, and
+its tags, in the background, then call CALLBACK with what was found, a
+plist:
 
   :name       NAME
   :directory  DIRECTORY
-  :state      `current', up to date; `update', an update is ready;
+  :state      `current', up to date; `update', a release is ready;
               `kept', left as it is; `failed', the check failed
   :reason     why it was kept, or what failed
-  :from, :to  the commit the checkout holds, and the one fetched
+  :release    the tag of the branch's latest release
+  :from, :to  the commit the checkout holds, and the release's
   :changes    the subjects of the commits the update brings
-  :app        non-nil when the update changes LispM.app"
-  (let ((result (list :name name :directory directory :state 'current)))
+  :app        non-nil when the update changes LispM.app
+
+The latest release is the tag of the highest version on the branch, see
+`lispm-desktop-update-release-regexp'.  A checkout holding it, or newer
+commits of the branch, is current, and so is one of a branch with no
+release yet."
+  (let ((result (list :name name :directory directory :state 'current))
+        (release nil))
     (cl-flet ((stop (state reason)
                 (plist-put (plist-put result :state state) :reason reason)))
       (lispm-desktop-update--git-steps
        directory
        `((("rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{upstream}")
           . ,(lambda (output _errors) (or (and output t) (stop 'kept "follows no branch"))))
-         (("fetch" "--quiet")
+         (("fetch" "--quiet" "--tags")
           . ,(lambda (output errors)
                (or (and output t)
                    (stop 'failed (string-remove-prefix "fatal: " (car (split-string errors "\n")))))))
-         (("rev-parse" "HEAD" "@{upstream}")
+         (("tag" "--list" "v*" "--sort=-v:refname" "--merged" "@{upstream}")
+          . ,(lambda (output _errors)
+               (setq release (seq-find #'lispm-desktop-update--release-version
+                                       (and output (split-string output "\n" t))))
+               (when release
+                 (setq result (plist-put result :release release)))
+               (or (and release t) result)))
+         (,(lambda () (list "rev-parse" "HEAD" (concat release "^{commit}")))
           . ,(lambda (output _errors)
                (pcase (and output (split-string output "\n"))
                  (`(,from ,to)
                   (setq result (plist-put (plist-put result :from from) :to to))
                   (or (not (equal from to)) result))
                  (_ (stop 'failed "its commits do not read")))))
-         (("merge-base" "--is-ancestor" "HEAD" "@{upstream}")
+         ;; Newer than the release, as a developer's checkout is.
+         (,(lambda () (list "merge-base" "--is-ancestor" release "HEAD"))
+          . ,(lambda (output _errors) (or (not output) result)))
+         (,(lambda () (list "merge-base" "--is-ancestor" "HEAD" release))
           . ,(lambda (output _errors) (or (and output t) (stop 'kept "has commits of its own"))))
          (("status" "--porcelain" "--untracked-files=no")
           . ,(lambda (output _errors)
                (or (equal output "") (stop 'kept "has changes of its own"))))
-         (("log" "--no-merges" "--format=%s" "HEAD..@{upstream}")
+         (,(lambda () (list "log" "--no-merges" "--format=%s" (concat "HEAD.." release)))
           . ,(lambda (output _errors)
                (setq result (plist-put result :changes (and output (split-string output "\n" t))))
                t))
-         (("diff" "--name-only" "HEAD" "@{upstream}" "--" ,@lispm-desktop-update-app-files)
+         (,(lambda () `("diff" "--name-only" "HEAD" ,release "--" ,@lispm-desktop-update-app-files))
           . ,(lambda (output _errors)
                (plist-put (plist-put result :state 'update)
                           :app (and (lispm-desktop-update--desktop-p directory)
@@ -372,7 +425,7 @@ what was found.  This runs from `lispm-desktop-update--timer'."
   "Return a line telling what UPDATES bring, by project."
   (mapconcat (lambda (update)
                (let ((count (length (plist-get update :changes))))
-                 (format "%s, %d %s" (plist-get update :name) count
+                 (format "%s, %d %s" (lispm-desktop-update-title update) count
                          (if (= count 1) "change" "changes"))))
              updates "; "))
 
@@ -421,7 +474,7 @@ quits, or before it loads any of the files changed."
   (let ((installed (seq-filter #'lispm-desktop-update--install-checkout
                                (or updates (lispm-desktop-update-updates)))))
     (dolist (update installed)
-      (push (list (current-time) (plist-get update :name) (plist-get update :from)
+      (push (list (current-time) (lispm-desktop-update-title update) (plist-get update :from)
                   (plist-get update :to) (plist-get update :changes))
             lispm-desktop-update--log))
     (when installed
@@ -576,7 +629,7 @@ Update installed, the latest first."
       (when-let* ((updates (lispm-desktop-update-updates)))
         (insert (propertize "Ready to install\n\n" 'face 'bold))
         (dolist (update updates)
-          (insert (propertize (format "%s  %s..%s\n" (plist-get update :name)
+          (insert (propertize (format "%s  %s..%s\n" (lispm-desktop-update-title update)
                                       (substring (plist-get update :from) 0 7)
                                       (substring (plist-get update :to) 0 7))
                               'face 'bold))

@@ -669,14 +669,14 @@ an error loading it is signalled once the redisplay is done."
 
 (ert-deftest lispm-desktop-test-deps-found-in-order ()
   "A project already on `load-path' is used as it is; else a checkout beside
-the desktop's joins `load-path'; else package-vc installs it from its
-repository, lisp/ holding its sources."
+the desktop's joins `load-path'; else package-vc installs its latest
+release from its repository, lisp/ holding its sources."
   (let ((installed nil)
         (found nil)
         (load-path '("/elsewhere")))
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) found))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
-              ((symbol-function 'package-vc-install) (lambda (spec) (push spec installed))))
+              ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (setq found "/elsewhere/lispm-browser.el")
       (lispm-desktop-deps-ensure 'lispm-browser)
       (should (equal load-path '("/elsewhere")))
@@ -687,8 +687,9 @@ repository, lisp/ holding its sources."
         (should (equal load-path '("/beside/lispm-agent/lisp" "/elsewhere")))
         (should-not installed)
         (lispm-desktop-deps-ensure 'lispm-browser))
-      (should (equal installed '((lispm-browser :url "https://github.com/LispMachineLab/lispm-browser"
-                                                :lisp-dir "lisp")))))))
+      (should (equal installed '(((lispm-browser :url "https://github.com/LispMachineLab/lispm-browser"
+                                                 :lisp-dir "lisp")
+                                  :last-release)))))))
 
 (ert-deftest lispm-desktop-test-directory ()
   "`lispm-desktop-directory' is the checkout, holding the agents' icons."
@@ -5528,7 +5529,8 @@ NAME it.  The catalog is listed and read."
 (defun lispm-desktop-test--git (directory &rest args)
   "Run git with ARGS in DIRECTORY, unsigned, as the tests' own author."
   (apply #'lispm-desktop-store--git directory
-         "-c" "user.name=LispM Test" "-c" "user.email=test@example.org" "-c" "commit.gpgsign=false"
+         "-c" "user.name=LispM Test" "-c" "user.email=test@example.org"
+         "-c" "commit.gpgsign=false" "-c" "tag.gpgsign=false"
          args))
 
 (ert-deftest lispm-desktop-test-store-fetches-catalogs ()
@@ -6059,6 +6061,11 @@ logged, its file a temporary one, installing as LispM quits."
   (lispm-desktop-test--update-commit directory file subject)
   (lispm-desktop-test--git directory "push" "--quiet" "origin" "HEAD:main"))
 
+(defun lispm-desktop-test--update-release (directory tag)
+  "Release what the clone DIRECTORY holds as TAG, and push the tag."
+  (lispm-desktop-test--git directory "tag" "-a" tag "-m" tag)
+  (lispm-desktop-test--git directory "push" "--quiet" "origin" tag))
+
 (defun lispm-desktop-test--update-repositories ()
   "Return (ROOT CHECKOUT WORK) of new repositories in ROOT: a bare origin
 with a first commit on main, CHECKOUT a clone of it following main, as
@@ -6086,22 +6093,32 @@ install.sh clones, and WORK another, whose pushes are the updates."
     result))
 
 (ert-deftest lispm-desktop-test-update-checks-and-installs ()
-  "A check fetches the branch a checkout follows and tells what is new,
-changing nothing; installing moves the checkout on to it and logs it,
-and the log is read back at the next start."
+  "A check fetches the branch a checkout follows and its tags, and tells
+what its latest release brings, changing nothing; commits not released
+yet are no update.  Installing moves the checkout on to the release and
+logs it, and the log is read back at the next start."
   (skip-unless (executable-find "git"))
   (lispm-desktop-test--with-update
     (pcase-let ((`(,root ,checkout ,work) (lispm-desktop-test--update-repositories)))
       (unwind-protect
           (let ((before (lispm-desktop-update--git checkout "rev-parse" "HEAD")))
-            (should (eq (plist-get (lispm-desktop-test--update-check checkout) :state) 'current))
+            ;; Before the first release, there is nothing to update to.
             (lispm-desktop-test--update-push work "b.txt" "Second")
+            (let ((result (lispm-desktop-test--update-check checkout)))
+              (should (eq (plist-get result :state) 'current))
+              (should-not (plist-get result :release)))
+            (should (string-match-p "\\`[0-9a-f]+, [0-9-]+\\'" (lispm-desktop-update-version checkout)))
             (lispm-desktop-test--update-push work "c.txt" "Third")
+            (lispm-desktop-test--update-release work "v0.2.0")
+            (lispm-desktop-test--update-release work "v0.2.0-rc1")
+            (lispm-desktop-test--update-push work "d.txt" "Fourth")
             (let ((result (lispm-desktop-test--update-check checkout)))
               (should (eq (plist-get result :state) 'update))
+              (should (equal (plist-get result :release) "v0.2.0"))
+              (should (equal (lispm-desktop-update-title result) "Test 0.2.0"))
               (should (equal (plist-get result :changes) '("Third" "Second")))
               (should (equal (plist-get result :from) before))
-              (should (equal (plist-get result :to) (lispm-desktop-update--git work "rev-parse" "HEAD")))
+              (should (equal (plist-get result :to) (lispm-desktop-update--git work "rev-parse" "v0.2.0^{commit}")))
               (should-not (plist-get result :app))
               ;; Fetched only: the files are as they were.
               (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") before))
@@ -6109,14 +6126,23 @@ and the log is read back at the next start."
               (should (equal (lispm-desktop-update-install (list result)) (list result)))
               (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") (plist-get result :to)))
               (should (file-exists-p (expand-file-name "c.txt" checkout)))
+              (should-not (file-exists-p (expand-file-name "d.txt" checkout)))
+              (should (equal (lispm-desktop-update-version checkout) "0.2.0"))
               (pcase-let ((`(,_time ,name ,from ,to ,changes) (car lispm-desktop-update--log)))
                 (should (equal (list name from to changes)
-                               (list "Test" before (plist-get result :to) '("Third" "Second")))))
+                               (list "Test 0.2.0" before (plist-get result :to) '("Third" "Second")))))
               (let ((log lispm-desktop-update--log))
                 (setq lispm-desktop-update--log nil)
                 (lispm-desktop-update--load)
                 (should (equal lispm-desktop-update--log log)))
-              (should (eq (plist-get (lispm-desktop-test--update-check checkout) :state) 'current))))
+              (should (eq (plist-get (lispm-desktop-test--update-check checkout) :state) 'current))
+              ;; Past the release, as a developer's checkout on main is, it
+              ;; is up to date too.
+              (lispm-desktop-test--git checkout "merge" "--quiet" "--ff-only" "origin/main")
+              (let ((result (lispm-desktop-test--update-check checkout)))
+                (should (eq (plist-get result :state) 'current))
+                (should (equal (plist-get result :release) "v0.2.0")))
+              (should (string-match-p "\\`0\\.2\\.0\\+1, [0-9a-f]+\\'" (lispm-desktop-update-version checkout)))))
         (delete-directory root t)))))
 
 (ert-deftest lispm-desktop-test-update-leaves-checkouts-alone ()
@@ -6131,6 +6157,7 @@ changes since."
                                  (should (eq (plist-get result :state) 'kept))
                                  (plist-get result :reason))))
             (lispm-desktop-test--update-push work "b.txt" "Second")
+            (lispm-desktop-test--update-release work "v0.2.0")
             (with-temp-file (expand-file-name "a.txt" checkout) (insert "mine\n"))
             (should (equal (reason) "has changes of its own"))
             (lispm-desktop-test--git checkout "checkout" "--quiet" "--" "a.txt")
@@ -6199,6 +6226,7 @@ Update asked for it, and install.sh is then run, after."
                       ((symbol-function 'lispm-desktop-update--run-installer)
                        (lambda (app reopen) (setq ran (list app reopen)))))
               (lispm-desktop-test--update-push work "install.sh" "Use a newer Emacs")
+              (lispm-desktop-test--update-release work "v0.2.0")
               (let ((result (lispm-desktop-test--update-check checkout)))
                 (should (plist-get result :app))
                 (setq lispm-desktop-update--results (list result))
@@ -6265,7 +6293,8 @@ last; with checking by itself off, none is made."
 install as LispM quits, else by an alert, once Emacs is idle."
   (lispm-desktop-test--with-update
     (let ((said nil) (idle nil)
-          (updates (list '(:name "LispM Desktop" :state update :to "abc" :changes ("A" "B")))))
+          (updates (list '(:name "LispM Desktop" :state update :release "v0.3.0" :to "abc"
+                                 :changes ("A" "B")))))
       (cl-letf (((symbol-function 'message) (lambda (format &rest args) (push (apply #'format format args) said)))
                 ((symbol-function 'run-with-idle-timer) (lambda (&rest args) (push args idle)))
                 ((symbol-function 'lispm-desktop-update--app) #'ignore))
@@ -6273,7 +6302,7 @@ install as LispM quits, else by an alert, once Emacs is idle."
         (lispm-desktop-update--announce updates)
         (lispm-desktop-update--announce updates)
         (should (= (length said) 1))
-        (should (string-search "LispM Desktop, 2 changes" (car said)))
+        (should (string-search "LispM Desktop 0.3.0, 2 changes" (car said)))
         (should-not idle)
         (setq lispm-desktop-update--announced nil
               lispm-desktop-update-install-automatically nil)
@@ -6349,13 +6378,14 @@ installed; its check boxes save their choices."
   (lispm-desktop-test--with-update
     (let ((saved nil))
       (cl-letf (((symbol-function 'lispm-desktop-update-installed)
-                 (lambda () '(("LispM Desktop" "/x/" "626d068, 2026-10-20"))))
+                 (lambda () '(("LispM Desktop" "/x/" "0.2.0+3, 626d068"))))
                 ((symbol-function 'lispm-desktop-update--app) #'ignore)
                 ((symbol-function 'customize-save-variable)
                  (lambda (variable value) (push (cons variable value) saved))))
         (setq lispm-desktop-update--checked (current-time)
               lispm-desktop-update--results
-              (list '(:name "LispM Desktop" :directory "/x/" :state update :changes ("Mend the menu" "Draw it"))))
+              (list '(:name "LispM Desktop" :directory "/x/" :state update :release "v0.3.0"
+                      :changes ("Mend the menu" "Draw it"))))
         (with-current-buffer (lispm-desktop-settings--buffer)
           (lispm-desktop-settings-select 'update)
           (let ((text (concat (buffer-string)
@@ -6364,9 +6394,9 @@ installed; its check boxes save their choices."
                                                              (get-text-property position 'lispm-desktop-platinum-label))
                                                            (number-sequence (point-min) (1- (point-max)))))
                                          " "))))
-            (dolist (label '("Update Now" "LispM Desktop, 2 changes" "Mend the menu" "Restart to Update"
+            (dolist (label '("Update Now" "LispM Desktop 0.3.0, 2 changes" "Mend the menu" "Restart to Update"
                              "or as LispM quits" "Check for updates automatically"
-                             "Every day" "Every week" "Ask me before installing updates" "626d068, 2026-10-20"
+                             "Every day" "Every week" "Ask me before installing updates" "0.2.0+3, 626d068"
                              "Show Log"))
               (should (string-search label text))))
           (should (equal lispm-desktop-platinum-title "Software Update"))
