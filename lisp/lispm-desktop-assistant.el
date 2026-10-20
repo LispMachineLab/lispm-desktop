@@ -48,6 +48,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-modal)
 
 (defconst lispm-desktop-assistant-questions
   '((lispm-desktop-editing-style
@@ -176,11 +177,10 @@ button at the bottom right, when PAGE goes back."
 
 (defun lispm-desktop-assistant--target-at (layout x y)
   "Return what the page of LAYOUT has at X, Y: a choice's index, `back' or nil."
-  (cl-flet ((inside (rect)
-              (pcase-let ((`(,left ,top ,width ,height) rect))
-                (and rect (<= left x (+ left width -1)) (<= top y (+ top height -1))))))
-    (or (cl-position-if #'inside (plist-get layout :cards))
-        (and (inside (plist-get layout :back)) 'back))))
+  (lispm-desktop-modal-hit (append (seq-map-indexed (lambda (card index) (cons index card))
+                                                    (plist-get layout :cards))
+                                   (list (cons 'back (plist-get layout :back))))
+                           x y))
 
 ;;;; Drawing
 
@@ -411,11 +411,7 @@ drawn again while the page and the window's size stay as they are."
 (defun lispm-desktop-assistant--read ()
   "Read the next event, a quit included, without quitting; nil after a while
 without one, so that a window resized meanwhile is drawn again."
-  (let* ((inhibit-quit t)
-         (event (let ((echo-keystrokes 0)) (read-event nil nil 0.5))))
-    (when (eq event ?\C-g)
-      (setq quit-flag nil))
-    event))
+  (lispm-desktop-modal-read 0.5))
 
 (defun lispm-desktop-assistant--quit-p (event)
   "Return non-nil when EVENT quits Emacs: Command-Q, or the frame closed."
@@ -441,10 +437,9 @@ for the mouse, (press . TARGET) as a button is pressed and
              (cl-position (downcase event) choices :key (lambda (choice) (plist-get (cdr choice) :key))))
         (cons 'choose (cl-position (downcase event) choices
                                    :key (lambda (choice) (plist-get (cdr choice) :key)))))
-       ((or (lispm-desktop-modal-confirm-p event) (eq event ?\s)) 'confirm)
-       ((memq event '(tab ?\t ?\C-f ?\C-n right down)) '(focus . 1))
-       ((memq event '(backtab S-tab S-iso-lefttab ?\C-b ?\C-p left up)) '(focus . -1))
-       ((memq event '(?\d backspace)) (and (plist-get page :back) 'back))
+       ((memq (lispm-desktop-modal-role event) '(confirm press)) 'confirm)
+       ((lispm-desktop-modal-step event) (cons 'focus (lispm-desktop-modal-step event)))
+       ((eq (lispm-desktop-modal-role event) 'back) (and (plist-get page :back) 'back))
        ((lispm-desktop-modal-cancel-p event) 'later)
        ((lispm-desktop-assistant--quit-p event) 'quit)
        ((eq (car-safe event) 'down-mouse-1) (cons 'press (target (event-start event))))
@@ -477,12 +472,12 @@ order, or nil when they were put off."
                       (setq focused (answered (car (nth index questions))))))
                   (blink (choice)
                     ;; A button chosen from the keyboard blinks as if pressed.
-                    (lispm-desktop-assistant--show page focused choice)
-                    (sit-for 0.12)))
+                    (lispm-desktop-modal-flash 'button
+                                               (lambda () (lispm-desktop-assistant--show page focused choice)))))
           (pcase action
             (`(choose . ,choice) (blink choice) (choose choice))
             ('confirm (blink focused) (choose focused))
-            (`(focus . ,step) (setq focused (mod (+ focused step) count)))
+            (`(focus . ,step) (setq focused (lispm-desktop-modal-cycle focused step count)))
             ('back (setq index (1- index) held nil pressed nil
                          focused (answered (car (nth index questions)))))
             ('later (setq result 'later))

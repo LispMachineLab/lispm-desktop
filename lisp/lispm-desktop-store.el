@@ -89,6 +89,7 @@
 (require 'package)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 
@@ -1102,7 +1103,7 @@ ID), the button of the item ID, (item . ID), or nil."
           (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box
                                        (+ gx (* column tw)) tw
                                        (car (lispm-desktop-store--action (car item) (cdr item))))))
-            (if (and (>= x bx) (< x (+ bx bw)) (>= y by) (< y (+ by lispm-desktop-platinum-button-height)))
+            (if (lispm-desktop-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y)
                 (cons 'button (car item))
               (cons 'item (car item))))))))))
 

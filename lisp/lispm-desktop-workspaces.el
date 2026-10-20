@@ -47,6 +47,7 @@
 (require 'svg)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-modal)
 (require 'lispm-desktop-editor)
 
 (declare-function tabspaces-switch-or-create-workspace "tabspaces" (&optional workspace))
@@ -354,10 +355,6 @@ COMMAND), or nil."
             ((get-text-property point 'lispm-desktop-workspace-action)
              (cons 'action (get-text-property point 'lispm-desktop-workspace-action)))))))
 
-(defun lispm-desktop-workspaces--move (index step count)
-  "Return INDEX moved STEP places among COUNT, wrapping around."
-  (mod (+ index step) count))
-
 (defun lispm-desktop-workspaces-choose (&optional step x y)
   "Show the workspaces' panel and return what was chosen, or nil.
 The value is (workspace . NAME) or (action . COMMAND).  The workspace
@@ -372,8 +369,8 @@ X, Y of the screen frame, or stands over its upper middle."
                           tabs))
          (current (lispm-desktop-editor--current-workspace))
          (count (length names))
-         (selected (lispm-desktop-workspaces--move (or (seq-position names current) 0) (or step 0)
-                                                   (max 1 count)))
+         (selected (lispm-desktop-modal-cycle (or (seq-position names current) 0) (or step 0)
+                                              (max 1 count)))
          (columns (min lispm-desktop-workspaces-columns (max 1 count)))
          (width (lispm-desktop-workspaces--width columns))
          (lispm-desktop-workspaces--images nil)
@@ -394,27 +391,28 @@ X, Y of the screen frame, or stands over its upper middle."
             (track-mouse
               (catch 'done
                 (while t
-                  (let ((event (lispm-desktop-modal-read)))
+                  (let* ((event (lispm-desktop-modal-read))
+                         (role (lispm-desktop-modal-role event))
+                         ;; Places to move the ring: along a row, or a row
+                         ;; down or up.  C-Tab and Command-` step as the
+                         ;; system's window switchers do.
+                         (move (cond ((or (memq role '(next right)) (memq event '(C-tab ?\M-`))) 1)
+                                     ((or (memq role '(previous left)) (memq event '(C-S-tab ?\M-~))) -1)
+                                     ((eq role 'down) columns)
+                                     ((eq role 'up) (- columns)))))
                     (cond
-                     ((lispm-desktop-modal-cancel-p event) (throw 'done nil))
-                     ((or (lispm-desktop-modal-confirm-p event) (eq event ?\s))
+                     ((eq role 'cancel) (throw 'done nil))
+                     ((memq role '(confirm press))
                       (setq choice (cons 'workspace (nth selected names)))
                       (throw 'done nil))
                      ;; Walking the menu bar, Left and Right go to the
                      ;; menus beside; Tab still moves among workspaces.
-                     ((and lispm-desktop-popup-menu-bar-step (memq event '(right ?\C-f)))
+                     ((and lispm-desktop-popup-menu-bar-step (eq role 'right))
                       (throw 'lispm-desktop-popup-menu-bar-step 1))
-                     ((and lispm-desktop-popup-menu-bar-step (memq event '(left ?\C-b)))
+                     ((and lispm-desktop-popup-menu-bar-step (eq role 'left))
                       (throw 'lispm-desktop-popup-menu-bar-step -1))
-                     ((memq event '(tab ?\t C-tab ?\M-` right ?\C-f))
-                      (setq selected (lispm-desktop-workspaces--move selected 1 count)) (redraw))
-                     ((memq event '(backtab S-tab C-S-tab ?\M-~ left ?\C-b))
-                      (setq selected (lispm-desktop-workspaces--move selected -1 count)) (redraw))
-                     ((memq event '(down ?\C-n))
-                      (setq selected (lispm-desktop-workspaces--move selected columns count)) (redraw))
-                     ((memq event '(up ?\C-p))
-                      (setq selected (lispm-desktop-workspaces--move selected (- columns) count))
-                      (redraw))
+                     (move
+                      (setq selected (lispm-desktop-modal-cycle selected move count)) (redraw))
                      ((and (characterp event) (<= ?1 event ?9) (<= (- event ?0) count))
                       (setq choice (cons 'workspace (nth (- event ?1) names)))
                       (throw 'done nil))

@@ -1544,6 +1544,7 @@ other key closes the panel and goes on to Emacs."
           (should (equal (choose '(tab return)) '((workspace . "B") nil)))
           (should (equal (choose '(?\C-f ?\C-f ?\s)) '((workspace . "C") nil)))
           (should (equal (choose '(backtab return)) '((workspace . "F") nil)))
+          (should (equal (choose '(S-iso-lefttab return)) '((workspace . "F") nil)))
           (should (equal (choose '(C-tab ?\M-` return)) '((workspace . "C") nil)))
           (should (equal (choose '(?\C-n return)) '((workspace . "E") nil)))
           (should (equal (choose '(?\C-p return)) '((workspace . "C") nil)))
@@ -2970,6 +2971,75 @@ from the edge."
                      nil)
                     'cancel))))))
 
+;;;; lispm-desktop-modal
+
+(ert-deftest lispm-desktop-test-modal-key-roles ()
+  "Every role of a key in a modal panel has a key the HHKB types: C-i for
+Tab, C-m for Return, C-[ and C-g for Escape, DEL for Back, and C-f, C-b,
+C-n and C-p for the arrows, which stay as well."
+  (should (eq (lispm-desktop-modal-role ?\C-i) 'next))
+  (should (eq (lispm-desktop-modal-role 'backtab) 'previous))
+  (should (eq (lispm-desktop-modal-role ?\C-m) 'confirm))
+  (should (eq (lispm-desktop-modal-role ?\C-\[) 'cancel))
+  (should (eq (lispm-desktop-modal-role ?\C-g) 'cancel))
+  (should (eq (lispm-desktop-modal-role ?\M-.) 'cancel))
+  (should (eq (lispm-desktop-modal-role ?\d) 'back))
+  (should (eq (lispm-desktop-modal-role ?\s) 'press))
+  (should (equal (mapcar #'lispm-desktop-modal-step '(?\C-f ?\C-n tab right ?\C-b ?\C-p backtab up ?a))
+                 '(1 1 1 1 -1 -1 -1 -1 nil)))
+  (should-not (lispm-desktop-modal-role ?a)))
+
+(ert-deftest lispm-desktop-test-modal-cycle ()
+  "A focus ring wraps around; from no control it goes to the first or the
+last, and it passes over the controls it is told to."
+  (should (= (lispm-desktop-modal-cycle 2 1 3) 0))
+  (should (= (lispm-desktop-modal-cycle 0 -1 3) 2))
+  (should (= (lispm-desktop-modal-cycle nil 1 3) 0))
+  (should (= (lispm-desktop-modal-cycle nil -1 3) 2))
+  (should (= (lispm-desktop-modal-cycle 1 4 6) 5))
+  (should (= (lispm-desktop-modal-cycle 0 1 4 (lambda (index) (/= index 1))) 2))
+  (should-not (lispm-desktop-modal-cycle 0 1 4 #'ignore))
+  (should-not (lispm-desktop-modal-cycle nil 1 0)))
+
+(ert-deftest lispm-desktop-test-modal-hit ()
+  "A click is on a control when it lies in its rectangle, the left and top
+edges in, the right and bottom out."
+  (let ((layout '((a 10 10 20 10) (b 30 10 20 10) (c 0 0 0 0))))
+    (should (eq (lispm-desktop-modal-hit layout 10 10) 'a))
+    (should (eq (lispm-desktop-modal-hit layout 29 19) 'a))
+    (should (eq (lispm-desktop-modal-hit layout 30 10) 'b))
+    (should-not (lispm-desktop-modal-hit layout 50 10))
+    (should-not (lispm-desktop-modal-hit layout 20 20))
+    (should-not (lispm-desktop-modal-hit layout 0 0))
+    (should-not (lispm-desktop-modal-inside-p nil 0 0))))
+
+(ert-deftest lispm-desktop-test-modal-flash ()
+  "A control chosen blinks for its kind's time: a button eight ticks, a
+menu item three, drawn back as it was when asked."
+  (let ((log nil))
+    (cl-letf (((symbol-function 'sit-for) (lambda (seconds) (push (list 'wait seconds) log)))
+              ((symbol-function 'redisplay) #'ignore))
+      (lispm-desktop-modal-flash 'button (lambda () (push 'pressed log)))
+      (should (equal (reverse log) '(pressed (wait 0.133))))
+      (setq log nil)
+      (lispm-desktop-modal-flash 'menu-item (lambda () (push 'off log)) (lambda () (push 'on log)))
+      (should (equal (reverse log) '(off (wait 0.05) on))))))
+
+(ert-deftest lispm-desktop-test-modal-needs-no-platinum ()
+  "The modal kit stands on its own: it loads none of the desktop's files."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "lisp/lispm-desktop-modal.el" lispm-desktop-directory))
+    (should-not (re-search-forward "(require 'lispm-desktop" nil t))))
+
+(ert-deftest lispm-desktop-test-modal-moved-p ()
+  "A move of the mouse by more than `double-click-fuzz' is a drag; less is
+a hand's jitter in a click."
+  (let ((double-click-fuzz 3))
+    (should-not (lispm-desktop-modal-moved-p '(3 . -3)))
+    (should (lispm-desktop-modal-moved-p '(4 . 0)))
+    (should (lispm-desktop-modal-moved-p '(0 . -4)))
+    (should-not (lispm-desktop-modal-moved-p nil))))
+
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
 `unread-command-events', its popup drawn nowhere.  In BODY, `draws' holds
@@ -3008,7 +3078,11 @@ the button ringed; a button's own keys press it."
         (should (eq (answer '(backtab ?\s)) 'save))
         (should (eq (answer '(?\C-b ?\C-b ?\s)) 'cancel))
         ;; Space with no button ringed presses nothing.
-        (should (eq (answer '(?\s return)) 'save))))))
+        (should (eq (answer '(?\s return)) 'save))
+        ;; C-n and C-p ring the buttons as Tab and Shift-Tab do.
+        (should (eq (answer '(?\C-n ?\s)) 'discard))
+        (should (eq (answer '(?\C-p ?\s)) 'save))
+        (should (eq (answer '(S-iso-lefttab ?\s)) 'save))))))
 
 (ert-deftest lispm-desktop-test-title-bar-clicks ()
   "A title bar brings its window forward, rolls up on a double click, and
@@ -4787,7 +4861,12 @@ whole meanwhile."
         (setq opened nil)
         (let ((unread-command-events (list ?\C-b ?\C-g)))
           (lispm-desktop-strip-select))
-        (should-not opened)))))
+        (should-not opened)
+        ;; Tab and Shift-Tab ring the modules too, as in any panel.
+        (setq rings nil)
+        (let ((unread-command-events (list ?\t ?\t 'backtab ?\C-g)))
+          (lispm-desktop-strip-select))
+        (should (equal (mapcar #'car (reverse rings)) '(appearance desktop keyboard desktop)))))))
 
 (ert-deftest lispm-desktop-test-strip-background-set-when-changed ()
   "Drawing the strip again sets its frame's background only when the

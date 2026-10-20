@@ -443,11 +443,8 @@ A submenu given as a function is asked for its items only now."
 
 (defun lispm-desktop-popup--step (items from direction)
   "Return the index of the next enabled item of ITEMS from FROM in DIRECTION."
-  (let* ((count (length items))
-         (index (or from (if (> direction 0) -1 count))))
-    (cl-loop repeat count
-             do (setq index (mod (+ index direction) count))
-             when (lispm-desktop-popup--enabled-p (nth index items)) return index)))
+  (lispm-desktop-modal-cycle from direction (length items)
+                             (lambda (index) (lispm-desktop-popup--enabled-p (nth index items)))))
 
 (defun lispm-desktop-popup--submenu-place (level index submenu room)
   "Return where the SUBMENU of LEVEL's item INDEX opens, as (X Y ALIGN) for
@@ -599,19 +596,20 @@ without entering it."
       (track-mouse
         (catch 'done
           (while t
-            (let ((event (lispm-desktop-modal-read)))
+            (let* ((event (lispm-desktop-modal-read))
+                   (role (lispm-desktop-modal-role event)))
               (cond
-               ((lispm-desktop-modal-cancel-p event) (throw 'done nil))
-               ((memq event '(down ?\C-n))
+               ((eq role 'cancel) (throw 'done nil))
+               ((eq role 'down)
                 (highlight focus (lispm-desktop-popup--step (plist-get focus :items)
                                                             (plist-get focus :highlight) 1)))
-               ((memq event '(up ?\C-p))
+               ((eq role 'up)
                 (highlight focus (lispm-desktop-popup--step (plist-get focus :items)
                                                             (plist-get focus :highlight) -1)))
-               ((memq event '(right ?\C-f))
+               ((eq role 'right)
                 (cond ((child focus) (enter focus))
                       (lispm-desktop-popup-menu-bar-step (throw 'lispm-desktop-popup-menu-bar-step 1))))
-               ((memq event '(left ?\C-b))
+               ((eq role 'left)
                 (let ((parent (cadr (memq focus (levels)))))
                   (cond (parent
                          (close-to focus)
@@ -624,7 +622,7 @@ without entering it."
                 (when-let* ((index (lispm-desktop-popup--item-starting
                                     (plist-get focus :items) (plist-get focus :highlight) event)))
                   (highlight focus index)))
-               ((lispm-desktop-modal-confirm-p event)
+               ((eq role 'confirm)
                 (let ((chosen (item focus)))
                   (cond ((null chosen))
                         ((lispm-desktop-popup--submenu chosen) (enter focus))
@@ -642,8 +640,10 @@ without entering it."
                             (chosen (nth index (plist-get level :items))))
                   (unless (lispm-desktop-popup--submenu chosen)
                     ;; As Mac OS 9 did, the chosen item blinks once.
-                    (plist-put level :highlight nil) (redraw level) (sit-for 0.05)
-                    (plist-put level :highlight index) (redraw level) (sit-for 0.05)
+                    (lispm-desktop-modal-flash 'menu-item
+                                               (lambda () (plist-put level :highlight nil) (redraw level))
+                                               (lambda () (plist-put level :highlight index) (redraw level)))
+                    (sit-for (alist-get 'menu-item lispm-desktop-modal-flashes))
                     (throw 'done chosen))))))))))))
 
 (defun lispm-desktop-popup--run (item)
@@ -1029,12 +1029,10 @@ The buttons' places are kept in FRAME's `lispm-desktop-popup-buttons'."
   "Return the value of the alert button under EVENT in FRAME, or nil."
   (when-let* ((position (lispm-desktop-modal-over event frame))
               (xy (posn-x-y position)))
-    (pcase-let ((`(,x . ,y) xy))
-      (seq-some (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
-                  (and (<= left x (+ left width -1))
-                       (<= top y (+ top lispm-desktop-platinum-button-height -1))
-                       value))
-                (frame-parameter frame 'lispm-desktop-popup-buttons)))))
+    (lispm-desktop-modal-hit (mapcar (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
+                                       (list value left top width lispm-desktop-platinum-button-height))
+                                     (frame-parameter frame 'lispm-desktop-popup-buttons))
+                             (car xy) (cdr xy))))
 
 (defun lispm-desktop-popup-open-alert (icon message buttons &optional detail)
   "Show an alert of ICON, MESSAGE, BUTTONS and DETAIL.
@@ -1066,42 +1064,39 @@ are events pressing a button too, as Command-D pressed Don't Save."
              (values (mapcar #'cadr buttons))
              (pressed nil) (held nil) (focused nil) (choice cancel))
         (unwind-protect
-            (cl-flet ((redraw ()
-                        (lispm-desktop-popup--draw-alert popup icon message detail buttons pressed focused)
-                        (redisplay t))
-                      (focus (step)
-                        ;; Tab goes from no button to the first, as from the
-                        ;; message to the controls.
-                        (let ((index (seq-position values focused)))
-                          (setq focused (nth (mod (if index (+ index step) (if (> step 0) 0 -1))
-                                                  (length values))
-                                             values)))))
+            (cl-flet* ((redraw ()
+                         (lispm-desktop-popup--draw-alert popup icon message detail buttons pressed focused)
+                         (redisplay t))
+                       (press (value)
+                         ;; A button pressed from the keyboard blinks, as
+                         ;; Mac OS 9's did, and is chosen.
+                         (lispm-desktop-modal-flash 'button (lambda () (setq pressed value) (redraw)))
+                         (setq choice value) (throw 'done nil)))
               (track-mouse
                 (catch 'done
                   (while t
-                    (let ((event (lispm-desktop-modal-read)))
+                    (let* ((event (lispm-desktop-modal-read))
+                           (role (lispm-desktop-modal-role event))
+                           (step (lispm-desktop-modal-step event)))
                       (cond
                        ((seq-find (lambda (button) (memql event (nthcdr 3 button))) buttons)
-                        (setq pressed (nth 1 (seq-find (lambda (button)
-                                                         (memql event (nthcdr 3 button)))
-                                                       buttons)))
-                        (redraw) (sit-for 0.12)
-                        (setq choice pressed) (throw 'done nil))
-                       ((and (lispm-desktop-modal-cancel-p event) (or cancel default))
+                        (press (nth 1 (seq-find (lambda (button) (memql event (nthcdr 3 button)))
+                                                buttons))))
+                       ((and (eq role 'cancel) (or cancel default))
                         ;; An alert with no Cancel, only OK, is dismissed.
                         (setq choice (or cancel default)) (throw 'done nil))
-                       ((and (lispm-desktop-modal-confirm-p event) default)
-                        ;; The default button blinks as it is pressed.
-                        (setq pressed default) (redraw) (sit-for 0.12)
-                        (setq choice default) (throw 'done nil))
-                       ((memq event '(tab ?\t ?\C-f right))
-                        (focus 1) (redraw))
-                       ((memq event '(backtab S-tab ?\C-b left))
-                        (focus -1) (redraw))
-                       ((and focused (eq event ?\s))
+                       ((and (eq role 'confirm) default)
+                        (press default))
+                       (step
+                        ;; Tab goes from no button to the first, as from the
+                        ;; message to the controls.
+                        (setq focused (nth (lispm-desktop-modal-cycle (seq-position values focused) step
+                                                                      (length values))
+                                           values))
+                        (redraw))
+                       ((and focused (eq role 'press))
                         ;; Space presses the button the keyboard is on.
-                        (setq pressed focused) (redraw) (sit-for 0.12)
-                        (setq choice focused) (throw 'done nil))
+                        (press focused))
                        ((lispm-desktop-modal-mouse-down-p event)
                         (when (setq held (lispm-desktop-popup--button-at event popup))
                           (setq pressed held) (redraw)))
