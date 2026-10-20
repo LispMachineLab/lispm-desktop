@@ -53,19 +53,35 @@
 (setq native-comp-async-report-warnings-errors 'silent
       native-comp-async-jobs-number 2)
 
-;; GCC's driver, unless told which macOS to build for, works it out from
-;; Darwin's version, and since Apple numbered macOS after the year (26) the
-;; GCC of some Emacs builds, LispM.app's among them, works out a version
-;; such as 18.0, which clang refuses: nothing compiles.  Every macOS Emacs
-;; runs on is 11 or later.
+;; Two things GCC's driver works out for itself on macOS go wrong in some
+;; Emacs builds, LispM.app's among them, and then nothing compiles:
+;;
+;; - which macOS to build for, from Darwin's version: since Apple numbered
+;;   macOS after the year (26) it can come to 18.0, which clang refuses.
+;;   Every macOS Emacs runs on is 11 or later.
+;; - the SDK, the command line tools' as GCC was configured, while it links
+;;   with the ld of the developer directory xcode-select chose; Xcode 26's
+;;   ld cannot read the macOS 27 SDK's libraries.  The chosen directory's
+;;   own SDK always suits its ld.
 (defvar native-comp-driver-options)
+(defun lispm-desktop-early--sdk ()
+  "Return the SDK of the developer directory xcode-select chose, or nil."
+  (when-let* ((sdk (ignore-errors (car (process-lines "xcrun" "--show-sdk-path"))))
+              ((file-directory-p sdk)))
+    sdk))
+
 (when (and (eq system-type 'darwin)
            (fboundp 'native-comp-available-p)
            (native-comp-available-p))
   (with-eval-after-load 'comp
-    (unless (string-search "-mmacosx-version-min=" (mapconcat #'identity native-comp-driver-options " "))
-      (setq native-comp-driver-options
-            (append native-comp-driver-options '("-mmacosx-version-min=11.0"))))))
+    (let ((options (mapconcat #'identity native-comp-driver-options " ")))
+      (unless (string-search "-mmacosx-version-min=" options)
+        (setq native-comp-driver-options
+              (append native-comp-driver-options '("-mmacosx-version-min=11.0"))))
+      (unless (string-search "-isysroot" options)
+        (when-let* ((sdk (lispm-desktop-early--sdk)))
+          (setq native-comp-driver-options
+                (append native-comp-driver-options (list "-isysroot" sdk))))))))
 
 ;; Frames stay fully opaque: on macOS any transparency makes every redraw
 ;; composite the whole window, which made scrolling a terminal stutter.
