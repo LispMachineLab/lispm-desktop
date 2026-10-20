@@ -264,6 +264,36 @@ project of its name; the Codex app's scratch tree holds chats."
         (clrhash lispm-desktop-agent--root-cache)
         (delete-directory repo t)))))
 
+(ert-deftest lispm-desktop-test-agent-archive-survives-an-unreadable-state ()
+  "Archived sessions are kept across starts; a state file that does not
+read is moved aside, not replaced by the next archiving."
+  (let* ((directory (make-temp-file "lispm-desktop-test-state" t))
+         (lispm-desktop-agent-state-file (expand-file-name "agent-sessions.eld" directory))
+         (lispm-desktop-agent--archived 'unloaded)
+         (cut-short "(:archived (\"claude:1\" \"cod")
+         (one '(:agent claude :id "1"))
+         (two '(:agent codex :id "2")))
+    (unwind-protect
+        (progn
+          (lispm-desktop-agent--set-archived one t)
+          (should-not (file-exists-p (concat lispm-desktop-agent-state-file ".part")))
+          (setq lispm-desktop-agent--archived 'unloaded)
+          (should (lispm-desktop-agent--archived-p one))
+          (should-not (lispm-desktop-agent--archived-p two))
+          ;; A write cut short leaves a file that does not read.
+          (with-temp-file lispm-desktop-agent-state-file (insert cut-short))
+          (setq lispm-desktop-agent--archived 'unloaded)
+          (let ((inhibit-message t))
+            (should-not (lispm-desktop-agent--archived-p one)))
+          (lispm-desktop-agent--set-archived two t)
+          (should (equal (with-temp-buffer
+                           (insert-file-contents (concat lispm-desktop-agent-state-file ".unreadable"))
+                           (buffer-string))
+                         cut-short))
+          (setq lispm-desktop-agent--archived 'unloaded)
+          (should (equal (lispm-desktop-agent--archived-keys) '("codex:2"))))
+      (delete-directory directory t))))
+
 (ert-deftest lispm-desktop-test-codex-sessions-named-by-the-index ()
   "A Codex session is titled by its thread name in the index, else by its
 first prompt; context Codex injects is no prompt."
