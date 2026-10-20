@@ -3722,6 +3722,16 @@ menu of the module beside, as along the menu bar."
         (should (equal (lispm-desktop-strip--walk (lispm-desktop-strip--modules) 0) '(nil . 0)))
         (should (equal opened '(appearance mail appearance)))))))
 
+(ert-deftest lispm-desktop-test-library-path-takes-the-chosen-sdk ()
+  "Only the command line tools' SDK on LIBRARY_PATH gives way to the chosen one."
+  (require 'lispm-desktop-early)
+  (let ((path-separator ":")
+        (xcode "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib"))
+    (should (equal (lispm-desktop-early--library-path
+                    "/a/gcc/lib/:/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/:/opt/lib" xcode)
+                   (concat "/a/gcc/lib/:" xcode ":/opt/lib")))
+    (should (equal (lispm-desktop-early--library-path "/a/gcc/lib" xcode) "/a/gcc/lib"))))
+
 ;;;; Applications and the App Store
 
 (require 'package-vc)

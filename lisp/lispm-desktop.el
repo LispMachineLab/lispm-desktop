@@ -95,7 +95,7 @@ A key of `lispm-desktop-sidebar-views'."
   (pcase (car (read-multiple-choice
                "Welcome to LispM.  How do you edit text?"
                '((?v "vim" "Vim keys (Evil) in files, SPC as the leader key")
-                 (?e "emacs" "Emacs keys everywhere"))))
+                 (?e "emacs" "Emacs keys everywhere; the one to choose if you know neither"))))
     (?v 'vim)
     (_ 'emacs)))
 
