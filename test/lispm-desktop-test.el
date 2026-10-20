@@ -1513,6 +1513,45 @@ routing while the old workspace is still in front."
     (should-not (lispm-desktop-editor--new-workspace-buffer))
     (should (equal (buffer-name (window-buffer)) lispm-desktop-editor-splash-buffer-name))))
 
+(ert-deftest lispm-desktop-test-workspaces-chooser-keys ()
+  "The workspaces' panel answers from the keyboard: Return or Space chooses
+the workspace ringed, Tab, C-Tab, Command-` and C-f ring the next, C-n
+the one a row down, a digit chooses at once; Escape gives up, and any
+other key closes the panel and goes on to Emacs."
+  (let ((tabs (mapcar (lambda (name) `(tab (name . ,name))) '("A" "B" "C" "D" "E" "F")))
+        (lispm-desktop-workspaces-columns 4))
+    (cl-letf (((symbol-function 'lispm-desktop-editor-frame) #'selected-frame)
+              ((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore)
+              ((symbol-function 'lispm-desktop-apps-screen) #'selected-frame)
+              ((symbol-function 'lispm-desktop-editor--workspace-tab-p) #'always)
+              ((symbol-function 'lispm-desktop-editor--current-workspace) (lambda () "A"))
+              ((symbol-function 'lispm-desktop-workspaces--layout) #'ignore)
+              ((symbol-function 'lispm-desktop-workspaces--width) (lambda (_) 100))
+              ((symbol-function 'lispm-desktop-workspaces--text) (lambda (&rest _) ""))
+              ((symbol-function 'lispm-desktop-popup--frame) (lambda (_) 'panel))
+              ((symbol-function 'lispm-desktop-popup--fill) #'ignore)
+              ((symbol-function 'lispm-desktop-popup--size) #'ignore)
+              ((symbol-function 'lispm-desktop-popup--show) #'ignore)
+              ((symbol-function 'lispm-desktop-popup--dispose) #'ignore)
+              ((symbol-function 'frame-root-window) #'ignore)
+              ((symbol-function 'window-text-pixel-size) (lambda (&rest _) '(100 . 100)))
+              ((symbol-function 'redisplay) #'ignore))
+      (let ((tab-bar-tabs-function (lambda (&optional _) tabs)))
+        (cl-flet ((choose (events &optional step)
+                    (let ((unread-command-events events))
+                      (list (lispm-desktop-workspaces-choose step) unread-command-events))))
+          (should (equal (choose '(return)) '((workspace . "A") nil)))
+          (should (equal (choose '(tab return)) '((workspace . "B") nil)))
+          (should (equal (choose '(?\C-f ?\C-f ?\s)) '((workspace . "C") nil)))
+          (should (equal (choose '(backtab return)) '((workspace . "F") nil)))
+          (should (equal (choose '(C-tab ?\M-` return)) '((workspace . "C") nil)))
+          (should (equal (choose '(?\C-n return)) '((workspace . "E") nil)))
+          (should (equal (choose '(?\C-p return)) '((workspace . "C") nil)))
+          (should (equal (choose '(?3)) '((workspace . "C") nil)))
+          (should (equal (choose '(escape)) '(nil nil)))
+          (should (equal (choose '(?x)) '(nil (?x))))
+          (should (equal (choose '(return) 1) '((workspace . "B") nil))))))))
+
 (ert-deftest lispm-desktop-test-editor-workspaces-leave-out-desktop-and-browser ()
   "The desktop's and the browser's workspaces are not the editor's."
   (should-not (lispm-desktop-editor--workspace-tab-p '(tab (name . "Desktop"))))
@@ -2930,6 +2969,46 @@ from the edge."
                      (list 'mouse-1 (list (selected-window) 1 (cons (+ x 5) (+ y 5)) 0))
                      nil)
                     'cancel))))))
+
+(defmacro lispm-desktop-test--with-alert-keys (&rest body)
+  "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
+`unread-command-events', its popup drawn nowhere.  In BODY, `draws' holds
+the (PRESSED FOCUSED) of each drawing, the latest first."
+  (declare (indent 0))
+  `(let ((draws nil))
+     (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) (lambda () t))
+               ((symbol-function 'lispm-desktop-popup-open-alert) (lambda (&rest _) 'alert))
+               ((symbol-function 'lispm-desktop-popup--draw-alert)
+                (lambda (_frame _icon _message _detail _buttons pressed focused)
+                  (push (list pressed focused) draws)))
+               ((symbol-function 'lispm-desktop-popup--dispose) #'ignore)
+               ((symbol-function 'sit-for) #'ignore)
+               ((symbol-function 'redisplay) #'ignore))
+       ,@body)))
+
+(ert-deftest lispm-desktop-test-alert-keys ()
+  "An alert answers from the keyboard: Return presses its default button,
+Escape its Cancel, or its default when it has none; Tab and Shift-Tab,
+C-f and C-b move the focus ring from button to button, and Space presses
+the button ringed; a button's own keys press it."
+  (let ((buttons '(("Don’t Save" discard nil ?\M-d) ("Cancel" cancel cancel) ("Save" save default))))
+    (lispm-desktop-test--with-alert-keys
+      (cl-flet ((answer (events &optional given)
+                  (let ((unread-command-events events))
+                    (lispm-desktop-popup-alert 'caution "Save?" (or given buttons)))))
+        (should (eq (answer '(return)) 'save))
+        (should (eq (answer '(?\r)) 'save))
+        (should (eq (answer '(escape)) 'cancel))
+        (should (eq (answer '(?\C-g)) 'cancel))
+        (should (eq (answer '(escape) '(("OK" ok default))) 'ok))
+        (should (eq (answer '(?\M-d)) 'discard))
+        (should (eq (answer '(tab ?\s)) 'discard))
+        (should (eq (answer '(tab tab ?\s)) 'cancel))
+        (should (eq (answer '(?\C-f ?\C-f ?\C-f ?\s)) 'save))
+        (should (eq (answer '(backtab ?\s)) 'save))
+        (should (eq (answer '(?\C-b ?\C-b ?\s)) 'cancel))
+        ;; Space with no button ringed presses nothing.
+        (should (eq (answer '(?\s return)) 'save))))))
 
 (ert-deftest lispm-desktop-test-title-bar-clicks ()
   "A title bar brings its window forward, rolls up on a double click, and
