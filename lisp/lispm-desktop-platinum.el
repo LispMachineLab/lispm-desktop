@@ -2889,6 +2889,17 @@ be resized; a side window cannot."
 ;; `lispm-desktop-platinum-show-window' and `lispm-desktop-platinum-hide-window'.
 ;; Pressed, the frame moves its window, as Mac OS 9's did; see "Moving and
 ;; growing windows" below.
+;;
+;; On macOS the window system also resizes an undecorated frame, as both
+;; are, dragged by its edges, behind Emacs's back, and parts the two:
+;;
+;;   the window's left or top edge   the window moves in its frame, which
+;;                                   follows it there
+;;   the frame's edge                the frame alone changes, and the
+;;                                   window takes the size it leaves it
+;;
+;; and the window is then kept in place as after its grow box.  A theme
+;; changing the frame's font changes its size too, and that is only undone.
 
 (defcustom lispm-desktop-platinum-window-frames t
   "Non-nil frames floating windows as Mac OS 9 framed its windows."
@@ -3041,22 +3052,94 @@ Return FRAME."
         (make-frame-visible outer))
       (modify-frame-parameters frame `((parent-frame . ,outer)))
       ;; Emacs takes a frame just given a parent to be where it was asked
-      ;; to be before; moved by a pixel first, it is placed anew.
-      (set-frame-position frame (1+ left) top)
-      (set-frame-position frame left top)))
+      ;; to be before.
+      (lispm-desktop-platinum--stand-in-frame frame)))
   frame)
+
+(defun lispm-desktop-platinum--stand-in-frame (frame)
+  "Put floating window FRAME at the insets in the frame carrying it.  Emacs
+may take FRAME to be there already while the window system has it
+elsewhere; moved by a pixel first, it is placed anew."
+  (pcase-let ((`(,left . ,top) lispm-desktop-platinum-frame-inset))
+    (set-frame-position frame (1+ left) top)
+    (set-frame-position frame left top)))
+
+(defun lispm-desktop-platinum--frame-size (frame)
+  "Return the size of the frame of floating window FRAME: (WIDTH . HEIGHT)
+in pixels, FRAME's and the insets."
+  (pcase-let ((`(,left . ,top) lispm-desktop-platinum-frame-inset))
+    (cons (+ (frame-pixel-width frame) (* 2 left) 1)
+          (+ (frame-pixel-height frame) top left 1))))
+
+(defvar lispm-desktop-platinum-window-min-size)
+
+(defun lispm-desktop-platinum--frame-follow (frame outer)
+  "Bring floating window FRAME and OUTER, the frame drawing its frame,
+together again after the window system resized either from its edges, as
+\"Window frames\" above tells.  Return non-nil when it had."
+  (when (eq (frame-parent frame) outer)
+    (pcase-let ((`(,left . ,top) lispm-desktop-platinum-frame-inset)
+                (`(,x . ,y) (frame-position frame))
+                (size (frame-parameter outer 'lispm-desktop-platinum-size)))
+      (cond ((not (and (= x left) (= y top)))
+             ;; The window's left or top edge: it moved in its frame, and
+             ;; the frame follows it there.
+             (pcase-let ((`(,outer-x . ,outer-y) (frame-position outer)))
+               (set-frame-position outer (+ outer-x (- x left)) (+ outer-y (- y top))))
+             (set-frame-position frame left top)
+             t)
+            ((and size
+                  ;; None of the sizes it was given lately: the window
+                  ;; system tells of each a while after it was set.
+                  (not (member (cons (frame-pixel-width outer) (frame-pixel-height outer))
+                               (frame-parameter outer 'lispm-desktop-platinum-sizes)))
+                  ;; Neither the window's size changed nor the frame's font.
+                  (equal (lispm-desktop-platinum--frame-size frame) size)
+                  (equal (frame-parameter outer 'font)
+                         (frame-parameter outer 'lispm-desktop-platinum-font)))
+             ;; The frame's edge: the window takes the size it leaves it, a
+             ;; rolled-up window only its width, and stands in it again,
+             ;; where the frame's left or top edge went.
+             (let ((least lispm-desktop-platinum-window-min-size)
+                   (width (+ (frame-text-width frame) (- (frame-pixel-width outer) (car size))))
+                   (height (+ (frame-text-height frame) (- (frame-pixel-height outer) (cdr size)))))
+               (set-frame-size frame (max (car least) width)
+                               (if (lispm-desktop-platinum-rolled-up-height frame)
+                                   (frame-text-height frame)
+                                 (max (cdr least) height))
+                               t))
+             (lispm-desktop-platinum--stand-in-frame frame)
+             t)))))
+
+(defvar lispm-desktop-platinum--resize-timers nil
+  "Timers keeping windows resized from their edges in place: (FRAME . TIMER).")
+
+(defun lispm-desktop-platinum--resized-from-edges (frame)
+  "Keep floating window FRAME in place, as after its grow box, see
+`lispm-desktop-platinum-frame-moved-functions', once the window system is
+done resizing it from its edges, a step at a time."
+  (when-let* ((timer (alist-get frame lispm-desktop-platinum--resize-timers)))
+    (cancel-timer timer))
+  (setf (alist-get frame lispm-desktop-platinum--resize-timers)
+        (run-at-time 0.2 nil
+                     (lambda ()
+                       (setf (alist-get frame lispm-desktop-platinum--resize-timers nil t) nil)
+                       (when (frame-live-p frame)
+                         (run-hook-with-args 'lispm-desktop-platinum-frame-moved-functions frame))))))
 
 (defun lispm-desktop-platinum--frame-update (frame)
   "Bring the frame of floating window FRAME up to date: as large as FRAME
-and the insets, and drawn active while FRAME is selected."
+and the insets, around FRAME again when the window system resized either
+from its edges, and drawn active while FRAME is selected."
   (when-let* ((outer (frame-parameter frame 'lispm-desktop-platinum-frame))
               ((frame-live-p outer))
               ((frame-live-p frame)))
-    (let* ((inset lispm-desktop-platinum-frame-inset)
-           (width (+ (frame-pixel-width frame) (* 2 (car inset)) 1))
-           (height (+ (frame-pixel-height frame) (cdr inset) (car inset) 1))
+    (when (lispm-desktop-platinum--frame-follow frame outer)
+      (lispm-desktop-platinum--resized-from-edges frame))
+    (let* ((size (lispm-desktop-platinum--frame-size frame))
+           (width (car size))
+           (height (cdr size))
            (active (eq frame (selected-frame)))
-           (size (cons width height))
            (key (list lispm-desktop-platinum--generation width height active)))
       (unless (and (equal size (frame-parameter outer 'lispm-desktop-platinum-size))
                    ;; Emacs sizes a frame anew to whole lines as its fonts
@@ -3064,10 +3147,17 @@ and the insets, and drawn active while FRAME is selected."
                    (= (frame-pixel-width outer) width)
                    (= (frame-pixel-height outer) height))
         (set-frame-parameter outer 'lispm-desktop-platinum-size size)
+        (set-frame-parameter outer 'lispm-desktop-platinum-sizes
+                             (seq-take (cons size (remove size (frame-parameter outer 'lispm-desktop-platinum-sizes)))
+                                       4))
         (let ((window-min-width 1) (window-safe-min-width 1)
               (window-min-height 1) (window-safe-min-height 1)
               (frame-resize-pixelwise t))
           (set-frame-size outer width height t)))
+      ;; The font the frame was last sized in: changed, it changed the
+      ;; frame's size, which no edge did.
+      (unless (equal (frame-parameter outer 'font) (frame-parameter outer 'lispm-desktop-platinum-font))
+        (set-frame-parameter outer 'lispm-desktop-platinum-font (frame-parameter outer 'font)))
       (unless (equal key (frame-parameter outer 'lispm-desktop-platinum-key))
         (set-frame-parameter outer 'lispm-desktop-platinum-key key)
         (set-frame-parameter outer 'background-color (lispm-desktop-platinum--color :chrome))
@@ -3082,9 +3172,10 @@ and the insets, and drawn active while FRAME is selected."
 (defun lispm-desktop-platinum-frames-sync (&rest _)
   "Bring every floating window's frame up to date, and take away the frames
 of windows gone.  A window's frame is its parent and goes with it, so
-only its size and whether it is drawn active are left to follow: this
-runs as windows change size, as the selection changes and as a theme is
-enabled."
+only its size and whether it is drawn active are left to follow, and the
+two put together again after the window system resized either from its
+edges: this runs as windows change size, as the selection changes and as
+a theme is enabled."
   (dolist (frame (frame-list))
     (cond ((frame-parameter frame 'lispm-desktop-platinum-frames)
            (unless (frame-live-p (frame-parameter frame 'lispm-desktop-platinum-frames))
@@ -3093,6 +3184,15 @@ enabled."
                (kill-buffer buffer))))
           ((frame-parameter frame 'lispm-desktop-window)
            (lispm-desktop-platinum--frame-update frame)))))
+
+(defun lispm-desktop-platinum--frame-moved (frame)
+  "Bring the frame of a floating window up to date when FRAME, the window or
+its frame, moved: the window system moves either resizing it from its
+left or top edge.  This is a `move-frame-functions' function."
+  (when-let* ((window (if (frame-parameter frame 'lispm-desktop-window)
+                          frame
+                        (lispm-desktop-platinum-window-frame-p frame))))
+    (lispm-desktop-platinum--frame-update window)))
 
 (defun lispm-desktop-platinum--frame-press (event)
   "Move the window whose frame EVENT pressed by its outline, as Mac OS 9's
@@ -3108,7 +3208,8 @@ large as its window and drawn active with it."
   (add-hook 'window-size-change-functions #'lispm-desktop-platinum-frames-sync)
   (add-hook 'window-selection-change-functions #'lispm-desktop-platinum-frames-sync)
   (add-hook 'enable-theme-functions #'lispm-desktop-platinum-frames-sync 90)
-  (add-hook 'after-delete-frame-functions #'lispm-desktop-platinum-frames-sync))
+  (add-hook 'after-delete-frame-functions #'lispm-desktop-platinum-frames-sync)
+  (add-hook 'move-frame-functions #'lispm-desktop-platinum--frame-moved))
 
 ;;;; Moving and growing windows
 ;;
