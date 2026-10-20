@@ -36,6 +36,8 @@
 ;;   Keyboard    Vim or Emacs keys
 ;;   Internet    the browser's home page and search address, its history
 ;;               and its bookmarks
+;;   Software Update  Update Now, and how LispM checks for updates and
+;;               installs them by itself, see lispm-desktop-update.el
 ;;
 ;; Each choice takes effect at once where it can, and is saved for the next
 ;; start with Customize, as the menus' choices are; personal.el can still
@@ -48,6 +50,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-update)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -82,7 +85,8 @@
   '((themes "Appearance" lispm-desktop-settings--themes "appearance-32")
     (desktop "Desktop" lispm-desktop-settings--desktop "desktop-picture-32")
     (keyboard "Keyboard" lispm-desktop-settings--keyboard "keyboard-32")
-    (browser "Internet" lispm-desktop-settings--browser "globe-32" lispm-desktop-settings--browser-p))
+    (browser "Internet" lispm-desktop-settings--browser "globe-32" lispm-desktop-settings--browser-p)
+    (update "Software Update" lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
 INSERT fills the window with the panel, ICON is its large icon in the
 Control Panels folder; VISIBLE, when given, is a function deciding whether
@@ -145,6 +149,67 @@ NOTE after it in the dimmed text."
   (when note
     (insert "  " (propertize note 'face 'shadow)))
   (insert "\n"))
+
+(defun lispm-desktop-settings--check-box (label on action &optional note)
+  "Insert a check box named LABEL, checked when ON, running ACTION when
+pressed, NOTE after it in the dimmed text."
+  (let ((box (lambda (focused)
+               (lispm-desktop-platinum--image-of (lispm-desktop-platinum-check-box on nil focused 2)))))
+    (insert lispm-desktop-settings--indent)
+    (insert-text-button
+     (concat (propertize " " 'display (funcall box nil)
+                         'lispm-desktop-platinum-plain (funcall box nil)
+                         'lispm-desktop-platinum-focused (funcall box t))
+             " " label)
+     'action (lambda (_) (funcall action) (lispm-desktop-settings--render))
+     'face 'default 'follow-link t 'help-echo (format "%s %s" (if on "Turn off:" "Turn on:") label))
+    (when note
+      (insert "  " (propertize note 'face 'shadow)))
+    (insert "\n")))
+
+(defconst lispm-desktop-settings--icon-button-size '(52 . 50)
+  "Width and height in pixels of a bevel button holding a large icon, as
+Software Update's Update Now button.")
+
+(defun lispm-desktop-settings--icon-button-image (icon state focused)
+  "Return the image of a bevel button holding ICON, a 32-pixel icon's name,
+in STATE, nil or `pressed', ringed when FOCUSED.  The ring's room is
+always left, so the button keeps its place."
+  (lispm-desktop-platinum--image
+   (list 'settings-icon-button icon state focused)
+   (lambda ()
+     (pcase-let* ((`(,w . ,h) lispm-desktop-settings--icon-button-size)
+                  (palette lispm-desktop-platinum--palette)
+                  (pad 3)
+                  (svg (svg-create (+ w (* 2 pad)) (+ h (* 2 pad)))))
+       (when focused
+         (lispm-desktop-platinum--draw-focus-ring svg pad pad w h 1 palette))
+       (lispm-desktop-platinum--embed-svg
+        svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) pad pad w h)
+       (lispm-desktop-platinum--draw-image
+        svg (create-image (lispm-desktop-platinum-icon-file icon))
+        (+ pad (/ (- w 32) 2)) (+ pad (/ (- h 32) 2)) 32 32)
+       svg))))
+
+(defun lispm-desktop-settings--icon-button (icon label action help)
+  "Insert, centred, a bevel button holding ICON, a 32-pixel icon's name,
+LABEL under it, running ACTION when pressed; HELP describes it.
+Return, Space and the mouse press it as a push button."
+  (let ((half (/ (+ (car lispm-desktop-settings--icon-button-size) 6) 2)))
+    (insert (propertize " " 'display `(space :align-to (- center (,half)))))
+    (insert-text-button " "
+                        'display (lispm-desktop-settings--icon-button-image icon nil nil)
+                        'lispm-desktop-platinum-plain (lispm-desktop-settings--icon-button-image icon nil nil)
+                        'lispm-desktop-platinum-focused (lispm-desktop-settings--icon-button-image icon nil t)
+                        'lispm-desktop-platinum-pressed (lispm-desktop-settings--icon-button-image icon 'pressed nil)
+                        'action (lambda (_) (funcall action) (lispm-desktop-settings--render))
+                        'lispm-desktop-platinum-label label
+                        'face nil 'keymap lispm-desktop-platinum-push-button-map
+                        'help-echo help)
+    (insert "\n")
+    (let ((label (propertize label 'face 'bold)))
+      (insert (propertize " " 'display `(space :align-to (- center (,(/ (string-pixel-width label) 2)))))
+              label "\n"))))
 
 (defun lispm-desktop-settings--button (label action &optional help)
   "Insert a push button named LABEL running ACTION when pressed; HELP
@@ -361,6 +426,103 @@ desktop's SVG cannot read."
                                   "List the bookmarks in the browser")
   (insert "\n"))
 
+(defun lispm-desktop-settings--when (time)
+  "Return TIME as the Software Update panel tells it: today at 23:50, or
+on a day before, 18 October 2026 at 09:12."
+  (if (equal (format-time-string "%F" time) (format-time-string "%F"))
+      (format-time-string "today at %H:%M" time)
+    (format-time-string "%-d %B %Y at %H:%M" time)))
+
+(defun lispm-desktop-settings--plural (count word)
+  "Return COUNT and WORD, made plural when COUNT is not one."
+  (format "%d %s%s" count word (if (= count 1) "" "s")))
+
+(defun lispm-desktop-settings--truncate (text width)
+  "Return TEXT cut to WIDTH characters, an ellipsis standing for the rest."
+  (truncate-string-to-width text width nil nil "…"))
+
+(defun lispm-desktop-settings--update-status ()
+  "Insert what Software Update is doing, or found last: a line telling it,
+or a line an update, Restart to Update after them."
+  (let ((updates (lispm-desktop-update-updates))
+        (failed (seq-filter (lambda (result) (eq (plist-get result :state) 'failed))
+                            (lispm-desktop-update-results)))
+        (checked (lispm-desktop-update-last-check)))
+    (cond
+     ((lispm-desktop-update-checking-p)
+      (lispm-desktop-settings--note "Checking for updates…"))
+     (updates
+      (dolist (update updates)
+        (let* ((changes (plist-get update :changes))
+               (head (format "%s, %s" (plist-get update :name)
+                             (lispm-desktop-settings--plural (length changes) "change"))))
+          (insert lispm-desktop-settings--indent (propertize head 'face 'bold))
+          (when changes
+            (insert (propertize (concat ": " (lispm-desktop-settings--truncate
+                                              (car changes) (max 10 (- 58 (length head)))))
+                                'face 'shadow)))
+          (insert "\n")))
+      (insert lispm-desktop-settings--indent)
+      (lispm-desktop-settings--button "Restart to Update" #'lispm-desktop-update-restart
+                                      "Restart LispM, installing the updates as it quits")
+      (insert "  " (propertize (cond ((lispm-desktop-update-needs-installer-p) "install.sh remakes LispM.app")
+                                     ((lispm-desktop-update-installs-on-quit-p) "or as LispM quits")
+                                     (t "or later, from here"))
+                               'face 'shadow)
+              "\n"))
+     (failed
+      (dolist (result failed)
+        (lispm-desktop-settings--note
+         (lispm-desktop-settings--truncate (format "%s could not be checked: %s" (plist-get result :name)
+                                                   (plist-get result :reason))
+                                           64))))
+     (checked
+      (lispm-desktop-settings--note (format "LispM is up to date; checked %s."
+                                            (lispm-desktop-settings--when checked))))
+     (t (lispm-desktop-settings--note "Not checked yet.")))))
+
+(defun lispm-desktop-settings--update ()
+  "Insert the Software Update panel: Update Now, what it found, how it
+checks and installs by itself, and what is installed."
+  (lispm-desktop-settings--heading "Software Update")
+  (lispm-desktop-settings--note "Checks for new versions of LispM: its desktop, agents and browser.")
+  (lispm-desktop-settings--icon-button "software-update-32" "Update Now" #'lispm-desktop-update-now
+                                       "Check for updates now")
+  (lispm-desktop-settings--update-status)
+  (lispm-desktop-settings--heading "Automatic Updates")
+  (lispm-desktop-settings--check-box
+   "Check for updates automatically" lispm-desktop-update-check-automatically
+   (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-check-automatically
+                                            (not lispm-desktop-update-check-automatically))))
+  (insert lispm-desktop-settings--indent lispm-desktop-settings--indent)
+  (lispm-desktop-settings--radio-button "Every day" (eq lispm-desktop-update-schedule 'daily)
+                                        (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-schedule 'daily))
+                                        "Check once a day")
+  (insert "   ")
+  (lispm-desktop-settings--radio-button "Every week" (eq lispm-desktop-update-schedule 'weekly)
+                                        (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-schedule 'weekly))
+                                        "Check once a week")
+  (insert "\n")
+  (lispm-desktop-settings--check-box
+   "Ask me before installing updates" (not lispm-desktop-update-install-automatically)
+   (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-install-automatically
+                                            (not lispm-desktop-update-install-automatically)))
+   (if lispm-desktop-update-install-automatically "else, as LispM quits" "they wait for Restart"))
+  (lispm-desktop-settings--heading "Installed")
+  (let ((kept (seq-filter (lambda (result) (eq (plist-get result :state) 'kept))
+                          (lispm-desktop-update-results))))
+    (pcase-dolist (`(,name ,directory ,version) (lispm-desktop-update-installed))
+      (insert lispm-desktop-settings--indent name
+              (propertize " " 'display '(space :align-to (150)))
+              (or version "?"))
+      (when-let* ((result (seq-find (lambda (result) (equal (plist-get result :directory) directory)) kept)))
+        (insert "  " (propertize (format "left as it is: %s" (plist-get result :reason)) 'face 'shadow)))
+      (insert "\n")))
+  (insert lispm-desktop-settings--indent)
+  (lispm-desktop-settings--button "Show Log" #'lispm-desktop-update-show-log
+                                  "List the updates ready, and what Software Update installed")
+  (insert "\n"))
+
 ;;;; The window
 
 (defvar-keymap lispm-desktop-settings-tab-map
@@ -519,7 +681,7 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
 (defun lispm-desktop-settings--default-geometry (screen)
   "Return where the control panel's window opens first: the middle of SCREEN."
   (let ((width 520)
-        (height 460))
+        (height 500))
     (list (max 20 (/ (- (frame-inner-width screen) width) 2))
           (+ (tab-bar-height screen t) 50)
           width height)))
@@ -659,7 +821,8 @@ when they change."
         '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
   (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-settings--follow-frontmost)
   (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-settings--refocus)
-  (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95))
+  (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95)
+  (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render))
 
 (provide 'lispm-desktop-settings)
 ;;; lispm-desktop-settings.el ends here

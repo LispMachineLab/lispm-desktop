@@ -38,6 +38,8 @@
 ;;                  Codex, each when its CLI is on PATH (C-c a); others,
 ;;                  as Hermes, are extensions from the App Store
 ;;   App Store      applications and extensions to install, from catalogs
+;;   Software Update  LispM kept up to date, checked daily and installed
+;;                  as it quits, in Control Panels
 ;;
 ;; Its init.el runs `lispm-desktop-setup' and then the user's own file,
 ;; `lispm-desktop-user-file'.  An existing configuration can use it the same way:
@@ -74,6 +76,7 @@
 (require 'lispm-desktop-workspaces)
 (require 'lispm-desktop-finder)
 (require 'lispm-desktop-settings)
+(require 'lispm-desktop-update)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-store)
 (require 'lispm-desktop-strip)
@@ -170,6 +173,7 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-browser)
           (lispm-desktop-setup-browser-places)
           (lispm-desktop-setup-settings)
+          (lispm-desktop-setup-update)
           (lispm-desktop-setup-app-windows)
           (lispm-desktop-setup-store)
           (lispm-desktop-setup-strip)

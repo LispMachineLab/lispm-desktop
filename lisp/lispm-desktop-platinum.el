@@ -1210,27 +1210,33 @@ to two pixels for the ring."
                            (plist-get palette :outline) (plist-get palette :text)))))
     svg))
 
-(cl-defun lispm-desktop-platinum-draw-check-box (palette on &key state)
+(cl-defun lispm-desktop-platinum-draw-check-box (palette on &key state focused (pad 0))
   "Return an SVG of a check box in PALETTE, checked when ON.
 The box is twelve pixels square, outlined, lit along its top and left
 and shaded along its bottom and right; the check mark breaks out past
 its top right corner, as Mac OS 9's did, so the SVG is fourteen pixels
 square, the box at its bottom left.  STATE is nil, `pressed' (darkened)
-or `disabled' (flat and grey)."
-  (let* ((svg (svg-create 14 14))
+or `disabled' (flat and grey).  FOCUSED rings the box in the focus
+colour, two pixels out; PAD is the room left about it, raised to two
+pixels for the ring."
+  (let* ((pad (max pad (if focused 2 0)))
+         (svg (svg-create (+ 14 (* 2 pad)) (+ 14 (* 2 pad))))
          (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
          (disabled (eq state 'disabled))
          (pressed (eq state 'pressed))
          (ink (if disabled (funcall grey #x88) (plist-get palette :outline))))
-    (lispm-desktop-platinum--fill svg 0 2 12 12 ink)
-    (lispm-desktop-platinum--fill svg 1 3 10 10 (funcall grey (if pressed #xAA #xDD)))
+    (when focused
+      (lispm-desktop-platinum--draw-focus-ring svg pad (+ pad 2) 12 12 0 palette))
+    (lispm-desktop-platinum--fill svg pad (+ pad 2) 12 12 ink)
+    (lispm-desktop-platinum--fill svg (+ pad 1) (+ pad 3) 10 10 (funcall grey (if pressed #xAA #xDD)))
     (unless disabled
-      (lispm-desktop-platinum--row svg 1 9 3 (funcall grey (if pressed #x88 #xFF)))
-      (lispm-desktop-platinum--column svg 1 3 11 (funcall grey (if pressed #x88 #xFF)))
-      (lispm-desktop-platinum--row svg 2 10 12 (funcall grey (if pressed #xDD #x88)))
-      (lispm-desktop-platinum--column svg 10 4 12 (funcall grey (if pressed #xDD #x88))))
+      (lispm-desktop-platinum--row svg (+ pad 1) (+ pad 9) (+ pad 3) (funcall grey (if pressed #x88 #xFF)))
+      (lispm-desktop-platinum--column svg (+ pad 1) (+ pad 3) (+ pad 11) (funcall grey (if pressed #x88 #xFF)))
+      (lispm-desktop-platinum--row svg (+ pad 2) (+ pad 10) (+ pad 12) (funcall grey (if pressed #xDD #x88)))
+      (lispm-desktop-platinum--column svg (+ pad 10) (+ pad 4) (+ pad 12) (funcall grey (if pressed #xDD #x88))))
     (when on
-      (svg-polyline svg '((2.5 . 7.5) (5.5 . 10.5) (12.5 . 1.5))
+      (svg-polyline svg (mapcar (pcase-lambda (`(,x . ,y)) (cons (+ x pad) (+ y pad)))
+                                '((2.5 . 7.5) (5.5 . 10.5) (12.5 . 1.5)))
                     :fill "none" :stroke ink :stroke-width 2 :stroke-linecap "square"))
     svg))
 
@@ -1558,14 +1564,16 @@ See `lispm-desktop-platinum-draw-list-check-box'."
                (list 'list-check-box state)
                (lambda () (lispm-desktop-platinum-draw-list-check-box lispm-desktop-platinum--palette state)))))
 
-(defun lispm-desktop-platinum-check-box (on &optional state)
+(defun lispm-desktop-platinum-check-box (on &optional state focused pad)
   "Return a check box, checked when ON, in STATE, as a string displaying it.
-See `lispm-desktop-platinum-draw-check-box'."
+FOCUSED rings it, and PAD leaves room about it; see
+`lispm-desktop-platinum-draw-check-box'."
   (propertize " " 'display
               (lispm-desktop-platinum--image
-               (list 'check-box on state)
+               (list 'check-box on state focused pad)
                (lambda () (lispm-desktop-platinum-draw-check-box lispm-desktop-platinum--palette on
-                                                                 :state state)))))
+                                                                 :state state :focused focused
+                                                                 :pad (or pad 0))))))
 
 ;;;; Controls in buffers
 ;;

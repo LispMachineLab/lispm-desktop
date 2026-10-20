@@ -5422,5 +5422,371 @@ category, and RET presses the selected item's button."
           (lispm-desktop-store-act-selected)
           (should (eq pressed 'game1)))))))
 
+;;;; Software Update
+
+(defmacro lispm-desktop-test--with-update (&rest body)
+  "Run BODY with a Software Update of its own: nothing checked, found or
+logged, its file a temporary one, installing as LispM quits."
+  (declare (indent 0))
+  `(let* ((lispm-desktop-update-file (make-temp-file "lispm-desktop-test-update" nil ".eld"))
+          (lispm-desktop-update--checking nil)
+          (lispm-desktop-update--checked nil)
+          (lispm-desktop-update--waiting nil)
+          (lispm-desktop-update--results nil)
+          (lispm-desktop-update--log nil)
+          (lispm-desktop-update--announced nil)
+          (lispm-desktop-update--requested nil)
+          (lispm-desktop-update--reopen nil)
+          (lispm-desktop-update--installed nil)
+          (lispm-desktop-update-check-automatically t)
+          (lispm-desktop-update-schedule 'daily)
+          (lispm-desktop-update-install-automatically t)
+          (lispm-desktop-update-changed-hook nil)
+          (inhibit-message t))
+     (unwind-protect
+         (progn ,@body)
+       (delete-file lispm-desktop-update-file))))
+
+(defun lispm-desktop-test--update-commit (directory file subject)
+  "Commit FILE, made in the checkout DIRECTORY, with SUBJECT."
+  (with-temp-file (expand-file-name file directory)
+    (insert subject "\n"))
+  (lispm-desktop-test--git directory "add" file)
+  (lispm-desktop-test--git directory "commit" "--quiet" "-m" subject))
+
+(defun lispm-desktop-test--update-push (directory file subject)
+  "Commit FILE with SUBJECT in the clone DIRECTORY, and push it to its origin."
+  (lispm-desktop-test--update-commit directory file subject)
+  (lispm-desktop-test--git directory "push" "--quiet" "origin" "HEAD:main"))
+
+(defun lispm-desktop-test--update-repositories ()
+  "Return (ROOT CHECKOUT WORK) of new repositories in ROOT: a bare origin
+with a first commit on main, CHECKOUT a clone of it following main, as
+install.sh clones, and WORK another, whose pushes are the updates."
+  (let* ((root (file-name-as-directory (make-temp-file "lispm-desktop-test-update-repos" t)))
+         (origin (concat root "origin.git"))
+         (checkout (concat root "checkout/"))
+         (work (concat root "work/")))
+    (lispm-desktop-test--git root "init" "--quiet" "--bare" origin)
+    (lispm-desktop-test--git origin "symbolic-ref" "HEAD" "refs/heads/main")
+    (make-directory work)
+    (lispm-desktop-test--git work "init" "--quiet")
+    (lispm-desktop-test--git work "remote" "add" "origin" origin)
+    (lispm-desktop-test--update-push work "a.txt" "First")
+    (lispm-desktop-test--git root "clone" "--quiet" "--depth" "1" (concat "file://" origin) checkout)
+    (list root checkout work)))
+
+(defun lispm-desktop-test--update-check (directory)
+  "Check the checkout DIRECTORY and return what was found."
+  (let ((result 'pending))
+    (lispm-desktop-update--check-checkout "Test" directory (lambda (found) (setq result found)))
+    (with-timeout (30 (error "The checkout was not checked"))
+      (while (eq result 'pending)
+        (accept-process-output nil 0.05)))
+    result))
+
+(ert-deftest lispm-desktop-test-update-checks-and-installs ()
+  "A check fetches the branch a checkout follows and tells what is new,
+changing nothing; installing moves the checkout on to it and logs it,
+and the log is read back at the next start."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let ((before (lispm-desktop-update--git checkout "rev-parse" "HEAD")))
+            (should (eq (plist-get (lispm-desktop-test--update-check checkout) :state) 'current))
+            (lispm-desktop-test--update-push work "b.txt" "Second")
+            (lispm-desktop-test--update-push work "c.txt" "Third")
+            (let ((result (lispm-desktop-test--update-check checkout)))
+              (should (eq (plist-get result :state) 'update))
+              (should (equal (plist-get result :changes) '("Third" "Second")))
+              (should (equal (plist-get result :from) before))
+              (should (equal (plist-get result :to) (lispm-desktop-update--git work "rev-parse" "HEAD")))
+              (should-not (plist-get result :app))
+              ;; Fetched only: the files are as they were.
+              (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") before))
+              (should-not (file-exists-p (expand-file-name "b.txt" checkout)))
+              (should (equal (lispm-desktop-update-install (list result)) (list result)))
+              (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") (plist-get result :to)))
+              (should (file-exists-p (expand-file-name "c.txt" checkout)))
+              (pcase-let ((`(,_time ,name ,from ,to ,changes) (car lispm-desktop-update--log)))
+                (should (equal (list name from to changes)
+                               (list "Test" before (plist-get result :to) '("Third" "Second")))))
+              (let ((log lispm-desktop-update--log))
+                (setq lispm-desktop-update--log nil)
+                (lispm-desktop-update--load)
+                (should (equal lispm-desktop-update--log log)))
+              (should (eq (plist-get (lispm-desktop-test--update-check checkout) :state) 'current))))
+        (delete-directory root t)))))
+
+(ert-deftest lispm-desktop-test-update-leaves-checkouts-alone ()
+  "A checkout with changes of its own, commits of its own, or on no branch
+is left as it is; an update found is not installed once the checkout has
+changes since."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (cl-flet ((reason () (let ((result (lispm-desktop-test--update-check checkout)))
+                                 (should (eq (plist-get result :state) 'kept))
+                                 (plist-get result :reason))))
+            (lispm-desktop-test--update-push work "b.txt" "Second")
+            (with-temp-file (expand-file-name "a.txt" checkout) (insert "mine\n"))
+            (should (equal (reason) "has changes of its own"))
+            (lispm-desktop-test--git checkout "checkout" "--quiet" "--" "a.txt")
+            (let ((result (lispm-desktop-test--update-check checkout))
+                  (before (lispm-desktop-update--git checkout "rev-parse" "HEAD")))
+              (should (eq (plist-get result :state) 'update))
+              (with-temp-file (expand-file-name "a.txt" checkout) (insert "mine\n"))
+              (should-not (lispm-desktop-update-install (list result)))
+              (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") before))
+              (should-not lispm-desktop-update--log))
+            (lispm-desktop-test--git checkout "checkout" "--quiet" "--" "a.txt")
+            (lispm-desktop-test--update-commit checkout "mine.txt" "Mine")
+            (should (equal (reason) "has commits of its own"))
+            (lispm-desktop-test--git checkout "checkout" "--quiet" "--detach")
+            (should (equal (reason) "follows no branch")))
+        (delete-directory root t)))))
+
+(ert-deftest lispm-desktop-test-update-check-failure ()
+  "A checkout whose repository cannot be reached is told of; the last check
+then is not moved, so the next hour tries again.  A check that reached
+every repository is kept for the next start."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,_work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-update-checkouts)
+                     (lambda () (list (cons "Test" checkout)))))
+            (cl-flet ((check ()
+                        (let ((done 'pending) (changes 0))
+                          (add-hook 'lispm-desktop-update-changed-hook (lambda () (cl-incf changes)))
+                          (lispm-desktop-update-check (lambda (updates) (setq done updates)))
+                          (should (lispm-desktop-update-checking-p))
+                          ;; Asked again meanwhile: told once the check running ends.
+                          (lispm-desktop-update-check (lambda (_updates) (cl-incf changes 10)))
+                          (with-timeout (30 (error "Software Update did not check"))
+                            (while (eq done 'pending)
+                              (accept-process-output nil 0.05)))
+                          (should (= changes 12))
+                          (setq lispm-desktop-update-changed-hook nil)
+                          done)))
+              (lispm-desktop-test--git checkout "remote" "set-url" "origin" (concat root "missing.git"))
+              (should-not (check))
+              (should (eq (plist-get (car (lispm-desktop-update-results)) :state) 'failed))
+              (should (stringp (plist-get (car (lispm-desktop-update-results)) :reason)))
+              (should-not (lispm-desktop-update-last-check))
+              (lispm-desktop-test--git checkout "remote" "set-url" "origin" (concat root "origin.git"))
+              (should-not (check))
+              (should (lispm-desktop-update-last-check))
+              (let ((checked (lispm-desktop-update-last-check)))
+                (setq lispm-desktop-update--checked nil)
+                (lispm-desktop-update--load)
+                (should (equal (lispm-desktop-update-last-check) checked)))))
+        (delete-directory root t)))))
+
+(ert-deftest lispm-desktop-test-update-app-needs-installer ()
+  "An update changing install.sh, in the desktop's checkout, needs install.sh
+while LispM.app runs: it is installed as LispM quits only when Restart to
+Update asked for it, and install.sh is then run, after."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let ((ran nil))
+            (cl-letf (((symbol-function 'lispm-desktop-update--desktop-p) #'always)
+                      ((symbol-function 'lispm-desktop-update--app) (lambda () "/Applications/LispM.app"))
+                      ((symbol-function 'lispm-desktop-update--run-installer)
+                       (lambda (app reopen) (setq ran (list app reopen)))))
+              (lispm-desktop-test--update-push work "install.sh" "Use a newer Emacs")
+              (let ((result (lispm-desktop-test--update-check checkout)))
+                (should (plist-get result :app))
+                (setq lispm-desktop-update--results (list result))
+                (should (lispm-desktop-update-needs-installer-p))
+                (should-not (lispm-desktop-update-installs-on-quit-p))
+                (lispm-desktop-update--install-on-quit)
+                (should-not ran)
+                (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") (plist-get result :from)))
+                (setq lispm-desktop-update--requested t
+                      lispm-desktop-update--reopen t)
+                (should (lispm-desktop-update-installs-on-quit-p))
+                (lispm-desktop-update--install-on-quit)
+                (should (equal ran '("/Applications/LispM.app" t)))
+                (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") (plist-get result :to)))
+                (should-not (lispm-desktop-update-updates))))
+            ;; Out of LispM.app, as in a developer's own Emacs, the files are all.
+            (cl-letf (((symbol-function 'lispm-desktop-update--app) #'ignore))
+              (setq lispm-desktop-update--results (list '(:state update :app t)))
+              (should-not (lispm-desktop-update-needs-installer-p))))
+        (delete-directory root t)))))
+
+(ert-deftest lispm-desktop-test-update-asking-waits ()
+  "With Ask me before installing updates on, nothing installs as LispM
+quits until Restart to Update asked for it; a batch Emacs never installs."
+  (lispm-desktop-test--with-update
+    (let ((installed 0))
+      (cl-letf (((symbol-function 'lispm-desktop-update-install) (lambda (&rest _) (cl-incf installed)))
+                ((symbol-function 'lispm-desktop-update--app) #'ignore))
+        (setq lispm-desktop-update--results (list '(:name "Test" :state update))
+              lispm-desktop-update-install-automatically nil)
+        (lispm-desktop-update--install-on-quit)
+        (should (= installed 0))
+        (setq lispm-desktop-update--requested t)
+        (lispm-desktop-update--install-on-quit)
+        (should (= installed 1))
+        (lispm-desktop-update--quit)
+        (should (= installed 1))
+        (setq lispm-desktop-update--results (list '(:name "Test" :state kept)))
+        (should-not (lispm-desktop-update-installs-on-quit-p))))))
+
+(ert-deftest lispm-desktop-test-update-schedule ()
+  "A check by itself is due once a day, or a week, has passed since the
+last; with checking by itself off, none is made."
+  (lispm-desktop-test--with-update
+    (let ((checks 0))
+      (cl-letf (((symbol-function 'lispm-desktop-update-check) (lambda (&rest _) (cl-incf checks))))
+        (should (lispm-desktop-update--due-p))
+        (setq lispm-desktop-update--checked (current-time))
+        (should-not (lispm-desktop-update--due-p))
+        (setq lispm-desktop-update--checked (time-subtract nil (* 2 24 60 60)))
+        (should (lispm-desktop-update--due-p))
+        (setq lispm-desktop-update-schedule 'weekly)
+        (should-not (lispm-desktop-update--due-p))
+        (setq lispm-desktop-update--checked (time-subtract nil (* 8 24 60 60)))
+        (should (lispm-desktop-update--due-p))
+        (lispm-desktop-update--tick)
+        (should (= checks 1))
+        (setq lispm-desktop-update-check-automatically nil)
+        (lispm-desktop-update--tick)
+        (should (= checks 1))))))
+
+(ert-deftest lispm-desktop-test-update-announces-once ()
+  "Updates a check of its own found are told of once: in a line when they
+install as LispM quits, else by an alert, once Emacs is idle."
+  (lispm-desktop-test--with-update
+    (let ((said nil) (idle nil)
+          (updates (list '(:name "LispM Desktop" :state update :to "abc" :changes ("A" "B")))))
+      (cl-letf (((symbol-function 'message) (lambda (format &rest args) (push (apply #'format format args) said)))
+                ((symbol-function 'run-with-idle-timer) (lambda (&rest args) (push args idle)))
+                ((symbol-function 'lispm-desktop-update--app) #'ignore))
+        (setq lispm-desktop-update--results updates)
+        (lispm-desktop-update--announce updates)
+        (lispm-desktop-update--announce updates)
+        (should (= (length said) 1))
+        (should (string-search "LispM Desktop, 2 changes" (car said)))
+        (should-not idle)
+        (setq lispm-desktop-update--announced nil
+              lispm-desktop-update-install-automatically nil)
+        (lispm-desktop-update--announce updates)
+        (should (= (length said) 1))
+        (should (equal (cddr (car idle)) '(lispm-desktop-update--offer nil)))))))
+
+(ert-deftest lispm-desktop-test-update-offer ()
+  "The alert offering to restart has Restart as its default only when the
+check was asked for; without its window, a check of its own only says so."
+  (lispm-desktop-test--with-update
+    (let ((buttons nil) (restarted 0) (said nil))
+      (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+                 (lambda (_icon _message choices &optional _detail) (setq buttons choices) 'restart))
+                ((symbol-function 'lispm-desktop-popup-available-p) #'always)
+                ((symbol-function 'lispm-desktop-update-restart) (lambda () (cl-incf restarted)))
+                ((symbol-function 'lispm-desktop-update--app) #'ignore)
+                ((symbol-function 'message) (lambda (&rest args) (push args said))))
+        (setq lispm-desktop-update--results (list '(:name "LispM Agent" :state update :changes ("A"))))
+        (lispm-desktop-update--offer t)
+        (should (= restarted 1))
+        (should (eq (nth 2 (assoc "Restart" buttons)) 'default))
+        (lispm-desktop-update--offer nil)
+        (should (= restarted 2))
+        (should-not (nth 2 (assoc "Restart" buttons)))
+        (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'ignore))
+          (setq buttons nil)
+          (lispm-desktop-update--offer nil)
+          (should-not buttons)
+          (should said))))))
+
+(ert-deftest lispm-desktop-test-update-checkouts ()
+  "The checkouts are the projects' git checkouts, each once; a project
+installed as a package is left out."
+  (skip-unless (executable-find "git"))
+  (let* ((root (file-name-as-directory (make-temp-file "lispm-desktop-test-update-projects" t)))
+         (package-user-dir (concat root "elpa/"))
+         (lispm-desktop-update-projects '(("One" . "one.el") ("Two" . "two.el") ("Package" . "three.el")))
+         (files `(("one.el" . ,(concat root "repo/lisp/one.el"))
+                  ("two.el" . ,(concat root "repo/lisp/two.el"))
+                  ("three.el" . ,(concat root "elpa/three/three.el")))))
+    (unwind-protect
+        (progn
+          (dolist (file files)
+            (make-directory (file-name-directory (cdr file)) t)
+            (write-region "" nil (cdr file)))
+          (lispm-desktop-test--git (concat root "repo") "init" "--quiet")
+          (lispm-desktop-test--git (concat root "elpa/three") "init" "--quiet")
+          (cl-letf (((symbol-function 'locate-library)
+                     (lambda (file &rest _) (cdr (assoc file files)))))
+            (should (equal (lispm-desktop-update-checkouts)
+                           (list (cons "One" (file-name-as-directory (file-truename (concat root "repo")))))))))
+      (delete-directory root t))))
+
+(ert-deftest lispm-desktop-test-update-installer-command ()
+  "install.sh runs once this Emacs has quit, for the checkouts' home and
+the application's folder, opening LispM after only when restarting."
+  (let* ((lispm-desktop-directory "/Users/me/.lispm/lispm-desktop/")
+         (command (lispm-desktop-update--installer-command "/Applications/LispM.app" t)))
+    (should (string-search (format "kill -0 %d" (emacs-pid)) command))
+    (should (string-search "LISPM_HOME=/Users/me/.lispm " command))
+    (should (string-search "LISPM_APP_DIR=/Applications " command))
+    (should (string-search "LISPM_OPEN=1" command))
+    (should (string-search "/Users/me/.lispm/lispm-desktop/install.sh" command))
+    (should (string-search "LISPM_OPEN=0" (lispm-desktop-update--installer-command "/Applications/LispM.app" nil)))))
+
+(ert-deftest lispm-desktop-test-settings-update-panel ()
+  "The Software Update panel offers Update Now, what the check found and
+Restart to Update, how it checks and installs by itself, and what is
+installed; its check boxes save their choices."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-update
+    (let ((saved nil))
+      (cl-letf (((symbol-function 'lispm-desktop-update-installed)
+                 (lambda () '(("LispM Desktop" "/x/" "626d068, 2026-10-20"))))
+                ((symbol-function 'lispm-desktop-update--app) #'ignore)
+                ((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (push (cons variable value) saved))))
+        (setq lispm-desktop-update--checked (current-time)
+              lispm-desktop-update--results
+              (list '(:name "LispM Desktop" :directory "/x/" :state update :changes ("Mend the menu" "Draw it"))))
+        (with-current-buffer (lispm-desktop-settings--buffer)
+          (lispm-desktop-settings-select 'update)
+          (let ((text (concat (buffer-string)
+                              (mapconcat #'identity
+                                         (delq nil (mapcar (lambda (position)
+                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (number-sequence (point-min) (1- (point-max)))))
+                                         " "))))
+            (dolist (label '("Update Now" "LispM Desktop, 2 changes" "Mend the menu" "Restart to Update"
+                             "or as LispM quits" "Check for updates automatically"
+                             "Every day" "Every week" "Ask me before installing updates" "626d068, 2026-10-20"
+                             "Show Log"))
+              (should (string-search label text))))
+          (should (equal lispm-desktop-platinum-title "Software Update"))
+          (let ((button (next-button (point-min))))
+            (while (and button (not (string-search "Ask me" (button-label button))))
+              (setq button (next-button (button-end button))))
+            (should button)
+            (button-activate button))
+          (should (equal (car saved) '(lispm-desktop-update-install-automatically))))))))
+
+(ert-deftest lispm-desktop-test-platinum-check-box-focus ()
+  "A check box the keyboard is on is ringed, in the room left about it."
+  (let* ((focus "#6666CC")
+         (palette (plist-put (copy-sequence lispm-desktop-platinum--palette) :focus focus))
+         (plain (lispm-desktop-platinum-draw-check-box palette t :pad 2))
+         (focused (lispm-desktop-platinum-draw-check-box palette t :focused t)))
+    (should (equal (dom-attr plain 'width) 18))
+    (should (equal (dom-attr focused 'width) 18))
+    (should-not (string-search focus (prin1-to-string plain)))
+    (should (string-search focus (prin1-to-string focused)))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

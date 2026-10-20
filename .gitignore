@@ -19,6 +19,7 @@
 /lispm/
 /lispm-browser-history.eld
 /lispm-browser-extensions/
+/lispm-update.eld
 # lispm-browser, checked out by CI
 /.deps/
 *.elc
