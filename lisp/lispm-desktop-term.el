@@ -1043,11 +1043,7 @@ search and copy."
     (define-key map (kbd "<down>") #'lispm-desktop-term-down)
     (define-key map (kbd "<right>") #'lispm-desktop-term-right)
     (define-key map (kbd "<left>") #'lispm-desktop-term-left)
-    (define-key map (kbd "C-y") #'lispm-desktop-paste)
-    (define-key map (kbd "M-v") #'lispm-desktop-paste)
-    (define-key map (kbd "M-c") #'lispm-desktop-copy-region)
-    (define-key map (kbd "M-w") #'lispm-desktop-copy-region)
-    (define-key map (kbd "M-x") #'execute-extended-command)
+    (lispm-desktop-bind-clipboard-keys map t)
     (define-key map (kbd "C-c C-h") #'lispm-desktop-term-history)
     (define-key map (kbd "S-<prior>") #'lispm-desktop-term-scroll-back)
     (define-key map (kbd "<wheel-up>") #'lispm-desktop-term-wheel-up)
@@ -1091,19 +1087,16 @@ history.  The keymap outranks Evil's, see `lispm-desktop-term-keys-mode'.")
 
 ;;;; The mode
 
-(defvar lispm-desktop-terminal-font-family)
 
 (define-derived-mode lispm-desktop-term-mode fundamental-mode "Term"
   "Major mode of a terminal emulated off Emacs's thread, see lispm-desktop-term.el.
 \\{lispm-desktop-term-keys-mode-map}"
+  (lispm-desktop-terminal-display)
   (setq-local buffer-read-only t
-              truncate-lines t
               scroll-margin 0
               hscroll-margin 0
               auto-hscroll-mode nil
               scroll-conservatively 101
-              bidi-display-reordering nil
-              bidi-paragraph-direction 'left-to-right
               show-trailing-whitespace nil
               ;; Programs draw with no-break spaces; they are plain blanks.
               nobreak-char-display nil
@@ -1111,15 +1104,9 @@ history.  The keymap outranks Evil's, see `lispm-desktop-term-keys-mode'.")
               cursor-in-non-selected-windows 'hollow
               indent-tabs-mode nil
               lispm-desktop-paste-function (lambda (text) (lispm-desktop-term-send-string text nil t))
-              left-fringe-width 0
-              first-change-hook nil
-              global-hl-line-mode nil)
-  (visual-line-mode -1)
+              left-fringe-width 0)
   (when (fboundp 'display-line-numbers-mode)
     (display-line-numbers-mode -1))
-  (when (and (boundp 'lispm-desktop-terminal-font-family) (display-graphic-p)
-             (member lispm-desktop-terminal-font-family (font-family-list)))
-    (face-remap-add-relative 'default :family lispm-desktop-terminal-font-family))
   (add-hook 'kill-buffer-hook #'lispm-desktop-term--kill-buffer nil t)
   (lispm-desktop-term--keys-first)
   (lispm-desktop-term-keys-mode 1))

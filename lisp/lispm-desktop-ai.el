@@ -491,7 +491,7 @@ The short id suffix keeps labels unique across sessions with equal titles."
   "Return the agent the terminal BUFFER runs, or nil when it runs none.
 A terminal an agent was started in says so, see `lispm-desktop-agent--launch';
 any other is taken by its name, \"*AGENT:...*\", as agent terminals are named."
-  (and (memq (buffer-local-value 'major-mode buffer) '(eat-mode lispm-desktop-term-mode))
+  (and (lispm-desktop-terminal-p buffer)
        (let ((agent (or (buffer-local-value 'lispm-desktop-agent-buffer-agent buffer)
                         ;; Asked while tab labels are drawn: the match data stays.
                         (save-match-data

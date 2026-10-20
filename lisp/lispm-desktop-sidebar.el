@@ -91,24 +91,6 @@ A list view uses the sidebar's own, see `lispm-desktop-sidebar-define-view'."
    (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " text))
    width nil nil "…"))
 
-(defun lispm-desktop-ansi-apply-faces (&rest _)
-  "Keep the two black ANSI colours legible on the active theme.
-Dracula draws ANSI black in the editor background and bright black in
-pure black, so terminal programs' grey text (Codex streams its status
-and reasoning in bright black) vanished until selected.  Bright black
-takes the theme's own dimmed text colour, and black a shade below the
-background, as in Dracula's terminal palette.  Every terminal and
-compilation buffer reads these faces.  A light theme is left alone: on
-white, black is legible as it is.  Colours come only from faces this
-function never sets, so re-running it is idempotent."
-  (require 'ansi-color)
-  (when-let* ((background (face-background 'default nil t))
-              (dark (< (apply #'+ (or (lispm-desktop-platinum-rgb background) '(1 1 1))) 1.5))
-              (dim (face-foreground 'shadow nil t))
-              (black (lispm-desktop-platinum-blend background "#000000" 0.2)))
-    (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
-    (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
-
 (defun lispm-desktop-sidebar--trim (label)
   "Return LABEL without the plain spaces at its ends.
 A space showing an icon, as an image or a stretch, stays."

@@ -243,6 +243,89 @@ That is `lispm-desktop-copy-function', when the buffer sets it."
       (message "Copied"))
      (t (user-error "No active region")))))
 
+(defconst lispm-desktop-clipboard-keys
+  '(("M-c" . lispm-desktop-copy-region)
+    ("M-v" . lispm-desktop-paste))
+  "The unified copy and paste keys: Command-C and Command-V, Command being
+Meta.  C-w, M-w and C-y stay Emacs's own kill and yank, which share the
+system clipboard, except in terminals, see
+`lispm-desktop-terminal-clipboard-keys'.")
+
+(defconst lispm-desktop-terminal-clipboard-keys
+  '(("M-w" . lispm-desktop-copy-region)
+    ("C-y" . lispm-desktop-paste))
+  "The keys that copy and paste in a terminal besides
+`lispm-desktop-clipboard-keys': a terminal's text is the program's, not a
+kill ring, so Emacs's own copy and yank keys take the clipboard there.")
+
+(defun lispm-desktop-bind-clipboard-keys (map &optional terminal)
+  "Bind the unified copy and paste keys in MAP, and \\`M-x' to
+`execute-extended-command', which a map taking Meta keys would hide.
+With TERMINAL, bind the terminal's copy and paste keys too, see
+`lispm-desktop-terminal-clipboard-keys'."
+  (keymap-set map "M-x" #'execute-extended-command)
+  (pcase-dolist (`(,key . ,command) (append lispm-desktop-clipboard-keys
+                                            (and terminal lispm-desktop-terminal-clipboard-keys)))
+    (keymap-set map key command)))
+
+;;;; Terminals
+
+(defconst lispm-desktop-terminal-major-modes '(eat-mode lispm-desktop-term-mode)
+  "Major modes of terminals: Eat's, and lispm-desktop-term's.")
+
+(defun lispm-desktop-terminal-p (&optional buffer)
+  "Return non-nil when BUFFER, by default the current one, is a terminal,
+of Eat or of lispm-desktop-term, its program running or not.
+`lispm-desktop-eat-buffer-p' and `lispm-desktop-term-buffer-p' tell the
+two apart."
+  (let ((buffer (or buffer (current-buffer))))
+    (and (buffer-live-p buffer)
+         (memq (buffer-local-value 'major-mode buffer) lispm-desktop-terminal-major-modes)
+         t)))
+
+(defconst lispm-desktop-terminal-font-family "Maple Mono NF CN"
+  "Monospace family whose glyphs all occupy whole terminal cells.
+A CJK ideograph is exactly two Latin cells wide, and box drawing, block
+elements and most terminal UI symbols are covered at one cell, so columns
+that a terminal program lays out stay aligned.")
+
+(defconst lispm-desktop-terminal-glyph-substitutions '((?⏺ . ?●) (?✢ . ?✶))
+  "Display substitutions for symbols no monospace font draws at one cell.
+Each pair maps a character a terminal program emits to the look-alike
+shown in its place; the buffer text is unchanged.")
+
+(defun lispm-desktop-terminal-display-table ()
+  "Return a display table applying `lispm-desktop-terminal-glyph-substitutions'."
+  (let ((table (make-display-table)))
+    (pcase-dolist (`(,from . ,to) lispm-desktop-terminal-glyph-substitutions)
+      (aset table from (vector to)))
+    table))
+
+(defun lispm-desktop-terminal-display ()
+  "Lay the current buffer out for a terminal's output, as every terminal is.
+The terminal already wraps lines to its width, so Emacs-side visual line
+wrapping only adds work; terminal text is left-to-right, so bidirectional
+reordering is turned off; and a full-screen program redraws every line, so
+highlighting the current line only adds an overlay update per redraw.
+Terminal output is not an edit: `first-change-hook' is emptied locally, so
+output never runs edit-tracking hooks such as tab bars recomputing their
+modified markers.  Symbols no monospace font draws at one cell are shown
+as look-alikes, see `lispm-desktop-terminal-glyph-substitutions'.  On a
+graphical display, text is drawn in `lispm-desktop-terminal-font-family' so
+every glyph fills whole cells and split-pane dividers drawn with box
+characters stay straight."
+  (visual-line-mode -1)
+  (setq-local buffer-display-table (lispm-desktop-terminal-display-table)
+              first-change-hook nil
+              truncate-lines t
+              bidi-display-reordering nil
+              bidi-paragraph-direction 'left-to-right
+              bidi-inhibit-bpa t
+              global-hl-line-mode nil)
+  (when (and (display-graphic-p)
+             (member lispm-desktop-terminal-font-family (font-family-list)))
+    (face-remap-add-relative 'default :family lispm-desktop-terminal-font-family)))
+
 (defun lispm-desktop-eat-buffer-p ()
   "Return non-nil in an Eat terminal buffer."
   (bound-and-true-p eat-terminal))
@@ -291,11 +374,7 @@ The bytes come from `lispm-desktop-eat-terminal-key-sequences'."
 
 (defvar lispm-desktop-eat-keys-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "M-x") #'execute-extended-command)
-    (define-key map (kbd "M-c") #'lispm-desktop-copy-region)
-    (define-key map (kbd "M-v") #'lispm-desktop-paste)
-    (define-key map (kbd "M-w") #'lispm-desktop-copy-region)
-    (define-key map (kbd "C-y") #'lispm-desktop-paste)
+    (lispm-desktop-bind-clipboard-keys map t)
     (define-key map (kbd "DEL") #'lispm-desktop-eat-send-backspace)
     (define-key map (kbd "<backspace>") #'lispm-desktop-eat-send-backspace)
     (define-key map (kbd "<delete>") #'lispm-desktop-eat-send-backspace)
