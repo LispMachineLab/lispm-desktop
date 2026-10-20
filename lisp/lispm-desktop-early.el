@@ -53,35 +53,49 @@
 (setq native-comp-async-report-warnings-errors 'silent
       native-comp-async-jobs-number 2)
 
-;; Two things GCC's driver works out for itself on macOS go wrong in some
-;; Emacs builds, LispM.app's among them, and then nothing compiles:
+;; Two things native compilation takes for granted on macOS go wrong in
+;; some Emacs builds, LispM.app's (jimeh/emacs-builds) among them, and then
+;; nothing compiles:
 ;;
-;; - which macOS to build for, from Darwin's version: since Apple numbered
-;;   macOS after the year (26) it can come to 18.0, which clang refuses.
-;;   Every macOS Emacs runs on is 11 or later.
-;; - the SDK, the command line tools' as GCC was configured, while it links
-;;   with the ld of the developer directory xcode-select chose; Xcode 26's
-;;   ld cannot read the macOS 27 SDK's libraries.  The chosen directory's
-;;   own SDK always suits its ld.
+;; - GCC's driver works out which macOS to build for from Darwin's version,
+;;   and since Apple numbered macOS after the year (26) it can come to 18.0,
+;;   which clang refuses.  Every macOS Emacs runs on is 11 or later.
+;; - The build puts the command line tools' SDK on LIBRARY_PATH, where ld
+;;   finds libSystem, while ld is the one of the developer directory
+;;   xcode-select chose: Xcode 26's ld cannot read the macOS 27 SDK's.  The
+;;   chosen directory's own SDK always suits its ld.
 (defvar native-comp-driver-options)
-(defun lispm-desktop-early--sdk ()
-  "Return the SDK of the developer directory xcode-select chose, or nil."
+(defconst lispm-desktop-early--tools-sdk-lib
+  "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
+  "Where the command line tools keep the SDK's libraries.")
+
+(defun lispm-desktop-early--sdk-lib ()
+  "Return the libraries of the SDK xcode-select's choice links with, or nil."
   (when-let* ((sdk (ignore-errors (car (process-lines "xcrun" "--show-sdk-path"))))
-              ((file-directory-p sdk)))
-    sdk))
+              (lib (expand-file-name "usr/lib" sdk))
+              ((file-directory-p lib)))
+    lib))
+
+(defun lispm-desktop-early--library-path (paths lib)
+  "Return PATHS, a LIBRARY_PATH, with LIB for the command line tools' SDK."
+  (mapconcat (lambda (path)
+               (if (equal (directory-file-name path) lispm-desktop-early--tools-sdk-lib)
+                   lib
+                 path))
+             (split-string paths path-separator t)
+             path-separator))
 
 (when (and (eq system-type 'darwin)
            (fboundp 'native-comp-available-p)
            (native-comp-available-p))
   (with-eval-after-load 'comp
-    (let ((options (mapconcat #'identity native-comp-driver-options " ")))
-      (unless (string-search "-mmacosx-version-min=" options)
-        (setq native-comp-driver-options
-              (append native-comp-driver-options '("-mmacosx-version-min=11.0"))))
-      (unless (string-search "-isysroot" options)
-        (when-let* ((sdk (lispm-desktop-early--sdk)))
-          (setq native-comp-driver-options
-                (append native-comp-driver-options (list "-isysroot" sdk))))))))
+    (unless (string-search "-mmacosx-version-min=" (mapconcat #'identity native-comp-driver-options " "))
+      (setq native-comp-driver-options
+            (append native-comp-driver-options '("-mmacosx-version-min=11.0"))))
+    (when-let* ((paths (getenv "LIBRARY_PATH"))
+                ((string-search lispm-desktop-early--tools-sdk-lib paths))
+                (lib (lispm-desktop-early--sdk-lib)))
+      (setenv "LIBRARY_PATH" (lispm-desktop-early--library-path paths lib)))))
 
 ;; Frames stay fully opaque: on macOS any transparency makes every redraw
 ;; composite the whole window, which made scrolling a terminal stutter.
