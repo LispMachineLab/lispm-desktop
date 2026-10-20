@@ -81,7 +81,7 @@ choosing it, :label and :text what its button says, :preview a key of
   "What the appearances' pictures are drawn in, by appearance.
 :colors are the theme's background, text, dimmed text and accent, which
 the chrome's palette is derived from, see
-`lispm-desktop-platinum--derive-palette': written out, since at the first
+`lispm-desktop-platinum-derive-palette': written out, since at the first
 start Dracula's package may not be installed yet.  Without them the
 picture takes the page's own palette, Platinum's.  :code colours the
 lines of the picture's document: keywords, names, strings, comments,
@@ -148,22 +148,23 @@ The value is a plist of rectangles, each (X Y WIDTH HEIGHT): the
 platinum inside its title bar and frame; :cards, a rectangle for each of
 PAGE's choices, side by side under the question; and :back, the Go Back
 button at the bottom right, when PAGE goes back."
-  (let* ((w lispm-desktop-assistant-width)
-         (h lispm-desktop-assistant-height)
-         (x (max 0 (/ (- width w) 2)))
-         (y (max 0 (/ (- height h) 2)))
-         ;; Inside the frame's band and black line, under the title bar,
-         ;; as `lispm-desktop-platinum-draw-window-frame' draws them.
-         (cx (+ x 6))
-         (cy (+ y 1 lispm-desktop-platinum-title-bar-height))
-         (cw (- w 13))
-         (ch (- h 8 lispm-desktop-platinum-title-bar-height))
-         (margin 20)
-         (count (length (plist-get page :choices)))
-         (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- count))) count) 0))
-         ;; The pixels left over widen the gaps, so both margins match.
-         (gap (if (> count 1) (/ (- cw (* 2 margin) (* count card-width)) (1- count)) 0))
-         (back-width (lispm-desktop-platinum-push-button-width "Go Back")))
+  (pcase-let* ((w lispm-desktop-assistant-width)
+               (h lispm-desktop-assistant-height)
+               (x (max 0 (/ (- width w) 2)))
+               (y (max 0 (/ (- height h) 2)))
+               ;; Inside the frame's band and black line, under the title
+               ;; bar, as `lispm-desktop-platinum-draw-window-frame' draws them.
+               (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
+               (cx (+ x left))
+               (cy (+ y top lispm-desktop-platinum-title-bar-height))
+               (cw (- w left right))
+               (ch (- h top bottom lispm-desktop-platinum-title-bar-height))
+               (margin 20)
+               (count (length (plist-get page :choices)))
+               (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- count))) count) 0))
+               ;; The pixels left over widen the gaps, so both margins match.
+               (gap (if (> count 1) (/ (- cw (* 2 margin) (* count card-width)) (1- count)) 0))
+               (back-width (lispm-desktop-platinum-push-button-width "Go Back")))
     (list :window (list x y w h)
           :content (list cx cy cw ch)
           :cards (mapcar (lambda (index)
@@ -190,7 +191,7 @@ its desktop under the menu bar, and a window over it showing a document
 whose lines are coloured CODE, a list of colours."
   (let ((outline (plist-get palette :outline))
         (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
-    (cl-flet ((fill (left top w h color) (lispm-desktop-platinum--fill svg left top w h color)))
+    (cl-flet ((fill (left top w h color) (lispm-desktop-platinum-svg-fill svg left top w h color)))
       ;; The screen, outlined.
       (fill (1- x) (1- y) (+ width 2) (+ height 2) outline)
       (fill x y width height (plist-get palette :desktop))
@@ -221,7 +222,7 @@ FOCUSED.  It holds the picture of CHOICE's appearance, if any, its label
 and its text, and its key as a key cap in its top right corner."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (properties (cdr choice))
-               (ink (plist-get (lispm-desktop-platinum--bevel-button-colors palette state) :label))
+               (ink (plist-get (lispm-desktop-platinum-bevel-button-colors palette state) :label))
                (preview (alist-get (plist-get properties :preview) lispm-desktop-assistant--previews))
                (lines (lispm-desktop-popup--wrap (plist-get properties :text) (- w 32)
                                                  'lispm-desktop-platinum-list))
@@ -230,28 +231,28 @@ and its text, and its key as a key cap in its top right corner."
                (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2)))
                (cap 20))
     (when focused
-      (lispm-desktop-platinum--draw-focus-ring svg x y w h 1 palette))
-    (lispm-desktop-platinum--embed-svg
+      (lispm-desktop-platinum-svg-focus-ring svg x y w h 1 palette))
+    (lispm-desktop-platinum-svg-embed
      svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) x y w h)
-    (lispm-desktop-platinum--embed-svg
+    (lispm-desktop-platinum-svg-embed
      svg (lispm-desktop-platinum-draw-bevel-button
           palette cap cap :label (upcase (char-to-string (plist-get properties :key)))
           :face 'lispm-desktop-platinum-title)
      (- (+ x w) cap 8) (+ y 8) cap cap)
     (when preview
       (let ((picture (if-let* ((colors (plist-get preview :colors)))
-                         (apply #'lispm-desktop-platinum--derive-palette colors)
+                         (apply #'lispm-desktop-platinum-derive-palette colors)
                        palette)))
         (lispm-desktop-assistant--draw-preview svg (+ x (/ (- w 120) 2)) top 120 64 picture
                                                (plist-get preview :code)))
       (setq top (+ top 74)))
-    (lispm-desktop-platinum--draw-content
-     svg label (+ x (/ (- w (lispm-desktop-platinum--content-width label 'lispm-desktop-platinum-title)) 2))
+    (lispm-desktop-platinum-svg-content
+     svg label (+ x (/ (- w (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)) 2))
      top 20 ink 'lispm-desktop-platinum-title)
     (setq top (+ top 24))
     (dolist (line lines)
-      (lispm-desktop-platinum--draw-content
-       svg line (+ x (/ (- w (lispm-desktop-platinum--content-width line 'lispm-desktop-platinum-list)) 2))
+      (lispm-desktop-platinum-svg-content
+       svg line (+ x (/ (- w (lispm-desktop-platinum-content-width line 'lispm-desktop-platinum-list)) 2))
        top 16 ink 'lispm-desktop-platinum-list)
       (setq top (+ top 16)))))
 
@@ -276,45 +277,45 @@ page with a :picture shows LispM's λ instead of choices, and its
          (svg (svg-create width height))
          (text (plist-get palette :text))
          (title (propertize "Welcome to LispM" 'face 'lispm-desktop-platinum-title)))
-    (lispm-desktop-platinum--fill svg 0 0 width height (plist-get palette :desktop))
+    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :desktop))
     (pcase-let ((`(,x ,y ,w ,h) (plist-get layout :window))
                 (`(,cx ,cy ,cw ,ch) (plist-get layout :content)))
-      (lispm-desktop-platinum--embed-svg
+      (lispm-desktop-platinum-svg-embed
        svg (lispm-desktop-platinum-draw-window-frame palette w h :active t) x y w h)
       (let ((bar (lispm-desktop-platinum-title-layout
-                  cw (lispm-desktop-platinum--content-width title 'lispm-desktop-platinum-title)
+                  cw (lispm-desktop-platinum-content-width title 'lispm-desktop-platinum-title)
                   '(nil nil nil))))
-        (lispm-desktop-platinum--embed-svg
+        (lispm-desktop-platinum-svg-embed
          svg (lispm-desktop-platinum-draw-title-part
               palette cw :active t :ridges (plist-get bar :ridges)
-              :label (lispm-desktop-platinum--fit title (plist-get bar :title))
+              :label (lispm-desktop-platinum-fit title (plist-get bar :title))
               :label-x (plist-get bar :label-x))
          cx (1+ y) cw lispm-desktop-platinum-title-bar-height))
-      (lispm-desktop-platinum--fill svg cx cy cw ch (lispm-desktop-platinum-grey palette #xDD))
+      (lispm-desktop-platinum-svg-fill svg cx cy cw ch (lispm-desktop-platinum-grey palette #xDD))
       ;; The icon, the question and what it is about.
       (if (plist-get page :picture)
-          (svg-embed svg (expand-file-name "icons/lispm-lambda.png" lispm-desktop-directory)
+          (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
                      "image/png" nil :x (+ cx 20) :y (+ cy 18) :width 32 :height 32)
-        (lispm-desktop-platinum--embed-icon
-         svg (expand-file-name (format "icons/os9/%s.svg" (plist-get page :icon)) lispm-desktop-directory)
+        (lispm-desktop-platinum-svg-icon
+         svg (lispm-desktop-platinum-icon-file (plist-get page :icon))
          (+ cx 20) (+ cy 18) 32))
       (let ((heading (propertize (plist-get page :title) 'face '(:height 1.4)))
             (top (+ cy 42)))
-        (lispm-desktop-platinum--draw-content svg heading (+ cx 68) (+ cy 14) 26 text
+        (lispm-desktop-platinum-svg-content svg heading (+ cx 68) (+ cy 14) 26 text
                                               'lispm-desktop-platinum-title)
         (dolist (line (lispm-desktop-popup--wrap (plist-get page :detail) (- cw 88)
                                                  'lispm-desktop-platinum-list))
-          (lispm-desktop-platinum--draw-content svg line (+ cx 68) top 16 text 'lispm-desktop-platinum-list)
+          (lispm-desktop-platinum-svg-content svg line (+ cx 68) top 16 text 'lispm-desktop-platinum-list)
           (setq top (+ top 16))))
       (if (plist-get page :picture)
           ;; The λ and the status under it, in the middle of what is left.
           (let* ((size 96)
                  (top (+ cy 70 (/ (- ch 70 size 12 16) 2))))
-            (svg-embed svg (expand-file-name "icons/lispm-lambda.png" lispm-desktop-directory)
+            (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
                        "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
             (when-let* ((status (plist-get page :status)))
-              (lispm-desktop-platinum--draw-content
-               svg status (+ cx (/ (- cw (lispm-desktop-platinum--content-width status 'lispm-desktop-platinum-list)) 2))
+              (lispm-desktop-platinum-svg-content
+               svg status (+ cx (/ (- cw (lispm-desktop-platinum-content-width status 'lispm-desktop-platinum-list)) 2))
                (+ top size 12) 16 text 'lispm-desktop-platinum-list)))
         (seq-mapn (lambda (choice rect index)
                     (lispm-desktop-assistant--draw-card svg palette rect choice
@@ -323,16 +324,16 @@ page with a :picture shows LispM's λ instead of choices, and its
                   (plist-get page :choices) (plist-get layout :cards)
                   (number-sequence 0 (1- (length (plist-get page :choices)))))
         (let ((hint (lispm-desktop-assistant--hint page)))
-          (lispm-desktop-platinum--draw-content
-           svg hint (+ cx (/ (- cw (lispm-desktop-platinum--content-width hint 'lispm-desktop-platinum-small)) 2))
+          (lispm-desktop-platinum-svg-content
+           svg hint (+ cx (/ (- cw (lispm-desktop-platinum-content-width hint 'lispm-desktop-platinum-small)) 2))
            (+ cy 92 lispm-desktop-assistant-card-height 10) 16
            (lispm-desktop-platinum-grey palette #x55) 'lispm-desktop-platinum-small))
-        (lispm-desktop-platinum--draw-content
+        (lispm-desktop-platinum-svg-content
          svg (plist-get page :step) (+ cx 20) (- (+ cy ch) 14 lispm-desktop-platinum-button-height)
          lispm-desktop-platinum-button-height text 'lispm-desktop-platinum-list)
         (pcase (plist-get layout :back)
           (`(,bx ,by ,bw ,_)
-           (lispm-desktop-platinum--draw-push-button svg bx by palette "Go Back" bw
+           (lispm-desktop-platinum-svg-push-button svg bx by palette "Go Back" bw
                                                      :state (and (eq pressed 'back) 'pressed))))))
     svg))
 
@@ -355,7 +356,7 @@ the theme chosen."
     ;; the sign of a truncated line and the echo area's fringes, in the
     ;; desktop's colour too.  The theme loaded once LispM is set up
     ;; colours the frame anew.
-    (let ((desktop (plist-get lispm-desktop-platinum--palette :desktop)))
+    (let ((desktop (plist-get lispm-desktop-platinum-current-palette :desktop)))
       (set-frame-parameter nil 'background-color desktop)
       (set-face-background 'fringe desktop (selected-frame)))
     (with-current-buffer buffer
@@ -392,14 +393,14 @@ drawn again while the page and the window's size stay as they are."
          ;; sign of a truncated line: the image leaves it.
          (width (- (window-body-width window t) (frame-char-width (window-frame window))))
          (height (window-body-height window t))
-         (shown (list width height page focused pressed lispm-desktop-platinum--generation)))
+         (shown (list width height page focused pressed lispm-desktop-platinum-generation)))
     (setq lispm-desktop-assistant--last-page page)
     (unless (equal shown lispm-desktop-assistant--shown)
       (setq lispm-desktop-assistant--shown shown)
       (with-current-buffer (window-buffer window)
         (erase-buffer)
         (insert (propertize " " 'display
-                            (svg-image (lispm-desktop-assistant-draw lispm-desktop-platinum--palette
+                            (svg-image (lispm-desktop-assistant-draw lispm-desktop-platinum-current-palette
                                                                      width height page focused pressed)
                                        :ascent 100 :scale 1)))
         (goto-char (point-min)))

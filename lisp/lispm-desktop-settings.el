@@ -119,7 +119,7 @@ the panel shows.")
   "Insert a radio button named LABEL, ON or off, calling ACTION when pressed.
 HELP describes it."
   (let ((radio (lambda (focused)
-                 (lispm-desktop-platinum--image-of (lispm-desktop-platinum-radio on nil focused)))))
+                 (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio on nil focused)))))
     (insert-text-button
      (concat (propertize " " 'display (funcall radio nil)
                          'lispm-desktop-platinum-plain (funcall radio nil)
@@ -141,7 +141,7 @@ NOTE after it in the dimmed text."
   "Insert a check box named LABEL, checked when ON, running ACTION when
 pressed, NOTE after it in the dimmed text."
   (let ((box (lambda (focused)
-               (lispm-desktop-platinum--image-of (lispm-desktop-platinum-check-box on nil focused 2)))))
+               (lispm-desktop-platinum-image-of (lispm-desktop-platinum-check-box on nil focused 2)))))
     (insert lispm-desktop-settings--indent)
     (insert-text-button
      (concat (propertize " " 'display (funcall box nil)
@@ -162,18 +162,18 @@ Software Update's Update Now button.")
   "Return the image of a bevel button holding ICON, a 32-pixel icon's name,
 in STATE, nil or `pressed', ringed when FOCUSED.  The ring's room is
 always left, so the button keeps its place."
-  (lispm-desktop-platinum--image
+  (lispm-desktop-platinum-image
    (list 'settings-icon-button icon state focused)
    (lambda ()
      (pcase-let* ((`(,w . ,h) lispm-desktop-settings--icon-button-size)
-                  (palette lispm-desktop-platinum--palette)
+                  (palette lispm-desktop-platinum-current-palette)
                   (pad 3)
                   (svg (svg-create (+ w (* 2 pad)) (+ h (* 2 pad)))))
        (when focused
-         (lispm-desktop-platinum--draw-focus-ring svg pad pad w h 1 palette))
-       (lispm-desktop-platinum--embed-svg
+         (lispm-desktop-platinum-svg-focus-ring svg pad pad w h 1 palette))
+       (lispm-desktop-platinum-svg-embed
         svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) pad pad w h)
-       (lispm-desktop-platinum--draw-image
+       (lispm-desktop-platinum-svg-emacs-image
         svg (create-image (lispm-desktop-platinum-icon-file icon))
         (+ pad (/ (- w 32) 2)) (+ pad (/ (- h 32) 2)) 32 32)
        svg))))
@@ -301,12 +301,12 @@ line, and its bottom edge closes it, a gap after it."
 
 (defun lispm-desktop-settings--swatch (color)
   "Return a swatch of COLOR, one icon wide."
-  (propertize " " 'display (lispm-desktop-platinum--image
+  (propertize " " 'display (lispm-desktop-platinum-image
                             (list 'swatch color)
                             (lambda ()
                               (let ((svg (svg-create 28 14)))
                                 (svg-rectangle svg 0.5 0.5 27 13 :fill color
-                                               :stroke (lispm-desktop-platinum--color :text))
+                                               :stroke (lispm-desktop-platinum-color :text))
                                 svg)))))
 
 (defun lispm-desktop-settings--choose-color ()
@@ -561,7 +561,7 @@ checks and installs by itself, and what is installed."
               ;; The keyboard stays on the control it was on.
               (dotimes (_ (1+ control)) (forward-button 1 nil nil t))
             (forward-line (1- line))))
-        (setq lispm-desktop-platinum--focus nil
+        (setq lispm-desktop-platinum-focus nil
               lispm-desktop-platinum-title (nth 1 panel))
         (lispm-desktop-platinum-show-focus)
         (force-mode-line-update)))))

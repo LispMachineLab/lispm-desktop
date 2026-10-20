@@ -79,9 +79,9 @@ white, black is legible as it is.  Colours come only from faces this
 function never sets, so re-running it is idempotent."
   (require 'ansi-color)
   (when-let* ((background (face-background 'default nil t))
-              (dark (< (apply #'+ (or (lispm-desktop-tab-bar--rgb background) '(1 1 1))) 1.5))
+              (dark (< (apply #'+ (or (lispm-desktop-platinum-rgb background) '(1 1 1))) 1.5))
               (dim (face-foreground 'shadow nil t))
-              (black (lispm-desktop-tab-bar--blend background "#000000" 0.2)))
+              (black (lispm-desktop-platinum-blend background "#000000" 0.2)))
     (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
     (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
 
@@ -115,7 +115,7 @@ toolbars are, it shows itself pushed in from the window's
          ;; properties, and icons drawn as images all read " ", so the new
          ;; session buttons of two agents with image icons had one label.
          (target (list row command label))
-         (pressed (lispm-desktop-platinum--pressed-p target))
+         (pressed (lispm-desktop-platinum-pressed-p target))
          (button (if face
                      (let ((styled (copy-sequence label)))
                        (add-face-text-property 0 (length styled)
@@ -134,7 +134,7 @@ toolbars are, it shows itself pushed in from the window's
                                           (interactive "e")
                                           (let ((start (event-start event)))
                                             (lispm-desktop-platinum-press
-                                             start (lispm-desktop-platinum--same-target-p start)
+                                             start (lispm-desktop-platinum-same-target-p start)
                                              (lambda ()
                                                (with-selected-window (posn-window start)
                                                  (call-interactively command)))))))
@@ -210,6 +210,8 @@ selected item."
                     evil-motion-state-cursor))
     (set (make-local-variable cursor) '(nil)))
   (face-remap-add-relative 'hl-line 'region)
+  ;; A window's title menu offers documents, not the sidebar's lists.
+  (setq-local lispm-desktop-platinum-listed nil)
   (display-line-numbers-mode -1))
 
 (defun lispm-desktop-sidebar--count (n singular &optional detail)
@@ -329,7 +331,7 @@ take the `button' face of the row, underline and all."
   "Return the right-hand column of a row holding META, flush right.
 The column is shaded down its whole length, as Finder shaded the column
 a list was sorted by."
-  (let* ((meta (lispm-desktop-platinum--fit (propertize (or meta "") 'face
+  (let* ((meta (lispm-desktop-platinum-fit (propertize (or meta "") 'face
                                                         (or (get-text-property 0 'face (or meta ""))
                                                             'lispm-desktop-platinum-list))
                                             (- (lispm-desktop-sidebar--column-pixels) 16)))
@@ -349,7 +351,7 @@ shortened to fit between them."
   (let ((room (- width (string-pixel-width (propertize lead 'face 'lispm-desktop-platinum-list))
                  (lispm-desktop-sidebar--column-pixels) 12)))
     (concat lead
-            (lispm-desktop-platinum--fit (propertize name 'face (or (get-text-property 0 'face name)
+            (lispm-desktop-platinum-fit (propertize name 'face (or (get-text-property 0 'face name)
                                                                     'lispm-desktop-platinum-list))
                                          (max 0 room))
             (lispm-desktop-sidebar--sorted-column meta))))
@@ -623,6 +625,23 @@ Agents view first."
                (select-window window))))))
 
 
+
+(defun lispm-desktop-sidebar--close-side-window (_window)
+  "Hide the sidebar's view, from a side window's close box.
+This is `lispm-desktop-platinum-side-window-close-function'."
+  (when-let* ((view (lispm-desktop-sidebar-current-view)))
+    (lispm-desktop-sidebar-select view)))
+
+(defun lispm-desktop-sidebar--scroll-bar (buffer)
+  "Say a scroll bar for BUFFER when it is one of the sidebar's lists.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (lispm-desktop-sidebar-buffer-view buffer) 'yes))
+
+(defun lispm-desktop-setup-sidebar ()
+  "Let the sidebar's views close from their windows' close boxes, and its
+lists scroll as Finder's did."
+  (setq lispm-desktop-platinum-side-window-close-function #'lispm-desktop-sidebar--close-side-window)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar))
 
 (provide 'lispm-desktop-sidebar)
 ;;; lispm-desktop-sidebar.el ends here

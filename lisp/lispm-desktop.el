@@ -163,6 +163,7 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-interface)
           (lispm-desktop-setup-term)
           (lispm-desktop-setup-platinum)
+          (lispm-desktop-setup-sidebar)
           (lispm-desktop-popup-enable)
           (lispm-desktop-setup-apps)
           (lispm-desktop-setup-coherence)

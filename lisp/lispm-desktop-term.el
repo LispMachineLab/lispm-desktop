@@ -1197,6 +1197,12 @@ It is a lispm-desktop-term once the module is built, else an Eat terminal."
     (with-current-buffer buffer
       (eat-term-send-string-as-yank eat-terminal (list text)))))
 
+(defun lispm-desktop-term--title-status (buffer)
+  "Return what the program of terminal BUFFER says it is doing, or nil.
+This is one of `lispm-desktop-platinum-buffer-status-functions'."
+  (when-let* ((record (lispm-desktop-term-status buffer)))
+    (lispm-desktop-term-status-label record)))
+
 (defun lispm-desktop-setup-term ()
   "Draw terminals as their windows change and the theme does.  The module
 is built in the background the first time, and again when its sources
@@ -1206,6 +1212,10 @@ downloaded, see `lispm-desktop-term--plan'."
   (add-hook 'window-size-change-functions #'lispm-desktop-term--follow-windows)
   (add-hook 'window-selection-change-functions #'lispm-desktop-term--follow-windows)
   (add-hook 'enable-theme-functions #'lispm-desktop-term--theme-changed 90)
+  ;; A terminal's title bar says what its program does, and quitting asks
+  ;; before it stops the programs running.
+  (add-hook 'lispm-desktop-platinum-buffer-status-functions #'lispm-desktop-term--title-status)
+  (add-hook 'lispm-desktop-platinum-running-buffers-functions #'lispm-desktop-term-running-buffers)
   (when (and lispm-desktop-term-enabled (display-graphic-p) (not (featurep 'lispm-desktop-term-module)))
     (pcase (lispm-desktop-term--plan)
       ('build (lispm-desktop-term-build))

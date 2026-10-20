@@ -179,17 +179,17 @@ bookmarks, and the panel."
 
 (defun lispm-desktop-strip--battery-icon ()
   "Return the battery module's icon: the battery, filled to its charge."
-  (lispm-desktop-platinum-draw-battery lispm-desktop-platinum--palette
+  (lispm-desktop-platinum-draw-battery lispm-desktop-platinum-current-palette
                                        (lispm-desktop-platinum-battery-percent)
                                        (lispm-desktop-platinum-battery-charging-p)))
 
 (defun lispm-desktop-strip--battery-help ()
   "Return what the battery module says of itself."
-  (battery-format battery-echo-area-format lispm-desktop-platinum--battery))
+  (battery-format battery-echo-area-format (lispm-desktop-platinum-battery)))
 
 (defun lispm-desktop-strip--load-icon ()
   "Return the load module's icon: the meter, filled to the load."
-  (lispm-desktop-platinum-draw-meter lispm-desktop-platinum--palette
+  (lispm-desktop-platinum-draw-meter lispm-desktop-platinum-current-palette
                                      (lispm-desktop-platinum-load-fraction)))
 
 (defun lispm-desktop-strip--time-p ()
@@ -205,10 +205,10 @@ bookmarks, and the panel."
     (battery :icon lispm-desktop-strip--battery-icon :help lispm-desktop-strip--battery-help
              :items lispm-desktop-platinum-battery-items :visible lispm-desktop-platinum-battery-percent)
     (load :icon lispm-desktop-strip--load-icon
-          :help ,(lambda () (format "Load average %s" lispm-desktop-platinum--load))
+          :help ,(lambda () (format "Load average %s" (lispm-desktop-platinum-load)))
           :items lispm-desktop-platinum-load-items :visible lispm-desktop-strip--time-p)
-    (mail :icon ,(lambda () (if lispm-desktop-platinum--mail "mail-new" "mail"))
-          :help ,(lambda () (if lispm-desktop-platinum--mail "You have new mail" "Mail"))
+    (mail :icon ,(lambda () (if (lispm-desktop-platinum-new-mail-p) "mail-new" "mail"))
+          :help ,(lambda () (if (lispm-desktop-platinum-new-mail-p) "You have new mail" "Mail"))
           :items lispm-desktop-platinum-mail-items :visible lispm-desktop-strip--time-p))
   "The Control Strip's modules: (KEY :icon ICON :help HELP :items ITEMS
 [:visible VISIBLE]).  ICON names an icon of icons/os9, or is a function
@@ -327,10 +327,10 @@ or the tab alone while the strip is collapsed."
          ;; it, so the tab's end is set off against the desktop's colour.
          (behind (and (eq kind 'tab) (fboundp 'lispm-desktop--color) (lispm-desktop--color)))
          (side (lispm-desktop-strip--side)))
-    (lispm-desktop-platinum--image
+    (lispm-desktop-platinum-image
      (list 'strip kind state icon focused behind side)
      (lambda ()
-       (lispm-desktop-platinum-draw-strip-segment lispm-desktop-platinum--palette kind
+       (lispm-desktop-platinum-draw-strip-segment lispm-desktop-platinum-current-palette kind
                                                   :state state :icon icon :menu (consp part)
                                                   :focused focused :behind behind :side side)))))
 
@@ -411,7 +411,7 @@ one with Option, Alt or Super moves it too, where a key gives those."
                     (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
                     (line-spacing . 0) (cursor-type . nil) (no-special-glyphs . t)
                     (visibility . nil)
-                    (background-color . ,(lispm-desktop-platinum--color :strip))
+                    (background-color . ,(lispm-desktop-platinum-color :strip))
                     (width . 20) (height . 1))))))
     (let ((root (frame-root-window frame)))
       (set-window-buffer root (lispm-desktop-strip--buffer))
@@ -455,7 +455,7 @@ above the bottom: (X . Y), kept within the bounds."
     ;; Only a new colour is set: NS Emacs clears a frame whenever its
     ;; background is set, to the same colour too, and a strip cleared
     ;; just before an update of the screen shows as an empty bar.
-    (let ((color (lispm-desktop-platinum--color :strip)))
+    (let ((color (lispm-desktop-platinum-color :strip)))
       (unless (equal (frame-parameter lispm-desktop-strip--frame 'background-color) color)
         (set-frame-parameter lispm-desktop-strip--frame 'background-color color)))
     (lispm-desktop-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
@@ -636,25 +636,25 @@ moves once the mouse is let go.  Escape or C-g leaves it where it was.
 Return non-nil when it moved."
   (let* ((frame lispm-desktop-strip--frame)
          (screen (frame-parent frame))
-         (origin (lispm-desktop-platinum--origin screen))
+         (origin (lispm-desktop-platinum-origin screen))
          (bounds (lispm-desktop-strip--bounds screen))
          (width (frame-pixel-width frame))
          (start (cdr (frame-position frame)))
-         (ink (lispm-desktop-platinum-inverse (lispm-desktop-platinum--desktop-color)))
+         (ink (lispm-desktop-platinum-inverse (lispm-desktop-platinum-desktop-color)))
          (moved (lambda (delta)
                   (lispm-desktop-strip--moved
                    bounds start
                    (cons (- (car (mouse-absolute-pixel-position)) (car origin)) (cdr delta)))))
          (result
           (unwind-protect
-              (lispm-desktop-platinum--track
+              (lispm-desktop-platinum-track
                (lambda (delta)
                  (pcase-let* ((`(,side . ,raised) (funcall moved delta))
                               (`(,x . ,y) (lispm-desktop-strip--position bounds width side raised)))
-                   (lispm-desktop-platinum--show-outline
+                   (lispm-desktop-platinum-show-outline
                     screen (lispm-desktop-platinum-strip-outline-lines x y width side ink) origin))))
-            (lispm-desktop-platinum--hide-outline))))
-    (when (and (car result) (lispm-desktop-platinum--moved-p (cdr result)))
+            (lispm-desktop-platinum-hide-outline))))
+    (when (and (car result) (lispm-desktop-modal-moved-p (cdr result)))
       (pcase-let ((`(,side . ,raised) (funcall moved (cdr result))))
         (lispm-desktop-strip--move-to side raised))
       t)))

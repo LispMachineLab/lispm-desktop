@@ -36,8 +36,6 @@
 (require 'subr-x)
 (require 'lispm-desktop-core)
 
-(declare-function lispm-desktop-tab-bar--blend "lispm-desktop-interface" (from to ratio))
-(declare-function lispm-desktop-tab-bar--rgb "lispm-desktop-interface" (color))
 
 
 (defgroup lispm-desktop-platinum nil
@@ -47,7 +45,7 @@
 
 (defcustom lispm-desktop-platinum-colors nil
   "Chrome colours a theme names outright, a plist.
-Keys are those of `lispm-desktop-platinum--derive-palette' (:chrome, :header,
+Keys are those of `lispm-desktop-platinum-derive-palette' (:chrome, :header,
 :light, :shade, :frame, :muted, :accent, :outline, :highlight, :thumb,
 :focus, :strip, ...); a colour left out is derived from the theme's
 faces.  Themes set it, as the platinum theme does; users rarely need to."
@@ -55,14 +53,36 @@ faces.  Themes set it, as the platinum theme does; users rarely need to."
 
 ;;;; Palette
 
-(defvar lispm-desktop-platinum--palette nil
-  "The chrome's colours, a plist derived from the theme.
-See `lispm-desktop-platinum--derive-palette'.")
+(defun lispm-desktop-platinum-rgb (color)
+  "Return COLOR as a list of red, green and blue between 0 and 1, or nil.
+A colour written #RRGGBB is read as written, whatever the display can
+show; any other name is resolved by the display."
+  (if (and (stringp color)
+           (string-match (concat "\\`#\\([[:xdigit:]]\\{2\\}\\)"
+                                 "\\([[:xdigit:]]\\{2\\}\\)\\([[:xdigit:]]\\{2\\}\\)\\'")
+                         color))
+      (mapcar (lambda (group) (/ (string-to-number (match-string group color) 16) 255.0))
+              '(1 2 3))
+    (and color (color-name-to-rgb color))))
 
-(defvar lispm-desktop-platinum--generation 0
+(defun lispm-desktop-platinum-blend (from to ratio)
+  "Return the colour RATIO of the way from colour FROM to colour TO.
+Each component is rounded to the nearest of its 256 values, so a blend
+falling on one of them comes back exactly.  Return nil when either
+colour cannot be resolved, as on a text terminal."
+  (when-let* ((a (lispm-desktop-platinum-rgb from))
+              (b (lispm-desktop-platinum-rgb to)))
+    (apply #'format "#%02x%02x%02x"
+           (cl-mapcar (lambda (x y) (round (* 255 (+ x (* ratio (- y x)))))) a b))))
+
+(defvar lispm-desktop-platinum-current-palette nil
+  "The chrome's colours, a plist derived from the theme.
+See `lispm-desktop-platinum-derive-palette'.")
+
+(defvar lispm-desktop-platinum-generation 0
   "Count of palettes derived so far; memoized drawings carry it in their key.")
 
-(defun lispm-desktop-platinum--derive-palette (content text dim accent)
+(defun lispm-desktop-platinum-derive-palette (content text dim accent)
   "Return the chrome's palette for a theme drawing CONTENT, TEXT, DIM and ACCENT.
 CONTENT and TEXT are the editor's background and foreground, DIM its
 dimmed text, ACCENT its highlight colour.  The chrome is the content a
@@ -75,28 +95,28 @@ As Mac OS 9's variation colour was a ramp, so is the accent: menus are
 highlighted in it darkened, scroll thumbs are it lightened, and the
 keyboard focus is ringed in it.  The Control Strip has greys of its own,
 a little darker than the chrome; alerts are framed in a light red."
-  (let* ((chrome (lispm-desktop-tab-bar--blend content "#000000" 0.25))
-         (light (lispm-desktop-tab-bar--blend chrome text 0.3))
-         (outline (lispm-desktop-tab-bar--blend content "#000000" 0.85))
-         (highlight (lispm-desktop-tab-bar--blend accent "#000000" 0.4))
+  (let* ((chrome (lispm-desktop-platinum-blend content "#000000" 0.25))
+         (light (lispm-desktop-platinum-blend chrome text 0.3))
+         (outline (lispm-desktop-platinum-blend content "#000000" 0.85))
+         (highlight (lispm-desktop-platinum-blend accent "#000000" 0.4))
          (palette (list :content content :text text :dim dim :accent accent
                         :chrome chrome :light light :outline outline)))
     (append
      palette
-     (list :desktop (lispm-desktop-tab-bar--blend content accent 0.25)
-           :header (lispm-desktop-tab-bar--blend chrome content 0.5)
-           :shade (lispm-desktop-tab-bar--blend chrome "#000000" 0.6)
-           :frame (lispm-desktop-tab-bar--blend content "#000000" 0.65)
-           :muted (lispm-desktop-tab-bar--blend dim text 0.35)
+     (list :desktop (lispm-desktop-platinum-blend content accent 0.25)
+           :header (lispm-desktop-platinum-blend chrome content 0.5)
+           :shade (lispm-desktop-platinum-blend chrome "#000000" 0.6)
+           :frame (lispm-desktop-platinum-blend content "#000000" 0.65)
+           :muted (lispm-desktop-platinum-blend dim text 0.35)
            :highlight highlight
-           :highlight-dark (lispm-desktop-tab-bar--blend highlight "#000000" 0.45)
-           :highlight-text (lispm-desktop-platinum--legible highlight text content)
-           :thumb (lispm-desktop-tab-bar--blend accent "#FFFFFF" 0.35)
-           :thumb-light (lispm-desktop-tab-bar--blend accent "#FFFFFF" 0.65)
+           :highlight-dark (lispm-desktop-platinum-blend highlight "#000000" 0.45)
+           :highlight-text (lispm-desktop-platinum-legible highlight text content)
+           :thumb (lispm-desktop-platinum-blend accent "#FFFFFF" 0.35)
+           :thumb-light (lispm-desktop-platinum-blend accent "#FFFFFF" 0.65)
            :thumb-dark accent
            :focus accent
-           :alert (lispm-desktop-tab-bar--blend light "#FF0000" 0.4)
-           :alert-dark (lispm-desktop-tab-bar--blend light "#FF0000" 0.6)
+           :alert (lispm-desktop-platinum-blend light "#FF0000" 0.4)
+           :alert-dark (lispm-desktop-platinum-blend light "#FF0000" 0.6)
            :strip (lispm-desktop-platinum-grey palette #xC0)
            :strip-light (lispm-desktop-platinum-grey palette #xFF)
            :strip-shade (lispm-desktop-platinum-grey palette #xA0)
@@ -112,17 +132,17 @@ level comes back as itself, so a control is drawn with the greys Mac OS 9
 drew it with, and a theme of other colours gets their counterparts."
   (let ((chrome #xDD))
     (if (>= level chrome)
-        (lispm-desktop-tab-bar--blend (plist-get palette :chrome) (plist-get palette :light)
+        (lispm-desktop-platinum-blend (plist-get palette :chrome) (plist-get palette :light)
                                       (/ (- level chrome) (float (- #xFF chrome))))
-      (lispm-desktop-tab-bar--blend (plist-get palette :chrome) (plist-get palette :outline)
+      (lispm-desktop-platinum-blend (plist-get palette :chrome) (plist-get palette :outline)
                                     (/ (- chrome level) (float chrome))))))
 
 (defun lispm-desktop-platinum--luminance (color)
   "Return the relative luminance of COLOR, between 0 and 1."
-  (pcase-let ((`(,r ,g ,b) (or (lispm-desktop-tab-bar--rgb color) '(0 0 0))))
+  (pcase-let ((`(,r ,g ,b) (or (lispm-desktop-platinum-rgb color) '(0 0 0))))
     (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b))))
 
-(defun lispm-desktop-platinum--legible (background &rest colors)
+(defun lispm-desktop-platinum-legible (background &rest colors)
   "Return whichever of COLORS stands out most from BACKGROUND."
   (let ((ground (lispm-desktop-platinum--luminance background)))
     (car (seq-sort-by (lambda (color) (abs (- (lispm-desktop-platinum--luminance color) ground)))
@@ -135,9 +155,9 @@ drew it with, and a theme of other colours gets their counterparts."
              do (setq palette (plist-put palette key value)))
     palette))
 
-(defun lispm-desktop-platinum--color (name)
+(defun lispm-desktop-platinum-color (name)
   "Return the palette colour NAME."
-  (plist-get lispm-desktop-platinum--palette name))
+  (plist-get lispm-desktop-platinum-current-palette name))
 
 ;;;; Faces
 

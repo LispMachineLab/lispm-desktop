@@ -34,9 +34,6 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-draw)
 
-(declare-function lispm-desktop-agent--buffer-agent "lispm-desktop-agent-list" (buffer))
-(declare-function lispm-desktop-agent--buffer-p "lispm-desktop-ai" (buffer))
-(declare-function lispm-desktop-agent--icon "lispm-desktop-agent-list" (agent))
 
 
 ;;;; Icons
@@ -111,6 +108,12 @@ shown, a blank stands in."
 
 (defvar lispm-directory)
 
+(defvar lispm-desktop-platinum-buffer-icon-functions nil
+  "Functions giving a buffer an icon of their own, tried in turn before its
+kind's: each is called with the buffer and returns an icon, as
+`lispm-desktop-platinum-icon' makes one, or nil.  An agent's session
+shows its agent's mark this way.")
+
 (defvar-local lispm-desktop-platinum--icon-cache nil
   "This buffer's icon as (KEY PALETTE . ICON): what it was chosen from.")
 
@@ -124,17 +127,16 @@ from changes."
   (with-current-buffer buffer
     (let ((key (list major-mode buffer-file-name default-directory (buffer-name))))
       (if (and (equal (car lispm-desktop-platinum--icon-cache) key)
-               (eq (cadr lispm-desktop-platinum--icon-cache) lispm-desktop-platinum--palette))
+               (eq (cadr lispm-desktop-platinum--icon-cache) lispm-desktop-platinum-current-palette))
           (cddr lispm-desktop-platinum--icon-cache)
         (cddr (setq lispm-desktop-platinum--icon-cache
-                    (cons key (cons lispm-desktop-platinum--palette
+                    (cons key (cons lispm-desktop-platinum-current-palette
                                     (lispm-desktop-platinum--choose-icon buffer)))))))))
 
 (defun lispm-desktop-platinum--choose-icon (buffer)
   "Return the Finder icon of BUFFER, see `lispm-desktop-platinum-buffer-icon'."
   (with-current-buffer buffer
-    (cond ((and (fboundp 'lispm-desktop-agent--buffer-p) (lispm-desktop-agent--buffer-p buffer))
-           (lispm-desktop-agent--icon (lispm-desktop-agent--buffer-agent buffer)))
+    (cond ((run-hook-with-args-until-success 'lispm-desktop-platinum-buffer-icon-functions buffer))
           ((derived-mode-p 'eat-mode 'lispm-desktop-term-mode 'term-mode 'shell-mode 'eshell-mode)
            (lispm-desktop-platinum-icon "computer"))
           ((derived-mode-p 'dired-mode) (lispm-desktop-platinum-folder-icon default-directory))

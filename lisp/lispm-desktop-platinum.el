@@ -123,24 +123,24 @@ and darker, as Mac OS 9 drew the column a list was sorted by."
          (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
          (x 0))
     (pcase-dolist (`(,label ,w ,sorted ,x-in) (append columns '((nil 16 nil))))
-      (cl-flet ((row (y level) (lispm-desktop-platinum--row svg x (+ x w -1) y (funcall grey level)))
-                (column (cx level) (lispm-desktop-platinum--column svg (+ x cx) 0 (1- h) (funcall grey level))))
+      (cl-flet ((row (y level) (lispm-desktop-platinum-svg-row svg x (+ x w -1) y (funcall grey level)))
+                (column (cx level) (lispm-desktop-platinum-svg-column svg (+ x cx) 0 (1- h) (funcall grey level))))
         (if sorted
             (progn
-              (lispm-desktop-platinum--fill svg x 0 w h (funcall grey #x88))
+              (lispm-desktop-platinum-svg-fill svg x 0 w h (funcall grey #x88))
               (row (- h 2) #xAA) (column (- w 2) #xAA)
               (row (1- h) #x44) (column (1- w) #x44)
               (row 1 #x55) (column 1 #x55)
               (row 0 #x11) (column 0 #x11))
-          (lispm-desktop-platinum--fill svg x 0 w h (funcall grey #xCC))
+          (lispm-desktop-platinum-svg-fill svg x 0 w h (funcall grey #xCC))
           (row (- h 2) #x88) (row (1- h) #x33)
           (row 1 #xFF) (column 1 #xFF)
           (row 0 #x66) (column 0 #x66)))
       (when label
-        (lispm-desktop-platinum--draw-content svg label (+ x (or x-in label-x 8)) 1 (- h 3)
+        (lispm-desktop-platinum-svg-content svg label (+ x (or x-in label-x 8)) 1 (- h 3)
                                               (plist-get palette :text) 'lispm-desktop-platinum-list))
       (setq x (+ x w)))
-    (lispm-desktop-platinum--draw-map svg (- width 12) 7 lispm-desktop-platinum--sort-glyph
+    (lispm-desktop-platinum-svg-pixel-map svg (- width 12) 7 lispm-desktop-platinum--sort-glyph
                                       `((?# . ,(plist-get palette :text))))
     svg))
 
@@ -151,11 +151,11 @@ sort-direction button, the column the list is sorted by; NAME is
 LABEL-X pixels in.  See `lispm-desktop-platinum-draw-list-header'."
   (let ((name-width (- width meta-width)))
     (concat (propertize " " 'display
-                        (lispm-desktop-platinum--image
+                        (lispm-desktop-platinum-image
                          (list 'list-header name meta width meta-width label-x)
                          (lambda ()
                            (lispm-desktop-platinum-draw-list-header
-                            lispm-desktop-platinum--palette
+                            lispm-desktop-platinum-current-palette
                             (list (list name name-width nil) (list meta (- meta-width 16) t 4))
                             label-x))))
             "\n")))
@@ -228,12 +228,12 @@ it, as on every theme change, is idempotent."
         (dim (face-foreground 'shadow nil t))
         (accent (face-foreground 'font-lock-constant-face nil t)))
     (when (and content text dim accent (color-name-to-rgb content))
-      (setq lispm-desktop-platinum--palette (lispm-desktop-platinum--merge-palette
-                                             (lispm-desktop-platinum--derive-palette content text dim accent)
+      (setq lispm-desktop-platinum-current-palette (lispm-desktop-platinum--merge-palette
+                                             (lispm-desktop-platinum-derive-palette content text dim accent)
                                              lispm-desktop-platinum-colors)
-            lispm-desktop-platinum--generation (1+ lispm-desktop-platinum--generation))
-      (let ((chrome (lispm-desktop-platinum--color :chrome))
-            (header (lispm-desktop-platinum--color :header))
+            lispm-desktop-platinum-generation (1+ lispm-desktop-platinum-generation))
+      (let ((chrome (lispm-desktop-platinum-color :chrome))
+            (header (lispm-desktop-platinum-color :header))
             (system (and (display-graphic-p) (lispm-desktop-platinum--family lispm-desktop-platinum-system-families)))
             (list-family (and (display-graphic-p)
                               (lispm-desktop-platinum--family lispm-desktop-platinum-list-families))))
@@ -249,20 +249,20 @@ it, as on every theme change, is idempotent."
                             :height 'unspecified)
         (set-face-attribute 'mode-line-inactive nil
                             :inherit 'unspecified :background chrome
-                            :foreground (lispm-desktop-platinum--color :muted)
+                            :foreground (lispm-desktop-platinum-color :muted)
                             :box nil :overline 'unspecified :underline 'unspecified
                             :height 'unspecified)
         ;; Lists as Finder's list view drew them: rows lighter than the
         ;; platinum, the column sorted by in platinum, a lit line atop
         ;; each row.
         (set-face-attribute 'lispm-desktop-platinum-sorted nil
-                            :background (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #xDD)
+                            :background (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xDD)
                             :extend t)
         (set-face-attribute 'lispm-desktop-platinum-list-body nil
                             :inherit 'lispm-desktop-platinum-list
-                            :background (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #xEE))
+                            :background (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xEE))
         (set-face-attribute 'lispm-desktop-platinum-row nil
-                            :overline (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #xFF))
+                            :overline (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xFF))
         ;; Balloon Help: a note in the list's type, on the header's grey.
         ;; It carries no outline: macOS sizes a tooltip without its box,
         ;; which would cut the right edge off.
@@ -275,26 +275,26 @@ it, as on every theme change, is idempotent."
         (set-face-attribute 'lispm-desktop-platinum-placard nil
                             :inherit 'lispm-desktop-platinum-list :background chrome :foreground text
                             :height 0.95
-                            :box `(:line-width (1 . 1) :color ,(lispm-desktop-platinum--color :outline)))
+                            :box `(:line-width (1 . 1) :color ,(lispm-desktop-platinum-color :outline)))
         (set-face-attribute 'lispm-desktop-platinum-placard-inactive nil
                             :inherit 'lispm-desktop-platinum-list :background chrome
-                            :foreground (lispm-desktop-platinum--color :muted) :height 0.95
+                            :foreground (lispm-desktop-platinum-color :muted) :height 0.95
                             :box `(:line-width (1 . 1)
-                                   :color ,(lispm-desktop-platinum-grey lispm-desktop-platinum--palette #x99)))
+                                   :color ,(lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #x99)))
         (dolist (face '(lispm-desktop-platinum-title lispm-desktop-platinum-title-inactive
                         lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
           (set-face-attribute face nil :family (or system 'unspecified) :height 120
                               :weight 'bold))
         (set-face-attribute 'lispm-desktop-platinum-title nil :foreground text)
         (set-face-attribute 'lispm-desktop-platinum-title-inactive nil
-                            :foreground (lispm-desktop-platinum--color :muted) :inherit 'unspecified)
+                            :foreground (lispm-desktop-platinum-color :muted) :inherit 'unspecified)
         ;; Menu bar titles are drawn as images in these faces; menus'
         ;; items inherit them.
         (set-face-attribute 'lispm-desktop-platinum-menu-title nil
                             :foreground text :background chrome :inverse-video nil :box nil)
         (set-face-attribute 'lispm-desktop-platinum-menu-title-active nil
-                            :foreground (lispm-desktop-platinum--color :highlight-text)
-                            :background (lispm-desktop-platinum--color :highlight)
+                            :foreground (lispm-desktop-platinum-color :highlight-text)
+                            :background (lispm-desktop-platinum-color :highlight)
                             :inverse-video nil :box nil)
         (set-face-attribute 'lispm-desktop-platinum-list nil :family (or list-family 'unspecified))
         (set-face-attribute 'lispm-desktop-platinum-small nil
@@ -307,20 +307,20 @@ it, as on every theme change, is idempotent."
         (set-face-attribute 'lispm-desktop-platinum-toolbar-label nil
                             :inherit 'lispm-desktop-platinum-toolbar :foreground dim)
         (set-face-attribute 'lispm-desktop-platinum-field nil
-                            :inherit 'lispm-desktop-platinum-list :background (lispm-desktop-platinum--color :content)
+                            :inherit 'lispm-desktop-platinum-list :background (lispm-desktop-platinum-color :content)
                             :foreground text
-                            :box `(:line-width (1 . 1) :color ,(lispm-desktop-platinum--color :outline)))
+                            :box `(:line-width (1 . 1) :color ,(lispm-desktop-platinum-color :outline)))
         ;; Emacs draws one box about text, so the ring stands for the frame
         ;; within it while the field has the keyboard.
         (set-face-attribute 'lispm-desktop-platinum-field-focused nil
                             :inherit 'lispm-desktop-platinum-field
-                            :box `(:line-width (2 . 2) :color ,(lispm-desktop-platinum--color :focus)))
+                            :box `(:line-width (2 . 2) :color ,(lispm-desktop-platinum-color :focus)))
         (set-face-attribute 'lispm-desktop-platinum-button nil
                             :inherit 'lispm-desktop-platinum-list :background chrome :foreground text
                             :box '(:line-width (1 . 1) :style released-button))
         (set-face-attribute 'lispm-desktop-platinum-button-pressed nil
-                            :inherit 'lispm-desktop-platinum-list :background (lispm-desktop-platinum--color :shade)
-                            :foreground (lispm-desktop-platinum--color :accent)
+                            :inherit 'lispm-desktop-platinum-list :background (lispm-desktop-platinum-color :shade)
+                            :foreground (lispm-desktop-platinum-color :accent)
                             :box '(:line-width (1 . 1) :style pressed-button))
         (set-face-attribute 'lispm-desktop-platinum-column nil
                             :inherit 'lispm-desktop-platinum-list :background header :foreground text
@@ -331,21 +331,27 @@ it, as on every theme change, is idempotent."
                             :height 0.9
                             :box '(:line-width (1 . 1) :style released-button))
         ;; Menus, alerts and windows are outlined in black, as Mac OS 9's were.
-        (set-face-attribute 'child-frame-border nil :background (lispm-desktop-platinum--color :outline))
+        (set-face-attribute 'child-frame-border nil :background (lispm-desktop-platinum-color :outline))
         ;; Neighbouring windows meet across a divider drawn as a window's
         ;; frame: lit where it leaves the window before, platinum, then
         ;; the outline of the window after.
         (set-face-attribute 'window-divider nil
-                            :foreground (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #xCC))
+                            :foreground (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xCC))
         (set-face-attribute 'window-divider-first-pixel nil
-                            :foreground (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #xFF))
+                            :foreground (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xFF))
         (set-face-attribute 'window-divider-last-pixel nil
-                            :foreground (lispm-desktop-platinum--color :outline))))))
+                            :foreground (lispm-desktop-platinum-color :outline))))))
 
 ;;;; Setup
 
+(defun lispm-desktop-platinum--treemacs-scroll-bar (buffer)
+  "Say a scroll bar for BUFFER when it is a project's tree, as a list.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (eq (buffer-local-value 'major-mode buffer) 'treemacs-mode) 'yes))
+
 (defun lispm-desktop-setup-platinum ()
   "Lay the frame out as Mac OS 9 did, in the active theme's colours."
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-platinum--treemacs-scroll-bar)
   (setq-default tab-line-format '(:eval (lispm-desktop-platinum-title-bar))
                 mode-line-format lispm-desktop-platinum-mode-line-format)
   (setq mode-line-right-align-edge 'window)

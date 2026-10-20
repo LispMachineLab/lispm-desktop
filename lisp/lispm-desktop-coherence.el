@@ -76,7 +76,7 @@
 (declare-function lispm-desktop-browser-full-screen "lispm-desktop-browser" ())
 (declare-function lispm-desktop-browser-floating-p "lispm-desktop-browser" ())
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
-(declare-function lispm-desktop-platinum--color "lispm-desktop-platinum-palette" (key))
+(declare-function lispm-desktop-platinum-color "lispm-desktop-platinum-palette" (key))
 (defvar lispm-desktop-platinum-frame-moved-functions)
 (defvar exwm-wm-mode)
 
@@ -180,13 +180,13 @@ computer's screen as Spotlight's field, and hides again once done."
                         (left-fringe . 0) (right-fringe . 0)
                         (width . 90) (height . 3)))))
             (title (get-buffer-create lispm-desktop-coherence--title-buffer-name)))
-        (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum--color :chrome))
+        (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum-color :chrome))
         (with-current-buffer title
           (setq-local mode-line-format nil header-line-format nil tab-line-format nil
                       cursor-type nil cursor-in-non-selected-windows nil truncate-lines t
                       ;; One line is all the title needs.
                       window-min-height 1)
-          (face-remap-add-relative 'default :background (lispm-desktop-platinum--color :chrome)))
+          (face-remap-add-relative 'default :background (lispm-desktop-platinum-color :chrome)))
         (let ((window (frame-root-window frame)))
           (set-window-buffer window title)
           (set-window-dedicated-p window t)

@@ -72,6 +72,7 @@
 (declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional directory))
 (declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-agent--buffer-agent "lispm-desktop-agent-list" (buffer))
+(declare-function lispm-desktop-agent--icon "lispm-desktop-agent-list" (agent))
 (declare-function lispm-desktop-agent--running-buffers "lispm-desktop-agent-list" ())
 (declare-function lispm-desktop-agent--session-buffer "lispm-desktop-agent-list" (id))
 (declare-function lispm-desktop-agent--project-root "lispm-desktop-agent-list" (directory))
@@ -1070,8 +1071,17 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
   "f" #'lispm-desktop-agent-session-open-transcript
   "d" #'lispm-desktop-agent-session-open-directory)
 
+(defun lispm-desktop-agent--buffer-icon (buffer)
+  "Return the mark of the agent whose session BUFFER holds, or nil.
+This is one of `lispm-desktop-platinum-buffer-icon-functions'."
+  (when (lispm-desktop-agent--buffer-p buffer)
+    (lispm-desktop-agent--icon (lispm-desktop-agent--buffer-agent buffer))))
+
 (defun lispm-desktop-setup-ai ()
   "Set up AI assistants."
+  ;; A session's window shows its agent's mark, and its title.
+  (add-hook 'lispm-desktop-platinum-buffer-icon-functions #'lispm-desktop-agent--buffer-icon)
+  (add-hook 'lispm-desktop-platinum-buffer-title-functions #'lispm-desktop-agent-buffer-label)
   (keymap-global-set "C-c a" lispm-desktop-agent-map)
   (with-eval-after-load 'embark
     (add-to-list 'embark-keymap-alist

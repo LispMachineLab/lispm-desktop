@@ -517,7 +517,7 @@ The window is drawn at once, as what follows may keep Emacs busy."
 
 (defun lispm-desktop-store--names (items)
   "Return the names of ITEMS, (ID . PROPERTIES), as a phrase."
-  (lispm-desktop-platinum--names (mapcar (lambda (item) (plist-get (cdr item) :name)) items)))
+  (lispm-desktop-platinum-quoted-names (mapcar (lambda (item) (plist-get (cdr item) :name)) items)))
 
 (defun lispm-desktop-store--confirm (question detail preview action)
   "Ask QUESTION in an alert, DETAIL under it, and return non-nil to go on.
@@ -746,7 +746,7 @@ One that other packages need stays, as said in the echo area."
            ((plist-get props :owned) (format "Its package %s is deleted." package))
            (t (format "Its package %s stays, as it was there before." package)))
      (when requirers
-       (format "  %s %s it." (lispm-desktop-platinum--names requirers)
+       (format "  %s %s it." (lispm-desktop-platinum-quoted-names requirers)
                (if (cdr requirers) "need" "needs"))))))
 
 (defun lispm-desktop-store--unload (feature)
@@ -1116,21 +1116,21 @@ ID), the button of the item ID, (item . ID), or nil."
   "Return the colours of what is selected: the light highlight colour, as
 Mac OS 9 drew a selected name, and whichever of the theme's text and
 background colours reads on it, as (:background COLOR :foreground COLOR)."
-  (let ((highlight (or (lispm-desktop-platinum--color :thumb-light)
-                       (lispm-desktop-platinum--color :highlight))))
+  (let ((highlight (or (lispm-desktop-platinum-color :thumb-light)
+                       (lispm-desktop-platinum-color :highlight))))
     `(:background ,highlight
-      :foreground ,(lispm-desktop-platinum--legible highlight
-                                                    (lispm-desktop-platinum--color :text)
-                                                    (lispm-desktop-platinum--color :content)))))
+      :foreground ,(lispm-desktop-platinum-legible highlight
+                                                    (lispm-desktop-platinum-color :text)
+                                                    (lispm-desktop-platinum-color :content)))))
 
 (defun lispm-desktop-store--fit (text width face)
   "Return TEXT in FACE, shortened to WIDTH pixels."
-  (lispm-desktop-platinum--fit (propertize text 'face face) (max 0 width)))
+  (lispm-desktop-platinum-fit (propertize text 'face face) (max 0 width)))
 
 (defun lispm-desktop-store--darkened (file)
   "Return the SVG document of the icon FILE darkened, as Mac OS 9 darkened
 a selected icon."
-  (lispm-desktop-platinum--svg-dom
+  (lispm-desktop-platinum-svg-dom
    nil (lispm-desktop--darken (with-temp-buffer
                                 (insert-file-contents file)
                                 (buffer-string)))))
@@ -1145,9 +1145,9 @@ up by the lines above, so that together they show it once."
          (face 'lispm-desktop-platinum-list)
          (small 'lispm-desktop-platinum-small)
          (selected (lispm-desktop-store--selected-face)))
-    (lispm-desktop-platinum--fill svg x top w (lispm-desktop-store--categories-height (length categories))
+    (lispm-desktop-platinum-svg-fill svg x top w (lispm-desktop-store--categories-height (length categories))
                                   (plist-get palette :outline))
-    (lispm-desktop-platinum--fill svg (1+ x) (1+ top) (- w 2) (* rh (length categories))
+    (lispm-desktop-platinum-svg-fill svg (1+ x) (1+ top) (- w 2) (* rh (length categories))
                                   (plist-get palette :content))
     (seq-do-indexed
      (pcase-lambda (`(,category ,name ,count) index)
@@ -1156,10 +1156,10 @@ up by the lines above, so that together they show it once."
               (ink (if on (plist-get selected :foreground) (plist-get palette :text)))
               (number (format "%d" count)))
          (when on
-           (lispm-desktop-platinum--fill svg (1+ x) y (- w 2) rh (plist-get selected :background)))
-         (lispm-desktop-platinum--draw-content svg (propertize name 'face face) (+ x 8) y rh ink face)
-         (lispm-desktop-platinum--draw-content
-          svg number (- (+ x w) 8 (lispm-desktop-platinum--content-width number small)) y rh
+           (lispm-desktop-platinum-svg-fill svg (1+ x) y (- w 2) rh (plist-get selected :background)))
+         (lispm-desktop-platinum-svg-content svg (propertize name 'face face) (+ x 8) y rh ink face)
+         (lispm-desktop-platinum-svg-content
+          svg number (- (+ x w) 8 (lispm-desktop-platinum-content-width number small)) y rh
           (if on ink (lispm-desktop-platinum-grey palette #x77)) small)))
      categories)))
 
@@ -1188,26 +1188,26 @@ when selected, its subtitle and its button."
          (small 'lispm-desktop-platinum-small))
     (cond ((not (file-readable-p file)))
           ((not (string-suffix-p ".svg" file))
-           (lispm-desktop-platinum--draw-image svg (create-image file) (- center 16) 8 32 32))
+           (lispm-desktop-platinum-svg-emacs-image svg (create-image file) (- center 16) 8 32 32))
           (selected
            (when-let* ((dom (lispm-desktop-store--darkened file)))
-             (lispm-desktop-platinum--embed-svg svg dom (- center 16) 8 32 32)))
-          (t (lispm-desktop-platinum--embed-icon svg file (- center 16) 8 32)))
+             (lispm-desktop-platinum-svg-embed svg dom (- center 16) 8 32 32)))
+          (t (lispm-desktop-platinum-svg-icon svg file (- center 16) 8 32)))
     (let* ((name (lispm-desktop-store--fit (plist-get tile :name) (- width 10) face))
-           (w (lispm-desktop-platinum--content-width name face))
+           (w (lispm-desktop-platinum-content-width name face))
            (nx (- center (/ w 2))))
       (when selected
-        (lispm-desktop-platinum--fill svg (- nx 3) 44 (+ w 6) 16 (plist-get highlight :background)))
-      (lispm-desktop-platinum--draw-content svg name nx 44 16
+        (lispm-desktop-platinum-svg-fill svg (- nx 3) 44 (+ w 6) 16 (plist-get highlight :background)))
+      (lispm-desktop-platinum-svg-content svg name nx 44 16
                                             (if selected (plist-get highlight :foreground) (plist-get palette :text))
                                             face))
     (when-let* ((subtitle (plist-get tile :subtitle)))
       (let* ((text (lispm-desktop-store--fit subtitle (- width 10) small))
-             (w (lispm-desktop-platinum--content-width text small)))
-        (lispm-desktop-platinum--draw-content svg text (- center (/ w 2)) 61 14
+             (w (lispm-desktop-platinum-content-width text small)))
+        (lispm-desktop-platinum-svg-content svg text (- center (/ w 2)) 61 14
                                               (lispm-desktop-platinum-grey palette #x66) small)))
     (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box x width (plist-get tile :label))))
-      (lispm-desktop-platinum--draw-push-button svg bx by palette (plist-get tile :label) bw
+      (lispm-desktop-platinum-svg-push-button svg bx by palette (plist-get tile :label) bw
                                                 :state (cond ((not (plist-get tile :enabled)) 'disabled)
                                                              ((plist-get tile :pressed) 'pressed))))))
 
@@ -1219,15 +1219,15 @@ says why there are none."
   (pcase-let* ((`(,gx ,_ ,tw) (lispm-desktop-store--grid width))
                (height lispm-desktop-store-tile-height)
                (svg (svg-create width height)))
-    (lispm-desktop-platinum--fill svg 0 0 width height (plist-get palette :chrome))
+    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
     (lispm-desktop-store--draw-categories svg palette categories current (- (* line height)))
     (seq-do-indexed (lambda (tile column)
                       (lispm-desktop-store--draw-tile svg palette tile (+ gx (* column tw)) tw))
                     tiles)
     (when empty
       (let* ((face 'lispm-desktop-platinum-list)
-             (w (lispm-desktop-platinum--content-width empty face)))
-        (lispm-desktop-platinum--draw-content
+             (w (lispm-desktop-platinum-content-width empty face)))
+        (lispm-desktop-platinum-svg-content
          svg empty (+ gx (/ (- width gx lispm-desktop-store-margin w) 2)) 40 16
          (lispm-desktop-platinum-grey palette #x66) face)))
     svg))
@@ -1245,10 +1245,10 @@ pixels wide: a line of items each, drawn as one image."
                            (seq-take (nthcdr (* line columns) items) columns)))
             (empty (and (= line 0) empty)))
         (insert (propertize " " 'display
-                            (lispm-desktop-platinum--image
+                            (lispm-desktop-platinum-image
                              (list 'store-line width line categories current tiles empty)
                              (lambda ()
-                               (lispm-desktop-store--draw-line lispm-desktop-platinum--palette width line
+                               (lispm-desktop-store--draw-line lispm-desktop-platinum-current-palette width line
                                                                categories current tiles empty)))
                             'lispm-desktop-store-line line
                             'keymap lispm-desktop-store-grid-map
@@ -1260,23 +1260,23 @@ pixels wide: a line of items each, drawn as one image."
 BOTTOM, else etched."
   (propertize
    " " 'display
-   (lispm-desktop-platinum--image
+   (lispm-desktop-platinum-image
     (list 'store-rule width bottom)
     (lambda ()
-      (let* ((palette lispm-desktop-platinum--palette)
+      (let* ((palette lispm-desktop-platinum-current-palette)
              (svg (svg-create (+ width 2) 2)))
-        (lispm-desktop-platinum--fill svg 0 0 (+ width 2) 2 (plist-get palette :chrome))
+        (lispm-desktop-platinum-svg-fill svg 0 0 (+ width 2) 2 (plist-get palette :chrome))
         (if bottom
-            (progn (lispm-desktop-platinum--row svg 0 (1+ width) 0 (plist-get palette :outline))
-                   (lispm-desktop-platinum--row svg 0 (1+ width) 1 (lispm-desktop-platinum-grey palette #xFF)))
-          (lispm-desktop-platinum--row svg 0 (1+ width) 1 (lispm-desktop-platinum-grey palette #xAA)))
+            (progn (lispm-desktop-platinum-svg-row svg 0 (1+ width) 0 (plist-get palette :outline))
+                   (lispm-desktop-platinum-svg-row svg 0 (1+ width) 1 (lispm-desktop-platinum-grey palette #xFF)))
+          (lispm-desktop-platinum-svg-row svg 0 (1+ width) 1 (lispm-desktop-platinum-grey palette #xAA)))
         svg)))))
 
 (defun lispm-desktop-store--button-width (label &optional default)
   "Return the width in pixels a push button reading LABEL takes on its line,
 its rings' room included: the default button's ring too when DEFAULT."
   (or (ignore-errors
-        (car (image-size (lispm-desktop-platinum--image-of
+        (car (image-size (lispm-desktop-platinum-image-of
                           (lispm-desktop-platinum-push-button label :default default))
                          t)))
       (+ (lispm-desktop-platinum-push-button-width label) (if default 16 10))))
@@ -1400,38 +1400,38 @@ under them, the description in a box at the right."
          (props (and id (cdr (assq id (lispm-desktop-store-items)))))
          (box-x (max 220 (/ width 2)))
          (box-w (- width box-x lispm-desktop-store-margin)))
-    (lispm-desktop-platinum--fill svg 0 0 width height (plist-get palette :chrome))
+    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
     (when props
       (let ((icon (lispm-desktop-platinum-icon-file (lispm-desktop-store--icon props t))))
         (if (string-suffix-p ".svg" icon)
-            (lispm-desktop-platinum--embed-icon svg icon lispm-desktop-store-margin 4 32)
-          (lispm-desktop-platinum--draw-image svg (create-image icon) lispm-desktop-store-margin 4 32 32)))
-      (lispm-desktop-platinum--draw-content svg (plist-get props :name) (+ lispm-desktop-store-margin 40) 6 14 text small)
-      (lispm-desktop-platinum--draw-content
+            (lispm-desktop-platinum-svg-icon svg icon lispm-desktop-store-margin 4 32)
+          (lispm-desktop-platinum-svg-emacs-image svg (create-image icon) lispm-desktop-store-margin 4 32 32)))
+      (lispm-desktop-platinum-svg-content svg (plist-get props :name) (+ lispm-desktop-store-margin 40) 6 14 text small)
+      (lispm-desktop-platinum-svg-content
        svg (lispm-desktop-store--catalog-name (plist-get props :catalog))
        (+ lispm-desktop-store-margin 40) 20 14 text small)
       (let ((y 44)
             (label-end (+ lispm-desktop-store-margin 66)))
         (pcase-dolist (`(,label ,value) (lispm-desktop-store--fields id))
           (let ((bold (propertize label 'face 'bold)))
-            (lispm-desktop-platinum--draw-content
-             svg bold (- label-end (lispm-desktop-platinum--content-width bold small)) y 13 text small)
-            (lispm-desktop-platinum--draw-content
-             svg (lispm-desktop-platinum--fit (propertize value 'face small) (- box-x label-end 18))
+            (lispm-desktop-platinum-svg-content
+             svg bold (- label-end (lispm-desktop-platinum-content-width bold small)) y 13 text small)
+            (lispm-desktop-platinum-svg-content
+             svg (lispm-desktop-platinum-fit (propertize value 'face small) (- box-x label-end 18))
              (+ label-end 4) y 13 text small))
           (setq y (+ y 13)))))
     ;; The box, sunk in the platinum: etched, outlined, white.
-    (lispm-desktop-platinum--fill svg (1- box-x) 3 (+ box-w 2) (- height 7) (funcall grey #xAA))
-    (lispm-desktop-platinum--fill svg box-x 4 (1+ box-w) (- height 7) (funcall grey #xFF))
-    (lispm-desktop-platinum--fill svg box-x 4 box-w (- height 8) (plist-get palette :outline))
-    (lispm-desktop-platinum--fill svg (1+ box-x) 5 (- box-w 2) (- height 10) (plist-get palette :content))
+    (lispm-desktop-platinum-svg-fill svg (1- box-x) 3 (+ box-w 2) (- height 7) (funcall grey #xAA))
+    (lispm-desktop-platinum-svg-fill svg box-x 4 (1+ box-w) (- height 7) (funcall grey #xFF))
+    (lispm-desktop-platinum-svg-fill svg box-x 4 box-w (- height 8) (plist-get palette :outline))
+    (lispm-desktop-platinum-svg-fill svg (1+ box-x) 5 (- box-w 2) (- height 10) (plist-get palette :content))
     (when props
       (let ((y 8))
         (dolist (line (cons (propertize (plist-get props :name) 'face 'bold)
                             (lispm-desktop-store--wrap (lispm-desktop-store--description props)
                                                        (- box-w 12) small)))
           (when (< y (- height 20))
-            (lispm-desktop-platinum--draw-content svg line (+ box-x 6) y 13 text small)
+            (lispm-desktop-platinum-svg-content svg line (+ box-x 6) y 13 text small)
             (setq y (+ y 13))))))
     svg))
 
@@ -1456,10 +1456,10 @@ information, WIDTH pixels wide."
   (when lispm-desktop-store--information
     (let ((id lispm-desktop-store--selected))
       (insert (propertize " " 'display
-                          (lispm-desktop-platinum--image
+                          (lispm-desktop-platinum-image
                            (list 'store-information width id (lispm-desktop-store--information-key id))
                            (lambda ()
-                             (lispm-desktop-store--draw-information lispm-desktop-platinum--palette width id))))
+                             (lispm-desktop-store--draw-information lispm-desktop-platinum-current-palette width id))))
               "\n"))))
 
 (defun lispm-desktop-store--information-key (id)
@@ -1493,7 +1493,7 @@ when it changes."
         (when lispm-desktop-store--face-cookie
           (face-remap-remove-relative lispm-desktop-store--face-cookie))
         (setq lispm-desktop-store--face-cookie
-              (face-remap-add-relative 'default `(:background ,(lispm-desktop-platinum--color :chrome))))
+              (face-remap-add-relative 'default `(:background ,(lispm-desktop-platinum-color :chrome))))
         (erase-buffer)
         (lispm-desktop-store--insert-top width)
         (lispm-desktop-store--insert-grid width)
@@ -1507,7 +1507,7 @@ when it changes."
             (goto-char (or position (point-min)))))
         (when window
           (set-window-point window (point)))
-        (setq lispm-desktop-platinum--focus nil)
+        (setq lispm-desktop-platinum-focus nil)
         (lispm-desktop-platinum-show-focus)
         (force-mode-line-update)))))
 

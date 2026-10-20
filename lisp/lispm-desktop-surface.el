@@ -294,7 +294,7 @@ text terminal shows names only roughly."
   "Return the desktop's colour, written #RRGGBB as SVG takes it:
 `lispm-desktop-color', or the theme's when that is unset or no colour."
   (or (lispm-desktop--hex-color lispm-desktop-color)
-      (lispm-desktop--hex-color (lispm-desktop-platinum--color :desktop))
+      (lispm-desktop--hex-color (lispm-desktop-platinum-color :desktop))
       "#666699"))
 
 (defun lispm-desktop--darken (svg)
@@ -571,8 +571,8 @@ first cells of the column no put icon covers."
   "Return SVG of the icon SPEC with its name, its cell's top left at X, Y,
 darkened and its name inverted when SELECTED.  LABEL-WIDTH, FAMILY, SIZE
 and ASCENT measure and set its name."
-  (let* ((text (or (lispm-desktop-platinum--color :text) "#000000"))
-         (content (or (lispm-desktop-platinum--color :content) "#FFFFFF"))
+  (let* ((text (or (lispm-desktop-platinum-color :text) "#000000"))
+         (content (or (lispm-desktop-platinum-color :content) "#FFFFFF"))
          (center (+ x (/ lispm-desktop-column 2)))
          (icon-left (- center (/ lispm-desktop-icon-size 2)))
          (label-left (- center (/ label-width 2)))
@@ -636,10 +636,10 @@ desktop between them."
       (format "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">"
               label-width label-height label-width label-height)
       (format "<rect width=\"%d\" height=\"%d\" fill=\"%s\"/>" label-width label-height
-              (or (lispm-desktop-platinum--color :text) "#000000"))
+              (or (lispm-desktop-platinum-color :text) "#000000"))
       (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
               (/ label-width 2) (+ 2 ascent) (lispm-desktop--escape family) size
-              (or (lispm-desktop-platinum--color :content) "#FFFFFF") (lispm-desktop--escape label))
+              (or (lispm-desktop-platinum-color :content) "#FFFFFF") (lispm-desktop--escape label))
       "</svg>"))))
 
 (defun lispm-desktop--render (&optional window)
@@ -951,7 +951,7 @@ it was only selects."
                (to nil)
                (result
                 (unwind-protect
-                    (lispm-desktop-platinum--track
+                    (lispm-desktop-platinum-track
                      (lambda (delta)
                        (when (or to (> (+ (expt (car delta) 2) (expt (cdr delta) 2))
                                        (expt lispm-desktop-drag-threshold 2)))
@@ -1079,9 +1079,9 @@ desktop in front."
 
 (defun lispm-desktop--paint ()
   "Colour the desktop, its background and its names from the palette."
-  (when lispm-desktop-platinum--palette
-    (let ((content (lispm-desktop-platinum--color :content))
-          (text (lispm-desktop-platinum--color :text)))
+  (when lispm-desktop-platinum-current-palette
+    (let ((content (lispm-desktop-platinum-color :content))
+          (text (lispm-desktop-platinum-color :text)))
       (set-face-attribute 'lispm-desktop-label nil
                           :inherit 'lispm-desktop-platinum-list :background content :foreground text)
       (set-face-attribute 'lispm-desktop-label-selected nil
@@ -1151,7 +1151,7 @@ a workspace whose main area holds nothing else."
   (or (get-buffer lispm-desktop-empty-buffer-name)
       (with-current-buffer (get-buffer-create lispm-desktop-empty-buffer-name)
         (lispm-desktop-empty-mode)
-        (when lispm-desktop-platinum--palette
+        (when lispm-desktop-platinum-current-palette
           (lispm-desktop--paint-buffer (current-buffer)))
         (current-buffer))))
 
@@ -1287,6 +1287,14 @@ on the Finder window when it had the keyboard last, else on the desktop."
     (lispm-desktop-menu-go "Go" lispm-desktop-finder--go-items)
     (lispm-desktop-menu-special "Special" lispm-desktop--special-items)))
 
+(defun lispm-desktop--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER, the desktop or its empty window.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (let ((mode (buffer-local-value 'major-mode buffer)))
+    (and (or (provided-mode-derived-p mode 'lispm-desktop-mode)
+             (provided-mode-derived-p mode 'lispm-desktop-empty-mode))
+         'no)))
+
 (defun lispm-desktop-setup-desktop ()
   "Put the desktop behind every window, and start Emacs on it.
 Its settings take effect when changed however they are, a `setq' in
@@ -1300,6 +1308,11 @@ personal.el included, and the Trash is looked at every few seconds."
   (unless lispm-desktop--trash-timer
     (setq lispm-desktop--trash-timer (run-with-timer 5 5 #'lispm-desktop-check-trash)))
   (add-hook 'tab-bar-tab-post-open-functions #'lispm-desktop--on-new-workspace)
+  ;; Windows' outlines are drawn over the desktop's colour, and closing
+  ;; the main area's last window uncovers the desktop.
+  (setq lispm-desktop-platinum-desktop-color-function #'lispm-desktop--color
+        lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop--paint)) 90)
   (add-hook 'window-setup-hook #'lispm-desktop-activate 95))
 
