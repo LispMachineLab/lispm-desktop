@@ -16,8 +16,9 @@
 #   3. downloads GNU Emacs, as built, signed and notarized by
 #      https://github.com/jimeh/emacs-builds, checks it, and makes
 #      LispM.app of it in /Applications (else ~/Applications);
-#   4. installs the Emacs packages LispM Desktop uses, so that the first
-#      start has nothing to fetch;
+#   4. installs the Emacs packages LispM Desktop uses, and the native
+#      modules of its terminals and browser, so that the first start has
+#      nothing to fetch or build;
 #   5. opens LispM.
 #
 # Run it again to update.  The checkouts keep what Emacs writes too, the
@@ -247,7 +248,9 @@ install_packages() {
 
 # Build the native modules where their compilers are: the browser's,
 # for Chrome extensions, with the command line tools' Swift; the
-# terminals', with Rust's Cargo, which LispM can also do later.
+# terminals', with Rust's Cargo, which LispM can also do later.  Without
+# Cargo, the terminals' module is downloaded as built for this Mac by
+# lispm-desktop's workflow, its checksum checked, as LispM does itself.
 build_modules() {
   webext=$LISPM_HOME/lispm-browser/native/lispm-browser-webext
   version=$(sw_vers -productVersion)
@@ -261,6 +264,11 @@ build_modules() {
     say "Building LispM's terminals"
     make -C "$DESKTOP" native >"$LISPM_HOME/terminal.log" 2>&1 ||
       note "They did not build (see $LISPM_HOME/terminal.log); LispM tries again at its next start."
+  else
+    say "Fetching LispM's terminals"
+    "$APP/Contents/MacOS/Emacs" -Q --batch -L "$DESKTOP/lisp" -l lispm-desktop-term \
+      -f lispm-desktop-term-batch-download >"$LISPM_HOME/terminal.log" 2>&1 ||
+      note "They could not be fetched (see $LISPM_HOME/terminal.log); LispM tries again at its next start."
   fi
 }
 

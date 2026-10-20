@@ -26,3 +26,5 @@
 .DS_Store
 # lispm-desktop-term's Rust build
 /native/lispm-desktop-term/target/
+# lispm-desktop-term's module, downloaded where Cargo is missing
+/native/lispm-desktop-term/prebuilt/

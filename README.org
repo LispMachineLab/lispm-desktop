@@ -229,9 +229,13 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   wakes Emacs only for the terminals a window shows, to draw the lines that changed: Emacs's work
   follows the windows on screen, not the number of agents running or how much they write.
   Shells and agents run in it once it is built, which happens in the background at the first
-  start where Rust's Cargo is installed, and again when an update changes its sources; until
-  then, and without Rust, they run in Eat.  A program that takes the mouse, as Claude Code
-  does, gets the clicks, drags and wheel; with Shift held they stay Emacs's, to select text.
+  start where Rust's Cargo is installed, and again when an update changes its sources.  Without
+  Rust, the start downloads the module this repository's workflow built from the same sources
+  for the computer (macOS on Apple silicon or Intel, GNU/Linux on x86_64), from the release
+  named by their digest, and checks it against the SHA-256 published with it
+  (~lispm-desktop-term-download-enabled~ set to nil keeps it from downloading).  Until either
+  is there, they run in Eat.  A program that takes the mouse, as Claude Code does, gets the
+  clicks, drags and wheel; with Shift held they stay Emacs's, to select text.
 - *Agents that say what they are doing*.  A program that reports its state with the [[https://superlogical.com/rex/docs/build/program-status][Program
   Status Protocol]] (OSC 7501) has it shown in its window's title bar and in the agents
   view: working, done, failed, or waiting for an approval, an answer or a sign-in.
@@ -269,8 +273,8 @@ checks its checksum and its signature, and makes LispM.app of it in =/Applicatio
 launcher ([[file:macos/launcher.c][macos/launcher.c]]) that starts the Emacs inside with the
 checkout as its init directory.  It then installs the packages LispM Desktop uses, builds the
 browser's Chrome extensions support with Swift, and LispM's terminals where Rust's Cargo is
-installed, and opens LispM, whose first start asks only how you edit and which appearance you
-want.
+installed (else it downloads them, built for the Mac and checked), and opens LispM, whose
+first start asks only how you edit and which appearance you want.
 
 Run the line again to update.  The checkout keeps what Emacs writes, the packages and your
 settings (=personal.el=) among it; to uninstall, delete =/Applications/LispM.app= and =~/.lispm=
@@ -321,7 +325,7 @@ Optional, and picked up when present:
 - [[https://github.com/anthropics/claude-code][Claude Code]] (~claude~), Codex (~codex~) and Hermes
   (~hermes~) on ~PATH~;
 - [[https://rustup.rs][Rust]] (~cargo~), to build the terminals' module (=make native= builds it by
-  hand);
+  hand); without it, the module built for your computer is downloaded, see above;
 - Swift (Xcode or its command line tools), on macOS 15.4 and later, to build LispM Browser's
   module that runs Chrome extensions, the first time one is added;
 - the Maple Mono NF CN font, whose glyphs keep terminal columns aligned, CJK included
@@ -504,14 +508,20 @@ git -C ~/lispm-desktop pull
 updates the desktop; =M-x package-vc-upgrade-all= updates LispM Agent and LispM Browser where
 package-vc installed them (=git pull= in their checkouts where you keep them beside it), and
 =M-x package-upgrade-all= the other packages.  When the
-update changed the terminals' module, the next start rebuilds it in the background, terminals
-running in Eat until it is ready.
+update changed the terminals' module, the next start rebuilds it in the background (downloads
+it, without Rust), terminals running in Eat until it is ready.
 
 * Tests
 
 =make test= runs the ERT tests in batch; =make compile= byte-compiles every module against the
 installed packages, to check for warnings, and leaves no =.elc= files behind.  Both need
 LispM Browser: a checkout beside this one, or another named by =LISPM_BROWSER= (its =lisp/=).
+=make native-test= runs the terminals' module's own tests, which need Cargo but no Emacs.
+
+The =terminal module= workflow builds that module for macOS on Apple silicon and on Intel and
+for GNU/Linux on x86_64, and from =main= publishes each version of its sources once, as the
+release =term-module-VERSION= LispM downloads where Cargo is missing (VERSION is
+~lispm-desktop-term-source-version~ of the sources).
 
 * License
 
