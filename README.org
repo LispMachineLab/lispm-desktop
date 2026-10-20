@@ -264,12 +264,13 @@ emacs
 =git clone --depth 1= skips the repository's history, its pictures and recordings of earlier
 versions among it.
 
-The first start asks whether you edit with vim or Emacs keys and which appearance you want,
-installs the packages (a few minutes, once), LispM Agent and LispM Browser among them, and
-offers to install the icon font agents' marks are drawn with.  Each of the two is found where
-it already is: on ~load-path~, else in a checkout beside the desktop's (=../lispm-agent=,
-=../lispm-browser=), else installed from its repository with package-vc.  To work on all three,
-clone them side by side:
+The first start asks whether you edit with vim or Emacs keys and which appearance you want, on
+a page filling the window, as Mac OS Setup Assistant asked: a choice's letter, or Tab and
+Return, or a click chooses it, DEL goes back and Escape decides later.  Then it installs the
+icon font agents' marks are drawn with, and the packages (a few minutes, once), LispM Agent and
+LispM Browser among them.  Each of the two is found where it already is: on ~load-path~, else in
+a checkout beside the desktop's (=../lispm-agent=, =../lispm-browser=), else installed from its
+repository with package-vc.  To work on all three, clone them side by side:
 
 #+begin_src sh
 git clone https://github.com/LispMachineLab/lispm-agent ~/lispm-agent

@@ -115,10 +115,10 @@ Choices already made are kept, and the start that finds them made is
 not a first start."
   (let ((lispm-desktop-editing-style nil)
         (lispm-desktop-theme nil))
-    (cl-letf (((symbol-function 'lispm-desktop--read-editing-style)
-               (lambda () (error "Asked in batch")))
-              ((symbol-function 'lispm-desktop--read-theme)
-               (lambda () (error "Asked in batch"))))
+    (cl-letf (((symbol-function 'lispm-desktop-assistant-ask)
+               (lambda (_questions) (error "Asked in batch")))
+              ((symbol-function 'customize-save-variable)
+               (lambda (&rest _) (error "Saved in batch"))))
       (should (lispm-desktop--first-start))
       (should (eq lispm-desktop-editing-style 'emacs))
       (should (eq lispm-desktop-theme 'dracula))))
@@ -127,6 +127,182 @@ not a first start."
     (should-not (lispm-desktop--first-start))
     (should (eq lispm-desktop-editing-style 'vim))
     (should (eq lispm-desktop-theme 'platinum))))
+
+(ert-deftest lispm-desktop-test-first-start-saves-answers ()
+  "The first start asks only what is not chosen yet and saves the answers;
+questions put off take the first choices, saved nowhere."
+  (let ((lispm-desktop-editing-style nil)
+        (lispm-desktop-theme nil)
+        (noninteractive nil)
+        (asked nil)
+        (saved nil)
+        (answers '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum))))
+    (cl-letf (((symbol-function 'lispm-desktop-assistant-ask)
+               (lambda (questions) (setq asked (mapcar #'car questions)) answers))
+              ((symbol-function 'customize-save-variable)
+               (lambda (variable value &rest _)
+                 (push (cons variable value) saved)
+                 (set-default variable value))))
+      (should (lispm-desktop--first-start))
+      (should (equal asked '(lispm-desktop-editing-style lispm-desktop-theme)))
+      (should (equal (reverse saved) answers))
+      (should (eq lispm-desktop-editing-style 'vim))
+      (should (eq lispm-desktop-theme 'platinum))
+      ;; The editing style chosen already, only the appearance is asked;
+      ;; put off, it is Dracula for now.
+      (setq lispm-desktop-theme nil saved nil answers nil)
+      (should (lispm-desktop--first-start))
+      (should (equal asked '(lispm-desktop-theme)))
+      (should-not saved)
+      (should (eq lispm-desktop-theme 'dracula)))))
+
+(defmacro lispm-desktop-test--with-assistant (events &rest body)
+  "Run BODY with the assistant's page reading EVENTS, a list, in turn.
+Nothing is drawn: the page is laid out on a window 1000 by 600 pixels.
+Bind `shown' to what was shown, in order, each as (STEP FOCUSED PRESSED)."
+  (declare (indent 1))
+  `(let ((events ,events)
+         (shown nil))
+     (cl-letf (((symbol-function 'lispm-desktop-assistant--show)
+                (lambda (page focused pressed)
+                  (setq shown (append shown (list (list (plist-get page :step) focused pressed))))
+                  (lispm-desktop-assistant--layout 1000 600 page)))
+               ((symbol-function 'lispm-desktop-assistant--read)
+                (lambda () (if events (pop events) (error "No more events"))))
+               ((symbol-function 'sit-for) #'ignore))
+       ,@body)))
+
+(defun lispm-desktop-test--assistant-click (kind layout index)
+  "Return a mouse event of KIND over the INDEXth card of LAYOUT, or Go Back
+for INDEX `back', on the assistant's image."
+  (pcase-let ((`(,x ,y ,w ,h) (if (eq index 'back)
+                                  (plist-get layout :back)
+                                (nth index (plist-get layout :cards)))))
+    (list kind (list (selected-window) 1 '(0 . 0) 0 nil 1 '(0 . 0)
+                     '(image :type svg) (cons (+ x (/ w 2)) (+ y (/ h 2))) '(1000 . 600)))))
+
+(ert-deftest lispm-desktop-test-assistant-keys ()
+  "A choice's letter chooses it, in either case; Tab and C-f, C-n move the
+ring on and C-b, C-p back, round the choices, and Return or Space chooses
+the one ringed; DEL goes back a question, ringing the choice made there;
+Escape and C-g put the questions off."
+  (let ((questions lispm-desktop-assistant-questions))
+    (lispm-desktop-test--with-assistant '(?v ?P)
+      (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum)))))
+    (lispm-desktop-test--with-assistant '(tab return ?\C-f ?\C-n ?\s)
+      (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . dracula)))))
+    (lispm-desktop-test--with-assistant '(?\C-b ?\C-p return backtab return)
+      (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . platinum)))))
+    ;; DEL on the first question does nothing; on the second it goes back
+    ;; to the first, Vim keys ringed, which Return chooses again.  A
+    ;; button chosen blinks.
+    (lispm-desktop-test--with-assistant '(?\d ?v ?\d return ?d)
+      (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . dracula))))
+      (should (equal shown '(("Step 1 of 2" 0 nil) ("Step 1 of 2" 0 nil) ("Step 1 of 2" 0 1)
+                             ("Step 2 of 2" 0 nil)
+                             ("Step 1 of 2" 1 nil) ("Step 1 of 2" 1 1)
+                             ("Step 2 of 2" 0 nil) ("Step 2 of 2" 0 0)))))
+    (dolist (put-off '(escape ?\C-g))
+      (lispm-desktop-test--with-assistant (list ?e put-off)
+        (should-not (lispm-desktop-assistant--ask-on-page questions))))
+    ;; Keys meaning nothing here, and a while without any, are passed over.
+    (lispm-desktop-test--with-assistant '(nil ?x ?\M-v (switch-frame nil) ?e ?d)
+      (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . dracula)))))))
+
+(ert-deftest lispm-desktop-test-assistant-mouse ()
+  "A choice is chosen by pressing its button and letting go over it; let go
+elsewhere, nothing is chosen.  Go Back goes back."
+  (let* ((questions lispm-desktop-assistant-questions)
+         (first (lispm-desktop-assistant--layout
+                 1000 600 (lispm-desktop-assistant--page (nth 0 questions) 0 2)))
+         (second (lispm-desktop-assistant--layout
+                  1000 600 (lispm-desktop-assistant--page (nth 1 questions) 1 2))))
+    (cl-flet ((click (kind layout index) (lispm-desktop-test--assistant-click kind layout index)))
+      (lispm-desktop-test--with-assistant
+          (list (click 'down-mouse-1 first 0) (click 'mouse-1 first 1)
+                (click 'down-mouse-1 first 1) (click 'mouse-1 first 1)
+                (click 'down-mouse-1 second 'back) (click 'mouse-1 second 'back)
+                (click 'down-mouse-1 first 0) (click 'mouse-1 first 0)
+                (click 'down-mouse-1 second 1) (click 'drag-mouse-1 second 1))
+        (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                       '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . platinum))))
+        ;; A button is drawn held down while pressed over it.
+        (should (equal shown '(("Step 1 of 2" 0 nil) ("Step 1 of 2" 0 0)
+                               ("Step 1 of 2" 0 nil) ("Step 1 of 2" 0 1)
+                               ("Step 2 of 2" 0 nil) ("Step 2 of 2" 0 back)
+                               ("Step 1 of 2" 1 nil) ("Step 1 of 2" 1 0)
+                               ("Step 2 of 2" 0 nil) ("Step 2 of 2" 0 1))))))))
+
+(ert-deftest lispm-desktop-test-assistant-layout ()
+  "The window stands in the middle of the page, its choices side by side
+inside it, as wide as one another, and Go Back at its bottom right."
+  (let* ((page (lispm-desktop-assistant--page (nth 1 lispm-desktop-assistant-questions) 1 2))
+         (layout (lispm-desktop-assistant--layout 1000 600 page)))
+    (pcase-let ((`(,x ,y ,w ,h) (plist-get layout :window))
+                (`(,cx ,cy ,cw ,ch) (plist-get layout :content))
+                (`((,ax ,ay ,aw ,ah) (,bx ,by ,bw ,bh)) (plist-get layout :cards))
+                (`(,gx ,gy ,gw ,gh) (plist-get layout :back)))
+      (should (= x (/ (- 1000 w) 2)))
+      (should (= y (/ (- 600 h) 2)))
+      (should (and (= ay by) (= aw bw) (= ah bh) (< (+ ax aw) bx)))
+      (should (= (- ax cx) (- (+ cx cw) (+ bx bw))))
+      (should (<= cy ay (+ ay ah) gy (+ gy gh) (+ cy ch)))
+      (should (<= (+ cx (/ cw 2)) gx (+ gx gw) (+ cx cw)))
+      (should (eq (lispm-desktop-assistant--target-at layout (+ ax 5) (+ ay 5)) 0))
+      (should (eq (lispm-desktop-assistant--target-at layout (+ bx bw -1) (+ by bh -1)) 1))
+      (should (eq (lispm-desktop-assistant--target-at layout (1+ gx) (1+ gy)) 'back))
+      (should-not (lispm-desktop-assistant--target-at layout (+ ax aw 1) ay))
+      (should-not (lispm-desktop-assistant--target-at layout 0 0)))
+    ;; A page too small for the window keeps the window's top left on it.
+    (should (equal (seq-take (plist-get (lispm-desktop-assistant--layout 300 200 page) :window) 2)
+                   '(0 0)))))
+
+(ert-deftest lispm-desktop-test-assistant-draw ()
+  "The page is a Platinum window on the desktop, titled Welcome to LispM:
+the question, both choices with their keys, how to choose; the last
+page, while LispM is set up, says so and what was chosen."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (lispm-desktop-platinum--palette palette)
+         (questions lispm-desktop-assistant-questions)
+         (page (lispm-desktop-assistant--page (nth 1 questions) 1 2))
+         (svg (lispm-desktop-assistant-draw palette 1000 600 page 0 nil))
+         (texts (mapcar #'dom-text (dom-by-tag svg 'text))))
+    (dolist (text '("Welcome to LispM" "Which appearance?" "Dracula" "Platinum" "D" "P"
+                    "Step 2 of 2" "Go Back"))
+      (should (member text texts)))
+    (should (seq-find (lambda (text) (string-prefix-p "Press D or P" text)) texts))
+    (pcase-let ((`(,cx ,cy ,_ ,_) (plist-get (lispm-desktop-assistant--layout 1000 600 page) :content)))
+      (should (equal (lispm-desktop-test--pixel svg 1 1) (upcase (plist-get palette :desktop))))
+      (should (equal (lispm-desktop-test--pixel svg (+ cx 2) (+ cy 80)) "#DDDDDD")))
+    (let* ((done (lispm-desktop-assistant--done-page
+                  questions '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum))))
+           (texts (mapcar #'dom-text (dom-by-tag (lispm-desktop-assistant-draw
+                                                  palette 1000 600 (plist-put done :status "Installing…")
+                                                  nil nil)
+                                                 'text))))
+      ;; svg.el writes characters past ASCII as references: … is &#8230;.
+      (should (seq-find (lambda (text) (string-prefix-p "Setting LispM up" text)) texts))
+      (should (seq-find (lambda (text) (string-prefix-p "Installing" text)) texts))
+      (should (seq-find (lambda (text) (string-search "Vim keys, Platinum." text)) texts)))
+    (should (string-search "Emacs keys, Dracula for now"
+                           (plist-get (lispm-desktop-assistant--done-page questions nil) :detail)))))
+
+(ert-deftest lispm-desktop-test-assistant-in-minibuffer ()
+  "Where the page cannot be drawn, the questions are asked in the
+minibuffer, by the same keys; C-g puts them off."
+  (should-not (lispm-desktop-assistant-available-p))
+  (let ((keys (list ?v ?p)))
+    (cl-letf (((symbol-function 'read-multiple-choice)
+               (lambda (_prompt choices &rest _) (assq (pop keys) choices))))
+      (should (equal (lispm-desktop-assistant-ask lispm-desktop-assistant-questions)
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum))))))
+  (cl-letf (((symbol-function 'read-multiple-choice) (lambda (&rest _) (signal 'quit nil))))
+    (should-not (lispm-desktop-assistant-ask lispm-desktop-assistant-questions))))
 
 (defmacro lispm-desktop-test--with-themes (&rest body)
   "Run BODY with two empty themes, `lispm-desktop-test-light' enabled and

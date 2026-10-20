@@ -47,7 +47,8 @@
 ;;   (lispm-desktop-setup)
 ;;
 ;; The first start asks for the editing style (`lispm-desktop-editing-style') and
-;; the appearance (`lispm-desktop-theme'), and offers to install the icon font.
+;; the appearance (`lispm-desktop-theme') on a page filling the frame, see
+;; lispm-desktop-assistant.el, and installs the icon font.
 
 ;;; Code:
 
@@ -61,6 +62,7 @@
 (require 'lispm-desktop-term)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-assistant)
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-coherence)
@@ -90,40 +92,22 @@ A key of `lispm-desktop-sidebar-views'."
   :type '(choice (const :tag "None" nil) symbol)
   :group 'lispm-desktop)
 
-(defun lispm-desktop--read-editing-style ()
-  "Ask how text is to be edited; return `vim' or `emacs'."
-  (pcase (car (read-multiple-choice
-               "Welcome to LispM.  How do you edit text?"
-               '((?v "vim" "Vim keys (Evil) in files, SPC as the leader key")
-                 (?e "emacs" "Emacs keys everywhere"))))
-    (?v 'vim)
-    (_ 'emacs)))
-
-(defun lispm-desktop--read-theme ()
-  "Ask for the colour theme; return `dracula' or `platinum'."
-  (pcase (car (read-multiple-choice
-               "And which appearance?"
-               '((?d "dracula" "Dracula: light text on a dark background")
-                 (?p "platinum" "Platinum: Mac OS 9's greys, black on white"))))
-    (?p 'platinum)
-    (_ 'dracula)))
-
 (defun lispm-desktop--first-start ()
   "Settle what the first start asks; return non-nil when this is it.
-The editing style and the appearance are each asked once and saved with
-Customize.  A batch Emacs asks nothing: Emacs keys, Dracula."
-  (let ((first nil))
-    (unless lispm-desktop-editing-style
-      (setq first t)
-      (if noninteractive
-          (setq lispm-desktop-editing-style 'emacs)
-        (customize-save-variable 'lispm-desktop-editing-style (lispm-desktop--read-editing-style))))
-    (unless lispm-desktop-theme
-      (setq first t)
-      (if noninteractive
-          (setq lispm-desktop-theme 'dracula)
-        (customize-save-variable 'lispm-desktop-theme (lispm-desktop--read-theme))))
-    first))
+The editing style and the appearance not chosen yet are asked, see
+`lispm-desktop-assistant-ask', and the answers saved with Customize.  A
+batch Emacs asks nothing and saves nothing: Emacs keys, Dracula; so it
+goes too when the questions are put off, until the next start asks again."
+  (when-let* ((questions (seq-remove (lambda (question) (symbol-value (car question)))
+                                     lispm-desktop-assistant-questions)))
+    (let ((answers (unless noninteractive (lispm-desktop-assistant-ask questions))))
+      ;; Customize's word on the file it wrote would sit under the page.
+      (let ((inhibit-message t))
+        (dolist (question questions)
+          (if-let* ((answer (assq (car question) answers)))
+              (customize-save-variable (car question) (cdr answer))
+            (set-default (car question) (lispm-desktop-assistant-default question))))))
+    t))
 
 (defun lispm-desktop--icon-font-installed-p ()
   "Return non-nil when the icon font of nerd-icons is installed."
@@ -135,13 +119,18 @@ Customize.  A batch Emacs asks nothing: Emacs keys, Dracula."
   (require 'nerd-icons)
   (nerd-icons-install-fonts t))
 
-(defun lispm-desktop--offer-fonts ()
-  "On a graphical display, offer to install the icon font when it is missing."
+(defun lispm-desktop--install-missing-fonts ()
+  "On a graphical display, install the icon font when it is missing.
+Nothing is asked: without it the sidebar, tabs and mode line show empty
+boxes.  A download that fails, as offline, is only reported."
   (when (and (display-graphic-p) (not noninteractive))
     (require 'nerd-icons)
-    (unless (or (lispm-desktop--icon-font-installed-p)
-                (not (y-or-n-p "Install the icon font the sidebar and tabs use? ")))
-      (lispm-desktop-install-fonts))))
+    (unless (lispm-desktop--icon-font-installed-p)
+      (lispm-desktop-assistant-report "Installing the icon font…")
+      (condition-case err
+          (lispm-desktop-install-fonts)
+        (error (message "The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again"
+                        (error-message-string err)))))))
 
 (defun lispm-desktop--welcome ()
   "Say how to start, once the first start is done."
@@ -159,36 +148,41 @@ Customize.  A batch Emacs asks nothing: Emacs keys, Dracula."
 (defun lispm-desktop-setup ()
   "Set Emacs up as lispm-desktop."
   (let ((first (lispm-desktop--first-start)))
-    (lispm-desktop-setup-common-packages)
-    (lispm-desktop-setup-clipboard)
-    (lispm-desktop-setup-keymapping)
-    (lispm-desktop-setup-interface)
-    (lispm-desktop-setup-term)
-    (lispm-desktop-setup-platinum)
-    (lispm-desktop-popup-enable)
-    (lispm-desktop-setup-apps)
-    (lispm-desktop-setup-coherence)
-    (lispm-desktop-setup-desktop)
-    (lispm-desktop-setup-editor)
-    (lispm-desktop-setup-workspaces)
-    (lispm-desktop-setup-finder)
-    (lispm-desktop-setup-browser)
-    (lispm-desktop-setup-browser-places)
-    (lispm-desktop-setup-settings)
-    (lispm-desktop-setup-app-windows)
-    (lispm-desktop-setup-store)
-    (lispm-desktop-setup-strip)
-    (setq lispm-desktop--set-up t)
-    (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
-    (lispm-desktop-setup-langs)
-    (lispm-desktop-setup-ai)
-    (lispm-desktop-setup-lispm)
-    ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
-    (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
-    (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
-    (when first
-      (lispm-desktop--offer-fonts)
-      (add-hook 'window-setup-hook #'lispm-desktop--welcome 90))))
+    ;; The first start's page stays up while LispM is set up, and goes
+    ;; however that ends.
+    (unwind-protect
+        (progn
+          (lispm-desktop-setup-common-packages)
+          (lispm-desktop-setup-clipboard)
+          (lispm-desktop-setup-keymapping)
+          (lispm-desktop-setup-interface)
+          (lispm-desktop-setup-term)
+          (lispm-desktop-setup-platinum)
+          (lispm-desktop-popup-enable)
+          (lispm-desktop-setup-apps)
+          (lispm-desktop-setup-coherence)
+          (lispm-desktop-setup-desktop)
+          (lispm-desktop-setup-editor)
+          (lispm-desktop-setup-workspaces)
+          (lispm-desktop-setup-finder)
+          (lispm-desktop-setup-browser)
+          (lispm-desktop-setup-browser-places)
+          (lispm-desktop-setup-settings)
+          (lispm-desktop-setup-app-windows)
+          (lispm-desktop-setup-store)
+          (lispm-desktop-setup-strip)
+          (setq lispm-desktop--set-up t)
+          (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
+          (lispm-desktop-setup-langs)
+          (lispm-desktop-setup-ai)
+          (lispm-desktop-setup-lispm)
+          ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
+          (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
+          (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
+          (when first
+            (lispm-desktop--install-missing-fonts)
+            (add-hook 'window-setup-hook #'lispm-desktop--welcome 90)))
+      (lispm-desktop-assistant-close))))
 
 
 (provide 'lispm-desktop)
