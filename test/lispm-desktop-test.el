@@ -2182,6 +2182,34 @@ small system font, labels 15 pixels in."
                          (seq-remove (lambda (text) (string-search "&#" (dom-text text)))
                                      (dom-by-tag svg 'text))))))
 
+(ert-deftest lispm-desktop-test-menu-icons ()
+  "A menu whose items have icons shows each before its label, as Mac OS 9's
+Apple menu did: the labels move over to make room."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (lispm-desktop-platinum--palette palette)
+         (icon `(image :type png :data ,(base64-decode-string "iVBORw0KGgo=")))
+         (items `((:label "Blocker" :action ignore :icon ,icon) (:label "Store" :action ignore)))
+         (svg (lispm-desktop-popup-draw-menu palette items 200 nil))
+         (images (dom-by-tag svg 'image)))
+    (should (= (length images) 1))
+    (should (= (dom-attr (car images) 'x) (lispm-desktop-popup--label-x)))
+    (should (seq-every-p (lambda (text) (= (dom-attr text 'x) (+ (lispm-desktop-popup--label-x) 20)))
+                         (dom-by-tag svg 'text)))
+    (should (= (lispm-desktop-popup--menu-width items)
+               (+ 20 (lispm-desktop-popup--menu-width (mapcar (lambda (item) (plist-put (copy-sequence item) :icon nil))
+                                                              items)))))))
+
+(ert-deftest lispm-desktop-test-submenu-turns-at-the-edge ()
+  "A submenu opens beside its item, or on the menu's left when the right
+has no room, as Mac OS 9's did at the screen's edge."
+  (let* ((lispm-desktop-platinum--palette (lispm-desktop-test--platinum-palette))
+         (items '((:label "One" :action ignore) (:label "More" :submenu ((:label "Two" :action ignore)))))
+         (submenu (lispm-desktop-popup--submenu (nth 1 items)))
+         (level (list :items items :x 100 :y 20 :width 80))
+         (width (lispm-desktop-popup--menu-width submenu)))
+    (should (equal (lispm-desktop-popup--submenu-place level 1 submenu 1000) '(178 35 nil)))
+    (should (equal (lispm-desktop-popup--submenu-place level 1 submenu (+ 178 width 1)) '(102 35 right)))))
+
 (ert-deftest lispm-desktop-test-menu-keys ()
   "Key equivalents are keyboard sequences only."
   (should (lispm-desktop-popup--keyboard-p (kbd "C-c a l")))
@@ -2723,6 +2751,91 @@ _NET_SUPPORTING_WM_CHECK names, or to `gone' for a destroyed window."
   (should (equal (lispm-desktop-browser--key 'lispm-browser-add-bookmark) "M-d"))
   (let ((lispm-desktop-browser--navigation '(:page t :back t :forward t)))
     (should (equal (plist-get (car (lispm-desktop-browser--go-items)) :key) "M-["))))
+
+(defconst lispm-desktop-test--png
+  (base64-decode-string
+   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")
+  "A PNG one pixel square, standing in for an extension's icon.")
+
+(ert-deftest lispm-desktop-test-browser-extension-buttons-draw ()
+  "An extension's toolbar button is a small bevel holding its icon, greyed
+when it does nothing on the page, its badge at the lower right, pushed in
+while its popup is up; one without an icon shows its name's initial.  The
+Extensions button is a puzzle piece in a bevel."
+  (let* ((lispm-desktop-platinum--palette (lispm-desktop-test--platinum-palette))
+         (icon `(image :type png :data ,lispm-desktop-test--png :width 16 :height 16))
+         (button (list :id "a" :name "Blocker" :icon icon :badge "12345"
+                       :badge-color "#123456" :badge-text-color "#FFFFFF" :enabled t))
+         (svg (lispm-desktop-browser--draw-extension button)))
+    (should (string-search (format "xlink:href='data:image/png;base64,%s'"
+                                   (base64-encode-string lispm-desktop-test--png t))
+                           svg))
+    (should (string-search "opacity='1'" svg))
+    ;; The badge: four characters at most, in its colours.
+    (should (string-search ">1234</text>" svg))
+    (should (string-search "fill='#123456'" svg))
+    (should (string-search "opacity='0.45'"
+                           (lispm-desktop-browser--draw-extension (plist-put (copy-sequence button) :enabled nil))))
+    ;; Pushed in: the bevel's top edge is shaded, not lit.
+    (let ((shade (lispm-desktop-platinum--color :shade)))
+      (should-not (string-search (format "<rect width='24' height='1' fill='%s'/>" shade) svg))
+      (should (string-search (format "<rect width='24' height='1' fill='%s'/>" shade)
+                             (lispm-desktop-browser--draw-extension (plist-put (copy-sequence button) :open t)))))
+    (should (string-search ">B</text>" (lispm-desktop-browser--draw-extension '(:id "b" :name "blocker" :enabled t))))
+    (should (string-search "<path d='M4.5 8 H8.4" (lispm-desktop-browser--draw-puzzle nil)))))
+
+(ert-deftest lispm-desktop-test-browser-extension-buttons-end-the-toolbar ()
+  "The location toolbar ends with a button per extension lispm-browser puts
+on the toolbar, then the Extensions button, each marked as the button it
+is; the address field stops short of them."
+  (let ((buttons '((:id "a" :name "Blocker" :enabled t) (:id "b" :name "Wallet" :enabled t)))
+        (drawn nil))
+    (cl-letf (((symbol-function 'display-graphic-p) #'always)
+              ((symbol-function 'lispm-browser-extensions-supported-p) #'always)
+              ((symbol-function 'lispm-browser-extensions-buttons) (lambda () buttons))
+              ((symbol-function 'lispm-desktop-browser--image)
+               (lambda (key _draw) (push key drawn) `(image :type svg :data ,(format "%S" key)))))
+      (pcase-let ((`(,string . ,width) (lispm-desktop-browser--extension-buttons)))
+        (should (= width (+ (* 2 (+ lispm-desktop-browser-extension-size lispm-desktop-browser-extension-gap))
+                            lispm-desktop-browser-extension-size)))
+        (should (equal (delq nil (mapcar (lambda (i) (get-text-property i 'lispm-browser-extensions-button string))
+                                         (number-sequence 0 (1- (length string)))))
+                       '("a" "b" menu)))
+        (should (equal (mapcar #'car drawn) '(puzzle extension extension))))
+      (with-temp-buffer
+        (setq-local lispm-desktop-browser--address-start (copy-marker (point-min)))
+        (insert "https://example.com/")
+        (lispm-desktop-browser--draw-field)
+        (let ((after (overlay-get lispm-desktop-browser--field 'after-string)))
+          (should (equal (plist-get (cdr (get-text-property 0 'display after)) :align-to)
+                         `(- right (,(+ 12 8 (+ (* 2 26) 24))))))
+          (should (string-search " " (substring after 1))))))
+    ;; Where nothing is drawn, the field reaches across.
+    (cl-letf (((symbol-function 'lispm-desktop-browser--extension-buttons) #'ignore))
+      (with-temp-buffer
+        (setq-local lispm-desktop-browser--address-start (copy-marker (point-min)))
+        (lispm-desktop-browser--draw-field)
+        (should (equal (plist-get (cdr (get-text-property 0 'display (overlay-get lispm-desktop-browser--field 'after-string)))
+                                  :align-to)
+                       '(- right (12))))))))
+
+(ert-deftest lispm-desktop-test-browser-extension-buttons-anchor ()
+  "A popup pressed from the keyboard hangs under its button, found on the
+location toolbar's line; the toolbar's menus open under their button,
+flush with its right edge."
+  (let ((asked nil)
+        (shown nil))
+    (cl-letf (((symbol-function 'lispm-desktop-browser--address-window) #'selected-window)
+              ((symbol-function 'window-pixel-edges) (lambda (&rest _) '(0 100 800 200)))
+              ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 180 800 200)))
+              ((symbol-function 'lispm-browser-extensions-button-anchor)
+               (lambda (&rest args) (setq asked args) 'anchor))
+              ((symbol-function 'lispm-desktop-popup-menu)
+               (lambda (items x y align) (push (list items x y align lispm-desktop-popup-parent) shown))))
+      (should (eq (lispm-desktop-browser--extension-anchor "a") 'anchor))
+      (should (equal asked (list (selected-window) (+ 80 3) 24 "a")))
+      (lispm-desktop-browser--popup-at '(items) (list 'frame 700 83 24 24))
+      (should (equal shown '(((items) 724 107 right frame)))))))
 
 (ert-deftest lispm-desktop-test-browser-address-typing-replaces ()
   "Typing or pasting in the address field replaces the address Open
