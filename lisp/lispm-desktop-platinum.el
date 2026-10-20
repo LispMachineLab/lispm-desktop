@@ -1466,6 +1466,40 @@ place as the keyboard comes and goes.  See `lispm-desktop-platinum-draw-radio'."
                (lambda () (lispm-desktop-platinum-draw-radio lispm-desktop-platinum--palette on
                                                              :state state :focused focused :pad 2)))))
 
+(defconst lispm-desktop-platinum--list-check-boxes
+  '((on "############" "#wwwwwwwwwd#" "#wd#dddd#dg#" "#wd##dd##sg#" "#wdd####sag#"
+        "#wddd##sadg#" "#wdd####ddg#" "#wd##sa##dg#" "#wd#sadd#sg#" "#wddaddddag#"
+        "#dggggggggg#" "############")
+    (off "############" "#wwwwwwwwwd#" "#wddddddddg#" "#wddddddddg#" "#wddddddddg#"
+         "#wddddddddg#" "#wddddddddg#" "#wddddddddg#" "#wddddddddg#" "#wddddddddg#"
+         "#dggggggggg#" "############")
+    (mixed "############" "#wwwwwwwwwd#" "#wddddddddg#" "#wddddddddg#" "#wddddddddg#"
+           "#wd######ag#" "#wd######ag#" "#wddaaaaaag#" "#wddddddddg#" "#wddddddddg#"
+           "#dggggggggg#" "############"))
+  "The check boxes of Extensions Manager's list, as Mac OS 9 drew them, a row
+of pixels a string: checked with a cross, empty, or crossed by a bar for
+a group only some of whose items are on.  # is the outline, w, d, a, g
+and s the greys #FF, #DD, #AA, #88 and #77.")
+
+(defun lispm-desktop-platinum-draw-list-check-box (palette state)
+  "Return an SVG of a list's check box in PALETTE, twelve pixels square.
+STATE is `on', `off' or `mixed', see `lispm-desktop-platinum--list-check-boxes'."
+  (let ((svg (svg-create 12 12)))
+    (lispm-desktop-platinum--draw-map
+     svg 0 0 (alist-get state lispm-desktop-platinum--list-check-boxes)
+     `((?# . ,(plist-get palette :outline))
+       ,@(mapcar (pcase-lambda (`(,char . ,level)) (cons char (lispm-desktop-platinum-grey palette level)))
+                 '((?w . #xFF) (?d . #xDD) (?a . #xAA) (?g . #x88) (?s . #x77)))))
+    svg))
+
+(defun lispm-desktop-platinum-list-check-box (state)
+  "Return a list's check box in STATE as a string displaying it.
+See `lispm-desktop-platinum-draw-list-check-box'."
+  (propertize " " 'display
+              (lispm-desktop-platinum--image
+               (list 'list-check-box state)
+               (lambda () (lispm-desktop-platinum-draw-list-check-box lispm-desktop-platinum--palette state)))))
+
 (defun lispm-desktop-platinum-check-box (on &optional state)
   "Return a check box, checked when ON, in STATE, as a string displaying it.
 See `lispm-desktop-platinum-draw-check-box'."
@@ -1557,12 +1591,21 @@ Space do, or as a press of the mouse does; other buttons are pushed as
   "Return the image CONTROL, a string displaying one, shows."
   (get-text-property 0 'display control))
 
-(cl-defun lispm-desktop-platinum-insert-push-button (label action &key help default)
+(cl-defun lispm-desktop-platinum-insert-push-button (label action &key help default disabled)
   "Insert a push button reading LABEL, which calls ACTION with no arguments.
 HELP describes it; DEFAULT rings it, as the button Return presses.  The
 button is drawn focused while point is on it, see
 `lispm-desktop-platinum-show-focus'; its text, drawn in its image, is
-kept in its `lispm-desktop-platinum-label' property."
+kept in its `lispm-desktop-platinum-label' property.  A DISABLED button
+is drawn dimmed and does nothing; Tab passes it by."
+  (if disabled
+      (insert (propertize " " 'display (lispm-desktop-platinum--image-of
+                                        (lispm-desktop-platinum-push-button label :state 'disabled))
+                          'lispm-desktop-platinum-label label 'face nil 'help-echo (or help label)))
+    (lispm-desktop-platinum--insert-push-button label action help default)))
+
+(defun lispm-desktop-platinum--insert-push-button (label action help default)
+  "Insert an enabled push button, see `lispm-desktop-platinum-insert-push-button'."
   (insert-text-button " "
                       'display (lispm-desktop-platinum--image-of
                                 (lispm-desktop-platinum-push-button label :default default))
@@ -1594,9 +1637,11 @@ kept in its `lispm-desktop-platinum-label' property."
 
 (defun lispm-desktop-platinum-icon-file (name)
   "Return the file of icon NAME: a file of icons/os9 without its extension,
-`lambda' for LispM's rainbow λ, or `emacs' for the icon Emacs ships with,
-read from this Emacs's own data directory."
+`lambda' for LispM's rainbow λ, `emacs' for the icon Emacs ships with,
+read from this Emacs's own data directory, or an absolute file name, as
+of an application's icon installed from the App Store."
   (pcase name
+    ((pred (lambda (name) (and (stringp name) (file-name-absolute-p name)))) name)
     ('lambda (expand-file-name "icons/lispm-lambda.png" lispm-desktop-directory))
     ('emacs (let ((file (expand-file-name "images/icons/hicolor/scalable/apps/emacs.svg"
                                           data-directory)))
@@ -2026,13 +2071,17 @@ See `lispm-desktop-platinum--title-bar'."
 
 (defun lispm-desktop-platinum-close-window (window)
   "Close WINDOW as Mac OS closed a window: put its document away.
-A sidebar is hidden.  Otherwise WINDOW's buffer is killed, once an
-alert has asked about unsaved changes or a running process, and WINDOW
-goes too when other windows remain in the main area; the last one shows
-the desktop."
+A sidebar is hidden; a window whose frame names a function closing it,
+its frame parameter `lispm-desktop-close-function', as an application's
+window does, is closed by that function.  Otherwise WINDOW's buffer is
+killed, once an alert has asked about unsaved changes or a running
+process, and WINDOW goes too when other windows remain in the main area;
+the last one shows the desktop."
   (cond
    ((lispm-desktop-platinum--box-function window :close)
     (funcall (lispm-desktop-platinum--box-function window :close) window))
+   ((frame-parameter (window-frame window) 'lispm-desktop-close-function)
+    (funcall (frame-parameter (window-frame window) 'lispm-desktop-close-function) window))
    ((window-parameter window 'window-side)
     (when-let* ((view (lispm-desktop-sidebar-current-view)))
       (lispm-desktop-sidebar-select view)))
@@ -2408,6 +2457,7 @@ Where images cannot be shown, a plain λ stands in."
 (declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
 (defvar lispm-desktop-popup-menu-bar-step)
 (declare-function lispm-desktop-agent-installed-p "lispm-desktop-ai" (agent))
+(declare-function lispm-desktop-store-application-items "lispm-desktop-store" ())
 (defvar lispm-desktop-theme)
 
 (defun lispm-desktop-platinum--menu-y ()
@@ -2434,6 +2484,11 @@ bottom line, which the menu's outline then draws, as on Mac OS 9."
     ,@(when (lispm-desktop-platinum--browser-p) '((:label "Browser" :action lispm-desktop-browser-show)))
     (:label "Magit Status" :action magit-status)
     separator
+    ,@(when (fboundp 'lispm-desktop-store-show)
+        '((:label "App Store" :action lispm-desktop-store-show)))
+    ,@(when (and (fboundp 'lispm-desktop-store-application-items)
+                 (lispm-desktop-store-application-items))
+        '((:label "Applications" :submenu lispm-desktop-store-application-items)))
     ,@(when (fboundp 'lispm-desktop-settings-panel-items)
         `((:label "Control Panels" :submenu lispm-desktop-settings-panel-items)))
     (:label "Customize lispm-desktop…" :action ,(lambda () (customize-group 'lispm-desktop)))))

@@ -439,10 +439,10 @@ front; without xwidgets it is left out."
 (ert-deftest lispm-desktop-test-desktop-items ()
   "The browser's icon shows where the browser can run; the Trash is last."
   (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
-    (should (equal (mapcar #'car (lispm-desktop--items)) '(home editor control-panels trash))))
+    (should (equal (mapcar #'car (lispm-desktop--items)) '(home editor applications control-panels trash))))
   (cl-letf (((symbol-function 'lispm-browser-available-p) #'always))
     (should (equal (mapcar #'car (lispm-desktop--items))
-                   '(home editor browser control-panels trash)))))
+                   '(home editor browser applications control-panels trash)))))
 
 (ert-deftest lispm-desktop-test-desktop-icons-stand-where-put ()
   "Icons with no place stand in the column at the right edge, the Trash in
@@ -459,6 +459,8 @@ nearest it, kept whole on the desktop; the others keep to free cells."
                             ,(+ lispm-desktop-margin cell-height lispm-desktop-gap))
                            (,(- 800 lispm-desktop-margin cell-width)
                             ,(+ lispm-desktop-margin (* 2 (+ cell-height lispm-desktop-gap))))
+                           (,(- 800 lispm-desktop-margin cell-width)
+                            ,(+ lispm-desktop-margin (* 3 (+ cell-height lispm-desktop-gap))))
                            (,(- 800 lispm-desktop-margin cell-width)
                             ,(- 600 lispm-desktop-margin cell-height)))))))
       ;; Home put at the top left; Emacs keeps its cell, the second.
@@ -3719,6 +3721,453 @@ menu of the module beside, as along the menu bar."
                    nil)))
         (should (equal (lispm-desktop-strip--walk (lispm-desktop-strip--modules) 0) '(nil . 0)))
         (should (equal opened '(appearance mail appearance)))))))
+
+;;;; Applications and the App Store
+
+(require 'package-vc)
+
+(ert-deftest lispm-desktop-test-define-app ()
+  "An application defined comes after the others in the Application menu;
+defined again it keeps its place; removed, it goes, and the desktop comes in
+front if it was there.  The applications' list is never changed in place."
+  (let* ((original lispm-desktop-apps)
+         (copy (copy-tree original))
+         (lispm-desktop-apps original)
+         (lispm-desktop-apps--frontmost nil))
+    (lispm-desktop-define-app 'elfeed :name "Elfeed" :activate #'ignore)
+    (should (eq (car (car (last lispm-desktop-apps))) 'elfeed))
+    (lispm-desktop-define-app 'other :name "Other" :activate #'ignore)
+    (lispm-desktop-define-app 'elfeed :name "Feeds" :activate #'ignore)
+    (should (equal (last (mapcar #'car lispm-desktop-apps) 2) '(elfeed other)))
+    (should (equal (plist-get (alist-get 'elfeed lispm-desktop-apps) :name) "Feeds"))
+    (setq lispm-desktop-apps--frontmost 'elfeed)
+    (lispm-desktop-remove-app 'elfeed)
+    (should-not (assq 'elfeed lispm-desktop-apps))
+    (should (eq (lispm-desktop-apps-frontmost) 'desktop))
+    (should (equal original copy))))
+
+(ert-deftest lispm-desktop-test-apps-functions-may-be-lambdas ()
+  "An application's :visible, :running and :menus may be lambdas as well as
+named functions; one whose function is not defined does not run."
+  (let ((lispm-desktop-apps `((desktop :name "Desktop" :activate ignore)
+                              (shown :name "Shown" :activate ignore :visible ,(lambda () t)
+                                     :menus ,(lambda () '((m "File" ignore))))
+                              (hidden :name "Hidden" :activate ignore :visible ,(lambda () nil))
+                              (missing :name "Missing" :activate ignore
+                                       :visible lispm-desktop-test-no-such-function)))
+        (lispm-desktop-apps--frontmost 'shown))
+    (should (equal (mapcar #'car (lispm-desktop-apps--available)) '(desktop shown)))
+    (should (equal (lispm-desktop-apps-menus) '((m "File" ignore))))))
+
+(ert-deftest lispm-desktop-test-apps-full-screen ()
+  "The floating windows hide only behind the editor or the browser filling
+the screen; any other application in front leaves them shown."
+  (let ((lispm-desktop-browser-floating nil))
+    (cl-letf (((symbol-function 'lispm-desktop-editor-floating-p) #'ignore))
+      (should (lispm-desktop-apps-full-screen-p 'editor))
+      (should (lispm-desktop-apps-full-screen-p 'browser))
+      (should-not (lispm-desktop-apps-full-screen-p 'desktop))
+      (should-not (lispm-desktop-apps-full-screen-p 'elfeed)))
+    (let ((lispm-desktop-browser-floating t))
+      (cl-letf (((symbol-function 'lispm-desktop-editor-floating-p) #'always))
+        (should-not (lispm-desktop-apps-full-screen-p 'editor))
+        (should-not (lispm-desktop-apps-full-screen-p 'browser))))))
+
+(ert-deftest lispm-desktop-test-app-window-follows-frontmost ()
+  "An application's window hides behind the full-screen editor and shows
+again with the desktop in front."
+  (let ((lispm-desktop-app-window--frames `((elfeed . ,(selected-frame))))
+        (visible t)
+        (calls nil))
+    (cl-letf (((symbol-function 'frame-visible-p) (lambda (_frame) visible))
+              ((symbol-function 'lispm-desktop-platinum-show-window)
+               (lambda (_frame) (push 'show calls) (setq visible t)))
+              ((symbol-function 'lispm-desktop-platinum-hide-window)
+               (lambda (_frame) (push 'hide calls) (setq visible nil)))
+              ((symbol-function 'lispm-desktop-platinum-raise-window) #'ignore)
+              ((symbol-function 'lispm-desktop-editor-floating-p) #'ignore))
+      (lispm-desktop-app-window--follow-frontmost 'editor)
+      (lispm-desktop-app-window--follow-frontmost 'desktop)
+      (lispm-desktop-app-window--follow-frontmost 'elfeed)
+      (should (equal (nreverse calls) '(hide show))))))
+
+(ert-deftest lispm-desktop-test-app-window-close-box ()
+  "The close box of an application's window closes the window alone while
+others share the application's frame, else the application's window."
+  (let ((closed nil))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (app) (setq closed app))))
+      (save-window-excursion
+        (delete-other-windows)
+        (let ((frame (selected-frame)))
+          (set-frame-parameter frame 'lispm-desktop-app-window 'elfeed)
+          (unwind-protect
+              (let ((other (split-window)))
+                (lispm-desktop-app-window--close-box other)
+                (should-not (window-live-p other))
+                (should-not closed)
+                (lispm-desktop-app-window--close-box (selected-window))
+                (should (eq closed 'elfeed)))
+            (set-frame-parameter frame 'lispm-desktop-app-window nil)))))))
+
+(ert-deftest lispm-desktop-test-list-check-box-pixels ()
+  "Extensions Manager's check boxes: twelve pixels square, outlined; checked,
+crossed from corner to corner; for a group partly on, crossed by a bar."
+  (let ((palette (lispm-desktop-test--platinum-palette)))
+    (cl-flet ((at (state x y)
+                (lispm-desktop-test--pixel (lispm-desktop-platinum-draw-list-check-box palette state) x y)))
+      (should (equal (lispm-desktop-test--size (lispm-desktop-platinum-draw-list-check-box palette 'on))
+                     '(12 . 12)))
+      (should (equal (at 'on 0 0) "#000000"))
+      (should (equal (at 'on 1 1) "#FFFFFF"))
+      (should (equal (at 'on 3 2) "#000000"))
+      (should (equal (at 'on 8 2) "#000000"))
+      (should (equal (at 'off 3 2) "#DDDDDD"))
+      (should (equal (at 'mixed 4 5) "#000000"))
+      (should (equal (at 'mixed 4 3) "#DDDDDD"))
+      (should (equal (at 'off 10 6) "#888888")))))
+
+(defmacro lispm-desktop-test--with-store (&rest body)
+  "Run BODY with an App Store of its own: no catalog, nothing installed,
+its clones in a temporary directory, Customize only setting what it saves."
+  (declare (indent 0))
+  `(let* ((lispm-desktop-store-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-store" t)))
+          (lispm-desktop-store-catalogs nil)
+          (lispm-desktop-store--catalogs nil)
+          (lispm-desktop-store-installed nil)
+          (lispm-desktop-store--checking nil)
+          (lispm-desktop-store--checked t)
+          (lispm-desktop-apps lispm-desktop-apps)
+          (lispm-desktop-apps--frontmost nil)
+          (lispm-desktop-app-window--frames nil)
+          (inhibit-message t))
+     (cl-letf (((symbol-function 'customize-save-variable)
+                (lambda (variable value &rest _) (set variable value))))
+       (unwind-protect
+           (progn ,@body)
+         (when (get-buffer lispm-desktop-store-buffer-name)
+           (kill-buffer lispm-desktop-store-buffer-name))
+         (delete-directory lispm-desktop-store-directory t)))))
+
+(defun lispm-desktop-test--store-catalog (url items &optional files name)
+  "Put a catalog at URL's clone holding ITEMS, and FILES, (FILE . TEXT)s;
+NAME it.  The catalog is listed and read."
+  (let ((directory (lispm-desktop-store--catalog-directory url)))
+    (make-directory directory t)
+    (with-temp-file (expand-file-name "catalog.eld" directory)
+      (prin1 `(:name ,(or name "Test Store") :items ,items) (current-buffer)))
+    (pcase-dolist (`(,file . ,text) files)
+      (let ((path (expand-file-name file directory)))
+        (make-directory (file-name-directory path) t)
+        (with-temp-file path (insert text))))
+    (setq lispm-desktop-store-catalogs (append lispm-desktop-store-catalogs (list url)))
+    (lispm-desktop-store-read-catalogs)))
+
+(ert-deftest lispm-desktop-test-store-catalog-directory ()
+  "A catalog is cloned in a directory named after its repository."
+  (let ((lispm-desktop-store-directory "/tmp/store/"))
+    (should (equal (lispm-desktop-store--catalog-directory "https://github.com/LispMachineLab/lispm-store")
+                   "/tmp/store/LispMachineLab-lispm-store/"))
+    (should (equal (lispm-desktop-store--catalog-directory "https://example.org/a/b.git/")
+                   "/tmp/store/a-b/"))))
+
+(ert-deftest lispm-desktop-test-store-item-validation ()
+  "An item is listed only when well formed: a name, a kind, files inside its
+catalog, an application's package pinned and built by no command, and a
+command or a feature opening it."
+  (cl-flet ((valid (item) (lispm-desktop-store--item-valid-p item)))
+    (should (valid '(calc :kind app :name "Calculator" :command calc)))
+    (should (valid '(e :kind app :name "E" :command e :package e)))
+    (should (valid '(e :kind app :name "E" :feature e :package (e :url "u" :rev "r" :lisp-dir "lisp"))))
+    (should (valid '(r :kind role :name "R" :file "roles/r.org")))
+    (should (valid '(s :kind skill :name "S" :file "skills/s/" :requires (r))))
+    (should-not (valid '(e :kind app :name "E")))
+    (should-not (valid '(e :kind app :name "E" :command e :package (e :url "u"))))
+    (should-not (valid '(e :kind app :name "E" :command e :package (e :url "u" :rev "r" :make "all"))))
+    (should-not (valid '(e :kind app :name "E" :command e :package (e :url "u" :rev "r" :shell-command "x"))))
+    (should-not (valid '(e :kind app :name "E" :command e :icon "../x")))
+    (should-not (valid '(r :kind role :name "R" :file "../r.org")))
+    (should-not (valid '(r :kind role :name "R" :file "/etc/passwd")))
+    (should-not (valid '(r :kind role :name "R" :file "~/r.org")))
+    (should-not (valid '(r :kind tool :name "R" :file "r.org")))
+    (should-not (valid '(r :kind role :file "r.org")))
+    (should-not (valid '("r" :kind role :name "R" :file "r.org")))))
+
+(ert-deftest lispm-desktop-test-store-catalogs-read ()
+  "The catalogs are read as data: each item carries its catalog, an earlier
+catalog's item hides a later one's of the same name, items wrongly given
+are left out, and those installed no catalog lists stay listed."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/first"
+     '((calculator :kind app :name "Calculator" :command calc)
+       (broken :kind app :name "Broken")))
+    (lispm-desktop-test--store-catalog
+     "https://example.org/second"
+     '((calculator :kind app :name "Other Calculator" :command calc)
+       (reviewer :kind role :name "Reviewer" :file "roles/reviewer.org")))
+    (setq lispm-desktop-store-installed '((gone :kind skill :name "Gone" :file "skills/gone.org")))
+    (let ((items (lispm-desktop-store-items)))
+      (should (equal (mapcar #'car items) '(calculator reviewer gone)))
+      (should (equal (plist-get (cdr (assq 'calculator items)) :name) "Calculator"))
+      (should (equal (plist-get (cdr (assq 'calculator items)) :catalog) "https://example.org/first"))
+      (should (equal (plist-get (cdr (assq 'reviewer items)) :catalog) "https://example.org/second"))
+      (should (equal (lispm-desktop-store--catalog-name "https://example.org/second") "Test Store")))))
+
+(ert-deftest lispm-desktop-test-store-install-requirements-first ()
+  "Installing a skill installs the application it requires first, both asked
+about at once; each is kept, the application's package pinned to its
+commit and the application made one of the desktop's."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((elfeed :kind app :name "Elfeed" :command elfeed
+               :package (elfeed :url "https://example.org/elfeed" :rev "0123456789abcdef"))
+       (feeds :kind skill :name "Feeds" :file "skills/feeds.org" :requires (elfeed)))
+     '(("skills/feeds.org" . "#+title: Feeds\n")))
+    (let ((asked nil) (packages nil) (pinned nil) (skills nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
+                 (lambda (question &rest _) (push question asked) t))
+                ((symbol-function 'package-installed-p) (lambda (name &rest _) (memq name packages)))
+                ((symbol-function 'package-vc-install)
+                 (lambda (spec rev) (push (list spec rev) pinned) (push (car spec) packages)))
+                ((symbol-function 'lispm-install-skill)
+                 (lambda (file noconfirm) (should noconfirm) (push (file-name-nondirectory file) skills) "feeds")))
+        (lispm-desktop-store-install 'feeds)
+        (should (equal asked '("Install “Elfeed” and “Feeds”?")))
+        (should (equal pinned '(((elfeed :url "https://example.org/elfeed") "0123456789abcdef"))))
+        (should (equal skills '("feeds.org")))
+        (should (equal (mapcar #'car lispm-desktop-store-installed) '(elfeed feeds)))
+        (let ((elfeed (cdr (assq 'elfeed lispm-desktop-store-installed)))
+              (feeds (cdr (assq 'feeds lispm-desktop-store-installed))))
+          (should (plist-get elfeed :owned))
+          (should (equal (plist-get elfeed :installed) "0123456789abcdef"))
+          (should (equal (plist-get feeds :as) "feeds"))
+          (should (equal (plist-get feeds :catalog) "https://example.org/store")))
+        (should (equal (plist-get (alist-get 'elfeed lispm-desktop-apps) :name) "Elfeed"))
+        (should-not (lispm-desktop-store-update-available-p 'elfeed))
+        (should-not (lispm-desktop-store-update-available-p 'feeds))))))
+
+(ert-deftest lispm-desktop-test-store-built-in-asks-nothing ()
+  "An application built into Emacs is only made an application: nothing is
+asked and no package installed."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog "https://example.org/store"
+                                       '((calculator :kind app :name "Calculator" :command calc)))
+    (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) (error "Asked")))
+              ((symbol-function 'package-install) (lambda (&rest _) (error "Installed"))))
+      (lispm-desktop-store-install 'calculator)
+      (should (lispm-desktop-store-installed-p 'calculator))
+      (should-not (plist-get (cdr (assq 'calculator lispm-desktop-store-installed)) :owned))
+      (should (assq 'calculator lispm-desktop-apps))
+      (should (equal (mapcar (lambda (item) (plist-get item :label))
+                             (lispm-desktop-store-application-items))
+                     '("Calculator"))))))
+
+(ert-deftest lispm-desktop-test-store-declined-installs-nothing ()
+  "Declining the alert installs nothing."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog "https://example.org/store"
+                                       '((reviewer :kind role :name "Reviewer" :file "roles/reviewer.org"))
+                                       '(("roles/reviewer.org" . "#+title: Reviewer\n")))
+    (cl-letf (((symbol-function 'lispm-desktop-store--confirm) #'ignore)
+              ((symbol-function 'lispm-install-role) (lambda (&rest _) (error "Installed"))))
+      (lispm-desktop-store-install 'reviewer)
+      (should-not lispm-desktop-store-installed))))
+
+(ert-deftest lispm-desktop-test-store-remove ()
+  "Removing an application deletes the package the App Store installed and
+leaves one there before; a role goes through lispm-agent, by the name it
+was installed as; each is forgotten."
+  (lispm-desktop-test--with-store
+    (setq lispm-desktop-store-installed
+          '((elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "r")
+                    :installed "r" :owned t)
+            (emms :kind app :name "EMMS" :command emms :package emms :installed "1.0")
+            (reviewer :kind role :name "Reviewer" :file "roles/reviewer.org" :as reviewer :installed "h")))
+    (lispm-desktop-store--register-installed)
+    (should (assq 'emms lispm-desktop-apps))
+    (let ((deleted nil) (roles nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
+                ((symbol-function 'lispm-desktop-store--delete-package) (lambda (package) (push package deleted)))
+                ((symbol-function 'lispm-delete-role) (lambda (name) (push name roles))))
+        (dolist (id '(elfeed emms reviewer))
+          (lispm-desktop-store-remove id))
+        (should (equal deleted '((elfeed :url "u" :rev "r"))))
+        (should (equal roles '(reviewer)))
+        (should-not lispm-desktop-store-installed)
+        (should-not (assq 'elfeed lispm-desktop-apps))
+        (should-not (assq 'emms lispm-desktop-apps))))))
+
+(ert-deftest lispm-desktop-test-store-remove-says-who-needs-it ()
+  "Removing an item says which installed items require it."
+  (let ((lispm-desktop-store-installed
+         '((elfeed :kind app :name "Elfeed" :command elfeed :package elfeed)
+           (feeds :kind skill :name "Feeds" :file "f.org" :requires (elfeed)))))
+    (should (string-search "“Feeds” needs it"
+                           (lispm-desktop-store--remove-detail
+                            'elfeed (cdr (assq 'elfeed lispm-desktop-store-installed)))))))
+
+(ert-deftest lispm-desktop-test-store-updates ()
+  "An update is ready once the catalog pins an application's package to
+another commit or changes a skill's file; updating installs it again, and
+then none is ready."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "new"))
+       (feeds :kind skill :name "Feeds" :file "skills/feeds.org"))
+     '(("skills/feeds.org" . "#+title: Feeds, changed\n")))
+    (setq lispm-desktop-store-installed
+          `((elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "old")
+                    :catalog "https://example.org/store" :installed "old" :owned t)
+            (feeds :kind skill :name "Feeds" :file "skills/feeds.org" :catalog "https://example.org/store"
+                   :as "feeds" :installed ,(secure-hash 'sha256 "#+title: Feeds\n"))))
+    (should (lispm-desktop-store-update-available-p 'elfeed))
+    (should (lispm-desktop-store-update-available-p 'feeds))
+    (let ((repinned nil) (skills 0))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
+                ((symbol-function 'lispm-desktop-store--repin) (lambda (name rev) (push (cons name rev) repinned)))
+                ((symbol-function 'lispm-install-skill) (lambda (_file _noconfirm) (cl-incf skills) "feeds")))
+        (lispm-desktop-store-update 'elfeed)
+        (lispm-desktop-store-update 'feeds)
+        (should (equal repinned '((elfeed . "new"))))
+        (should (= skills 1))
+        (should (plist-get (cdr (assq 'elfeed lispm-desktop-store-installed)) :owned))
+        (should-not (lispm-desktop-store-update-available-p 'elfeed))
+        (should-not (lispm-desktop-store-update-available-p 'feeds))
+        (should-error (lispm-desktop-store-update 'feeds) :type 'user-error)))))
+
+(ert-deftest lispm-desktop-test-store-requirement-missing ()
+  "An item requiring one no catalog lists is not installed."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog "https://example.org/store"
+                                       '((feeds :kind skill :name "Feeds" :file "f.org" :requires (elfeed))))
+    (should-error (lispm-desktop-store-install 'feeds) :type 'user-error)))
+
+(defun lispm-desktop-test--git (directory &rest args)
+  "Run git with ARGS in DIRECTORY, unsigned, as the tests' own author."
+  (apply #'lispm-desktop-store--git directory
+         "-c" "user.name=LispM Test" "-c" "user.email=test@example.org" "-c" "commit.gpgsign=false"
+         args))
+
+(ert-deftest lispm-desktop-test-store-fetches-catalogs ()
+  "Checking for updates clones a catalog the first time and brings it to its
+newest commit after, in the background; then the list shows what it holds."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (let ((source (make-temp-file "lispm-desktop-test-catalog" t)))
+      (unwind-protect
+          (cl-flet ((commit (items)
+                      (with-temp-file (expand-file-name "catalog.eld" source)
+                        (prin1 `(:name "Fetched" :items ,items) (current-buffer)))
+                      (lispm-desktop-test--git source "add" "catalog.eld")
+                      (lispm-desktop-test--git source "commit" "--quiet" "-m" "Catalog"))
+                    (check ()
+                      (let ((done nil))
+                        (lispm-desktop-store-check-for-updates (lambda () (setq done t)))
+                        (with-timeout (30 (error "The catalogs were not fetched"))
+                          (while (not done)
+                            (accept-process-output nil 0.05))))))
+            (lispm-desktop-test--git source "init" "--quiet")
+            (commit '((calculator :kind app :name "Calculator" :command calc)))
+            (setq lispm-desktop-store-catalogs (list source))
+            (check)
+            (should (equal (mapcar #'car (lispm-desktop-store-items)) '(calculator)))
+            (should (equal (lispm-desktop-store--catalog-name source) "Fetched"))
+            (should (stringp (plist-get (car lispm-desktop-store--catalogs) :commit)))
+            (commit '((calculator :kind app :name "Calculator" :command calc)
+                      (calendar :kind app :name "Calendar" :command calendar)))
+            (check)
+            (should (equal (mapcar #'car (lispm-desktop-store-items)) '(calculator calendar))))
+        (delete-directory source t)))))
+
+(ert-deftest lispm-desktop-test-store-git-ignores-callers-repository ()
+  "Git runs for the App Store in the directory given, whatever repository
+an inherited GIT_DIR names."
+  (let ((process-environment (cons "GIT_DIR=/nonexistent/.git" process-environment)))
+    (should-not (member "GIT_DIR=/nonexistent/.git"
+                        (seq-filter (lambda (entry) (string-prefix-p "GIT_DIR=" entry))
+                                    (let ((env (lispm-desktop-store--git-environment)))
+                                      ;; The first entry naming a variable wins.
+                                      (seq-take env (seq-position env "GIT_DIR=/nonexistent/.git"))))))
+    (should (equal (car (lispm-desktop-store--git-environment)) "GIT_DIR"))))
+
+(ert-deftest lispm-desktop-test-store-main-file ()
+  "A repository installed from its URL is the package of its main file:
+named after the repository, at the top or in lisp/, else the one file with
+a Version header."
+  (let ((repository (make-temp-file "lispm-desktop-test-repo" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "lisp" repository))
+          (with-temp-file (expand-file-name "lisp/foo.el" repository) (insert ";;; foo.el\n"))
+          (with-temp-file (expand-file-name "lisp/foo-extra.el" repository) (insert ";;; extra\n"))
+          (should (equal (file-name-nondirectory (lispm-desktop-store--main-file repository "emacs-foo"))
+                         "foo.el"))
+          (with-temp-file (expand-file-name "bar.el" repository)
+            (insert ";;; bar.el\n;; Version: 1.0\n;;;###autoload\n(defun bar-open () (interactive))\n"))
+          (should (equal (file-name-nondirectory (lispm-desktop-store--main-file repository "unrelated"))
+                         "bar.el"))
+          (should (equal (lispm-desktop-store--autoloaded-commands (expand-file-name "bar.el" repository))
+                         '("bar-open"))))
+      (delete-directory repository t))))
+
+(ert-deftest lispm-desktop-test-store-in-menus-and-folder ()
+  "The λ menu opens the App Store and lists the applications installed; the
+Applications folder holds the App Store and each application."
+  (let ((lispm-desktop-store-installed
+         '((calculator :kind app :name "Calculator" :command calc)
+           (reviewer :kind role :name "Reviewer" :file "r.org"))))
+    (let ((items (lispm-desktop-platinum-lambda-items)))
+      (should (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) "App Store")))
+                        items))
+      (should (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) "Applications")))
+                        items)))
+    (should (equal (mapcar #'car (lispm-desktop-store--folder-items)) '("App Store" "Calculator")))))
+
+(ert-deftest lispm-desktop-test-store-window-draws ()
+  "The App Store's window lists its groups and items with their columns,
+under it the push buttons, Update and Remove dimmed for an item not
+installed; the keyboard goes from row to row, and Space installs."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((calculator :kind app :name "Calculator" :command calc)
+       (reviewer :kind role :name "Reviewer" :file "roles/reviewer.org"))
+     '(("roles/reviewer.org" . "#+title: Reviewer\n")))
+    (let ((installing nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store-install) (lambda (id) (setq installing id))))
+        (with-current-buffer (lispm-desktop-store--buffer)
+          (lispm-desktop-store--render)
+          (should (equal (lispm-desktop-store--keys)
+                         '((group . app) calculator (group . role) reviewer (group . skill))))
+          (let ((text (buffer-string))
+                (labels (delq nil (mapcar (lambda (position)
+                                            (get-text-property position 'lispm-desktop-platinum-label))
+                                          (number-sequence (point-min) (1- (point-max)))))))
+            (dolist (word '("Applications" "Agents" "Skills" "Calculator" "Reviewer" "Test Store"))
+              (should (string-search word text)))
+            (dolist (label '("Check for Updates" "Install from URL…" "Update" "Remove"))
+              (should (member label labels))))
+          (should (equal (lispm-desktop-store--placard) "2 items, 0 installed"))
+          (should (equal lispm-desktop-store--selected '(group . app)))
+          (lispm-desktop-store-next-row)
+          (should (eq lispm-desktop-store--selected 'calculator))
+          (should (eq (get-text-property (point) 'lispm-desktop-store-row) 'calculator))
+          ;; Remove is dimmed: no button to press.
+          (let ((position (point-min)))
+            (while (not (equal (get-text-property position 'lispm-desktop-platinum-label) "Remove"))
+              (setq position (1+ position)))
+            (should-not (button-at position)))
+          (lispm-desktop-store-toggle)
+          (should (eq installing 'calculator))
+          (lispm-desktop-store-fold)
+          (should (equal lispm-desktop-store--selected '(group . app)))
+          (should-not (memq 'calculator (lispm-desktop-store--keys)))
+          (lispm-desktop-store-unfold)
+          (should (memq 'calculator (lispm-desktop-store--keys))))))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

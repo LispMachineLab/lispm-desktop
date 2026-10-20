@@ -36,6 +36,8 @@
 ;;                  the Dock (C-c h)
 ;;   agents         LispM's, running inside Emacs, and Claude Code, Codex
 ;;                  and Hermes, each when its CLI is on PATH (C-c a)
+;;   App Store      applications, agents and skills to install, from
+;;                  catalogs, laid out as Mac OS 9's Extensions Manager
 ;;
 ;; Its init.el runs `lispm-desktop-setup' and then the user's own file,
 ;; `lispm-desktop-user-file'.  An existing configuration can use it the same way:
@@ -70,6 +72,8 @@
 (require 'lispm-desktop-workspaces)
 (require 'lispm-desktop-finder)
 (require 'lispm-desktop-settings)
+(require 'lispm-desktop-app-window)
+(require 'lispm-desktop-store)
 (require 'lispm-desktop-strip)
 (require 'lispm-desktop-exwm)
 (require 'lispm-desktop-languages)
@@ -171,6 +175,8 @@ Customize.  A batch Emacs asks nothing: Emacs keys, Dracula."
     (lispm-desktop-setup-browser)
     (lispm-desktop-setup-browser-places)
     (lispm-desktop-setup-settings)
+    (lispm-desktop-setup-app-windows)
+    (lispm-desktop-setup-store)
     (lispm-desktop-setup-strip)
     (setq lispm-desktop--set-up t)
     (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
