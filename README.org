@@ -154,11 +154,12 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
 - *Chrome extensions in the browser*, on macOS 15.4 and later: WebKit runs them itself, as Safari
   runs its own (WKWebExtension), in every page whose view carries its extension controller, and a
   dynamic module in Swift hands Emacs's page views that controller as they are made.  The
-  Extensions menu adds one from the Chrome Web Store (the store page shown, a link or an id), its
-  signature checked and what it will be able to do asked first, or an unpacked one from a folder,
-  as Chrome's developer mode does; it lists the running extensions' buttons, and =M-e= presses
-  one for the page in front: its popup hangs from the page's top right, or it is told it was
-  clicked.  Manage Extensions lists them, to press, open the options of (in a tab of their own),
+  Extensions menu opens the Chrome Web Store in a tab, and on an extension's page there Add This
+  Extension adds it (the store's own button is Chrome's), its signature checked and what it will
+  be able to do asked first; Load Unpacked adds one from a folder, as Chrome's developer mode
+  does.  The menu lists the running extensions' buttons, and =M-e= presses one for the page in
+  front: its popup hangs from the page's top right, or it is told it was clicked.  Manage
+  Extensions lists them, to press, open the options of (in a tab of their own),
   turn on and off, reload or remove.  Their tabs are the browser's pages, their questions are
   asked in the minibuffer, and they live in =lispm-browser-extensions-directory=.  Most of
   the module is ported from [[https://github.com/driceroland/Search][Search]], a WebKit browser for
