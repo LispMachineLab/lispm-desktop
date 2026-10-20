@@ -34,6 +34,8 @@
 (require 'lispm-desktop-sidebar)
 
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
+(declare-function lispm-desktop-term-ready-p "lispm-desktop-term" ())
+(declare-function eat "eat" (&optional program arg))
 (defvar explicit-shell-file-name)
 
 (defconst lispm-desktop-shell-list-buffer-name "*Shells*"
@@ -41,8 +43,7 @@
 
 (defun lispm-desktop-shell--buffer-p (buffer)
   "Return non-nil when BUFFER is a live shell terminal, not an agent's."
-  (and (buffer-live-p buffer)
-       (memq (buffer-local-value 'major-mode buffer) '(eat-mode lispm-desktop-term-mode))
+  (and (lispm-desktop-terminal-p buffer)
        (not (lispm-desktop-agent-buffer-p buffer))
        (lispm-desktop-agent-running-p buffer)))
 
@@ -58,6 +59,14 @@ The shell is the user's, run as an independent process in a terminal, see
     (lispm-desktop-sidebar-show-in-main
      (lispm-desktop-terminal-make (lispm-desktop-agent-fresh-name 'shell directory) program "-l")))
   (lispm-desktop-shell-list-refresh))
+
+(defun lispm-desktop-eat-new ()
+  "Start a new shell: in lispm-desktop-term once built, see
+`lispm-desktop-shell-new', else in Eat."
+  (interactive)
+  (if (lispm-desktop-term-ready-p)
+      (lispm-desktop-shell-new)
+    (eat nil '(4))))
 
 (defun lispm-desktop-shell-list--render ()
   "Render the running shells into the current buffer."
@@ -113,7 +122,9 @@ The shell is the user's, run as an independent process in a terminal, see
   (lispm-desktop-sidebar-select 'shells))
 
 (defun lispm-desktop-setup-shells ()
-  "Keep the shells sidebar current as terminals exit."
+  "Bind \\`C-c t' to a new shell, and keep the shells sidebar current as
+terminals exit."
+  (keymap-global-set "C-c t" #'lispm-desktop-eat-new)
   (add-hook 'eat-exit-hook #'lispm-desktop-shell-list-refresh)
   (add-hook 'lispm-desktop-term-exit-functions #'lispm-desktop-shell-list-refresh))
 

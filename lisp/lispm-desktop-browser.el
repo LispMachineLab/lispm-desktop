@@ -1353,7 +1353,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 
 (defun lispm-desktop-setup-browser ()
   "Set lispm-browser up as the desktop's browser, drawn as Netscape's.
-Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
+Its pages take the desktop's keys, and \\`C-c x' prefixes its commands."
   (lispm-desktop-browser--adopt-old-files)
   (setq lispm-browser-window-function #'lispm-desktop-browser--window
         lispm-browser-tab-window-function #'lispm-desktop-platinum-main-window
@@ -1369,6 +1369,18 @@ Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
   (setq lispm-browser-extensions-anchor-function #'lispm-desktop-browser--extension-anchor)
   (add-hook 'lispm-browser-extensions-changed-hook #'lispm-desktop-browser--redraw-extensions)
   (add-hook 'lispm-browser-quit-hook #'lispm-desktop-browser--quit)
+  ;; After the workspace's own functions, which run first.
+  (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-browser--on-workspace-select 90)
+  (with-eval-after-load 'xwidget
+    (lispm-desktop-browser-bind-keys xwidget-webkit-mode-map)
+    ;; C-y pastes into the page, which the buffer's text is not, and
+    ;; Command-W closes the tab, as in the Finder's and Control Panels'
+    ;; windows; in the location field M-w copies, as in Emacs.
+    (keymap-set xwidget-webkit-mode-map "C-y" #'lispm-desktop-paste)
+    (keymap-set xwidget-webkit-mode-map "M-w" #'lispm-browser-close-shown-tab))
+  (keymap-global-set "C-c x b" #'lispm-browser-browse-url)
+  (keymap-global-set "C-c x s" #'lispm-browser-web-search)
+  (keymap-global-set "C-c x u" #'lispm-browser-open-url-at-point)
   (lispm-browser-setup 'none))
 
 (provide 'lispm-desktop-browser)

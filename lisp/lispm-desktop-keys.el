@@ -27,6 +27,8 @@
 
 ;;; Code:
 
+(require 'lispm-desktop-core)
+
 (defconst lispm-desktop-leader-bindings
   '(("e" . find-file)
     ("b" . consult-buffer)
@@ -43,7 +45,7 @@
     ("w" . lispm-desktop-workspaces-switch)
     ("5" . other-frame)
     ("g" . magit-status)
-    ("t" . eat)
+    ("t" . lispm-desktop-eat-new)
     ("ff" . consult-find)
     ("fr" . consult-ripgrep)
     ("T" . treemacs-add-and-display-current-project)
@@ -66,11 +68,7 @@
   (global-set-key (kbd "C-x C-b") 'consult-buffer)
   ;; C-x RET and C-x C-m are the same key sequence; bind it once.
   (global-set-key (kbd "C-x RET") #'toggle-frame-fullscreen)
-  (global-set-key (kbd "M-x") #'execute-extended-command)
-  ;; Command-C and Command-V, Command being Meta; C-w, M-w and C-y stay
-  ;; Emacs's own kill and yank, which share the system clipboard.
-  (global-set-key (kbd "M-c") #'lispm-desktop-copy-region)
-  (global-set-key (kbd "M-v") #'lispm-desktop-paste)
+  (lispm-desktop-bind-clipboard-keys global-map)
   ;; Into the sidebar and back: C-x o leaves side windows out.
   (global-set-key (kbd "C-c s") #'lispm-desktop-sidebar-focus)
   (lispm-desktop-setup-meta-key-issue))

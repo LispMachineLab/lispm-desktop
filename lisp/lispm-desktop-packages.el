@@ -170,9 +170,7 @@
                          evil-visual-state-map
                          evil-insert-state-map
                          evil-emacs-state-map))
-        (define-key map (kbd "M-x") #'execute-extended-command)
-        (define-key map (kbd "M-c") #'lispm-desktop-copy-region)
-        (define-key map (kbd "M-v") #'lispm-desktop-paste))))
+        (lispm-desktop-bind-clipboard-keys map))))
 
   (use-package yasnippet
     :init (yas-global-mode 1))

@@ -27,9 +27,18 @@
 
 ;;; Code:
 
+(defvar js-indent-level)
+(defvar c-basic-offset)
+(defvar c-indent-level)
+(defvar c-default-style)
+
 (defun lispm-desktop-setup-langs ()
   "Set up language environments."
   (add-hook 'before-save-hook #'delete-trailing-whitespace)
+  (setq js-indent-level 2
+        c-basic-offset 2
+        c-indent-level 4
+        c-default-style "bsd")
 
   (use-package treesit
     :ensure nil

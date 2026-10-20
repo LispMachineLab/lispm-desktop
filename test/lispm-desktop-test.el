@@ -3976,6 +3976,70 @@ not built."
       (accept-process-output nil 0.02)
       (lispm-desktop-term--tick))))
 
+(ert-deftest lispm-desktop-test-terminals-are-one-family ()
+  "A terminal is a live buffer of Eat or of lispm-desktop-term; what is laid
+out as one takes in agents' conversations too."
+  (let ((buffers (mapcar (lambda (mode)
+                           (with-current-buffer (generate-new-buffer " lispm-desktop-test terminal")
+                             (setq major-mode mode)
+                             (current-buffer)))
+                         '(eat-mode lispm-desktop-term-mode fundamental-mode))))
+    (unwind-protect
+        (progn
+          (should (equal (mapcar #'lispm-desktop-terminal-p buffers) '(t t nil)))
+          (with-current-buffer (car buffers)
+            (should (lispm-desktop-terminal-p)))
+          (should (lispm-desktop-terminal-buffer-p (nth 1 buffers)))
+          (with-current-buffer (nth 2 buffers)
+            (setq lispm-desktop-conversation-buffer t))
+          (should-not (lispm-desktop-terminal-p (nth 2 buffers)))
+          (should (lispm-desktop-terminal-buffer-p (nth 2 buffers))))
+      (mapc #'kill-buffer buffers))
+    (should-not (lispm-desktop-terminal-p (car buffers)))))
+
+(ert-deftest lispm-desktop-test-terminals-lay-out-alike ()
+  "Eat's terminals and lispm-desktop-term's are laid out by one function:
+lines unwrapped and left to right, no line highlight, output no edit, and
+symbols too wide for a cell shown as look-alikes."
+  (let ((emulation-mode-map-alists emulation-mode-map-alists))
+    (dolist (setup (list #'lispm-desktop-terminal-display #'lispm-desktop-term-mode))
+      (with-temp-buffer
+        (visual-line-mode 1)
+        (add-hook 'first-change-hook #'ignore nil t)
+        (funcall setup)
+        (should truncate-lines)
+        (should-not visual-line-mode)
+        (should-not bidi-display-reordering)
+        (should (eq bidi-paragraph-direction 'left-to-right))
+        (should bidi-inhibit-bpa)
+        (should (local-variable-p 'global-hl-line-mode))
+        (should-not first-change-hook)
+        (should (equal (aref buffer-display-table ?⏺) [?●]))))))
+
+(ert-deftest lispm-desktop-test-clipboard-keys-everywhere ()
+  "Command-C and Command-V copy and paste wherever they are bound, M-x
+stays Emacs's, and in a terminal M-w and C-y copy and paste too."
+  (let ((map (make-sparse-keymap)))
+    (lispm-desktop-bind-clipboard-keys map)
+    (should (eq (keymap-lookup map "M-c") #'lispm-desktop-copy-region))
+    (should (eq (keymap-lookup map "M-v") #'lispm-desktop-paste))
+    (should (eq (keymap-lookup map "M-x") #'execute-extended-command))
+    (should-not (keymap-lookup map "C-y")))
+  (dolist (map (list lispm-desktop-eat-keys-mode-map lispm-desktop-term-keys-mode-map))
+    (pcase-dolist (`(,key . ,command) '(("M-c" . lispm-desktop-copy-region)
+                                        ("M-v" . lispm-desktop-paste)
+                                        ("M-w" . lispm-desktop-copy-region)
+                                        ("C-y" . lispm-desktop-paste)
+                                        ("M-x" . execute-extended-command)))
+      (should (eq (keymap-lookup map key) command)))))
+
+(ert-deftest lispm-desktop-test-interface-sets-up-only-itself ()
+  "The interface's setup leaves the browser and the languages to their own
+setups."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "lisp/lispm-desktop-interface.el" lispm-desktop-directory))
+    (should-not (re-search-forward "lispm-\\(?:desktop-\\)?browser\\|c-basic-offset\\|js-indent-level" nil t))))
+
 (ert-deftest lispm-desktop-test-term-draws-colours-and-input ()
   "A terminal draws its program's text with the cells' colours, takes what
 is typed, keeps its last screen when the program exits, and reports the

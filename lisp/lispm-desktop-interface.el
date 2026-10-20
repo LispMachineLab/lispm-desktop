@@ -83,7 +83,7 @@ session column from the moment it is created.")
 That is an Eat terminal, or an agent conversation, see
 `lispm-desktop-conversation-buffer' and `lispm-desktop-conversation-modes'."
   (let ((mode (buffer-local-value 'major-mode buffer)))
-    (or (memq mode '(eat-mode lispm-desktop-term-mode))
+    (or (lispm-desktop-terminal-p buffer)
         (buffer-local-value 'lispm-desktop-conversation-buffer buffer)
         (and lispm-desktop-conversation-modes
              (apply #'provided-mode-derived-p mode lispm-desktop-conversation-modes)))))
@@ -206,8 +206,6 @@ Without `tabspaces-mode' nothing happens."
         (tabspaces--remember-project-tab directory name))
       fresh)))
 
-(declare-function lispm-desktop-shell-new "lispm-desktop-shells" (&optional directory))
-
 (defun lispm-desktop-workspace-show-alone (buffer)
   "Show BUFFER as the only buffer of the workspace just created.
 A new tab starts with the previous workspace's buffer on display; replacing
@@ -253,12 +251,6 @@ second bar inside the frame, above the Platinum menu bar."
     (when (and (display-graphic-p frame) (not (eq (framep frame) 'ns)))
       (set-frame-parameter frame 'menu-bar-lines 0))))
 
-(defconst lispm-desktop-terminal-font-family "Maple Mono NF CN"
-  "Monospace family whose glyphs all occupy whole terminal cells.
-A CJK ideograph is exactly two Latin cells wide, and box drawing, block
-elements and most terminal UI symbols are covered at one cell, so columns
-that a terminal program lays out stay aligned.")
-
 (defconst lispm-desktop-cjk-font-families (list lispm-desktop-terminal-font-family "PingFang SC")
   "Font families for CJK scripts, in order of preference.
 Without a pinned family Emacs searches fallback fonts for each CJK glyph,
@@ -288,18 +280,6 @@ fall back to Arial Unicode MS, whose glyphs are wider and taller than a
     (setf (alist-get (car rescale) face-font-rescale-alist nil nil #'equal)
           (cdr rescale))))
 
-(defconst lispm-desktop-terminal-glyph-substitutions '((?⏺ . ?●) (?✢ . ?✶))
-  "Display substitutions for symbols no monospace font draws at one cell.
-Each pair maps a character a terminal program emits to the look-alike
-shown in its place; the buffer text is unchanged.")
-
-(defun lispm-desktop-terminal-display-table ()
-  "Return a display table applying `lispm-desktop-terminal-glyph-substitutions'."
-  (let ((table (make-display-table)))
-    (pcase-dolist (`(,from . ,to) lispm-desktop-terminal-glyph-substitutions)
-      (aset table from (vector to)))
-    table))
-
 (defun lispm-desktop-eat-mark-unmodified (&rest _)
   "Mark the current Eat buffer unmodified after terminal output.
 A terminal has no file to save, so its modified flag carries no meaning; left
@@ -307,28 +287,23 @@ set, it makes tab bars show an unsaved marker in place of the close button.
 `restore-buffer-modified-p' avoids forcing a mode line update per output."
   (restore-buffer-modified-p nil))
 
-(defun lispm-desktop-eat-terminal-display ()
-  "Configure an Eat buffer's display for terminal output.
-The terminal already wraps lines to its width, so Emacs-side visual line
-wrapping only adds work; terminal text is left-to-right, so bidirectional
-reordering is turned off; and a full-screen program redraws every line, so
-highlighting the current line only adds an overlay update per redraw.
-Terminal output is not an edit: `first-change-hook' is emptied locally, so
-output never runs edit-tracking hooks such as tab bars recomputing their
-modified markers, which `lispm-desktop-eat-mark-unmodified' would otherwise
-re-arm on every update.  Text is drawn in `lispm-desktop-terminal-font-family'
-so every glyph fills whole cells and split-pane dividers drawn with box
-characters stay straight."
-  (visual-line-mode -1)
-  (when (member lispm-desktop-terminal-font-family (font-family-list))
-    (face-remap-add-relative 'default :family lispm-desktop-terminal-font-family))
-  (setq-local buffer-display-table (lispm-desktop-terminal-display-table))
-  (setq-local first-change-hook nil)
-  (setq-local truncate-lines t
-              bidi-display-reordering nil
-              bidi-paragraph-direction 'left-to-right
-              bidi-inhibit-bpa t
-              global-hl-line-mode nil))
+(defun lispm-desktop-ansi-apply-faces (&rest _)
+  "Keep the two black ANSI colours legible on the active theme.
+Dracula draws ANSI black in the editor background and bright black in
+pure black, so terminal programs' grey text (Codex streams its status
+and reasoning in bright black) vanished until selected.  Bright black
+takes the theme's own dimmed text colour, and black a shade below the
+background, as in Dracula's terminal palette.  Every terminal and
+compilation buffer reads these faces.  A light theme is left alone: on
+white, black is legible as it is.  Colours come only from faces this
+function never sets, so re-running it is idempotent."
+  (require 'ansi-color)
+  (when-let* ((background (face-background 'default nil t))
+              (dark (< (apply #'+ (or (lispm-desktop-platinum-rgb background) '(1 1 1))) 1.5))
+              (dim (face-foreground 'shadow nil t))
+              (black (lispm-desktop-platinum-blend background "#000000" 0.2)))
+    (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
+    (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
 
 (defun lispm-desktop-setup-interface ()
   "Set up interface."
@@ -354,21 +329,9 @@ characters stay straight."
                '(lispm-desktop-sidebar-view-buffer-p lispm-desktop-sidebar-display-view))
   (setq switch-to-buffer-obey-display-actions t
         switch-to-buffer-in-dedicated-window 'pop)
-  (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-browser--on-workspace-select)
-  (with-eval-after-load 'xwidget
-    (lispm-desktop-browser-bind-keys xwidget-webkit-mode-map)
-    ;; C-y pastes into the page, which the buffer's text is not, and
-    ;; Command-W closes the tab, as in the Finder's and Control Panels'
-    ;; windows; in the location field M-w copies, as in Emacs.
-    (keymap-set xwidget-webkit-mode-map "C-y" #'lispm-desktop-paste)
-    (keymap-set xwidget-webkit-mode-map "M-w" #'lispm-browser-close-shown-tab))
   ;; Emacs opens on the desktop, as Mac OS did: no splash screen.
   (setq inhibit-startup-screen t
         ring-bell-function 'ignore
-        js-indent-level 2
-        c-basic-offset 2
-        c-indent-level 4
-        c-default-style "bsd"
         doc-view-continuous t)
   (set-face-attribute 'mode-line nil :height 120)
   (when (fboundp 'menu-bar-mode)
@@ -439,17 +402,9 @@ characters stay straight."
     (dirvish-override-dired-mode 1)
     (dirvish-side-follow-mode 1))
 
-  (defun lispm-desktop-eat-new ()
-    "Start a new shell: in lispm-desktop-term once built, else in Eat."
-    (interactive)
-    (if (and (fboundp 'lispm-desktop-term-ready-p) (lispm-desktop-term-ready-p))
-        (lispm-desktop-shell-new)
-      (eat nil '(4))))
-
   (use-package eat
     :commands (eat eat-project)
-    :bind (("C-c t" . lispm-desktop-eat-new)
-           ("C-c T" . eat-project))
+    :bind ("C-c T" . eat-project)
     :init
     (setq eat-enable-auto-line-mode nil
           eat-very-visible-cursor-type '(box nil nil)
@@ -464,16 +419,12 @@ characters stay straight."
     :config
     (advice-add 'eat-exec :filter-args #'lispm-desktop-eat-wrap-command-with-stty)
     (add-hook 'eat-update-hook #'lispm-desktop-eat-mark-unmodified)
-    :hook ((eat-mode . lispm-desktop-eat-terminal-display)
+    :hook ((eat-mode . lispm-desktop-terminal-display)
            (eat-mode . lispm-desktop-eat-terminal-keys)
            (eshell-load . eat-eshell-mode)
            (eshell-load . eat-eshell-visual-command-mode)))
 
   (use-package nerd-icons)
-
-  (global-set-key (kbd "C-c x b") #'lispm-browser-browse-url)
-  (global-set-key (kbd "C-c x s") #'lispm-browser-web-search)
-  (global-set-key (kbd "C-c x u") #'lispm-browser-open-url-at-point)
 
   (use-package tramp
     :ensure nil
