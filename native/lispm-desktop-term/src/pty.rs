@@ -1,7 +1,7 @@
 // A pseudoterminal for alacritty's event loop that leaves signals alone.
 //
 // Copyright (C) 2026  Ryan.K
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // alacritty_terminal's own PTY learns of its child's exit through a SIGCHLD
 // handler, and so does Emacs, each handler calling the one installed before

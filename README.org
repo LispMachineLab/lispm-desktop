@@ -508,4 +508,4 @@ LispM Browser: a checkout beside this one, or another named by =LISPM_BROWSER= (
 
 * License
 
-GPL-3.0-or-later.  See [[file:LICENSE][LICENSE]].
+AGPL-3.0-or-later.  See [[file:LICENSE][LICENSE]].

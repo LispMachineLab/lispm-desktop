@@ -1,7 +1,7 @@
 // Program status (OSC 7501): what a terminal's programs say they are doing.
 //
 // Copyright (C) 2026  Ryan.K
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // A program reports its state to its terminal, which keeps one record per
 // id, see https://superlogical.com/rex/docs/build/program-status:

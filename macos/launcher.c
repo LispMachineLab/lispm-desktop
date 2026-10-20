@@ -1,7 +1,7 @@
 /* launcher.c --- LispM.app's executable
 
    Copyright (C) 2026  Ryan.K
-   SPDX-License-Identifier: GPL-3.0-or-later
+   SPDX-License-Identifier: AGPL-3.0-or-later
 
    LispM.app is GNU Emacs under LispM's name and icon.  Its executable is
    this program, which runs the Emacs beside it, in Contents/MacOS, with a
