@@ -89,6 +89,7 @@
 (require 'package)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 
@@ -162,6 +163,9 @@ for; a category holding nothing is left out.")
 
 (defvar-local lispm-desktop-store--status-text nil
   "What the App Store is doing, for its placard, or nil.")
+
+(defvar-local lispm-desktop-store--pressed nil
+  "The item whose button the mouse holds pushed in, or nil.")
 
 (defvar-local lispm-desktop-store--width nil
   "The width in pixels the window was drawn for.")
@@ -1102,7 +1106,7 @@ ID), the button of the item ID, (item . ID), or nil."
           (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box
                                        (+ gx (* column tw)) tw
                                        (car (lispm-desktop-store--action (car item) (cdr item))))))
-            (if (and (>= x bx) (< x (+ bx bw)) (>= y by) (< y (+ by lispm-desktop-platinum-button-height)))
+            (if (lispm-desktop-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y)
                 (cons 'button (car item))
               (cons 'item (car item))))))))))
 
@@ -1161,14 +1165,15 @@ up by the lines above, so that together they show it once."
 
 (defun lispm-desktop-store--tile (item)
   "Return what the grid draws of ITEM, (ID . PROPERTIES), as a plist: its
-:icon, :name, :subtitle, its button's :label and whether it is :enabled,
-and whether it is :selected."
+:icon, :name, :subtitle, its button's :label, whether it is :enabled and
+:pressed, and whether it is :selected."
   (pcase-let* ((`(,id . ,props) item)
                (`(,label . ,action) (lispm-desktop-store--action id props)))
     (list :id id :icon (lispm-desktop-store--icon props t) :name (plist-get props :name)
           :subtitle (or (plist-get props :subtitle)
                         (lispm-desktop-store--category-name (lispm-desktop-store--category-of props)))
           :label label :enabled (and action t)
+          :pressed (eq id lispm-desktop-store--pressed)
           :selected (eq id lispm-desktop-store--selected))))
 
 (defun lispm-desktop-store--draw-tile (svg palette tile x width)
@@ -1203,7 +1208,8 @@ when selected, its subtitle and its button."
                                               (lispm-desktop-platinum-grey palette #x66) small)))
     (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box x width (plist-get tile :label))))
       (lispm-desktop-platinum--draw-push-button svg bx by palette (plist-get tile :label) bw
-                                                :state (unless (plist-get tile :enabled) 'disabled)))))
+                                                :state (cond ((not (plist-get tile :enabled)) 'disabled)
+                                                             ((plist-get tile :pressed) 'pressed))))))
 
 (defun lispm-desktop-store--draw-line (palette width line categories current tiles empty)
   "Return an SVG of the grid's LINE, WIDTH pixels wide, in PALETTE: its
@@ -1669,6 +1675,26 @@ the item clicked, or press the button clicked."
     (`(button . ,id) (lispm-desktop-store--select id)
      (lispm-desktop-store-act id))))
 
+(defun lispm-desktop-store--grid-press (event)
+  "Hold the button of an item pressed with the mouse EVENT pushed in while
+the mouse stays over it, and press it when the mouse button rises there,
+as Mac OS 9's buttons were pressed.  A press elsewhere on the grid waits
+for its click."
+  (interactive "e")
+  (pcase (lispm-desktop-store--grid-event event)
+    ((and `(button . ,id) target)
+     (let ((buffer (window-buffer (posn-window (event-start event)))))
+       (lispm-desktop-store--select id)
+       (when (lispm-desktop-modal-hold
+              (lambda (moved) (and (windowp (posn-window (event-start moved)))
+                                   (equal (lispm-desktop-store--grid-event moved) target)))
+              (lambda (in)
+                (with-current-buffer buffer
+                  (setq lispm-desktop-store--pressed (and in id))
+                  (lispm-desktop-store--render))
+                (redisplay t)))
+         (lispm-desktop-store-act id))))))
+
 (defun lispm-desktop-store--grid-double-click (event)
   "Press the button of the item EVENT clicked twice."
   (interactive "e")
@@ -1683,6 +1709,7 @@ hides it, as Return does, rather than pressing the item's button."
 
 (defvar-keymap lispm-desktop-store-grid-map
   :doc "Keymap of the App Store's grid, for the mouse."
+  "<down-mouse-1>" #'lispm-desktop-store--grid-press
   "<mouse-1>" #'lispm-desktop-store--grid-click
   "<double-mouse-1>" #'lispm-desktop-store--grid-double-click)
 

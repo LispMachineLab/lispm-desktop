@@ -61,6 +61,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-modal)
 
 (declare-function lispm-desktop-tab-bar--blend "lispm-desktop-interface" (from to ratio))
 (declare-function lispm-desktop-tab-bar--rgb "lispm-desktop-interface" (color))
@@ -1620,7 +1621,7 @@ blinks.  Return non-nil when the button was pressed."
     (lispm-desktop-platinum--swap-image position pressed)
     (redisplay t)
     (prog1 (if (not (mouse-event-p last-input-event))
-               (progn (sit-for 0.1) t)
+               (progn (sit-for (alist-get 'button lispm-desktop-modal-flashes)) t)
              (let ((release (let ((echo-keystrokes 0)) (read-event))))
                (and (mouse-event-p release)
                     (eq (posn-window (event-end release)) (posn-window (event-start last-input-event)))
@@ -3598,9 +3599,7 @@ Other keys and the window system's own events change nothing."
 (defun lispm-desktop-platinum--moved-p (delta)
   "Return non-nil when DELTA, as `lispm-desktop-platinum--track' returns it,
 is a move rather than a hand's jitter in a click."
-  (and delta
-       (> (max (abs (car delta)) (abs (cdr delta)))
-          (if (numberp double-click-fuzz) double-click-fuzz 3))))
+  (lispm-desktop-modal-moved-p delta))
 
 (defconst lispm-desktop-platinum-window-min-size '(200 . 100)
   "The least a window grows to: (WIDTH . HEIGHT) of its text, in pixels.")

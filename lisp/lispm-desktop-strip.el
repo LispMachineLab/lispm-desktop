@@ -67,6 +67,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-settings)
 
@@ -390,7 +391,7 @@ one with Option, Alt or Super moves it too, where a key gives those."
                     line-spacing 0
                     buffer-read-only t)
         ;; Its frame keeps the strip's size as the font changes.
-        (lispm-desktop-popup--hold-size)
+        (lispm-desktop-popup-hold-size)
         ;; The line is as tall as the strip's images, whatever the font.
         (face-remap-add-relative 'default :height 10)
         (current-buffer))))
@@ -457,7 +458,7 @@ above the bottom: (X . Y), kept within the bounds."
     (let ((color (lispm-desktop-platinum--color :strip)))
       (unless (equal (frame-parameter lispm-desktop-strip--frame 'background-color) color)
         (set-frame-parameter lispm-desktop-strip--frame 'background-color color)))
-    (lispm-desktop-popup--size lispm-desktop-strip--frame (lispm-desktop-strip--width)
+    (lispm-desktop-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
                                lispm-desktop-platinum-strip-height)
     (lispm-desktop-strip--place)))
 
@@ -595,7 +596,7 @@ drag collapses the strip."
     (track-mouse
       (while (mouse-movement-p (let ((echo-keystrokes 0)) (read-event)))
         (let ((dx (* away (- (car (mouse-absolute-pixel-position)) start))))
-          (when (> (abs dx) 3) (setq moved t))
+          (when (lispm-desktop-modal-moved-p (cons dx 0)) (setq moved t))
           (let ((shown (max 1 (min count (+ from (round dx step))))))
             (unless (= shown (lispm-desktop-strip--shown count))
               (setq lispm-desktop-strip-width shown)
@@ -746,19 +747,20 @@ leaves the strip and does what it does."
             (catch 'done
               (while t
                 (lispm-desktop-strip--focus-on (nth index modules))
-                (let ((event (lispm-desktop-popup--read)))
-                  (cond ((lispm-desktop-popup--cancel-p event) (throw 'done nil))
-                        ((memq event '(right ?\C-f))
-                         (setq index (mod (1+ index) (length modules))))
-                        ((memq event '(left ?\C-b))
-                         (setq index (mod (1- index) (length modules))))
-                        ((memq event '(up ?\C-p)) (lispm-desktop-strip--nudge lispm-desktop-strip-step))
-                        ((memq event '(down ?\C-n)) (lispm-desktop-strip--nudge (- lispm-desktop-strip-step)))
+                (let* ((event (lispm-desktop-modal-read))
+                       (role (lispm-desktop-modal-role event)))
+                  (cond ((eq role 'cancel) (throw 'done nil))
+                        ((memq role '(right next))
+                         (setq index (lispm-desktop-modal-cycle index 1 (length modules))))
+                        ((memq role '(left previous))
+                         (setq index (lispm-desktop-modal-cycle index -1 (length modules))))
+                        ((eq role 'up) (lispm-desktop-strip--nudge lispm-desktop-strip-step))
+                        ((eq role 'down) (lispm-desktop-strip--nudge (- lispm-desktop-strip-step)))
                         ((eq event ?\C-a)
                          (lispm-desktop-strip--move-to 'left lispm-desktop-strip-raised))
                         ((eq event ?\C-e)
                          (lispm-desktop-strip--move-to 'right lispm-desktop-strip-raised))
-                        ((or (lispm-desktop-popup--confirm-p event) (eq event ?\s))
+                        ((memq role '(confirm press))
                          (pcase-let ((`(,chosen . ,at) (lispm-desktop-strip--walk modules index)))
                            (setq index at)
                            (when chosen (throw 'done nil))))
