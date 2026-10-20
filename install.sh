@@ -11,8 +11,8 @@
 #
 #   1. installs Apple's command line tools, when they are missing (git,
 #      and the compiler Emacs turns its packages into machine code with);
-#   2. checks out lispm-desktop, lispm-agent and lispm-browser side by side
-#      in ~/.lispm, or updates them;
+#   2. checks out the latest release of lispm-desktop, lispm-agent and
+#      lispm-browser side by side in ~/.lispm, or updates them to it;
 #   3. downloads GNU Emacs, as built, signed and notarized by
 #      https://github.com/jimeh/emacs-builds, checks it, and makes
 #      LispM.app of it in /Applications (else ~/Applications);
@@ -127,19 +127,46 @@ settle_places() {
   fi
 }
 
-# Check out the repository NAME in LISPM_HOME, or update the checkout
-# there, unless it is on no branch or has changes of its own.
+# Print the tag of the latest release of the repository NAME, as v0.2.0,
+# or nothing before its first.  A release is a tag vX.Y.Z of its main
+# branch; Software Update follows them too.
+latest_release() {
+  git ls-remote --tags --refs --sort=-v:refname "$REPOSITORIES/$1.git" 'v*' |
+    sed -n 's|.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' |
+    head -n 1
+}
+
+# Check out the latest release of the repository NAME in LISPM_HOME, on
+# main, or move the checkout there on to it, unless it holds the release
+# or newer commits already, is on no branch, or has changes of its own.
+# Before the first release, main is checked out, and followed.
 fetch_project() {
   dir=$LISPM_HOME/$1
+  release=$(latest_release "$1")
   if [ -d "$dir/.git" ]; then
-    if git -C "$dir" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
+    if ! git -C "$dir" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
+      :
+    elif [ -z "$release" ]; then
       git -C "$dir" pull -q --ff-only ||
+        note "$1 has changes of its own, so it was left as it is"
+    else
+      git -C "$dir" fetch -q --tags &&
+        { git -C "$dir" merge-base --is-ancestor "$release" HEAD ||
+            git -C "$dir" merge -q --ff-only "$release" 2>/dev/null; } ||
         note "$1 has changes of its own, so it was left as it is"
     fi
   elif [ -e "$dir" ]; then
     fail "$dir is in the way: move it, then run this again"
-  else
+  elif [ -z "$release" ]; then
     git clone -q --depth 1 "$REPOSITORIES/$1.git" "$dir"
+  else
+    # The release, as main following origin's main, as Software Update
+    # needs it; the commits since are fetched down to the release only.
+    git clone -q --depth 1 --branch "$release" "$REPOSITORIES/$1.git" "$dir" 2>/dev/null
+    git -C "$dir" remote set-branches origin main
+    git -C "$dir" fetch -q origin
+    git -C "$dir" checkout -q -B main
+    git -C "$dir" branch -q --set-upstream-to=origin/main main
   fi
 }
 
