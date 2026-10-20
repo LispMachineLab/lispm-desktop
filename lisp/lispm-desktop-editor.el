@@ -65,7 +65,7 @@
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" ())
 (declare-function lispm-desktop-buffer-manager "lispm-desktop-buffer-manager" ())
-(declare-function lispm-desktop-popup--keyboard-p "lispm-desktop-popup" (keys))
+(declare-function lispm-desktop-popup-keyboard-p "lispm-desktop-popup" (keys))
 (declare-function tabspaces--current-tab-name "tabspaces" ())
 (declare-function tabspaces-local-buffer-list "tabspaces" (&optional frame tabnum))
 (declare-function tabspaces--set-buffer-predicate "tabspaces" (frame))
@@ -604,7 +604,7 @@ rolled a window up into its title bar."
 
 (defun lispm-desktop-editor--key (command)
   "Return the keys of COMMAND typed on the keyboard, as a menu shows them."
-  (when-let* ((keys (seq-find #'lispm-desktop-popup--keyboard-p (where-is-internal command))))
+  (when-let* ((keys (seq-find #'lispm-desktop-popup-keyboard-p (where-is-internal command))))
     (key-description keys)))
 
 (defun lispm-desktop-editor--item (label command &rest properties)

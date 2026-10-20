@@ -390,7 +390,7 @@ one with Option, Alt or Super moves it too, where a key gives those."
                     line-spacing 0
                     buffer-read-only t)
         ;; Its frame keeps the strip's size as the font changes.
-        (lispm-desktop-popup--hold-size)
+        (lispm-desktop-popup-hold-size)
         ;; The line is as tall as the strip's images, whatever the font.
         (face-remap-add-relative 'default :height 10)
         (current-buffer))))
@@ -457,7 +457,7 @@ above the bottom: (X . Y), kept within the bounds."
     (let ((color (lispm-desktop-platinum--color :strip)))
       (unless (equal (frame-parameter lispm-desktop-strip--frame 'background-color) color)
         (set-frame-parameter lispm-desktop-strip--frame 'background-color color)))
-    (lispm-desktop-popup--size lispm-desktop-strip--frame (lispm-desktop-strip--width)
+    (lispm-desktop-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
                                lispm-desktop-platinum-strip-height)
     (lispm-desktop-strip--place)))
 
@@ -746,8 +746,8 @@ leaves the strip and does what it does."
             (catch 'done
               (while t
                 (lispm-desktop-strip--focus-on (nth index modules))
-                (let ((event (lispm-desktop-popup--read)))
-                  (cond ((lispm-desktop-popup--cancel-p event) (throw 'done nil))
+                (let ((event (lispm-desktop-modal-read)))
+                  (cond ((lispm-desktop-modal-cancel-p event) (throw 'done nil))
                         ((memq event '(right ?\C-f))
                          (setq index (mod (1+ index) (length modules))))
                         ((memq event '(left ?\C-b))
@@ -758,7 +758,7 @@ leaves the strip and does what it does."
                          (lispm-desktop-strip--move-to 'left lispm-desktop-strip-raised))
                         ((eq event ?\C-e)
                          (lispm-desktop-strip--move-to 'right lispm-desktop-strip-raised))
-                        ((or (lispm-desktop-popup--confirm-p event) (eq event ?\s))
+                        ((or (lispm-desktop-modal-confirm-p event) (eq event ?\s))
                          (pcase-let ((`(,chosen . ,at) (lispm-desktop-strip--walk modules index)))
                            (setq index at)
                            (when chosen (throw 'done nil))))

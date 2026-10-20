@@ -56,7 +56,7 @@
 
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-desktop-popup--frame-xy "lispm-desktop-popup" (position))
+(declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 
 (defconst lispm-desktop-finder-buffer-name " *Finder*"
@@ -516,7 +516,7 @@ after it is selected."
   "Pop up the menu of the item right-clicked by EVENT, or of the folder."
   (interactive "e")
   (lispm-desktop-finder-mouse-select event)
-  (lispm-desktop-finder--menu (lispm-desktop-popup--frame-xy event)))
+  (lispm-desktop-finder--menu (lispm-desktop-popup-frame-xy event)))
 
 (defun lispm-desktop-finder--keyboard-menu ()
   "Pop up the menu of the item selected, under its name, or of the folder,
@@ -525,7 +525,7 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
     (let ((item (and lispm-desktop-finder--selected
                      (text-property-any (point-min) (point-max)
                                         'lispm-desktop-finder-item lispm-desktop-finder--selected))))
-      (lispm-desktop-finder--menu (lispm-desktop-popup--frame-xy (or item (window-start)))))))
+      (lispm-desktop-finder--menu (lispm-desktop-popup-frame-xy (or item (window-start)))))))
 
 (defun lispm-desktop-finder--menu (xy)
   "Pop up the menu of the item selected, or of the folder, at XY of the frame."

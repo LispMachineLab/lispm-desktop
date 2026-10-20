@@ -81,7 +81,7 @@
 (declare-function lispm-desktop-agent-list-refresh-on-status "lispm-desktop-agent-list" (buffer))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-desktop-popup--frame-xy "lispm-desktop-popup" (position))
+(declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (defvar tabspaces-default-tab)
 (defvar eat-terminal)
 (defvar embark-keymap-alist)
@@ -995,7 +995,7 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
          (session (with-current-buffer (window-buffer (posn-window posn))
                     (get-text-property (posn-point posn) 'lispm-desktop-agent-session))))
     (when session
-      (pcase-let ((`(,x . ,y) (lispm-desktop-popup--frame-xy event)))
+      (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
         (lispm-desktop-popup-menu
          (mapcar (lambda (entry)
                    (if (eq entry 'separator)

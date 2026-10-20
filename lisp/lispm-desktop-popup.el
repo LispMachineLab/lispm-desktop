@@ -52,6 +52,7 @@
 (require 'svg)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-modal)
 
 (declare-function lispm-desktop-tab-bar--blend "lispm-desktop-interface" (from to ratio))
 
@@ -61,7 +62,7 @@
   "Return non-nil when popups can be drawn: a graphical, interactive Emacs."
   (and (display-graphic-p) (not noninteractive) lispm-desktop-platinum--palette))
 
-(defun lispm-desktop-popup--frame (parent)
+(defun lispm-desktop-popup-make-frame (parent)
   "Return a hidden child frame of PARENT with a buffer of its own.
 It takes no focus, and hooks run for new frames do not see it."
   (let* ((buffer (generate-new-buffer " *lispm-desktop-popup*"))
@@ -90,14 +91,14 @@ It takes no focus, and hooks run for new frames do not see it."
                   auto-hscroll-mode nil
                   truncate-lines t
                   line-spacing 0)
-      (lispm-desktop-popup--hold-size))
+      (lispm-desktop-popup-hold-size))
     (let ((root (frame-root-window frame)))
       (set-window-buffer root buffer)
       (set-window-dedicated-p root t)
       (set-window-fringes root 0 0))
     frame))
 
-(defun lispm-desktop-popup--dispose (frame)
+(defun lispm-desktop-popup-dispose (frame)
   "Delete popup FRAME, its shadow and its buffer."
   (when (frame-live-p frame)
     (let ((buffer (window-buffer (frame-root-window frame)))
@@ -133,14 +134,14 @@ FRAME, so FRAME stands over it."
     (set-window-buffer (frame-root-window shadow) (get-buffer-create " *lispm-desktop-shadow*"))
     (with-current-buffer " *lispm-desktop-shadow*"
       (setq-local mode-line-format nil header-line-format nil tab-line-format nil cursor-type nil)
-      (lispm-desktop-popup--hold-size))
-    (lispm-desktop-popup--size shadow (frame-pixel-width frame) (frame-pixel-height frame))
+      (lispm-desktop-popup-hold-size))
+    (lispm-desktop-popup-set-size shadow (frame-pixel-width frame) (frame-pixel-height frame))
     (pcase-let ((`(,x . ,y) (frame-position frame)))
       (set-frame-position shadow (1+ x) (1+ y)))
     (set-frame-parameter frame 'lispm-desktop-popup-shadow shadow)
     (make-frame-visible shadow)))
 
-(defun lispm-desktop-popup--fill (frame text)
+(defun lispm-desktop-popup-fill (frame text)
   "Replace popup FRAME's text with TEXT, scrolled to its start."
   (let ((window (frame-root-window frame)))
     (with-current-buffer (window-buffer window)
@@ -151,10 +152,10 @@ FRAME, so FRAME stands over it."
     (set-window-point window 1)
     (set-window-hscroll window 0)))
 
-(defun lispm-desktop-popup--size (frame width height)
+(defun lispm-desktop-popup-set-size (frame width height)
   "Make popup FRAME's text area WIDTH by HEIGHT pixels.
 FRAME keeps that size while its buffer holds it, see
-`lispm-desktop-popup--hold-size'."
+`lispm-desktop-popup-hold-size'."
   (set-frame-parameter frame 'lispm-desktop-popup-size (cons width height))
   (let ((window-min-width 1)
         (window-safe-min-width 1)
@@ -164,30 +165,30 @@ FRAME keeps that size while its buffer holds it, see
     (set-frame-size frame width height t)))
 
 (defun lispm-desktop-popup--keep-size (window)
-  "Size WINDOW's frame again as `lispm-desktop-popup--size' last did, once
+  "Size WINDOW's frame again as `lispm-desktop-popup-set-size' last did, once
 Emacs has sized it anew.  This is a buffer-local
 `window-size-change-functions' function."
   (let* ((frame (window-frame window))
          (size (frame-parameter frame 'lispm-desktop-popup-size)))
     (when (and size (not (and (= (frame-text-width frame) (car size))
                               (= (frame-text-height frame) (cdr size)))))
-      (lispm-desktop-popup--size frame (car size) (cdr size)))))
+      (lispm-desktop-popup-set-size frame (car size) (cdr size)))))
 
-(defun lispm-desktop-popup--hold-size ()
+(defun lispm-desktop-popup-hold-size ()
   "Have the frame showing the current buffer hold the size
-`lispm-desktop-popup--size' gives it.
+`lispm-desktop-popup-set-size' gives it.
 As its font changes, with `set-face-attribute' or a theme, Emacs sizes a
 frame anew to whole lines and columns of the new font, and not below the
 four lines and ten columns `window-min-height' and `window-min-width'
 keep a window to.  The buffer asks its window for a line and a column
-instead, as `lispm-desktop-popup--size' does, and its frame is sized back
+instead, as `lispm-desktop-popup-set-size' does, and its frame is sized back
 once Emacs has sized it."
   (setq-local window-min-height 1
               window-min-width 1
               window-safe-min-width 1)
   (add-hook 'window-size-change-functions #'lispm-desktop-popup--keep-size nil t))
 
-(defun lispm-desktop-popup--show (frame x y &optional shadow)
+(defun lispm-desktop-popup-show (frame x y &optional shadow)
   "Show popup FRAME with its top left at X, Y of its parent, kept inside it.
 SHADOW, `menu' or `alert', casts its shadow, see `lispm-desktop-popup--shadow'."
   (let ((parent (frame-parent frame)))
@@ -199,40 +200,6 @@ SHADOW, `menu' or `alert', casts its shadow, see `lispm-desktop-popup--shadow'."
       (lispm-desktop-popup--shadow frame shadow))
     (make-frame-visible frame)
     (redisplay t)))
-
-(defun lispm-desktop-popup--read ()
-  "Read the next event, a quit included, without quitting.
-The click that opened the popup is not echoed as an unfinished key."
-  (let* ((inhibit-quit t)
-         (event (let ((echo-keystrokes 0)) (read-event))))
-    (when (eq event ?\C-g)
-      (setq quit-flag nil))
-    event))
-
-(defun lispm-desktop-popup--cancel-p (event)
-  "Return non-nil when EVENT cancels a popup: Escape, C-g, Command-period."
-  (memq event '(escape ?\e ?\C-g ?\M-.)))
-
-(defun lispm-desktop-popup--confirm-p (event)
-  "Return non-nil when EVENT chooses: Return or Enter."
-  (memq event '(return ?\r ?\n kp-enter)))
-
-(defun lispm-desktop-popup--press-p (event)
-  "Return non-nil when EVENT presses the first mouse button down."
-  (and (consp event) (eq (event-basic-type event) 'mouse-1)
-       (memq 'down (event-modifiers event))))
-
-(defun lispm-desktop-popup--release-p (event)
-  "Return non-nil when EVENT lets the first mouse button go."
-  (and (consp event) (eq (event-basic-type event) 'mouse-1)
-       (not (memq 'down (event-modifiers event)))))
-
-(defun lispm-desktop-popup--over (event frame)
-  "Return EVENT's position when it is over popup FRAME, else nil."
-  (let ((position (event-end event)))
-    (when (and (windowp (posn-window position))
-               (eq (window-frame (posn-window position)) frame))
-      position)))
 
 ;;;; Menus
 
@@ -333,7 +300,7 @@ lispm-desktop is used from an HHKB, which has keys for characters and
 these alone: arrows, function keys and the like are Fn chords there,
 or missing.")
 
-(defun lispm-desktop-popup--keyboard-p (keys)
+(defun lispm-desktop-popup-keyboard-p (keys)
   "Return non-nil when KEYS is typed on the keyboard alone, as a menu
 shows it beside an item: characters, with modifiers or not, and the keys of
 `lispm-desktop-popup-typed-keys'.  Mouse and menu bar events do not count, nor
@@ -354,7 +321,7 @@ submenu shows the triangle pointing to it."
       (plist-get item :key)
       (let ((action (plist-get item :action)))
         (when (and (symbolp action) (commandp action))
-          (when-let* ((keys (seq-find #'lispm-desktop-popup--keyboard-p (where-is-internal action))))
+          (when-let* ((keys (seq-find #'lispm-desktop-popup-keyboard-p (where-is-internal action))))
             (key-description keys))))))
 
 (defun lispm-desktop-popup--label-width (label)
@@ -460,12 +427,12 @@ variation colour, light on dark, its edges lit and shaded in it too."
 (defun lispm-desktop-popup-open-menu (items &optional x y align)
   "Show a menu of ITEMS placed by X, Y and ALIGN, see `lispm-desktop-popup-menu'.
 Return its frame; nothing is read from the user."
-  (let* ((popup (lispm-desktop-popup--frame (or lispm-desktop-popup-parent (selected-frame))))
+  (let* ((popup (lispm-desktop-popup-make-frame (or lispm-desktop-popup-parent (selected-frame))))
          (width (lispm-desktop-popup--menu-width items)))
-    (lispm-desktop-popup--fill popup (propertize " " 'display (lispm-desktop-popup--menu-image items width nil)))
-    (lispm-desktop-popup--size popup width (cdr (lispm-desktop-popup--rows items)))
+    (lispm-desktop-popup-fill popup (propertize " " 'display (lispm-desktop-popup--menu-image items width nil)))
+    (lispm-desktop-popup-set-size popup width (cdr (lispm-desktop-popup--rows items)))
     (pcase-let ((`(,mx . ,my) (or (and x y (cons x y)) (cdr (mouse-pixel-position)))))
-      (lispm-desktop-popup--show popup (if (eq align 'right) (- mx width) mx) my 'menu))
+      (lispm-desktop-popup-show popup (if (eq align 'right) (- mx width) mx) my 'menu))
     popup))
 
 (defun lispm-desktop-popup--submenu (item)
@@ -506,7 +473,7 @@ no room on its right, as Mac OS 9 turned a submenu at the screen's edge."
 
 (defun lispm-desktop-popup--draw-level (level)
   "Redraw menu LEVEL with its item under the mouse highlighted."
-  (lispm-desktop-popup--fill (plist-get level :frame)
+  (lispm-desktop-popup-fill (plist-get level :frame)
                              (propertize " " 'display
                                          (lispm-desktop-popup--menu-image (plist-get level :items)
                                                                           (plist-get level :width)
@@ -528,7 +495,7 @@ no room on its right, as Mac OS 9 turned a submenu at the screen's edge."
 (defun lispm-desktop-popup--level-index (event level)
   "Return the index of the enabled item of LEVEL under EVENT, or nil."
   (when-let* ((frame (plist-get level :frame))
-              (position (lispm-desktop-popup--over event frame))
+              (position (lispm-desktop-modal-over event frame))
               (xy (posn-x-y position)))
     (lispm-desktop-popup--index-at (plist-get level :items) (cdr xy))))
 
@@ -575,7 +542,7 @@ Nothing is run; nil means the menu was cancelled, or had no items."
             (push (lispm-desktop-popup--level items x y align) levels)
             (lispm-desktop-popup--menu-loop (lambda () levels) (lambda (new) (setq levels new))))
         (dolist (level levels)
-          (lispm-desktop-popup--dispose (plist-get level :frame)))))))
+          (lispm-desktop-popup-dispose (plist-get level :frame)))))))
 
 (defun lispm-desktop-popup--menu-loop (get set)
   "Read events for the open menu levels until one item is chosen; return it.
@@ -592,7 +559,7 @@ without entering it."
            ;; Close every level deeper than LEVEL.
            (let ((open (levels)))
              (while (and open (not (eq (car open) level)))
-               (lispm-desktop-popup--dispose (plist-get (car open) :frame))
+               (lispm-desktop-popup-dispose (plist-get (car open) :frame))
                (setq open (cdr open)))
              (funcall set open)))
          (highlight (level index)
@@ -623,7 +590,7 @@ without entering it."
              (setq focus inner)
              (highlight inner (lispm-desktop-popup--step (plist-get inner :items) nil 1))))
          (under (event)
-           (seq-find (lambda (level) (lispm-desktop-popup--over event (plist-get level :frame)))
+           (seq-find (lambda (level) (lispm-desktop-modal-over event (plist-get level :frame)))
                      (levels))))
       ;; A menu opened from the keyboard starts on its first item, so
       ;; Return chooses at once.
@@ -632,9 +599,9 @@ without entering it."
       (track-mouse
         (catch 'done
           (while t
-            (let ((event (lispm-desktop-popup--read)))
+            (let ((event (lispm-desktop-modal-read)))
               (cond
-               ((lispm-desktop-popup--cancel-p event) (throw 'done nil))
+               ((lispm-desktop-modal-cancel-p event) (throw 'done nil))
                ((memq event '(down ?\C-n))
                 (highlight focus (lispm-desktop-popup--step (plist-get focus :items)
                                                             (plist-get focus :highlight) 1)))
@@ -657,7 +624,7 @@ without entering it."
                 (when-let* ((index (lispm-desktop-popup--item-starting
                                     (plist-get focus :items) (plist-get focus :highlight) event)))
                   (highlight focus index)))
-               ((lispm-desktop-popup--confirm-p event)
+               ((lispm-desktop-modal-confirm-p event)
                 (let ((chosen (item focus)))
                   (cond ((null chosen))
                         ((lispm-desktop-popup--submenu chosen) (enter focus))
@@ -666,10 +633,10 @@ without entering it."
                 (when-let* ((level (under event)))
                   (setq focus level)
                   (highlight level (lispm-desktop-popup--level-index event level))))
-               ((lispm-desktop-popup--press-p event)
+               ((lispm-desktop-modal-mouse-down-p event)
                 (unless (under event)
                   (throw 'done nil)))
-               ((lispm-desktop-popup--release-p event)
+               ((lispm-desktop-modal-mouse-up-p event)
                 (when-let* ((level (under event))
                             (index (lispm-desktop-popup--level-index event level))
                             (chosen (nth index (plist-get level :items))))
@@ -781,7 +748,7 @@ left at either end."
       (when (eq (car cleaned) 'separator) (pop cleaned))
       (nreverse cleaned))))
 
-(defun lispm-desktop-popup--frame-xy (position)
+(defun lispm-desktop-popup-frame-xy (position)
   "Return POSITION as (X . Y) in its frame: an event, a posn, or nil (the mouse)."
   (let ((posn (cond ((posnp position) position)
                     ((eventp position) (event-start position))
@@ -802,7 +769,7 @@ left at either end."
 (defun lispm-desktop-popup-keymap-menu (keymap &optional position)
   "Pop up menu KEYMAP at POSITION as a Mac OS 9 menu and run what is chosen.
 POSITION is an event, a posn, a buffer position or nil for the mouse."
-  (pcase-let ((`(,x . ,y) (lispm-desktop-popup--frame-xy position)))
+  (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
     (lispm-desktop-popup-menu (lispm-desktop-popup-keymap-items keymap) (1+ x) (1+ y))))
 
 (defun lispm-desktop-popup--local-right-click-p (position)
@@ -910,7 +877,7 @@ measures a click or point."
      (let ((edges (window-body-pixel-edges window)))
        (cons (+ (car edges) x) (+ (nth 1 edges) y))))
     (`((,x ,y) ,(pred framep)) (cons x y))
-    (_ (lispm-desktop-popup--frame-xy position))))
+    (_ (lispm-desktop-popup-frame-xy position))))
 
 (defun lispm-desktop-popup--x-popup-menu (x-popup-menu position menu)
   "Draw MENU as a Mac OS 9 menu where `x-popup-menu' would draw a native one.
@@ -1050,7 +1017,7 @@ keyboard is on."
   "Show the alert of ICON, MESSAGE, DETAIL and BUTTONS in popup FRAME.
 PRESSED and FOCUSED are as `lispm-desktop-popup-draw-alert' takes them.
 The buttons' places are kept in FRAME's `lispm-desktop-popup-buttons'."
-  (lispm-desktop-popup--fill
+  (lispm-desktop-popup-fill
    frame (propertize " " 'display
                      (svg-image (lispm-desktop-popup-draw-alert lispm-desktop-platinum--palette icon message
                                                                 detail buttons pressed focused)
@@ -1060,7 +1027,7 @@ The buttons' places are kept in FRAME's `lispm-desktop-popup-buttons'."
 
 (defun lispm-desktop-popup--button-at (event frame)
   "Return the value of the alert button under EVENT in FRAME, or nil."
-  (when-let* ((position (lispm-desktop-popup--over event frame))
+  (when-let* ((position (lispm-desktop-modal-over event frame))
               (xy (posn-x-y position)))
     (pcase-let ((`(,x . ,y) xy))
       (seq-some (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
@@ -1075,11 +1042,11 @@ See `lispm-desktop-popup-alert'.  It sits over the upper middle of the
 selected frame, as Mac OS 9's alerts did, outlined and casting a black
 shadow.  Return its frame; nothing is read from the user."
   (let* ((parent (selected-frame))
-         (popup (lispm-desktop-popup--frame parent))
+         (popup (lispm-desktop-popup-make-frame parent))
          (layout (lispm-desktop-popup--alert-layout message detail buttons)))
     (lispm-desktop-popup--draw-alert popup icon message detail buttons nil nil)
-    (lispm-desktop-popup--size popup lispm-desktop-popup-alert-width (plist-get layout :height))
-    (lispm-desktop-popup--show popup (/ (- (frame-pixel-width parent) lispm-desktop-popup-alert-width) 2)
+    (lispm-desktop-popup-set-size popup lispm-desktop-popup-alert-width (plist-get layout :height))
+    (lispm-desktop-popup-show popup (/ (- (frame-pixel-width parent) lispm-desktop-popup-alert-width) 2)
                                (/ (frame-pixel-height parent) 5)
                                'alert)
     popup))
@@ -1112,7 +1079,7 @@ are events pressing a button too, as Command-D pressed Don't Save."
               (track-mouse
                 (catch 'done
                   (while t
-                    (let ((event (lispm-desktop-popup--read)))
+                    (let ((event (lispm-desktop-modal-read)))
                       (cond
                        ((seq-find (lambda (button) (memql event (nthcdr 3 button))) buttons)
                         (setq pressed (nth 1 (seq-find (lambda (button)
@@ -1120,10 +1087,10 @@ are events pressing a button too, as Command-D pressed Don't Save."
                                                        buttons)))
                         (redraw) (sit-for 0.12)
                         (setq choice pressed) (throw 'done nil))
-                       ((and (lispm-desktop-popup--cancel-p event) (or cancel default))
+                       ((and (lispm-desktop-modal-cancel-p event) (or cancel default))
                         ;; An alert with no Cancel, only OK, is dismissed.
                         (setq choice (or cancel default)) (throw 'done nil))
-                       ((and (lispm-desktop-popup--confirm-p event) default)
+                       ((and (lispm-desktop-modal-confirm-p event) default)
                         ;; The default button blinks as it is pressed.
                         (setq pressed default) (redraw) (sit-for 0.12)
                         (setq choice default) (throw 'done nil))
@@ -1135,18 +1102,18 @@ are events pressing a button too, as Command-D pressed Don't Save."
                         ;; Space presses the button the keyboard is on.
                         (setq pressed focused) (redraw) (sit-for 0.12)
                         (setq choice focused) (throw 'done nil))
-                       ((lispm-desktop-popup--press-p event)
+                       ((lispm-desktop-modal-mouse-down-p event)
                         (when (setq held (lispm-desktop-popup--button-at event popup))
                           (setq pressed held) (redraw)))
                        ((and held (mouse-movement-p event))
                         (let ((over (equal (lispm-desktop-popup--button-at event popup) held)))
                           (unless (eq over (and pressed t))
                             (setq pressed (and over held)) (redraw))))
-                       ((lispm-desktop-popup--release-p event)
+                       ((lispm-desktop-modal-mouse-up-p event)
                         (when (and held (equal (lispm-desktop-popup--button-at event popup) held))
                           (setq choice held) (throw 'done nil))
                         (setq held nil pressed nil) (redraw))))))))
-          (lispm-desktop-popup--dispose popup))
+          (lispm-desktop-popup-dispose popup))
         choice))))
 
 (defun lispm-desktop-popup--alert-fallback (message buttons detail cancel)

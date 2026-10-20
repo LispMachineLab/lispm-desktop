@@ -847,10 +847,10 @@ would land back on the icon's own cell."
   (interactive)
   (lispm-desktop--move-selected 0 -1))
 
-(declare-function lispm-desktop-popup--frame "lispm-desktop-popup" (parent))
-(declare-function lispm-desktop-popup--dispose "lispm-desktop-popup" (frame))
-(declare-function lispm-desktop-popup--fill "lispm-desktop-popup" (frame text))
-(declare-function lispm-desktop-popup--size "lispm-desktop-popup" (frame width height))
+(declare-function lispm-desktop-popup-make-frame "lispm-desktop-popup" (parent))
+(declare-function lispm-desktop-popup-dispose "lispm-desktop-popup" (frame))
+(declare-function lispm-desktop-popup-fill "lispm-desktop-popup" (frame text))
+(declare-function lispm-desktop-popup-set-size "lispm-desktop-popup" (frame width height))
 
 (defconst lispm-desktop-drag-opacity 0.5
   "How opaque the dragged copy of an icon is, as Mac OS 9's drag image was.")
@@ -864,15 +864,15 @@ piece of the desktop over the icons and windows it passes."
   (let ((parent (window-frame window))
         (svgs (lispm-desktop--copy-svgs key)))
     (cl-flet ((make (svg)
-                (let* ((frame (lispm-desktop-popup--frame parent))
+                (let* ((frame (lispm-desktop-popup-make-frame parent))
                        (image (create-image svg 'svg t :scale 1 :ascent 100
                                             :base-uri default-directory))
                        (size (image-size image t)))
                   (modify-frame-parameters frame `((child-frame-border-width . 0)
                                                    (background-color . ,(lispm-desktop--color))
                                                    (alpha . ,lispm-desktop-drag-opacity)))
-                  (lispm-desktop-popup--fill frame (propertize " " 'display image))
-                  (lispm-desktop-popup--size frame (car size) (cdr size))
+                  (lispm-desktop-popup-fill frame (propertize " " 'display image))
+                  (lispm-desktop-popup-set-size frame (car size) (cdr size))
                   frame)))
       (cons (make (car svgs)) (make (cdr svgs))))))
 
@@ -960,8 +960,8 @@ it was only selects."
                      (lambda () (lispm-desktop--pointer window))
                      press)
                   (when frames
-                    (lispm-desktop-popup--dispose (car frames))
-                    (lispm-desktop-popup--dispose (cdr frames))))))
+                    (lispm-desktop-popup-dispose (car frames))
+                    (lispm-desktop-popup-dispose (cdr frames))))))
     (when (and to (car result))
       (lispm-desktop--drop key (car to) (cdr to) window)
       (lispm-desktop--render window))
@@ -977,7 +977,7 @@ dragged about, this puts them back."
   (lispm-desktop--render))
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-desktop-popup--frame-xy "lispm-desktop-popup" (position))
+(declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 
 (defun lispm-desktop--arrange-items ()
   "Return the menu items arranging the desktop's icons."
@@ -1005,7 +1005,7 @@ the icon selected, then Arrange Icons and the desktop picture, as Mac OS
   "Pop up the desktop's menu where EVENT right-clicked, of the icon there."
   (interactive "e")
   (lispm-desktop-mouse-select event)
-  (let ((xy (lispm-desktop-popup--frame-xy event)))
+  (let ((xy (lispm-desktop-popup-frame-xy event)))
     (lispm-desktop--menu (car xy) (cdr xy))))
 
 (defun lispm-desktop--keyboard-menu ()

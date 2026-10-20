@@ -441,11 +441,11 @@ for the mouse, (press . TARGET) as a button is pressed and
              (cl-position (downcase event) choices :key (lambda (choice) (plist-get (cdr choice) :key))))
         (cons 'choose (cl-position (downcase event) choices
                                    :key (lambda (choice) (plist-get (cdr choice) :key)))))
-       ((or (lispm-desktop-popup--confirm-p event) (eq event ?\s)) 'confirm)
+       ((or (lispm-desktop-modal-confirm-p event) (eq event ?\s)) 'confirm)
        ((memq event '(tab ?\t ?\C-f ?\C-n right down)) '(focus . 1))
        ((memq event '(backtab S-tab S-iso-lefttab ?\C-b ?\C-p left up)) '(focus . -1))
        ((memq event '(?\d backspace)) (and (plist-get page :back) 'back))
-       ((lispm-desktop-popup--cancel-p event) 'later)
+       ((lispm-desktop-modal-cancel-p event) 'later)
        ((lispm-desktop-assistant--quit-p event) 'quit)
        ((eq (car-safe event) 'down-mouse-1) (cons 'press (target (event-start event))))
        ((memq (car-safe event) '(mouse-1 drag-mouse-1)) (cons 'click (target (event-end event))))))))
