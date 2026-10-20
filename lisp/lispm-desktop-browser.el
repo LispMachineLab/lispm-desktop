@@ -40,6 +40,7 @@
 (require 'lispm-browser-places)
 (require 'lispm-browser-extensions)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
 
 ;;;; Browser
 ;;
@@ -108,11 +109,6 @@
   "Non-nil when the browser opens floating over the desktop rather than full
 screen.  Its zoom box, and the View menu, switch it.")
 
-(defvar lispm-desktop-browser--geometry nil
-  "Where the floating browser was last: (LEFT TOP WIDTH HEIGHT) in pixels.")
-
-(defvar lispm-desktop-browser--shade nil
-  "While the floating browser is rolled up: its windows and text height.")
 
 (defvar lispm-desktop-browser--navigation nil
   "What the shown tab can do, as the last sync found it:
@@ -1012,7 +1008,6 @@ when the page has none."
 (declare-function lispm-desktop-editor-hide "lispm-desktop-editor" ())
 (declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
 (defvar lispm-desktop-activate-hook)
-(defvar lispm-desktop-editor--frame)
 
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
 
@@ -1030,7 +1025,9 @@ workspace; it opens again full screen or floating, as it was.  This is
 on `lispm-browser-quit-hook'."
   (when-let* ((address (get-buffer lispm-desktop-browser-address-buffer-name)))
     (kill-buffer address))
-  (lispm-desktop-activate)
+  ;; With the desktop hidden, the windows left out keep the screen.
+  (unless (lispm-desktop-apps-hidden-p)
+    (lispm-desktop-activate))
   (lispm-desktop-browser--close-workspace))
 
 ;;;;; Layout and synchronisation
@@ -1163,34 +1160,34 @@ no session of the workspace left comes along."
   "Return where the browser floats first: most of SCREEN, under its menu bar."
   (let* ((width (frame-inner-width screen))
          (height (frame-inner-height screen))
-         (top (+ (tab-bar-height screen t) 30))
+         (top (+ (lispm-desktop-app-window-menu-bar-height screen) 30))
          (left (round (* width 0.1))))
     (list left top (- width (* 2 left)) (- height top 50))))
 
+(defun lispm-desktop-browser--roll (_frame)
+  "Leave the floating browser, selected, its address window alone, and
+return that window's height, its title bar and toolbars: the browser
+rolls up to it.  Without the address window, return nil."
+  (when-let* ((address (lispm-desktop-browser--address-window)))
+    (let ((height (window-pixel-height address))
+          (ignore-window-parameters t))
+      (delete-other-windows address)
+      height)))
+
+(defun lispm-desktop-browser--hidden-by (app)
+  "Return non-nil when the floating browser hides from APP in front: the
+full-screen editor, whose workspace it would cover."
+  (and (eq app 'editor) (lispm-desktop-apps-full-screen-p app)))
+
+(lispm-desktop-app-window-define 'browser
+  :name "Browser" :geometry #'lispm-desktop-browser--default-geometry
+  :roll #'lispm-desktop-browser--roll :hidden-by #'lispm-desktop-browser--hidden-by)
+
 (defun lispm-desktop-browser--make-frame (screen)
-  "Return the floating browser's child frame of SCREEN, not yet shown."
-  (pcase-let* ((`(,left ,top ,width ,height)
-                (or lispm-desktop-browser--geometry (lispm-desktop-browser--default-geometry screen)))
-               (frame (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (with-current-buffer (lispm-desktop-empty-buffer)
-                          (make-frame
-                           `((parent-frame . ,screen)
-                             (minibuffer . ,(minibuffer-window screen))
-                             (name . "Browser") (lispm-desktop-browser . t) (lispm-desktop-app . browser)
-                             (lispm-desktop-window . t) (top-visible . 30)
-                             (undecorated . t) (visibility . nil)
-                             (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                             (menu-bar-lines . 0) (tool-bar-lines . 0)
-                             (internal-border-width . 0)
-                             (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                             (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                             (user-position . t)
-                             (left . ,left) (top . ,top)
-                             (width . (text-pixels . ,width))
-                             (height . (text-pixels . ,height))))))))
-    (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum--color :chrome))
-    frame))
+  "Return the floating browser's child frame of SCREEN, not yet shown, on the
+empty buffer until a page shows in it."
+  (with-current-buffer (lispm-desktop-empty-buffer)
+    (lispm-desktop-app-window-make-frame 'browser screen)))
 
 (defun lispm-desktop-browser--show-floating (&optional shown)
   "Show the browser floating over the desktop, SHOWN or its first tab in its
@@ -1222,8 +1219,8 @@ desktop show with it."
   (when (lispm-desktop-browser-floating-p)
     (let ((frame lispm-desktop-browser--frame))
       (lispm-desktop-browser--unshade)
-      (setq lispm-desktop-browser--geometry (lispm-desktop-apps--geometry frame)
-            lispm-desktop-browser--frame nil)
+      (lispm-desktop-app-window-release frame)
+      (setq lispm-desktop-browser--frame nil)
       (when (eq (selected-frame) frame)
         (lispm-desktop-apps-focus-after frame))
       (delete-frame frame))))
@@ -1267,55 +1264,15 @@ box does."
 
 (defun lispm-desktop-browser--unshade ()
   "Roll the floating browser down again, when it is rolled up."
-  (when lispm-desktop-browser--shade
-    (pcase-let ((`(,config . ,height) lispm-desktop-browser--shade))
-      (setq lispm-desktop-browser--shade nil)
-      (when (lispm-desktop-browser-floating-p)
-        (lispm-desktop-platinum-roll-down lispm-desktop-browser--frame height)
-        (with-selected-frame lispm-desktop-browser--frame
-          (set-window-configuration config))))))
+  (when (lispm-desktop-browser-floating-p)
+    (lispm-desktop-app-window-roll-down lispm-desktop-browser--frame)))
 
 (defun lispm-desktop-browser-shade ()
   "Roll the floating browser up to its title bar and toolbar, or down
 again, as Mac OS 9 rolled a window up into its title bar."
   (interactive)
   (when (lispm-desktop-browser-floating-p)
-    (if lispm-desktop-browser--shade
-        (lispm-desktop-browser--unshade)
-      (when-let* ((address (lispm-desktop-browser--address-window)))
-        (with-selected-frame lispm-desktop-browser--frame
-          (let ((height (window-pixel-height address))
-                (ignore-window-parameters t))
-            (setq lispm-desktop-browser--shade (cons (current-window-configuration)
-                                                     (frame-text-height lispm-desktop-browser--frame)))
-            (delete-other-windows address)
-            (lispm-desktop-platinum-roll-up lispm-desktop-browser--frame height)))))))
-
-(defun lispm-desktop-browser--follow-frontmost (app)
-  "Show the floating browser with the desktop, alongside the floating editor
-and the other applications; hide it from the full-screen editor, whose
-workspace it would cover.
-This is one of `lispm-desktop-apps-frontmost-functions'."
-  (when (and (lispm-desktop-browser-floating-p)
-             ;; Out on the computer's screen, it stays where it is.
-             (not (lispm-desktop-apps-out-p lispm-desktop-browser--frame)))
-    (let ((shown (not (and (eq app 'editor) (lispm-desktop-apps-full-screen-p app)))))
-      (cond ((and shown (not (frame-visible-p lispm-desktop-browser--frame)))
-             (lispm-desktop-platinum-show-window lispm-desktop-browser--frame)
-             ;; The editor in front stays over it.
-             (when (and (eq app 'editor) (frame-live-p (bound-and-true-p lispm-desktop-editor--frame)))
-               (lispm-desktop-platinum-raise-window lispm-desktop-editor--frame)))
-            ((and (not shown) (frame-visible-p lispm-desktop-browser--frame))
-             (lispm-desktop-platinum-hide-window lispm-desktop-browser--frame))))))
-
-(defun lispm-desktop-browser--refocus ()
-  "Give the floating browser the keyboard back after a menu bar menu closes.
-A click on the menu bar focuses the frame under it; the browser stays in
-front, so it takes the focus again."
-  (when (and (eq (lispm-desktop-apps-frontmost) 'browser) (lispm-desktop-browser-floating-p)
-             (frame-visible-p lispm-desktop-browser--frame)
-             (not (eq (selected-frame) lispm-desktop-browser--frame)))
-    (select-frame-set-input-focus lispm-desktop-browser--frame)))
+    (lispm-desktop-app-window-toggle-roll lispm-desktop-browser--frame)))
 
 (defun lispm-desktop-browser ()
   "Switch to the browser, or back to the previous workspace when its
