@@ -25,10 +25,10 @@
 
 ;; The desktop's Home icon opens a Finder window, as a disk opened in Mac
 ;; OS 9's Finder: a folder's items as large icons, floating over the
-;; desktop.  Its toolbar goes back and forward through the folders shown,
-;; up to the enclosing folder, and makes a new folder; its bottom edge
-;; counts the items and the room left.  A folder opens in the window; a
-;; file opens in the editor, which comes forward.
+;; desktop.  Its header, under the title bar, counts the items and the
+;; room left, and opens with a button going up to the enclosing folder,
+;; which it names; its title pops up the folder's whole path.  A folder
+;; opens in the window; a file opens in the editor, which comes forward.
 ;;
 ;; The window is the desktop's own, a child frame of the screen: it shows
 ;; while the desktop is in front, and over the floating editor, and steps
@@ -38,9 +38,10 @@
 ;;
 ;; Keys, as Finder's: the arrows or C-f, C-b, C-n and C-p select, Return
 ;; or Command-O opens, Command-Up or Delete goes to the enclosing folder,
-;; Command-[ and Command-] back and forward, Command-Shift-N makes a
-;; folder, Command-Delete moves the selected item to the Trash, Command-W
-;; closes the window, and typing a name's first letters selects it.
+;; Command-[ and Command-] back and forward, C-c u pops up the path,
+;; Command-Shift-N makes a folder, Command-Delete moves the selected item
+;; to the Trash, Command-W closes the window, and typing a name's first
+;; letters selects it.
 
 ;;; Code:
 
@@ -183,10 +184,50 @@ The virtual folders are `lispm-desktop-finder-folders'."
 
 (defun lispm-desktop-finder--header ()
   "Return the window's header: Mac OS 9's strip counting its items and the
-room left on the disk, under the title bar.  The window has no toolbar:
-back, forward and the enclosing folder are on their keys, the folder's
-path on its title's Command click, New Folder in the File menu."
-  (lispm-desktop-platinum-header-strip (lispm-desktop-finder--info)))
+room left on the disk, under the title bar, opened by the button going
+to the enclosing folder.  The window has no toolbar: back and forward
+are on their keys, the folder's path on its title's Command click and
+C-c u, New Folder in the File menu."
+  (let ((label (lispm-desktop-finder--up-label)))
+    (concat (lispm-desktop-finder--up-button label)
+            (lispm-desktop-platinum-header-strip (lispm-desktop-finder--info)
+                                                 (lispm-desktop-platinum-header-button-width label)))))
+
+(defconst lispm-desktop-finder--up-target '(header-line lispm-desktop-finder-up)
+  "What the button going to the enclosing folder is, while held down.")
+
+(defun lispm-desktop-finder--press-up (event)
+  "Hold the button EVENT pressed, going to the enclosing folder if let go on it."
+  (interactive "e")
+  (let ((start (event-start event)))
+    (lispm-desktop-platinum-press start (lispm-desktop-platinum--same-target-p start)
+                                  #'lispm-desktop-finder-up)))
+
+(defvar-keymap lispm-desktop-finder--up-button-map
+  :doc "Keymap of the button going to the enclosing folder."
+  "<header-line> <down-mouse-1>" #'lispm-desktop-finder--press-up
+  "<header-line> <mouse-1>" #'ignore)
+
+(defun lispm-desktop-finder--up-label ()
+  "Return what the button going to the enclosing folder reads: an arrow up
+and the folder's name, or the arrow alone at the top, where it is dimmed."
+  (if-let* ((parent (lispm-desktop-finder--parent lispm-desktop-finder--directory)))
+      (concat "▲ " (lispm-desktop-platinum--fit
+                    (propertize (lispm-desktop-finder--title parent) 'face 'lispm-desktop-platinum-small)
+                    160))
+    "▲"))
+
+(defun lispm-desktop-finder--up-button (label)
+  "Return the button reading LABEL that goes to the enclosing folder.
+It is pressed rather than clicked, see `lispm-desktop-platinum-press',
+and dimmed at the top, where there is no folder to go to."
+  (if (not (lispm-desktop-finder--parent lispm-desktop-finder--directory))
+      (lispm-desktop-platinum-header-button label 'disabled)
+    (propertize (lispm-desktop-platinum-header-button
+                 label (and (lispm-desktop-platinum--pressed-p lispm-desktop-finder--up-target) 'pressed))
+                'help-echo "Go to the enclosing folder (Delete)"
+                'lispm-desktop-platinum-target lispm-desktop-finder--up-target
+                'keymap lispm-desktop-finder--up-button-map)))
 
 (defun lispm-desktop-finder--info ()
   "Return what the window's header says: its items, and the room left on
