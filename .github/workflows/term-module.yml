@@ -1,0 +1,156 @@
+name: terminal module
+
+# The terminals' Rust module, built for the computers LispM runs on and,
+# from main, published where lispm-desktop-term.el downloads it when Cargo
+# is missing: the release term-module-VERSION, VERSION being what
+# `lispm-desktop-term-source-version' makes of the sources it is built
+# from.  A version is built and released once, then left as it is; its
+# release is never marked the latest, which stays LispM's own.
+on:
+  push:
+    branches: [main]
+    paths:
+      - native/lispm-desktop-term/**
+      - lisp/lispm-desktop-term.el
+      - .github/workflows/term-module.yml
+  pull_request:
+    paths:
+      - native/lispm-desktop-term/**
+      - lisp/lispm-desktop-term.el
+      - .github/workflows/term-module.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.version.outputs.published }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: purcell/setup-emacs@v8.0
+        with:
+          version: '31.1'
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(emacs -Q --batch -L lisp -l lispm-desktop-term --eval '(princ (lispm-desktop-term-source-version))')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "term-module-$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "term-module-$version is published already"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: ${{ matrix.target }}
+    needs: version
+    # A change of the Lisp alone leaves the version, and its release, as
+    # they are; a pull request builds all the same, to check the build.
+    if: github.event_name == 'pull_request' || needs.version.outputs.published == 'false'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            extension: dylib
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            extension: dylib
+          # The oldest glibc of the runners: its library loads with any
+          # newer one.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            extension: so
+    env:
+      # The macOS LispM's installer and Emacs's builds support.
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      ASSET: liblispm_desktop_term-${{ matrix.target }}.${{ matrix.extension }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test
+        run: make native-test
+      - name: Build
+        working-directory: native/lispm-desktop-term
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Name it by its target
+        run: |
+          mkdir dist
+          cp "native/lispm-desktop-term/target/${{ matrix.target }}/release/liblispm_desktop_term.${{ matrix.extension }}" "dist/$ASSET"
+          file "dist/$ASSET"
+      # It loads here, the libraries it needs found, and has an Emacs
+      # module's entry points.
+      - name: Check it loads
+        run: |
+          python3 -c 'import ctypes, sys; library = ctypes.CDLL(sys.argv[1]); library.emacs_module_init; library.plugin_is_GPL_compatible' "dist/$ASSET"
+      - name: Check the macOS it needs
+        if: runner.os == 'macOS'
+        run: |
+          otool -L "dist/$ASSET"
+          otool -l "dist/$ASSET" | grep -A4 LC_BUILD_VERSION | grep -q "minos $MACOSX_DEPLOYMENT_TARGET\$"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: term-module-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: term-module-release
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: purcell/setup-emacs@v8.0
+        with:
+          version: '31.1'
+      # Laid out as the release is, under the URL lispm-desktop-term.el
+      # derives from `lispm-desktop-term-prebuilt-url'.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: term-module-*
+          path: releases/term-module-${{ needs.version.outputs.version }}
+          merge-multiple: true
+      - name: Checksums
+        working-directory: releases/term-module-${{ needs.version.outputs.version }}
+        run: |
+          sha256sum liblispm_desktop_term-* > SHA256SUMS
+          cat SHA256SUMS
+      # Fetched as LispM fetches it, from the release laid out here: the
+      # names and the checksums are the ones Emacs wants, and the library
+      # for this computer loads into Emacs.
+      - name: Download it as LispM does
+        run: |
+          emacs -Q --batch -L lisp -l lispm-desktop-term \
+            --eval "(setq lispm-desktop-term-prebuilt-url \"file://$PWD/releases\")" \
+            -f lispm-desktop-term-batch-download
+          test -f "native/lispm-desktop-term/prebuilt/$VERSION/liblispm_desktop_term-x86_64-unknown-linux-gnu.so"
+      - name: Publish
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=term-module-$VERSION
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag is published already"
+            exit 0
+          fi
+          gh release create "$tag" releases/"$tag"/* \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "Terminal module $VERSION" \
+            --notes "The terminals' module, native/lispm-desktop-term, built from $GITHUB_SHA for macOS on Apple silicon and on Intel (11 and later) and for GNU/Linux on x86_64, by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID.
+
+          LispM Desktop downloads the one for its computer where Rust's Cargo is missing, and checks it against SHA256SUMS: nothing here needs to be fetched by hand."

@@ -44,8 +44,11 @@
 ;; scrolled with the mouse wheel or `lispm-desktop-term-scroll-back', and copied into
 ;; a buffer of its own by `lispm-desktop-term-history'.  The module is built with
 ;; Cargo at the first start (`lispm-desktop-term-build'), and again at a start that
-;; finds its sources newer; until then, and where Rust is missing,
-;; terminals run in Eat as before.
+;; finds its sources newer.  Where Rust is missing, the library the
+;; repository's workflow built from the same sources is downloaded instead
+;; (`lispm-desktop-term-download') and checked against its published
+;; SHA-256.  Until one or the other is there, terminals run in Eat as
+;; before.
 ;;
 ;; Programs may say what they are doing, working, blocked on the user,
 ;; done, with the Program Status Protocol (OSC 7501).  The module keeps
@@ -90,6 +93,25 @@ nil keeps them in Eat."
   :type 'boolean
   :group 'lispm-desktop-term)
 
+(defcustom lispm-desktop-term-download-enabled t
+  "Non-nil downloads the module where Rust's Cargo is missing.
+It is the library the repository's workflow built for this computer from
+the same sources, kept under `lispm-desktop-term-prebuilt-url' and checked
+against the SHA-256 published beside it.  nil keeps terminals in Eat until
+Cargo builds the module."
+  :type 'boolean
+  :group 'lispm-desktop-term)
+
+(defcustom lispm-desktop-term-prebuilt-url
+  "https://github.com/LispMachineLab/lispm-desktop/releases/download"
+  "Where the prebuilt modules are.
+The modules of the sources whose version is VERSION, see
+`lispm-desktop-term-source-version', are under term-module-VERSION there:
+liblispm_desktop_term-TARGET.dylib or .so for each Rust TARGET, and
+SHA256SUMS, their checksums as sha256sum writes them."
+  :type 'string
+  :group 'lispm-desktop-term)
+
 (defcustom lispm-desktop-term-frame-budget 0.008
   "Seconds of one frame that drawing terminals may take before it gives way."
   :type 'number
@@ -110,7 +132,7 @@ nil keeps them in Eat."
 ;;;; The module
 
 (defun lispm-desktop-term--module-files ()
-  "Return every built library of the module.  Cargo puts it under
+  "Return every library of the module Cargo built.  Cargo puts it under
 target/release, or target/TRIPLE/release when a build target is set."
   (seq-filter (lambda (file) (member (file-name-extension file) '("dylib" "so" "dll")))
               (append (file-expand-wildcards
@@ -121,28 +143,81 @@ target/release, or target/TRIPLE/release when a build target is set."
 (defvar lispm-desktop-term--building nil
   "The Cargo process building the module, while it runs.")
 
-(defun lispm-desktop-term--module-file ()
-  "Return the newest built library of the module, or nil."
+(defvar lispm-desktop-term--downloading nil
+  "The curl process downloading the module, while it runs.")
+
+(defvar lispm-desktop-term--load-failure nil
+  "The library that did not load, and why: (FILE . ERROR).
+It is not tried again in this session.")
+
+(defun lispm-desktop-term--source-files ()
+  "Return the module's sources, sorted: Cargo's manifest and lock file,
+and the Rust files under src."
+  (let ((directory lispm-desktop-term-source-directory))
+    (sort (append (seq-filter #'file-exists-p
+                              (mapcar (lambda (name) (expand-file-name name directory))
+                                      '("Cargo.toml" "Cargo.lock")))
+                  (when (file-directory-p (expand-file-name "src" directory))
+                    (directory-files-recursively (expand-file-name "src" directory) "\\.rs\\'")))
+          #'string<)))
+
+(defun lispm-desktop-term--built-file ()
+  "Return the newest library of the module Cargo built, or nil."
   (car (sort (lispm-desktop-term--module-files) #'file-newer-than-file-p)))
 
 (defun lispm-desktop-term--stale-p ()
-  "Return non-nil when a source of the module is newer than its library,
-as after an update."
-  (when-let* ((library (lispm-desktop-term--module-file)))
+  "Return non-nil when a source of the module is newer than the library
+Cargo built, as after an update."
+  (when-let* ((library (lispm-desktop-term--built-file)))
     (seq-some (lambda (file) (file-newer-than-file-p file library))
-              (append (mapcar (lambda (name) (expand-file-name name lispm-desktop-term-source-directory))
-                              '("Cargo.toml" "Cargo.lock"))
-                      (directory-files (expand-file-name "src" lispm-desktop-term-source-directory)
-                                       t "\\.rs\\'")))))
+              (lispm-desktop-term--source-files))))
+
+(defun lispm-desktop-term--current-file ()
+  "Return a library of the module current for its sources, or nil: the one
+Cargo built unless a source is newer, else the one downloaded for them."
+  (let ((built (lispm-desktop-term--built-file))
+        (prebuilt (lispm-desktop-term--prebuilt-file)))
+    (cond ((and built (not (lispm-desktop-term--stale-p))) built)
+          ((and prebuilt (file-exists-p prebuilt)) prebuilt))))
+
+(defun lispm-desktop-term--module-file ()
+  "Return the library of the module to load, or nil: a current one, see
+`lispm-desktop-term--current-file', else the newest one out of date, built
+or downloaded."
+  (or (lispm-desktop-term--current-file)
+      (car (sort (append (lispm-desktop-term--module-files) (lispm-desktop-term--prebuilt-files))
+                 #'file-newer-than-file-p))))
+
+(defun lispm-desktop-term--plan ()
+  "Return how a start is to get the module: `build' where Cargo is and the
+library it built is missing or older than a source; `download' where Cargo
+is not, no library is current for the sources and one is published for
+this Emacs; else nil.  Where Cargo is, its builds win."
+  (if (executable-find "cargo")
+      (and (or (null (lispm-desktop-term--built-file)) (lispm-desktop-term--stale-p))
+           'build)
+    (and lispm-desktop-term-download-enabled
+         (lispm-desktop-term--prebuilt-file)
+         (not (lispm-desktop-term--current-file))
+         (executable-find "curl")
+         'download)))
 
 (defun lispm-desktop-term-load ()
-  "Load the module when it is built; return non-nil once it is loaded.
-Nothing is loaded while it is being built."
+  "Load the module when a library of it is there; return non-nil once it
+is loaded.  Nothing is loaded while it is being built or downloaded, nor
+a library that did not load before."
   (or (featurep 'lispm-desktop-term-module)
       (when-let* (((fboundp 'module-load))
                   ((not (process-live-p lispm-desktop-term--building)))
-                  (file (lispm-desktop-term--module-file)))
-        (module-load file)
+                  ((not (process-live-p lispm-desktop-term--downloading)))
+                  (file (lispm-desktop-term--module-file))
+                  ((not (equal file (car lispm-desktop-term--load-failure)))))
+        (condition-case error
+            (module-load file)
+          (error
+           (setq lispm-desktop-term--load-failure (cons file error))
+           (message "lispm-desktop-term does not load, so terminals run in Eat: %s"
+                    (error-message-string error))))
         (featurep 'lispm-desktop-term-module))))
 
 (defun lispm-desktop-term-build (&optional callback)
@@ -163,10 +238,10 @@ CALLBACK.  Its output is in the *lispm-desktop-term build* buffer."
              :sentinel
              (lambda (process _event)
                (unless (process-live-p process)
-                 (if (and (= (process-exit-status process) 0) (lispm-desktop-term--module-file))
+                 (if (and (= (process-exit-status process) 0) (lispm-desktop-term--built-file))
                      (progn
                        ;; Cargo leaves a library it found current untouched.
-                       (set-file-times (lispm-desktop-term--module-file))
+                       (set-file-times (lispm-desktop-term--built-file))
                        (if (featurep 'lispm-desktop-term-module)
                            (message "lispm-desktop-term is rebuilt: restart Emacs to use it")
                          (lispm-desktop-term-load)
@@ -178,6 +253,159 @@ CALLBACK.  Its output is in the *lispm-desktop-term build* buffer."
   "Return non-nil when terminals run in lispm-desktop-term: it is enabled, the
 module is loaded, and Emacs can wake on its channel."
   (and lispm-desktop-term-enabled (lispm-desktop-term-load) (lispm-desktop-term--channel) t))
+
+;;;; Prebuilt modules
+
+(defun lispm-desktop-term--sha256 (file)
+  "Return the SHA-256 of FILE's bytes, in hex."
+  (with-temp-buffer
+    (set-buffer-multibyte nil)
+    (insert-file-contents-literally file)
+    (secure-hash 'sha256 (current-buffer))))
+
+(defun lispm-desktop-term-source-digest ()
+  "Return the SHA-256 of the module's sources, in hex.
+It is that of what sha256sum writes for them in the source directory:
+for each, in order, a line of its SHA-256, two spaces and its name."
+  (secure-hash 'sha256
+               (mapconcat (lambda (file)
+                            (format "%s  %s\n" (lispm-desktop-term--sha256 file)
+                                    (file-relative-name file lispm-desktop-term-source-directory)))
+                          (lispm-desktop-term--source-files) "")))
+
+(defun lispm-desktop-term-source-version ()
+  "Return the version of the module's sources: the first 16 digits of
+`lispm-desktop-term-source-digest'.  A prebuilt module is published and
+kept under it, so a library downloaded for the sources stays current for
+them whatever its time, and none is once they change."
+  (substring (lispm-desktop-term-source-digest) 0 16))
+
+(defun lispm-desktop-term--target (&optional configuration)
+  "Return the Rust target of the prebuilt module for an Emacs built for
+CONFIGURATION, by default this one's `system-configuration', or nil when
+none is published for it."
+  (let ((configuration (or configuration system-configuration)))
+    (cond ((string-match-p "\\`\\(?:aarch64\\|arm64\\)-apple-darwin" configuration) "aarch64-apple-darwin")
+          ((string-match-p "\\`x86_64-apple-darwin" configuration) "x86_64-apple-darwin")
+          ((string-match-p "\\`x86_64-[^-]+-linux-gnu\\'" configuration) "x86_64-unknown-linux-gnu"))))
+
+(defun lispm-desktop-term--asset (target)
+  "Return the name the library for Rust TARGET is published under."
+  (format "liblispm_desktop_term-%s.%s" target (if (string-suffix-p "-darwin" target) "dylib" "so")))
+
+(defun lispm-desktop-term--prebuilt-directory ()
+  "Return the directory downloaded libraries are kept in, by version."
+  (expand-file-name "prebuilt" lispm-desktop-term-source-directory))
+
+(defun lispm-desktop-term--prebuilt-file ()
+  "Return where the library downloaded for the sources is kept, whether it
+is there or not, or nil when none is published for this Emacs."
+  (when-let* ((target (lispm-desktop-term--target)))
+    (expand-file-name (lispm-desktop-term--asset target)
+                      (expand-file-name (lispm-desktop-term-source-version)
+                                        (lispm-desktop-term--prebuilt-directory)))))
+
+(defun lispm-desktop-term--prebuilt-files ()
+  "Return every library downloaded for this Emacs, of any version."
+  (when-let* ((target (lispm-desktop-term--target)))
+    (file-expand-wildcards (expand-file-name (concat "*/" (lispm-desktop-term--asset target))
+                                             (lispm-desktop-term--prebuilt-directory)))))
+
+(defun lispm-desktop-term--listed-sha256 (sums name)
+  "Return the SHA-256 the checksums file SUMS lists for NAME, or nil.
+SUMS is as sha256sum writes it: a line for each file, of its SHA-256, a
+space, a space or *, and its name."
+  (with-temp-buffer
+    (insert-file-contents sums)
+    (when (re-search-forward (concat "^\\([0-9a-f]\\{64\\}\\) [ *]" (regexp-quote name) "$") nil t)
+      (match-string 1))))
+
+(defun lispm-desktop-term--install-prebuilt (library sums file)
+  "Keep the downloaded LIBRARY as FILE when its SHA-256 is the one the
+checksums file SUMS lists for FILE's name, and remove the libraries kept
+for other versions; return FILE.  Signal an error when it is not."
+  (let ((name (file-name-nondirectory file))
+        (directory (directory-file-name (file-name-directory file))))
+    (unless (and (file-exists-p sums) (file-exists-p library))
+      (error "The download is incomplete"))
+    (let ((listed (lispm-desktop-term--listed-sha256 sums name)))
+      (unless listed
+        (error "SHA256SUMS lists no %s" name))
+      (unless (equal (lispm-desktop-term--sha256 library) listed)
+        (error "%s is not the library published: its SHA-256 differs" name)))
+    (make-directory directory t)
+    ;; Renamed into place, so the library is there whole or not at all.
+    (copy-file library (concat file ".part") t)
+    (rename-file (concat file ".part") file t)
+    (dolist (old (directory-files (lispm-desktop-term--prebuilt-directory) t "\\`[^.]"))
+      (when (and (file-directory-p old) (not (string= old directory)))
+        (delete-directory old t)))
+    file))
+
+(defun lispm-desktop-term-download (&optional callback)
+  "Download the module built for this computer from the sources there are,
+in the background, check it, then load it and call CALLBACK.
+It comes from `lispm-desktop-term-prebuilt-url'; what went wrong, if
+anything, is in the *lispm-desktop-term download* buffer.  Where Cargo is,
+`lispm-desktop-term-build' builds the module instead."
+  (interactive)
+  (let ((file (lispm-desktop-term--prebuilt-file)))
+    (unless file
+      (user-error "No lispm-desktop-term is published for %s: build it with Rust's Cargo"
+                  system-configuration))
+    (unless (executable-find "curl")
+      (user-error "Downloading lispm-desktop-term needs curl"))
+    (unless (process-live-p lispm-desktop-term--downloading)
+      (let* ((name (file-name-nondirectory file))
+             (url (format "%s/term-module-%s/" (string-trim-right lispm-desktop-term-prebuilt-url "/+")
+                          (lispm-desktop-term-source-version)))
+             (directory (make-temp-file "lispm-desktop-term" t))
+             (library (expand-file-name name directory))
+             (sums (expand-file-name "SHA256SUMS" directory))
+             (buffer (get-buffer-create "*lispm-desktop-term download*")))
+        (with-current-buffer buffer (erase-buffer))
+        (message "Downloading lispm-desktop-term…")
+        (setq lispm-desktop-term--downloading
+              (make-process
+               :name "lispm-desktop-term download" :buffer buffer :noquery t
+               :command (list "curl" "--fail" "--silent" "--show-error" "--location" "--retry" "2"
+                              "--output" sums (concat url "SHA256SUMS")
+                              "--output" library (concat url name))
+               :sentinel
+               (lambda (process _event)
+                 (unless (process-live-p process)
+                   (setq lispm-desktop-term--downloading nil)
+                   (let ((installed
+                          (and (= (process-exit-status process) 0)
+                               (condition-case error
+                                   (lispm-desktop-term--install-prebuilt library sums file)
+                                 (error
+                                  (when (buffer-live-p buffer)
+                                    (with-current-buffer buffer
+                                      (insert (error-message-string error) "\n")))
+                                  nil)))))
+                     (delete-directory directory t)
+                     (cond ((not installed)
+                            (message "lispm-desktop-term could not be downloaded: see *lispm-desktop-term download*"))
+                           ((featurep 'lispm-desktop-term-module)
+                            (message "lispm-desktop-term is downloaded: restart Emacs to use it"))
+                           ((lispm-desktop-term-load)
+                            (message "lispm-desktop-term is downloaded")))
+                     (when (and installed callback)
+                       (funcall callback)))))))))))
+
+(defun lispm-desktop-term-batch-download ()
+  "Download the module, unless a library current for its sources is there,
+for an installer running Emacs in batch: Emacs then exits with 0 once the
+module loads, else 1, having said what went wrong."
+  (unless (lispm-desktop-term--current-file)
+    (lispm-desktop-term-download)
+    (while lispm-desktop-term--downloading
+      (accept-process-output nil 0.1))
+    (with-current-buffer "*lispm-desktop-term download*"
+      (unless (= (buffer-size) 0)
+        (message "%s" (string-trim-right (buffer-string))))))
+  (kill-emacs (if (lispm-desktop-term-load) 0 1)))
 
 ;;;; Terminals and their buffers
 
@@ -908,7 +1136,7 @@ A buffer of that name still running is returned as it is."
   (let ((buffer (get-buffer-create (format "*%s*" name))))
     (unless (lispm-desktop-term-live-p buffer)
       (unless (lispm-desktop-term-ready-p)
-        (error "lispm-desktop-term is not built; see `lispm-desktop-term-build'"))
+        (error "lispm-desktop-term is neither built nor downloaded; see `lispm-desktop-term-download'"))
       (with-current-buffer buffer
         (lispm-desktop-term-mode)
         (let* ((directory (expand-file-name (or directory default-directory)))
@@ -977,15 +1205,16 @@ It is a lispm-desktop-term once the module is built, else an Eat terminal."
 (defun lispm-desktop-setup-term ()
   "Draw terminals as their windows change and the theme does.  The module
 is built in the background the first time, and again when its sources
-change, where Rust is installed."
+change, where Rust is installed; elsewhere the one built for them is
+downloaded, see `lispm-desktop-term--plan'."
   (add-hook 'window-buffer-change-functions #'lispm-desktop-term--follow-windows)
   (add-hook 'window-size-change-functions #'lispm-desktop-term--follow-windows)
   (add-hook 'window-selection-change-functions #'lispm-desktop-term--follow-windows)
   (add-hook 'enable-theme-functions #'lispm-desktop-term--theme-changed 90)
-  (when (and lispm-desktop-term-enabled (display-graphic-p) (not (featurep 'lispm-desktop-term-module))
-             (or (null (lispm-desktop-term--module-file)) (lispm-desktop-term--stale-p))
-             (executable-find "cargo"))
-    (lispm-desktop-term-build)))
+  (when (and lispm-desktop-term-enabled (display-graphic-p) (not (featurep 'lispm-desktop-term-module)))
+    (pcase (lispm-desktop-term--plan)
+      ('build (lispm-desktop-term-build))
+      ('download (lispm-desktop-term-download)))))
 
 (provide 'lispm-desktop-term)
 ;;; lispm-desktop-term.el ends here

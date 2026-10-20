@@ -3215,6 +3215,231 @@ idle, when its label there changes; progress alone does not."
           (should (lispm-desktop-term--stale-p)))
       (delete-directory root t))))
 
+(defmacro lispm-desktop-test--with-term-sources (&rest body)
+  "Run BODY with the module's sources in a fresh directory, a minute old,
+`root' bound to it, and nothing built, downloaded or loaded: the module
+counts as not loaded, even after a test loaded the one built here."
+  (declare (indent 0))
+  `(let* ((root (make-temp-file "lispm-desktop-term-src" t))
+          (lispm-desktop-term-source-directory root)
+          (lispm-desktop-term--building nil)
+          (lispm-desktop-term--downloading nil)
+          (lispm-desktop-term--load-failure nil)
+          (featurep (symbol-function 'featurep)))
+     (unwind-protect
+         (cl-letf (((symbol-function 'featurep)
+                    (lambda (feature &rest subfeatures)
+                      (and (not (eq feature 'lispm-desktop-term-module))
+                           (apply featurep feature subfeatures)))))
+           (dolist (name '("Cargo.toml" "Cargo.lock" "src/lib.rs" "src/pty.rs"))
+             (let ((file (expand-file-name name root)))
+               (make-directory (file-name-directory file) t)
+               (write-region name nil file)
+               (set-file-times file (time-subtract nil 60))))
+           ,@body)
+       (delete-directory root t))))
+
+(defun lispm-desktop-test--term-file (file &optional age)
+  "Write FILE, AGE seconds old (by default new), and return it."
+  (make-directory (file-name-directory file) t)
+  (write-region "library" nil file)
+  (set-file-times file (time-subtract nil (or age 0)))
+  file)
+
+(ert-deftest lispm-desktop-test-term-target ()
+  "A prebuilt module is chosen by the processor and system Emacs was built
+for, and none is published for the others."
+  (should (equal (lispm-desktop-term--target "aarch64-apple-darwin24.1.0") "aarch64-apple-darwin"))
+  (should (equal (lispm-desktop-term--target "arm64-apple-darwin23.0.0") "aarch64-apple-darwin"))
+  (should (equal (lispm-desktop-term--target "x86_64-apple-darwin21.6.0") "x86_64-apple-darwin"))
+  (should (equal (lispm-desktop-term--target "x86_64-pc-linux-gnu") "x86_64-unknown-linux-gnu"))
+  (should (equal (lispm-desktop-term--target "x86_64-unknown-linux-gnu") "x86_64-unknown-linux-gnu"))
+  (should-not (lispm-desktop-term--target "aarch64-unknown-linux-gnu"))
+  (should-not (lispm-desktop-term--target "x86_64-pc-linux-musl"))
+  (should-not (lispm-desktop-term--target "x86_64-w64-mingw32"))
+  (should (equal (lispm-desktop-term--asset "aarch64-apple-darwin")
+                 "liblispm_desktop_term-aarch64-apple-darwin.dylib"))
+  (should (equal (lispm-desktop-term--asset "x86_64-unknown-linux-gnu")
+                 "liblispm_desktop_term-x86_64-unknown-linux-gnu.so")))
+
+(ert-deftest lispm-desktop-test-term-source-version ()
+  "The sources' version follows their contents, not their times: it is the
+digest of the lines sha256sum writes for them."
+  (lispm-desktop-test--with-term-sources
+    (let ((version (lispm-desktop-term-source-version))
+          (lib (expand-file-name "src/lib.rs" root)))
+      (should (string-match-p "\\`[0-9a-f]\\{16\\}\\'" version))
+      (should (equal (lispm-desktop-term-source-digest)
+                     (secure-hash 'sha256
+                                  (mapconcat (lambda (name)
+                                               (format "%s  %s\n" (secure-hash 'sha256 name) name))
+                                             '("Cargo.lock" "Cargo.toml" "src/lib.rs" "src/pty.rs") ""))))
+      (set-file-times lib)
+      (should (equal (lispm-desktop-term-source-version) version))
+      (write-region "changed" nil lib)
+      (should-not (equal (lispm-desktop-term-source-version) version))
+      (write-region "src/lib.rs" nil lib)
+      (should (equal (lispm-desktop-term-source-version) version))
+      ;; A new file counts, in a directory of its own too.
+      (lispm-desktop-test--term-file (expand-file-name "src/pty/keys.rs" root))
+      (should-not (equal (lispm-desktop-term-source-version) version)))))
+
+(ert-deftest lispm-desktop-test-term-plan-without-cargo ()
+  "Without Cargo, the module built for the sources is downloaded unless a
+library current for them is there; one downloaded stays current until the
+sources change, whatever their times."
+  (lispm-desktop-test--with-term-sources
+    (cl-letf (((symbol-function 'executable-find) (lambda (program &rest _) (equal program "curl"))))
+      (let ((system-configuration "aarch64-apple-darwin24.1.0")
+            (lispm-desktop-term-download-enabled t))
+        (should (eq (lispm-desktop-term--plan) 'download))
+        (should-not (lispm-desktop-term--module-file))
+        (let ((lispm-desktop-term-download-enabled nil))
+          (should-not (lispm-desktop-term--plan)))
+        (let ((system-configuration "aarch64-unknown-linux-gnu"))
+          (should-not (lispm-desktop-term--plan)))
+        (cl-letf (((symbol-function 'executable-find) #'ignore))
+          (should-not (lispm-desktop-term--plan)))
+        (let ((prebuilt (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file) 120)))
+          (should (string-prefix-p (expand-file-name "prebuilt/" root) prebuilt))
+          (should (equal (lispm-desktop-term--current-file) prebuilt))
+          (should (equal (lispm-desktop-term--module-file) prebuilt))
+          (should-not (lispm-desktop-term--plan))
+          ;; Sources newer than the library, as a checkout leaves them.
+          (set-file-times (expand-file-name "src/lib.rs" root))
+          (should (equal (lispm-desktop-term--current-file) prebuilt))
+          (should-not (lispm-desktop-term--plan))
+          ;; Changed sources want the library built from them; until it
+          ;; is there, the old one is still loaded.
+          (write-region "changed" nil (expand-file-name "src/lib.rs" root))
+          (should-not (lispm-desktop-term--current-file))
+          (should (eq (lispm-desktop-term--plan) 'download))
+          (should (equal (lispm-desktop-term--module-file) prebuilt))
+          ;; A library Cargo built from the sources is current, so nothing
+          ;; is downloaded; once out of date, a current download wins.
+          (let ((built (lispm-desktop-test--term-file
+                        (expand-file-name "target/release/liblispm_desktop_term.dylib" root))))
+            (should (equal (lispm-desktop-term--module-file) built))
+            (should-not (lispm-desktop-term--plan))
+            (set-file-times built (time-subtract nil 3600))
+            (should (eq (lispm-desktop-term--plan) 'download))
+            (let ((current (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file) 7200)))
+              (should (equal (lispm-desktop-term--module-file) current))
+              (should-not (lispm-desktop-term--plan)))))))))
+
+(ert-deftest lispm-desktop-test-term-plan-with-cargo ()
+  "Where Cargo is, it builds the module whenever its own library is missing
+or out of date, a download current or not, and its library is loaded
+before a downloaded one."
+  (lispm-desktop-test--with-term-sources
+    (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) t)))
+      (let ((system-configuration "x86_64-apple-darwin21.6.0")
+            (lispm-desktop-term-download-enabled t))
+        (should (eq (lispm-desktop-term--plan) 'build))
+        (let ((prebuilt (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file))))
+          (should (eq (lispm-desktop-term--plan) 'build))
+          (should (equal (lispm-desktop-term--module-file) prebuilt))
+          (let ((built (lispm-desktop-test--term-file
+                        (expand-file-name "target/x86_64-apple-darwin/release/liblispm_desktop_term.dylib" root)
+                        30)))
+            (should-not (lispm-desktop-term--plan))
+            (should (equal (lispm-desktop-term--module-file) built))
+            (set-file-times (expand-file-name "Cargo.lock" root))
+            (should (eq (lispm-desktop-term--plan) 'build))))))))
+
+(ert-deftest lispm-desktop-test-term-install-prebuilt ()
+  "A downloaded library is kept only when its SHA-256 is the one published
+for it, and then replaces those kept for other versions."
+  (lispm-desktop-test--with-term-sources
+    (let* ((system-configuration "x86_64-pc-linux-gnu")
+           (download (make-temp-file "lispm-desktop-term-download" t))
+           (library (expand-file-name "lib.so" download))
+           (sums (expand-file-name "SHA256SUMS" download))
+           (file (lispm-desktop-term--prebuilt-file))
+           (name (file-name-nondirectory file))
+           (old (lispm-desktop-test--term-file
+                 (expand-file-name (concat "0123456789abcdef/" name) (lispm-desktop-term--prebuilt-directory)))))
+      (unwind-protect
+          (progn
+            (write-region "the library" nil library)
+            (write-region (format "%s  %s\n" (make-string 64 ?0) name) nil sums)
+            (should-error (lispm-desktop-term--install-prebuilt library sums file))
+            (write-region (format "%s *other.so\n" (secure-hash 'sha256 "the library")) nil sums)
+            (should-error (lispm-desktop-term--install-prebuilt library sums file))
+            (should-not (file-exists-p file))
+            (should (file-exists-p old))
+            (write-region (format "%s  liblispm_desktop_term-x86_64-apple-darwin.dylib\n%s  %s\n"
+                                  (make-string 64 ?1) (secure-hash 'sha256 "the library") name)
+                          nil sums)
+            (should (equal (lispm-desktop-term--install-prebuilt library sums file) file))
+            (should (equal (with-temp-buffer (insert-file-contents file) (buffer-string)) "the library"))
+            (should-not (file-exists-p (concat file ".part")))
+            (should-not (file-exists-p (file-name-directory old)))
+            (should (equal (lispm-desktop-term--prebuilt-files) (list file))))
+        (delete-directory download t)))))
+
+(ert-deftest lispm-desktop-test-term-load-failure ()
+  "A library that does not load leaves terminals in Eat, and is not tried
+again; nothing loads while the module is being downloaded."
+  (lispm-desktop-test--with-term-sources
+    (let ((system-configuration "aarch64-apple-darwin24.1.0")
+          (tries 0))
+      (cl-letf (((symbol-function 'module-load)
+                 (lambda (_file) (setq tries (1+ tries)) (error "Not a module")))
+                (inhibit-message t))
+        (should-not (lispm-desktop-term-load))
+        (should (= tries 0))
+        (let ((library (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file))))
+          (let ((lispm-desktop-term--downloading (make-process :name "lispm-desktop-test" :command '("sleep" "5"))))
+            (unwind-protect
+                (should-not (lispm-desktop-term-load))
+              (delete-process lispm-desktop-term--downloading)))
+          (should (= tries 0))
+          (should-not (lispm-desktop-term-load))
+          (should-not (lispm-desktop-term-load))
+          (should (= tries 1))
+          (should (equal (car lispm-desktop-term--load-failure) library)))))))
+
+(ert-deftest lispm-desktop-test-term-download ()
+  "The module is downloaded from where `lispm-desktop-term-prebuilt-url'
+says, under the sources' version, kept when its checksum holds, then
+loaded; a library that is not the one published is dropped.  The release
+is a local directory: curl reads it as it reads the web."
+  (skip-unless (executable-find "curl"))
+  (lispm-desktop-test--with-term-sources
+    (let* ((system-configuration "aarch64-apple-darwin24.1.0")
+           (releases (make-temp-file "lispm-desktop-term-releases" t))
+           (lispm-desktop-term-prebuilt-url (concat "file://" releases "/"))
+           (release (expand-file-name (concat "term-module-" (lispm-desktop-term-source-version)) releases))
+           (asset "liblispm_desktop_term-aarch64-apple-darwin.dylib")
+           (file (lispm-desktop-term--prebuilt-file))
+           loaded called)
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-term-load) (lambda () (setq loaded t)))
+                    (inhibit-message t))
+            (make-directory release t)
+            (write-region "the library" nil (expand-file-name asset release))
+            (write-region (format "%s  %s\n" (secure-hash 'sha256 "the library") asset)
+                          nil (expand-file-name "SHA256SUMS" release))
+            (lispm-desktop-term-download (lambda () (setq called t)))
+            (while lispm-desktop-term--downloading
+              (accept-process-output nil 0.05))
+            (should (file-exists-p file))
+            (should (and loaded called))
+            (should (equal (lispm-desktop-term--current-file) file))
+            ;; Tampered with: the checksum no longer holds.
+            (delete-directory (lispm-desktop-term--prebuilt-directory) t)
+            (setq loaded nil called nil)
+            (write-region "another library" nil (expand-file-name asset release))
+            (lispm-desktop-term-download (lambda () (setq called t)))
+            (while lispm-desktop-term--downloading
+              (accept-process-output nil 0.05))
+            (should-not (file-exists-p file))
+            (should-not (or loaded called))
+            (should (string-search "SHA-256 differs"
+                                   (with-current-buffer "*lispm-desktop-term download*" (buffer-string)))))
+        (delete-directory releases t)))))
+
 (ert-deftest lispm-desktop-test-term-wheel ()
   "The wheel is reported to a program that asked for the mouse, turned into
 cursor keys for one holding the whole screen, and else scrolls the
