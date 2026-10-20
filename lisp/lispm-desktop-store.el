@@ -1695,13 +1695,6 @@ hides it, as Return does, rather than pressing the item's button."
   "Close the App Store's window, from its close box."
   (lispm-desktop-store-close))
 
-(defun lispm-desktop-store--collapse-box (_window)
-  "Roll the App Store's window up into its title bar, or down again."
-  (when-let* ((frame (lispm-desktop-app-window-frame 'store)))
-    (if-let* ((height (lispm-desktop-platinum-rolled-up-height frame)))
-        (lispm-desktop-platinum-roll-down frame height)
-      (lispm-desktop-platinum-roll-up frame (window-tab-line-height (frame-root-window frame))))))
-
 (defvar-keymap lispm-desktop-store-mode-map
   :doc "Keymap of the App Store's window."
   :parent button-buffer-map
@@ -1730,29 +1723,23 @@ hides it, as Return does, rather than pressing the item's button."
   "q" #'lispm-desktop-store-close
   "M-w" #'lispm-desktop-store-close)
 
-(define-derived-mode lispm-desktop-store-mode special-mode "App Store"
+(define-derived-mode lispm-desktop-store-mode lispm-desktop-app-window-mode "App Store"
   "Major mode of the App Store's window: categories, a grid of icons and
 the selected item's information.
 \\{lispm-desktop-store-mode-map}"
-  (visual-line-mode -1)
-  (setq-local cursor-type nil
-              evil-emacs-state-cursor '(nil)
-              evil-normal-state-cursor '(nil)
-              truncate-lines t
-              line-spacing 0
-              left-fringe-width 0
-              right-fringe-width 0
-              show-trailing-whitespace nil
+  (setq-local line-spacing 0
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
               lispm-desktop-platinum-title "App Store"
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "app-store")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-store--close-box
-                                                         :collapse #'lispm-desktop-store--collapse-box))
+                                                         :collapse #'lispm-desktop-app-window-collapse-box))
   (add-hook 'window-size-change-functions #'lispm-desktop-store--refit nil t)
   (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
-  (hl-line-mode -1)
-  (when (fboundp 'display-line-numbers-mode)
-    (display-line-numbers-mode -1)))
+  (hl-line-mode -1))
+
+(lispm-desktop-app-window-define 'store
+  :name "App Store" :size '(640 . 640) :roll 'chrome
+  :documents 'keep :close #'lispm-desktop-app-window-close-box)
 
 (defun lispm-desktop-store-show ()
   "Open the App Store's window over the desktop.
@@ -1761,7 +1748,7 @@ The catalogs are fetched the first time it opens after Emacs starts."
   (unless lispm-desktop-store--catalogs
     (lispm-desktop-store-read-catalogs))
   (let ((buffer (lispm-desktop-store--buffer)))
-    (lispm-desktop-app-window-show 'store :name "App Store" :buffer buffer :size '(640 . 640))
+    (lispm-desktop-app-window-show 'store :buffer buffer)
     (lispm-desktop-store--render)
     (unless (or lispm-desktop-store--checked lispm-desktop-store--checking)
       (lispm-desktop-store-check-for-updates))))

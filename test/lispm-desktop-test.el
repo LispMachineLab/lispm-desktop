@@ -4850,19 +4850,19 @@ again with the desktop in front."
   "The close box of an application's window closes the window alone while
 others share the application's frame, else the application's window."
   (let ((closed nil))
-    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (app) (setq closed app))))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (id) (setq closed id))))
       (save-window-excursion
         (delete-other-windows)
         (let ((frame (selected-frame)))
-          (set-frame-parameter frame 'lispm-desktop-app-window 'elfeed)
+          (set-frame-parameter frame 'lispm-desktop-window-kind 'elfeed)
           (unwind-protect
               (let ((other (split-window)))
-                (lispm-desktop-app-window--close-box other)
+                (lispm-desktop-app-window-close-box other)
                 (should-not (window-live-p other))
                 (should-not closed)
-                (lispm-desktop-app-window--close-box (selected-window))
+                (lispm-desktop-app-window-close-box (selected-window))
                 (should (eq closed 'elfeed)))
-            (set-frame-parameter frame 'lispm-desktop-app-window nil)))))))
+            (set-frame-parameter frame 'lispm-desktop-window-kind nil)))))))
 
 (ert-deftest lispm-desktop-test-list-check-box-pixels ()
   "Extensions Manager's check boxes: twelve pixels square, outlined; checked,
