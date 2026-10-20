@@ -4037,6 +4037,20 @@ then none is ready."
         (should-not (lispm-desktop-store-update-available-p 'feeds))
         (should-error (lispm-desktop-store-update 'feeds) :type 'user-error)))))
 
+(ert-deftest lispm-desktop-test-store-diff-names-sides ()
+  "An update shows the differences from the file installed to the
+catalog's, named as such."
+  (skip-unless (executable-find "diff"))
+  (let ((old (make-temp-file "lispm-desktop-test-old" nil ".org" "a\n"))
+        (new (make-temp-file "lispm-desktop-test-new" nil ".org" "b\n")))
+    (unwind-protect
+        (let ((diff (lispm-desktop-store--diff old new)))
+          (should (string-search "--- installed" diff))
+          (should (string-search "+++ catalog" diff))
+          (should (string-search "+b" diff)))
+      (delete-file old)
+      (delete-file new))))
+
 (ert-deftest lispm-desktop-test-store-requirement-missing ()
   "An item requiring one no catalog lists is not installed."
   (lispm-desktop-test--with-store

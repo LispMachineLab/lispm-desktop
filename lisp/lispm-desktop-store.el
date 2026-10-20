@@ -751,9 +751,13 @@ One that other packages need stays, as said in the echo area."
                   file))))))
 
 (defun lispm-desktop-store--diff (old new)
-  "Return the differences from OLD to NEW, files or directories, unified."
+  "Return the differences from OLD to NEW, files or directories, unified;
+two files are named as installed and as the catalog has it."
   (with-temp-buffer
-    (call-process "diff" nil t nil "-ru" (expand-file-name old) (expand-file-name new))
+    (apply #'call-process "diff" nil t nil "-ru"
+           `(,@(unless (or (file-directory-p old) (file-directory-p new))
+                 '("--label" "installed" "--label" "catalog"))
+             ,(expand-file-name old) ,(expand-file-name new)))
     (buffer-string)))
 
 (defun lispm-desktop-store--changes (installed props)
