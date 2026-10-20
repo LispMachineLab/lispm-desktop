@@ -799,21 +799,6 @@ box runs the buffer's own close function."
   "Return the keys of the menu bar's left end."
   (mapcar #'car (lispm-desktop-platinum-menu-bar)))
 
-(ert-deftest lispm-desktop-test-web-title ()
-  "Web follows the views where the browser can run, lit while it is in
-front; without xwidgets it is left out."
-  (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
-            ((symbol-function 'lispm-desktop-browser-workspace-p) #'ignore))
-    (let ((bar (lispm-desktop-platinum-menu-bar)))
-      (should (equal (last (mapcar #'car bar) 2) '(lispm-desktop-view-shells lispm-desktop-view-web)))
-      (should-not (get-text-property 0 'lispm-desktop-platinum-highlighted (nth 2 (car (last bar)))))))
-  (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
-            ((symbol-function 'lispm-desktop-browser-workspace-p) #'always))
-    (let ((web (nth 2 (car (last (lispm-desktop-platinum-menu-bar))))))
-      (should (get-text-property 0 'lispm-desktop-platinum-highlighted web))))
-  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
-    (should-not (memq 'lispm-desktop-view-web (lispm-desktop-test--menu-bar-titles)))))
-
 (ert-deftest lispm-desktop-test-desktop-darkens-selected-icons ()
   "A selected icon is its SVG with every colour halved."
   (should (equal (lispm-desktop--darken "<rect fill=\"#FF8040\"/><rect fill=\"#000000\"/>")
@@ -1223,10 +1208,11 @@ where it can be read, measured by its link count where it cannot."
 
 (ert-deftest lispm-desktop-test-closing-the-last-window-shows-the-desktop ()
   "The close box takes a window away while others remain in the main area;
-the last one uncovers the desktop."
+the last one uncovers the desktop, as the desktop's setup has it."
   (save-window-excursion
     (delete-other-windows)
-    (let ((first (generate-new-buffer " lispm-desktop-test-first"))
+    (let ((lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
+          (first (generate-new-buffer " lispm-desktop-test-first"))
           (second (generate-new-buffer " lispm-desktop-test-second")))
       (set-window-buffer (selected-window) first)
       (let ((other (split-window-right)))
@@ -1243,6 +1229,7 @@ the last one uncovers the desktop."
   (save-window-excursion
     (delete-other-windows)
     (let ((lispm-desktop-empty-function #'lispm-desktop-editor--show-splash)
+          (lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
           (buffer (generate-new-buffer " lispm-desktop-test-last")))
       (set-window-buffer (selected-window) buffer)
       (lispm-desktop-platinum-close-window (selected-window))
@@ -2683,7 +2670,8 @@ icon glyphs in their own family and colour, images as images."
   "Files get scroll bars; sessions and side windows other than lists do not."
   (save-window-excursion
     (delete-other-windows)
-    (let ((file (lispm-desktop-test--file "lispm-desktop-test-i.txt"))
+    (let ((lispm-desktop-platinum-scroll-bar-functions (list #'lispm-desktop--session-scroll-bar))
+          (file (lispm-desktop-test--file "lispm-desktop-test-i.txt"))
           (session (lispm-desktop-test--session "lispm-desktop-test session 9")))
       (set-window-buffer (selected-window) file)
       (should (lispm-desktop-platinum--scroll-window-p (selected-window)))
@@ -2692,6 +2680,49 @@ icon glyphs in their own family and colour, images as images."
       (let ((side (display-buffer-in-side-window (get-buffer-create " lispm-desktop-test popup")
                                                  '((side . bottom)))))
         (should-not (lispm-desktop-platinum--scroll-window-p side))))))
+
+(ert-deftest lispm-desktop-test-platinum-knows-no-application ()
+  "Platinum draws the chrome and asks the desktop what it needs to know of
+the applications: none of its files names the agents, the terminals, the
+sidebar, the browser, the App Store, the editor or the desktop itself."
+  (dolist (file (directory-files (expand-file-name "lisp" lispm-desktop-directory) t
+                                 "\\`lispm-desktop-platinum.*\\.el\\'"))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (should-not (re-search-forward
+                   (concat "lispm-desktop-\\(?:agent\\|sidebar\\|term-[a-ln-z]\\|browser\\|store\\|settings"
+                           "\\|main-area\\|show\\_>\\|editor\\|finder\\|apps\\|surface\\|interface\\)"
+                           "\\|lispm-desktop--")
+                   nil t)))))
+
+(ert-deftest lispm-desktop-test-platinum-asks-the-desktop ()
+  "What platinum shows of the applications, the applications tell it: a
+buffer's icon, title and status, whether its window scrolls or is listed,
+what a side window's close box does and which windows trade places."
+  (let ((lispm-desktop-platinum-buffer-icon-functions (list (lambda (_) "ICON")))
+        (lispm-desktop-platinum-buffer-title-functions (list (lambda (_) "A title")))
+        (lispm-desktop-platinum-scroll-bar-functions (list (lambda (_) 'yes)))
+        (lispm-desktop-platinum-running-buffers-functions (list (lambda () (list (current-buffer)))))
+        (closed nil))
+    (with-temp-buffer
+      (should (equal (lispm-desktop-platinum--choose-icon (current-buffer)) "ICON"))
+      (should (equal (lispm-desktop-platinum-buffer-title (current-buffer)) "A title"))
+      (should (member "A title" (lispm-desktop-platinum--running-programs))))
+    (save-window-excursion
+      (delete-other-windows)
+      (let ((side (display-buffer-in-side-window (get-buffer-create " lispm-desktop-test side")
+                                                 '((side . bottom))))
+            (lispm-desktop-platinum-side-window-close-function (lambda (window) (setq closed window))))
+        (should (lispm-desktop-platinum--scroll-window-p side))
+        (lispm-desktop-platinum-close-window side)
+        (should (eq closed side))
+        (let ((lispm-desktop-platinum-scroll-bar-functions nil))
+          (should-not (lispm-desktop-platinum--scroll-window-p side))
+          (should (lispm-desktop-platinum--scroll-window-p (selected-window))))))
+    (with-temp-buffer
+      (setq-local lispm-desktop-platinum-listed nil)
+      (let ((hidden (current-buffer)))
+        (should-not (memq hidden (lispm-desktop-platinum-window-buffers (selected-window))))))))
 
 (ert-deftest lispm-desktop-test-menu-text ()
   "A menu is drawn as Mac OS 9's: lit and shaded edges, items sixteen pixels
@@ -3688,7 +3719,7 @@ item opens its panel, and nothing is made, renamed or thrown away there."
   "The λ menu opens each panel; the Application menu lists Settings while
 its window is open."
   (let ((settings (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) "Control Panels")))
-                            (lispm-desktop-platinum-lambda-items))))
+                            (lispm-desktop-lambda-items))))
     (should settings)
     (should (member "Appearance" (mapcar (lambda (item) (plist-get item :label))
                                          (funcall (plist-get settings :submenu))))))
@@ -5749,7 +5780,7 @@ extensions."
   (let ((lispm-desktop-store-installed
          '((calculator :kind app :name "Calculator" :command calc)
            (ext :kind extension :name "Ext" :feature ext :package ext))))
-    (let ((items (lispm-desktop-platinum-lambda-items)))
+    (let ((items (lispm-desktop-lambda-items)))
       (should (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) "App Store")))
                         items))
       (should (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) "Applications")))

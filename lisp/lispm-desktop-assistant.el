@@ -148,22 +148,23 @@ The value is a plist of rectangles, each (X Y WIDTH HEIGHT): the
 platinum inside its title bar and frame; :cards, a rectangle for each of
 PAGE's choices, side by side under the question; and :back, the Go Back
 button at the bottom right, when PAGE goes back."
-  (let* ((w lispm-desktop-assistant-width)
-         (h lispm-desktop-assistant-height)
-         (x (max 0 (/ (- width w) 2)))
-         (y (max 0 (/ (- height h) 2)))
-         ;; Inside the frame's band and black line, under the title bar,
-         ;; as `lispm-desktop-platinum-draw-window-frame' draws them.
-         (cx (+ x 6))
-         (cy (+ y 1 lispm-desktop-platinum-title-bar-height))
-         (cw (- w 13))
-         (ch (- h 8 lispm-desktop-platinum-title-bar-height))
-         (margin 20)
-         (count (length (plist-get page :choices)))
-         (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- count))) count) 0))
-         ;; The pixels left over widen the gaps, so both margins match.
-         (gap (if (> count 1) (/ (- cw (* 2 margin) (* count card-width)) (1- count)) 0))
-         (back-width (lispm-desktop-platinum-push-button-width "Go Back")))
+  (pcase-let* ((w lispm-desktop-assistant-width)
+               (h lispm-desktop-assistant-height)
+               (x (max 0 (/ (- width w) 2)))
+               (y (max 0 (/ (- height h) 2)))
+               ;; Inside the frame's band and black line, under the title
+               ;; bar, as `lispm-desktop-platinum-draw-window-frame' draws them.
+               (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
+               (cx (+ x left))
+               (cy (+ y top lispm-desktop-platinum-title-bar-height))
+               (cw (- w left right))
+               (ch (- h top bottom lispm-desktop-platinum-title-bar-height))
+               (margin 20)
+               (count (length (plist-get page :choices)))
+               (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- count))) count) 0))
+               ;; The pixels left over widen the gaps, so both margins match.
+               (gap (if (> count 1) (/ (- cw (* 2 margin) (* count card-width)) (1- count)) 0))
+               (back-width (lispm-desktop-platinum-push-button-width "Go Back")))
     (list :window (list x y w h)
           :content (list cx cy cw ch)
           :cards (mapcar (lambda (index)
@@ -293,10 +294,10 @@ page with a :picture shows LispM's λ instead of choices, and its
       (lispm-desktop-platinum-svg-fill svg cx cy cw ch (lispm-desktop-platinum-grey palette #xDD))
       ;; The icon, the question and what it is about.
       (if (plist-get page :picture)
-          (svg-embed svg (expand-file-name "icons/lispm-lambda.png" lispm-desktop-directory)
+          (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
                      "image/png" nil :x (+ cx 20) :y (+ cy 18) :width 32 :height 32)
         (lispm-desktop-platinum-svg-icon
-         svg (expand-file-name (format "icons/os9/%s.svg" (plist-get page :icon)) lispm-desktop-directory)
+         svg (lispm-desktop-platinum-icon-file (plist-get page :icon))
          (+ cx 20) (+ cy 18) 32))
       (let ((heading (propertize (plist-get page :title) 'face '(:height 1.4)))
             (top (+ cy 42)))
@@ -310,7 +311,7 @@ page with a :picture shows LispM's λ instead of choices, and its
           ;; The λ and the status under it, in the middle of what is left.
           (let* ((size 96)
                  (top (+ cy 70 (/ (- ch 70 size 12 16) 2))))
-            (svg-embed svg (expand-file-name "icons/lispm-lambda.png" lispm-desktop-directory)
+            (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
                        "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
             (when-let* ((status (plist-get page :status)))
               (lispm-desktop-platinum-svg-content

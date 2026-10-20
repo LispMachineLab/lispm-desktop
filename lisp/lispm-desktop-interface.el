@@ -33,6 +33,7 @@
 (require 'cl-lib)
 (require 'thingatpt)
 (require 'url-util)
+(require 'lispm-desktop-platinum)
 
 (defvar lispm-desktop-platinum-mode-line-format)
 
@@ -64,17 +65,8 @@
 ;; too, so C-x b, C-x C-f, the sidebar, the title bar's buffer menu and
 ;; the agents' own display requests all keep the columns.
 
-(defun lispm-desktop-main-area--window-p (window)
-  "Return non-nil when WINDOW holds content of the main area.
-Side windows and chrome windows, such as the browser's address window
-(marked by the `lispm-desktop-chrome' window parameter), do not."
-  (not (or (window-parameter window 'window-side)
-           (window-parameter window 'lispm-desktop-chrome))))
-
-(defun lispm-desktop-main-area--windows ()
-  "Return the live windows of the main area, left to right."
-  (sort (seq-filter #'lispm-desktop-main-area--window-p (window-list nil 'no-mini))
-        (lambda (a b) (< (car (window-edges a)) (car (window-edges b))))))
+(defalias 'lispm-desktop-main-area--window-p #'lispm-desktop-platinum-main-window-p)
+(defalias 'lispm-desktop-main-area--windows #'lispm-desktop-platinum-main-windows)
 
 (defvar-local lispm-desktop-conversation-buffer nil
   "Non-nil in a buffer holding a conversation with an agent running in Emacs.
@@ -99,6 +91,17 @@ That is an Eat terminal, or an agent conversation, see
 (defun lispm-desktop-main-area--terminal-p (window)
   "Return non-nil when WINDOW shows a terminal."
   (lispm-desktop-terminal-buffer-p (window-buffer window)))
+
+(defun lispm-desktop-main-area--kind (window)
+  "Return the kind of WINDOW of the main area: `session' for a terminal.
+This is `lispm-desktop-platinum-window-kind-function': sessions trade
+places only with sessions, keeping to the left."
+  (and (lispm-desktop-main-area--terminal-p window) 'session))
+
+(defun lispm-desktop--session-scroll-bar (buffer)
+  "Say no scroll bar for BUFFER, a session, laid out as a terminal.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (lispm-desktop-terminal-buffer-p buffer) 'no))
 
 (defun lispm-desktop-main-area--file-p (window)
   "Return non-nil when WINDOW shows a buffer visiting a file, not a terminal."
@@ -337,6 +340,8 @@ characters stay straight."
     (lispm-desktop-pin-cjk-font))
   (lispm-desktop-ansi-apply-faces)
   (add-hook 'enable-theme-functions #'lispm-desktop-ansi-apply-faces)
+  (setq lispm-desktop-platinum-window-kind-function #'lispm-desktop-main-area--kind)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--session-scroll-bar)
   ;; `switch-to-buffer' obeys these too, so no command bypasses the columns;
   ;; a dedicated window, such as the sidebar's, sends the buffer elsewhere.
   ;; A file of another project opens where it is asked for, as in Emacs:

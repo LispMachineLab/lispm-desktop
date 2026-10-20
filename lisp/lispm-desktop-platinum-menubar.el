@@ -35,17 +35,10 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-titlebar)
 
-(declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
-(declare-function lispm-desktop-browser-workspace-p "lispm-desktop-browser" ())
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-desktop-agent-available "lispm-desktop-ai" ())
-(declare-function lispm-desktop-store-application-items "lispm-desktop-store" ())
-(declare-function lispm-browser-available-p "lispm-browser" ())
 
 (declare-function lispm-desktop-platinum-menu-status "lispm-desktop-platinum-status" ())
-(defvar lispm-desktop-sidebar-views)
-
 
 ;;;; Menu bar
 
@@ -174,29 +167,18 @@ Where images cannot be shown, a plain λ stands in."
 bottom line, which the menu's outline then draws, as on Mac OS 9."
   (1- (tab-bar-height nil t)))
 
+(defvar lispm-desktop-platinum-lambda-items-function nil
+  "Function returning the λ menu's items between About and Customize, as
+`lispm-desktop-popup-menu' takes them: what the desktop runs, as Mac OS
+9's Apple menu listed its applications and control panels.")
+
 (defun lispm-desktop-platinum-lambda-items ()
-  "Return the items of the λ menu, as `lispm-desktop-popup-menu' takes them."
+  "Return the items of the λ menu, as `lispm-desktop-popup-menu' takes them.
+See `lispm-desktop-platinum-lambda-items-function'."
   `((:label "About LispM" :action lispm-desktop-platinum-about)
     separator
-    ;; A new session of each agent that can run here, those built in first.
-    ,@(mapcar (pcase-lambda (`(,_ . ,props))
-                (list :label (format "New %s Session" (plist-get props :name))
-                      :action (plist-get props :command)))
-              (lispm-desktop-agent-available))
-    (:label "Resume Session…" :action lispm-desktop-agent-sessions)
-    (:label "Send Region to Agent" :action lispm-desktop-agent-send-region :enabled ,(use-region-p))
-    separator
-    (:label "New Shell" :action lispm-desktop-shell-new)
-    ,@(when (lispm-desktop-platinum--browser-p) '((:label "Browser" :action lispm-desktop-browser-show)))
-    (:label "Magit Status" :action magit-status)
-    separator
-    ,@(when (fboundp 'lispm-desktop-store-show)
-        '((:label "App Store" :action lispm-desktop-store-show)))
-    ,@(when (and (fboundp 'lispm-desktop-store-application-items)
-                 (lispm-desktop-store-application-items))
-        '((:label "Applications" :submenu lispm-desktop-store-application-items)))
-    ,@(when (fboundp 'lispm-desktop-settings-panel-items)
-        `((:label "Control Panels" :submenu lispm-desktop-settings-panel-items)))
+    ,@(and lispm-desktop-platinum-lambda-items-function
+           (funcall lispm-desktop-platinum-lambda-items-function))
     (:label "Customize lispm-desktop…" :action ,(lambda () (customize-group 'lispm-desktop)))))
 
 (defun lispm-desktop-platinum-lambda-menu ()
@@ -213,16 +195,12 @@ bottom line, which the menu's outline then draws, as on Mac OS 9."
    '(("OK" ok default))
    (format "lispm-desktop, Emacs %s.  github.com/LispMachineLab/lispm-desktop" emacs-version)))
 
-(defun lispm-desktop-platinum--browser-p ()
-  "Return non-nil when the embedded browser can run in this Emacs."
-  (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
-
 (defvar lispm-desktop-platinum-menus-function nil
   "Function returning the frontmost application's menus, or nil.
 The menus follow the λ menu in the menu bar, as Mac OS 9's menu bar held
 the frontmost application's: a list of (KEY TITLE ITEMS), ITEMS a function
 returning the items `lispm-desktop-popup-menu' takes.  Without it the menu bar
-holds a title per sidebar view, and Web.")
+holds the λ menu alone.")
 
 (defvar lispm-desktop-platinum-application-function nil
   "Function returning the frontmost application as (ICON . NAME), or nil.
@@ -256,30 +234,15 @@ MENUS is a value of `lispm-desktop-platinum-menus-function'."
 
 (defun lispm-desktop-platinum-menu-bar ()
   "Return the left end of the menu bar: the λ menu, then the frontmost
-application's menus, see `lispm-desktop-platinum-menus-function'; without one, a
-title per view, highlighted while the sidebar shows it, and Web, while the
-browser is in front."
+application's menus, see `lispm-desktop-platinum-menus-function'."
   (let ((lambda-title (lispm-desktop-platinum--menu-title
                        'lispm-desktop-lambda (lispm-desktop-platinum--lambda) #'lispm-desktop-platinum-lambda-menu
                        "LispM" (eq lispm-desktop-platinum--open-menu 'lispm-desktop-lambda) 'left)))
     (cons
      lambda-title
-     (if lispm-desktop-platinum-menus-function
-         (lispm-desktop-platinum--application-menus (funcall lispm-desktop-platinum-menus-function)
-                                                    (string-pixel-width (nth 2 lambda-title)))
-       (let ((shown (lispm-desktop-sidebar-current-view)))
-         (append
-          (mapcar (lambda (view)
-                    (let ((spec (cdr view)))
-                      (lispm-desktop-platinum--menu-title (intern (format "lispm-desktop-view-%s" (car view)))
-                                                          (plist-get spec :title)
-                                                          (plist-get spec :command)
-                                                          (plist-get spec :help)
-                                                          (eq (car view) shown))))
-                  lispm-desktop-sidebar-views)
-          (when (lispm-desktop-platinum--browser-p)
-            (list (lispm-desktop-platinum--menu-title 'lispm-desktop-view-web "Web" 'lispm-desktop-browser "Browser"
-                                                      (lispm-desktop-browser-workspace-p))))))))))
+     (when lispm-desktop-platinum-menus-function
+       (lispm-desktop-platinum--application-menus (funcall lispm-desktop-platinum-menus-function)
+                                                  (string-pixel-width (nth 2 lambda-title)))))))
 
 (defun lispm-desktop-platinum-workspace-menu ()
   "Pop up the Application menu: the applications, see
@@ -318,8 +281,6 @@ project's folder for a project's.  Clicked, it lists every workspace."
            (concat (cond (application (car application))
                          ((equal name (bound-and-true-p tabspaces-default-tab))
                           (lispm-desktop-platinum-icon "disk"))
-                         ((and (fboundp 'lispm-desktop-browser-workspace-p) (lispm-desktop-browser-workspace-p))
-                          (lispm-desktop-platinum-icon "netscape"))
                          (t (lispm-desktop-platinum-folder-icon
                              (car (rassoc name (bound-and-true-p tabspaces-project-tab-map))))))
                    " " (or (cdr application) name))

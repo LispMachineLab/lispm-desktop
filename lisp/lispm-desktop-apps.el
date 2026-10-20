@@ -403,9 +403,39 @@ This is a `window-selection-change-functions' function."
       (when (frame-parameter frame 'lispm-desktop-window)
         (lispm-desktop-platinum-raise-window frame)))))
 
+(declare-function lispm-desktop-agent-available "lispm-desktop-ai" ())
+(declare-function lispm-desktop-store-application-items "lispm-desktop-store" ())
+(declare-function lispm-browser-available-p "lispm-browser" ())
+
+(defun lispm-desktop-lambda-items ()
+  "Return the λ menu's items for the desktop's applications, agents and
+tools, as Mac OS 9's Apple menu listed applications and control panels.
+This is `lispm-desktop-platinum-lambda-items-function'."
+  `(;; A new session of each agent that can run here, those built in first.
+    ,@(mapcar (pcase-lambda (`(,_ . ,props))
+                (list :label (format "New %s Session" (plist-get props :name))
+                      :action (plist-get props :command)))
+              (and (fboundp 'lispm-desktop-agent-available) (lispm-desktop-agent-available)))
+    (:label "Resume Session…" :action lispm-desktop-agent-sessions)
+    (:label "Send Region to Agent" :action lispm-desktop-agent-send-region :enabled ,(use-region-p))
+    separator
+    (:label "New Shell" :action lispm-desktop-shell-new)
+    ,@(when (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p))
+        '((:label "Browser" :action lispm-desktop-browser-show)))
+    (:label "Magit Status" :action magit-status)
+    separator
+    ,@(when (fboundp 'lispm-desktop-store-show)
+        '((:label "App Store" :action lispm-desktop-store-show)))
+    ,@(when (and (fboundp 'lispm-desktop-store-application-items)
+                 (lispm-desktop-store-application-items))
+        '((:label "Applications" :submenu lispm-desktop-store-application-items)))
+    ,@(when (fboundp 'lispm-desktop-settings-panel-items)
+        `((:label "Control Panels" :submenu lispm-desktop-settings-panel-items)))))
+
 (defun lispm-desktop-setup-apps ()
   "Draw the menu bar and the Application menu from the application in front."
   (setq lispm-desktop-platinum-menus-function #'lispm-desktop-apps-menus
+        lispm-desktop-platinum-lambda-items-function #'lispm-desktop-lambda-items
         lispm-desktop-platinum-application-function #'lispm-desktop-apps-application
         lispm-desktop-platinum-applications-function #'lispm-desktop-apps-application-items)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-apps--follow-workspace)

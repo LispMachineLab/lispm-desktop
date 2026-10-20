@@ -37,7 +37,6 @@
 (require 'lispm-desktop-platinum-icons)
 (require 'lispm-desktop-modal)
 
-(declare-function lispm-desktop--color "lispm-desktop-surface" ())
 
 ;;;; A window's title, its moves and rolling it up
 
@@ -321,7 +320,7 @@ while it is out on the computer's screen, a window of its own."
       lispm-desktop-platinum-frame-inset
     '(0 . 0)))
 
-(defun lispm-desktop-platinum--frame-margins ()
+(defun lispm-desktop-platinum-frame-margins ()
   "Return what a window's frame takes around the window standing in it:
 \(LEFT TOP RIGHT BOTTOM) pixels.  Past `lispm-desktop-platinum-frame-inset',
 it is as wide on the right and at the bottom as on the left, and a pixel
@@ -331,10 +330,10 @@ of shadow more."
 
 (defun lispm-desktop-platinum-window-margins (frame)
   "Return what the frame carrying floating window FRAME takes around it:
-\(LEFT TOP RIGHT BOTTOM) pixels, see `lispm-desktop-platinum--frame-margins',
+\(LEFT TOP RIGHT BOTTOM) pixels, see `lispm-desktop-platinum-frame-margins',
 or none while FRAME is not framed."
   (if (lispm-desktop-platinum--framed-p frame)
-      (lispm-desktop-platinum--frame-margins)
+      (lispm-desktop-platinum-frame-margins)
     (list 0 0 0 0)))
 
 (defun lispm-desktop-platinum-window-position (frame)
@@ -451,8 +450,8 @@ elsewhere; moved by a pixel first, it is placed anew."
 
 (defun lispm-desktop-platinum--frame-size (frame)
   "Return the size of the frame of floating window FRAME: (WIDTH . HEIGHT)
-in pixels, FRAME's and its margins, see `lispm-desktop-platinum--frame-margins'."
-  (pcase-let ((`(,left ,top ,right ,bottom) (lispm-desktop-platinum--frame-margins)))
+in pixels, FRAME's and its margins, see `lispm-desktop-platinum-frame-margins'."
+  (pcase-let ((`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins)))
     (cons (+ (frame-pixel-width frame) left right)
           (+ (frame-pixel-height frame) top bottom))))
 
@@ -514,7 +513,7 @@ done resizing it from its edges, a step at a time."
 
 (defun lispm-desktop-platinum-frame-update (frame)
   "Bring the frame of floating window FRAME up to date: as large as FRAME
-and its margins, see `lispm-desktop-platinum--frame-margins', around FRAME
+and its margins, see `lispm-desktop-platinum-frame-margins', around FRAME
 again when the window system resized either from its edges, and drawn
 active while FRAME is selected."
   (when-let* ((outer (frame-parameter frame 'lispm-desktop-platinum-frame))
@@ -779,9 +778,13 @@ Mac OS 9's patterns did, wherever the line is."
                                  :background (lispm-desktop-platinum-desktop-color))
                    lispm-desktop-platinum--dots)))))
 
+(defvar lispm-desktop-platinum-desktop-color-function #'ignore
+  "Function returning the colour the desktop is drawn in, or nil for the
+theme's.")
+
 (defun lispm-desktop-platinum-desktop-color ()
   "Return the desktop's colour: the one it is drawn in, or the theme's."
-  (or (and (fboundp 'lispm-desktop--color) (lispm-desktop--color))
+  (or (funcall lispm-desktop-platinum-desktop-color-function)
       (lispm-desktop-platinum-color :desktop)))
 
 (defvar lispm-desktop-platinum--outline-frames nil

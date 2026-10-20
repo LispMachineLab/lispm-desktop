@@ -34,9 +34,6 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-frames)
 
-(declare-function lispm-desktop-sidebar-buffer-view "lispm-desktop-sidebar" (buffer))
-(declare-function lispm-desktop-sidebar-buffer-view "lispm-desktop-sidebar" (buffer))
-(declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 
 
 ;;;; Scroll bars
@@ -163,21 +160,23 @@ inactive bar, ACTIVE nil, lies flat without its arrows."
 (defvar lispm-desktop-platinum--scroll-timer nil
   "Pending timer bringing the scroll bars up to date, if any.")
 
+(defvar lispm-desktop-platinum-scroll-bar-functions nil
+  "Functions deciding whether a buffer's window gets a scroll bar, tried in
+turn: each is called with the buffer and returns `yes', `no', or nil to
+leave it to the next.  Without an answer, the main area's windows get
+one and side windows do not.  Sessions, the browser's page and the
+desktop say no; the sidebar's lists say yes.")
+
 (defun lispm-desktop-platinum--scroll-window-p (window)
-  "Return non-nil when WINDOW gets a scroll bar.
-Every window of the main area does but sessions, the browser's page and
-the desktop; of side windows, only the sidebar's lists."
-  (let ((buffer (window-buffer window)))
-    (and (not (window-minibuffer-p window))
-         (not (window-parameter window 'lispm-desktop-chrome))
-         (not (lispm-desktop-terminal-buffer-p buffer))
-         (not (let ((mode (buffer-local-value 'major-mode buffer)))
-                (or (provided-mode-derived-p mode 'xwidget-webkit-mode)
-                    (provided-mode-derived-p mode 'lispm-desktop-mode)
-                    (provided-mode-derived-p mode 'lispm-desktop-empty-mode))))
-         (or (not (window-parameter window 'window-side))
-             (lispm-desktop-sidebar-buffer-view buffer)
-             (eq (buffer-local-value 'major-mode buffer) 'treemacs-mode)))))
+  "Return non-nil when WINDOW gets a scroll bar, see
+`lispm-desktop-platinum-scroll-bar-functions'."
+  (and (not (window-minibuffer-p window))
+       (not (window-parameter window 'lispm-desktop-chrome))
+       (pcase (run-hook-with-args-until-success 'lispm-desktop-platinum-scroll-bar-functions
+                                                (window-buffer window))
+         ('yes t)
+         ('no nil)
+         (_ (not (window-parameter window 'window-side))))))
 
 (defvar lispm-desktop-platinum--scroll-map
   (let ((map (make-sparse-keymap)))

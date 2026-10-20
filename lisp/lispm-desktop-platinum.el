@@ -344,8 +344,14 @@ it, as on every theme change, is idempotent."
 
 ;;;; Setup
 
+(defun lispm-desktop-platinum--treemacs-scroll-bar (buffer)
+  "Say a scroll bar for BUFFER when it is a project's tree, as a list.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (eq (buffer-local-value 'major-mode buffer) 'treemacs-mode) 'yes))
+
 (defun lispm-desktop-setup-platinum ()
   "Lay the frame out as Mac OS 9 did, in the active theme's colours."
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-platinum--treemacs-scroll-bar)
   (setq-default tab-line-format '(:eval (lispm-desktop-platinum-title-bar))
                 mode-line-format lispm-desktop-platinum-mode-line-format)
   (setq mode-line-right-align-edge 'window)

@@ -1346,6 +1346,11 @@ This is `lispm-browser-raise-function' on the desktop."
 
 (defvar lispm-browser-clipboard-function)
 
+(defun lispm-desktop-browser--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER, a page, which scrolls itself.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (provided-mode-derived-p (buffer-local-value 'major-mode buffer) 'xwidget-webkit-mode) 'no))
+
 (defun lispm-desktop-setup-browser ()
   "Set lispm-browser up as the desktop's browser, drawn as Netscape's.
 Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
@@ -1356,6 +1361,7 @@ Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
         lispm-browser-raise-function #'lispm-desktop-browser--raise
         lispm-browser-clipboard-function #'lispm-desktop-clipboard-text)
   (add-hook 'lispm-browser-tab-hook #'lispm-desktop-browser--setup)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-browser--scroll-bar)
   (add-hook 'lispm-browser-change-hook #'lispm-desktop-browser--sync-now)
   (add-hook 'lispm-browser-redraw-hook #'lispm-desktop-browser--retitle)
   (add-hook 'lispm-browser-before-quit-hook #'lispm-desktop-browser--before-quit)

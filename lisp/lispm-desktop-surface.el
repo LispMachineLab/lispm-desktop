@@ -1287,6 +1287,14 @@ on the Finder window when it had the keyboard last, else on the desktop."
     (lispm-desktop-menu-go "Go" lispm-desktop-finder--go-items)
     (lispm-desktop-menu-special "Special" lispm-desktop--special-items)))
 
+(defun lispm-desktop--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER, the desktop or its empty window.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (let ((mode (buffer-local-value 'major-mode buffer)))
+    (and (or (provided-mode-derived-p mode 'lispm-desktop-mode)
+             (provided-mode-derived-p mode 'lispm-desktop-empty-mode))
+         'no)))
+
 (defun lispm-desktop-setup-desktop ()
   "Put the desktop behind every window, and start Emacs on it.
 Its settings take effect when changed however they are, a `setq' in
@@ -1300,6 +1308,11 @@ personal.el included, and the Trash is looked at every few seconds."
   (unless lispm-desktop--trash-timer
     (setq lispm-desktop--trash-timer (run-with-timer 5 5 #'lispm-desktop-check-trash)))
   (add-hook 'tab-bar-tab-post-open-functions #'lispm-desktop--on-new-workspace)
+  ;; Windows' outlines are drawn over the desktop's colour, and closing
+  ;; the main area's last window uncovers the desktop.
+  (setq lispm-desktop-platinum-desktop-color-function #'lispm-desktop--color
+        lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop--paint)) 90)
   (add-hook 'window-setup-hook #'lispm-desktop-activate 95))
 

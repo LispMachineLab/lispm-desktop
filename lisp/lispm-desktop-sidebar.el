@@ -210,6 +210,8 @@ selected item."
                     evil-motion-state-cursor))
     (set (make-local-variable cursor) '(nil)))
   (face-remap-add-relative 'hl-line 'region)
+  ;; A window's title menu offers documents, not the sidebar's lists.
+  (setq-local lispm-desktop-platinum-listed nil)
   (display-line-numbers-mode -1))
 
 (defun lispm-desktop-sidebar--count (n singular &optional detail)
@@ -623,6 +625,23 @@ Agents view first."
                (select-window window))))))
 
 
+
+(defun lispm-desktop-sidebar--close-side-window (_window)
+  "Hide the sidebar's view, from a side window's close box.
+This is `lispm-desktop-platinum-side-window-close-function'."
+  (when-let* ((view (lispm-desktop-sidebar-current-view)))
+    (lispm-desktop-sidebar-select view)))
+
+(defun lispm-desktop-sidebar--scroll-bar (buffer)
+  "Say a scroll bar for BUFFER when it is one of the sidebar's lists.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (lispm-desktop-sidebar-buffer-view buffer) 'yes))
+
+(defun lispm-desktop-setup-sidebar ()
+  "Let the sidebar's views close from their windows' close boxes, and its
+lists scroll as Finder's did."
+  (setq lispm-desktop-platinum-side-window-close-function #'lispm-desktop-sidebar--close-side-window)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar))
 
 (provide 'lispm-desktop-sidebar)
 ;;; lispm-desktop-sidebar.el ends here

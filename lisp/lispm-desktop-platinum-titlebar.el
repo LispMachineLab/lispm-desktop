@@ -35,24 +35,58 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-frames)
 
-(declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" ())
-(declare-function lispm-desktop-agent-buffer-label "lispm-desktop-ai" (buffer))
-(declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
-(declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
-(declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
-(declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
-(declare-function lispm-desktop-main-area--window-p "lispm-desktop-interface" (window))
-(declare-function lispm-desktop-main-area--terminal-p "lispm-desktop-interface" (window))
-(declare-function lispm-desktop-show "lispm-desktop-surface" (&optional window))
 (declare-function tabspaces--buffer-list "tabspaces" (&optional frame tabnum))
-(declare-function lispm-desktop-sidebar-buffer-view "lispm-desktop-sidebar" (buffer))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
-(declare-function lispm-desktop-sidebar-buffer-view "lispm-desktop-sidebar" (buffer))
+
+;;;; What the desktop tells title bars
+
+(defvar lispm-desktop-platinum-buffer-title-functions nil
+  "Functions naming a buffer's window, tried in turn when the buffer names
+no title of its own: each is called with the buffer and returns its
+title, or nil.  An agent's session is named by its title this way.")
+
+(defvar lispm-desktop-platinum-buffer-status-functions nil
+  "Functions saying what a buffer's program is doing, shown in its title
+bar after its title: each is called with the buffer and returns a short
+label, or nil.  A terminal says what its program last said it does.")
+
+(defvar lispm-desktop-platinum-running-buffers-functions nil
+  "Functions returning buffers whose programs quitting Emacs would stop,
+though they are no process of Emacs's: a terminal's runs in a thread of
+its own.")
+
+(defvar lispm-desktop-platinum-window-kind-function #'ignore
+  "Function of a window of the main area returning its kind: a window
+dropped on another by its title bar trades places with it only when
+both are of one kind.  Sessions keep to the left of the main area this way.")
+
+(defvar lispm-desktop-platinum-side-window-close-function #'delete-window
+  "Function closing a side window from its close box, called with the
+window.  The sidebar hides its view.")
+
+(defvar lispm-desktop-platinum-last-window-function #'ignore
+  "Function called with the main area's last window once its buffer was
+closed, the window staying: the desktop shows in it.")
+
+(defvar-local lispm-desktop-platinum-listed t
+  "Non-nil when this buffer is among those a window's title menu offers.
+The sidebar's lists are not.")
+
+(defun lispm-desktop-platinum-main-window-p (window)
+  "Return non-nil when WINDOW holds content of the main area.
+Side windows and chrome windows, such as the browser's address window
+\(marked by the `lispm-desktop-chrome' window parameter), do not."
+  (not (or (window-parameter window 'window-side)
+           (window-parameter window 'lispm-desktop-chrome))))
+
+(defun lispm-desktop-platinum-main-windows ()
+  "Return the live windows of the main area, left to right."
+  (sort (seq-filter #'lispm-desktop-platinum-main-window-p (window-list nil 'no-mini))
+        (lambda (a b) (< (car (window-edges a)) (car (window-edges b))))))
 
 ;;;; Title bars
-
 
 (defvar-local lispm-desktop-platinum-box-functions nil
   "What the title bar boxes of this buffer's window do instead of their own.
@@ -78,7 +112,7 @@ BOX is :close, :zoom or :collapse; see `lispm-desktop-platinum-box-functions'."
 (defun lispm-desktop-platinum-buffer-title (buffer)
   "Return the title of BUFFER's window."
   (or (buffer-local-value 'lispm-desktop-platinum-title buffer)
-      (and (fboundp 'lispm-desktop-agent-buffer-label) (lispm-desktop-agent-buffer-label buffer))
+      (run-hook-with-args-until-success 'lispm-desktop-platinum-buffer-title-functions buffer)
       (buffer-name buffer)))
 
 (defun lispm-desktop-platinum--buffer-icon (buffer)
@@ -195,9 +229,9 @@ window that is not a session."
   (let ((from (posn-window (event-start event)))
         (to (posn-window (event-end event))))
     (when (and (windowp to) (window-live-p to) (not (eq from to))
-               (lispm-desktop-main-area--window-p from) (lispm-desktop-main-area--window-p to))
-      (if (eq (and (lispm-desktop-main-area--terminal-p from) t)
-              (and (lispm-desktop-main-area--terminal-p to) t))
+               (lispm-desktop-platinum-main-window-p from) (lispm-desktop-platinum-main-window-p to))
+      (if (equal (funcall lispm-desktop-platinum-window-kind-function from)
+                 (funcall lispm-desktop-platinum-window-kind-function to))
           (progn (window-swap-states from to)
                  (select-window to))
         (message "Sessions keep to the left, everything else to the right")))))
@@ -283,10 +317,9 @@ collapses; a window collapses only when another shares its column."
          (title (lispm-desktop-platinum-buffer-title buffer))
          (modified (and (buffer-file-name buffer) (buffer-modified-p buffer)))
          (controls (lispm-desktop-platinum--window-controls window))
-         ;; What a terminal's program says it is doing, see lispm-desktop-term.
-         (status (when-let* (((fboundp 'lispm-desktop-term-status))
-                             (record (lispm-desktop-term-status buffer)))
-                   (lispm-desktop-term-status-label record)))
+         ;; What its program says it is doing, as a terminal's does.
+         (status (run-hook-with-args-until-success 'lispm-desktop-platinum-buffer-status-functions
+                                                   buffer))
          ;; A window's frame drawn about its floating frame lights and
          ;; shades the bar's ends already.
          (framed (lispm-desktop-platinum--framed-p (window-frame window)))
@@ -377,8 +410,7 @@ the last one shows the desktop."
    ((frame-parameter (window-frame window) 'lispm-desktop-close-function)
     (funcall (frame-parameter (window-frame window) 'lispm-desktop-close-function) window))
    ((window-parameter window 'window-side)
-    (when-let* ((view (lispm-desktop-sidebar-current-view)))
-      (lispm-desktop-sidebar-select view)))
+    (funcall lispm-desktop-platinum-side-window-close-function window))
    (t
     (let ((buffer (window-buffer window)))
       (when (lispm-desktop-platinum-confirm-close buffer)
@@ -387,10 +419,9 @@ the last one shows the desktop."
         ;; The main area's last window uncovers the desktop, as closing
         ;; Mac OS 9's last window did; any other window goes.
         (when (window-live-p window)
-          (if (cdr (lispm-desktop-main-area--windows))
+          (if (cdr (lispm-desktop-platinum-main-windows))
               (delete-window window)
-            (when (fboundp 'lispm-desktop-show)
-              (lispm-desktop-show window)))))))))
+            (funcall lispm-desktop-platinum-last-window-function window))))))))
 
 (defun lispm-desktop-platinum-confirm-close (buffer)
   "Ask, as Mac OS 9 asked, whether BUFFER may close; return non-nil if so.
@@ -433,8 +464,9 @@ buffer whose process still runs asks before the process is stopped."
 
 (defun lispm-desktop-platinum--running-programs ()
   "Return the titles of the buffers whose programs quitting Emacs stops:
-those of Emacs's processes that ask before they are killed, and of
-lispm-desktop-term's terminals, whose programs are not Emacs's processes."
+those of Emacs's processes that ask before they are killed, and those
+`lispm-desktop-platinum-running-buffers-functions' return, as terminals
+whose programs are not Emacs's processes."
   (delete-dups
    (append
     (delq nil (mapcar (lambda (process)
@@ -445,7 +477,7 @@ lispm-desktop-term's terminals, whose programs are not Emacs's processes."
                             (process-name process))))
                       (process-list)))
     (mapcar #'lispm-desktop-platinum-buffer-title
-            (and (fboundp 'lispm-desktop-term-running-buffers) (lispm-desktop-term-running-buffers))))))
+            (apply #'append (mapcar #'funcall lispm-desktop-platinum-running-buffers-functions))))))
 
 (defun lispm-desktop-platinum--unsaved-documents ()
   "Return the buffers `save-buffers-kill-emacs' offers to save."
@@ -474,8 +506,8 @@ RESTART'ing, as Mac OS 9 asked; return nil if one was cancelled."
 (defun lispm-desktop-platinum--quit (quit &optional arg restart)
   "Quit Emacs as QUIT, `save-buffers-kill-emacs', does, asking in alerts
 instead of the minibuffer: whether to save each modified document, and
-whether to stop the programs still running, agents in lispm-desktop-term's
-terminals among them.  ARG saves every document unasked; RESTART starts
+whether to stop the programs still running, agents in terminals among
+them.  ARG saves every document unasked; RESTART starts
 Emacs again.  Where alerts cannot be drawn, QUIT asks."
   (if (not (lispm-desktop-popup-available-p))
       (funcall quit arg restart)
@@ -512,7 +544,7 @@ The sidebar stays, as `delete-other-windows' leaves side windows be."
     (cond
      ((lispm-desktop-platinum--box-function window :zoom)
       (funcall (lispm-desktop-platinum--box-function window :zoom) window))
-     ((and saved (eq (car saved) window) (not (cdr (lispm-desktop-main-area--windows))))
+     ((and saved (eq (car saved) window) (not (cdr (lispm-desktop-platinum-main-windows))))
       (set-frame-parameter nil 'lispm-desktop-platinum-unzoom nil)
       (set-window-configuration (cdr saved)))
      (t
@@ -541,7 +573,7 @@ Only a window sharing its column with another can roll up."
 Hidden buffers and the sidebar's lists are left out."
   (seq-remove (lambda (buffer)
                 (or (string-prefix-p " " (buffer-name buffer))
-                    (lispm-desktop-sidebar-buffer-view buffer)))
+                    (not (buffer-local-value 'lispm-desktop-platinum-listed buffer))))
               (if (bound-and-true-p tabspaces-mode)
                   (tabspaces--buffer-list (window-frame window))
                 (buffer-list (window-frame window)))))
