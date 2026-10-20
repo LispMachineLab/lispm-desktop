@@ -221,32 +221,49 @@ others out on the computer's screen."
              (select-frame-set-input-focus next)))
           (t (select-frame-set-input-focus screen)))))
 
+(defun lispm-desktop-apps-desktop-edges (screen)
+  "Return where SCREEN's desktop lies, (LEFT TOP RIGHT BOTTOM) in pixels,
+counted from the screen's inside as a child frame's position is: under
+the menu bar, across the screen, down to the echo area."
+  ;; The root window of a screen split in windows is not live, and only a
+  ;; live window has a divider: the bottom windows' is the one.
+  (pcase-let ((`(,left ,top ,right ,bottom) (window-pixel-edges (frame-root-window screen))))
+    (list left top right
+          (- bottom (window-bottom-divider-width (car (window-at-side-list screen 'bottom)))))))
+
 (defun lispm-desktop-apps--put (frame place)
-  "Put floating FRAME at PLACE, kept whole on its screen's desktop: under
-the menu bar, and no larger than the desktop.  PLACE is a value of
-`lispm-desktop-apps--geometry'.
+  "Put floating FRAME at PLACE, kept whole on its screen's desktop with the
+frame drawn round it, see `lispm-desktop-platinum-window-margins': under
+the menu bar, above the echo area, and no larger than the desktop.  PLACE
+is a value of `lispm-desktop-apps--geometry'.
 On macOS a child frame is not clipped to its parent, so a window let past
 the desktop's edge would hang out of Emacs's frame over the screen."
   (when-let* (((frame-live-p frame))
               (screen (lispm-desktop-platinum-window-parent frame)))
     (pcase-let* ((`(,left ,top ,width ,height) place)
-                 (top-min (tab-bar-height screen t))
-                 (screen-width (frame-native-width screen))
-                 (screen-height (frame-native-height screen))
-                 ;; What the frame adds around its text: borders, mostly.
+                 (`(,desktop-left ,desktop-top ,desktop-right ,desktop-bottom)
+                  (lispm-desktop-apps-desktop-edges screen))
+                 ;; Its outline, band and shadow, none while it is not framed.
+                 (`(,frame-left ,frame-top ,frame-right ,frame-bottom)
+                  (lispm-desktop-platinum-window-margins frame))
+                 ;; What the window's own frame adds around its text: borders, mostly.
                  (extra-width (- (frame-pixel-width frame) (frame-text-width frame)))
                  (extra-height (- (frame-pixel-height frame) (frame-text-height frame)))
-                 (fit-width (max 200 (min width (- screen-width extra-width))))
+                 (fit-width (max 200 (min width (- desktop-right desktop-left
+                                                   frame-left extra-width frame-right))))
                  ;; A window rolled up keeps to its title bar.
                  (fit-height (if (lispm-desktop-platinum-rolled-up-height frame)
                                  (frame-text-height frame)
-                               (max 100 (min height (- screen-height top-min extra-height))))))
+                               (max 100 (min height (- desktop-bottom desktop-top
+                                                       frame-top extra-height frame-bottom))))))
       (unless (and (= fit-width (frame-text-width frame))
                    (= fit-height (frame-text-height frame)))
         (set-frame-size frame fit-width fit-height t)
         (lispm-desktop-platinum--frame-update frame))
-      (let ((x (max 0 (min left (- screen-width fit-width extra-width))))
-            (y (max top-min (min top (- screen-height fit-height extra-height)))))
+      (let ((x (max (+ desktop-left frame-left)
+                    (min left (- desktop-right frame-right extra-width fit-width))))
+            (y (max (+ desktop-top frame-top)
+                    (min top (- desktop-bottom frame-bottom extra-height fit-height)))))
         (unless (equal (cons x y) (lispm-desktop-platinum-window-position frame))
           (lispm-desktop-platinum-move-window frame x y))))))
 

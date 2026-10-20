@@ -2941,6 +2941,22 @@ while it is out on the computer's screen, a window of its own."
       lispm-desktop-platinum-frame-inset
     '(0 . 0)))
 
+(defun lispm-desktop-platinum--frame-margins ()
+  "Return what a window's frame takes around the window standing in it:
+\(LEFT TOP RIGHT BOTTOM) pixels.  Past `lispm-desktop-platinum-frame-inset',
+it is as wide on the right and at the bottom as on the left, and a pixel
+of shadow more."
+  (pcase-let ((`(,side . ,top) lispm-desktop-platinum-frame-inset))
+    (list side top (1+ side) (1+ side))))
+
+(defun lispm-desktop-platinum-window-margins (frame)
+  "Return what the frame carrying floating window FRAME takes around it:
+\(LEFT TOP RIGHT BOTTOM) pixels, see `lispm-desktop-platinum--frame-margins',
+or none while FRAME is not framed."
+  (if (lispm-desktop-platinum--framed-p frame)
+      (lispm-desktop-platinum--frame-margins)
+    (list 0 0 0 0)))
+
 (defun lispm-desktop-platinum-window-position (frame)
   "Return where floating window FRAME stands, (X . Y) in pixels: over its
 screen, counted from the screen's inside as a child frame's position is,
@@ -3048,16 +3064,17 @@ Return FRAME."
 
 (defun lispm-desktop-platinum--frame-update (frame)
   "Bring the frame of floating window FRAME up to date: as large as FRAME
-and the insets, and drawn active while FRAME is selected."
+and its margins, see `lispm-desktop-platinum--frame-margins', and drawn
+active while FRAME is selected."
   (when-let* ((outer (frame-parameter frame 'lispm-desktop-platinum-frame))
               ((frame-live-p outer))
               ((frame-live-p frame)))
-    (let* ((inset lispm-desktop-platinum-frame-inset)
-           (width (+ (frame-pixel-width frame) (* 2 (car inset)) 1))
-           (height (+ (frame-pixel-height frame) (cdr inset) (car inset) 1))
-           (active (eq frame (selected-frame)))
-           (size (cons width height))
-           (key (list lispm-desktop-platinum--generation width height active)))
+    (pcase-let* ((`(,left ,top ,right ,bottom) (lispm-desktop-platinum--frame-margins))
+                 (width (+ (frame-pixel-width frame) left right))
+                 (height (+ (frame-pixel-height frame) top bottom))
+                 (active (eq frame (selected-frame)))
+                 (size (cons width height))
+                 (key (list lispm-desktop-platinum--generation width height active)))
       (unless (and (equal size (frame-parameter outer 'lispm-desktop-platinum-size))
                    ;; Emacs sizes a frame anew to whole lines as its fonts
                    ;; change, as with a theme.

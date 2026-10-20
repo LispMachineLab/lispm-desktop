@@ -1943,6 +1943,76 @@ window's structure and content as one."
       (should (frame-visible-p 'outer))
       (should (frame-visible-p 'window))))
 
+(ert-deftest lispm-desktop-test-desktop-edges ()
+  "The desktop lies under the menu bar, across the screen, down to the echo
+area."
+  (pcase-let ((`(,left ,top ,right ,bottom) (lispm-desktop-apps-desktop-edges (selected-frame)))
+              (`(,_ ,echo-top ,_ ,_) (window-pixel-edges (minibuffer-window))))
+    (should (= left 0))
+    (should (= top (nth 1 (window-pixel-edges (frame-root-window)))))
+    (should (= right (frame-native-width)))
+    (should (= bottom echo-top))))
+
+(defmacro lispm-desktop-test--with-desktop (frames &rest body)
+  "Run BODY among the fake FRAMES, as `lispm-desktop-test--with-frames' does,
+over a desktop from 0, 25 to 1200, 780: a menu bar 25 pixels high above
+it, an echo area 20 pixels high below.  Frames take the sizes given them."
+  (declare (indent 1))
+  `(lispm-desktop-test--with-frames ,frames
+       (cl-letf (((symbol-function 'lispm-desktop-apps-desktop-edges) (lambda (_) '(0 25 1200 780)))
+                 ((symbol-function 'set-frame-size)
+                  (lambda (frame width height &optional _)
+                    (set-frame-parameter frame 'size (cons width height)))))
+         ,@body)))
+
+(ert-deftest lispm-desktop-test-window-kept-on-desktop-in-its-frame ()
+  "A floating window is kept whole on the desktop with the frame drawn round
+it, its outline, band and shadow: grown past the desktop, it shrinks
+until its frame fills the desktop, under the menu bar and above the echo
+area; let past an edge, it comes back until its frame is in.  A window
+not framed keeps to its own edges, and one out on the computer's screen
+is kept on that screen instead."
+  (lispm-desktop-test--with-desktop lispm-desktop-test--window-frames
+      (cl-flet ((outer-edges ()
+                  ;; The frame is as large as its window and the margins.
+                  (pcase-let ((`(,x . ,y) (frame-position 'outer))
+                              (`(,width . ,height) (frame-parameter 'window 'size)))
+                    (list x y (+ x width 13) (+ y height 8)))))
+        (should (equal (lispm-desktop-platinum-window-margins 'window) '(6 1 7 7)))
+        ;; Grown by its grow box past the desktop's bottom right.
+        (lispm-desktop-apps--put 'window '(100 50 1300 900))
+        (should (equal (frame-parameter 'window 'size) '(1187 . 747)))
+        (should (equal (outer-edges) '(0 25 1200 780)))
+        (should (equal (lispm-desktop-platinum-window-position 'window) '(6 . 26)))
+        ;; Moved past the top left, and past the bottom right.
+        (lispm-desktop-apps--put 'window '(-50 0 400 300))
+        (should (equal (frame-parameter 'window 'size) '(400 . 300)))
+        (should (equal (outer-edges) '(0 25 413 333)))
+        (lispm-desktop-apps--put 'window '(1000 700 400 300))
+        (should (equal (outer-edges) '(787 472 1200 780)))
+        ;; Where it is kept, it stays.
+        (setq moves nil)
+        (lispm-desktop-apps--put 'window '(793 473 400 300))
+        (should-not moves)))
+  (lispm-desktop-test--with-desktop '((screen (position 0 . 0) (size 1200 . 800) (visibility . t))
+                                      (window (lispm-desktop-window . t) (parent-frame . screen)
+                                              (position 100 . 50) (size 400 . 300) (visibility . t)))
+      (should (equal (lispm-desktop-platinum-window-margins 'window) '(0 0 0 0)))
+      (lispm-desktop-apps--put 'window '(100 50 1300 900))
+      (should (equal (frame-parameter 'window 'size) '(1200 . 755)))
+      (should (equal (frame-position 'window) '(0 . 25))))
+  (lispm-desktop-test--with-desktop lispm-desktop-test--window-frames
+      (let ((kept nil))
+        (cl-letf (((symbol-function 'lispm-desktop-apps--keep-on-screen)
+                   (lambda (frame) (push frame kept))))
+          (modify-frame-parameters 'outer '((parent-frame) (lispm-desktop-out . screen)))
+          (set-frame-parameter 'window 'lispm-desktop-out 'screen)
+          (lispm-desktop-apps--put 'window '(-50 0 1300 900))
+          (lispm-desktop-apps-keep-on-desktop 'window)
+          (should (equal kept '(window)))
+          (should-not moves)
+          (should (equal (frame-parameter 'window 'size) '(400 . 300)))))))
+
 (ert-deftest lispm-desktop-test-outline-geometry ()
   "Moving, a window's outline is a band two pixels thick round its outer
 rectangle; growing, a line a pixel thick round it and, within, the
