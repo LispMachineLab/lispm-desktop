@@ -86,7 +86,7 @@
 (declare-function xwidget-webkit-estimated-load-progress "xwidget.c" (xwidget))
 (defvar xwidget-webkit-mode-map)
 (defvar xwidget-webkit--loading-p)
-(declare-function lispm-desktop-platinum-icon "lispm-desktop-platinum" (name))
+(declare-function lispm-desktop-platinum-icon "lispm-desktop-platinum-icons" (name))
 (defvar lispm-desktop-platinum-title)
 (defvar lispm-desktop-platinum-icon)
 (defvar lispm-desktop-platinum-box-functions)

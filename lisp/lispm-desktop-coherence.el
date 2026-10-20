@@ -76,7 +76,7 @@
 (declare-function lispm-desktop-browser-full-screen "lispm-desktop-browser" ())
 (declare-function lispm-desktop-browser-floating-p "lispm-desktop-browser" ())
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
-(declare-function lispm-desktop-platinum--color "lispm-desktop-platinum" (key))
+(declare-function lispm-desktop-platinum--color "lispm-desktop-platinum-palette" (key))
 (defvar lispm-desktop-platinum-frame-moved-functions)
 (defvar exwm-wm-mode)
 
