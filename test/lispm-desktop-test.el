@@ -1552,6 +1552,38 @@ routing while the old workspace is still in front."
   (should (equal (lispm-desktop-sidebar--count 1 "session") "1 session"))
   (should (equal (lispm-desktop-sidebar--count 3 "session" "1 running") "3 sessions, 1 running")))
 
+(ert-deftest lispm-desktop-test-sidebar-keeps-width ()
+  "The frame narrowing, the main area gives up the columns and the sidebar
+keeps its own, also once its text narrowed, as its scroll bar narrows it
+by widening the fringe; the width dragged to is the one kept after."
+  (save-window-excursion
+    (delete-other-windows)
+    (let* ((frame (selected-frame))
+           (columns (window-total-width (frame-root-window frame)))
+           (lines (frame-height frame))
+           (buffer (get-buffer-create " lispm-desktop-test sidebar")))
+      (unwind-protect
+          (let* ((sidebar (lispm-desktop-sidebar--display buffer))
+                 (main (window-main-window frame))
+                 (width (window-total-width sidebar)))
+            (should (memq #'lispm-desktop-sidebar--keep-width
+                          (buffer-local-value 'window-size-change-functions buffer)))
+            ;; The text narrowing lifts what Emacs preserved.  The scroll
+            ;; bar narrows it by the fringe, which a batch Emacs's frame
+            ;; has none of: margins do here.
+            (set-window-margins sidebar 0 2)
+            ;; As redisplay runs it.
+            (lispm-desktop-sidebar--keep-width sidebar)
+            (set-frame-size frame (- columns 10) lines)
+            (should (= (window-total-width sidebar) width))
+            (should (= (window-total-width main) (- columns 10 width)))
+            (adjust-window-trailing-edge sidebar 4 t)
+            (lispm-desktop-sidebar--keep-width sidebar)
+            (set-frame-size frame columns lines)
+            (should (= (window-total-width sidebar) (+ width 4))))
+        (set-frame-size frame columns lines)
+        (kill-buffer buffer)))))
+
 (ert-deftest lispm-desktop-test-pressed-box-is-inverted ()
   "A box held down is lit from below, its square darkened."
   (let* ((palette (lispm-desktop-test--platinum-palette))
