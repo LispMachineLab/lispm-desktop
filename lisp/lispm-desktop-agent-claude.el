@@ -81,6 +81,18 @@ any prompt or title."
             :title (or title prompt)
             :file file))))
 
+(defun lispm-desktop-agent-claude--json-string (file key)
+  "Return the string KEY holds in the JSON object of FILE, or nil when FILE
+cannot be read or KEY holds no string, or a blank one."
+  (when (file-readable-p file)
+    (when-let* ((value (ignore-errors
+                         (with-temp-buffer
+                           (insert-file-contents file)
+                           (plist-get (json-parse-buffer :object-type 'plist) key))))
+                ((stringp value))
+                ((not (string-blank-p value))))
+      value)))
+
 (defun lispm-desktop-agent-claude--title-file (session)
   "Return the file holding Claude SESSION's custom title.
 Claude Code keeps a session's chosen name beside its transcript, in the
@@ -91,18 +103,8 @@ session's own directory, rather than in the transcript, which it rewrites."
 
 (defun lispm-desktop-agent-claude--custom-title (session)
   "Return the custom title chosen for Claude SESSION, or nil when none is."
-  (let ((file (lispm-desktop-agent-claude--title-file session)))
-    (when (file-readable-p file)
-      (when-let* ((title (ignore-errors
-                           (plist-get (json-parse-string
-                                       (with-temp-buffer
-                                         (insert-file-contents file)
-                                         (buffer-string))
-                                       :object-type 'plist)
-                                      :customTitle)))
-                  ((stringp title))
-                  ((not (string-blank-p title))))
-        title))))
+  (lispm-desktop-agent-claude--json-string (lispm-desktop-agent-claude--title-file session)
+                                          :customTitle))
 
 (defun lispm-desktop-agent-claude--titled (session)
   "Return SESSION titled by its custom title, when one was chosen.
@@ -122,11 +124,9 @@ not modified."
 
 (defun lispm-desktop-agent-claude-sessions ()
   "Return every recorded Claude Code session."
-  (delq nil (mapcar (lambda (file)
-                      (lispm-desktop-agent-claude--titled
-                       (lispm-desktop-agent-cached-session
-                        file (apply-partially #'lispm-desktop-agent-claude--session file))))
-                    (lispm-desktop-agent-claude--files))))
+  (lispm-desktop-agent-file-sessions (lispm-desktop-agent-claude--files)
+                                     #'lispm-desktop-agent-claude--session
+                                     #'lispm-desktop-agent-claude--titled))
 
 (defun lispm-desktop-agent-claude--rename (session title)
   "Give Claude SESSION the TITLE, in its custom title file.
@@ -158,15 +158,7 @@ Claude Code places worktrees under REPO/.claude/worktrees/NAME."
   "Return the theme the user chose for Claude Code run in DIRECTORY, or nil.
 It is chosen in Claude's user, project or local settings, or in its global
 configuration of old, where the default \"dark\" means none was chosen."
-  (let ((theme (lambda (file)
-                 (when (file-readable-p file)
-                   (when-let* ((theme (ignore-errors
-                                        (with-temp-buffer
-                                          (insert-file-contents file)
-                                          (plist-get (json-parse-buffer :object-type 'plist) :theme))))
-                               ((stringp theme))
-                               ((not (string-empty-p theme))))
-                     theme)))))
+  (let ((theme (lambda (file) (lispm-desktop-agent-claude--json-string file :theme))))
     (or (seq-some theme (list (expand-file-name "~/.claude/settings.json")
                               (expand-file-name ".claude/settings.json" directory)
                               (expand-file-name ".claude/settings.local.json" directory)))

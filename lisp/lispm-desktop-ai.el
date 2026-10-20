@@ -397,6 +397,18 @@ nil; the session's :time is FILE's modification time."
         (puthash file (cons time session) lispm-desktop-agent--session-cache)
         session))))
 
+(defun lispm-desktop-agent-file-sessions (files parse &optional finish)
+  "Return the sessions recorded in transcript FILES, as PARSE finds them.
+PARSE is called with a file and its head and tail objects, through
+`lispm-desktop-agent-cached-session'.  FINISH, when given, is called with
+each session found and returns it as shown, or nil to leave it out; the
+sessions are memoized, so it must not modify them."
+  (delq nil (mapcar (lambda (file)
+                      (when-let* ((session (lispm-desktop-agent-cached-session
+                                            file (apply-partially parse file))))
+                        (if finish (funcall finish session) session)))
+                    files)))
+
 (defun lispm-desktop-agent--newest-per-id (sessions)
   "Return SESSIONS keeping only the most recent transcript of each agent id.
 Codex writes forked threads to separate files that share the session id."

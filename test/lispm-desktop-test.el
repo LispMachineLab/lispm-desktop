@@ -317,6 +317,31 @@ first prompt; context Codex injects is no prompt."
       (remhash file lispm-desktop-agent--session-cache)
       (delete-directory home t))))
 
+(ert-deftest lispm-desktop-test-claude-sessions-titled-by-their-name ()
+  "A Claude session is titled by its first prompt until it is named.  The
+name lives beside the transcript, which Claude rewrites, and a blank one
+names nothing.  A transcript without a prompt is no session."
+  (let* ((lispm-desktop-agent-claude-projects-directory (make-temp-file "lispm-desktop-test-claude" t))
+         (file (expand-file-name "-tmp/0199.jsonl" lispm-desktop-agent-claude-projects-directory))
+         (empty (expand-file-name "-tmp/0200.jsonl" lispm-desktop-agent-claude-projects-directory))
+         (title (lambda () (plist-get (car (lispm-desktop-agent-claude-sessions)) :title))))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file) t)
+          (with-temp-file file
+            (insert "{\"type\":\"user\",\"cwd\":\"/tmp\",\"message\":{\"role\":\"user\",\"content\":\"Fix the build\"}}\n"))
+          (with-temp-file empty
+            (insert "{\"type\":\"system\",\"cwd\":\"/tmp\"}\n"))
+          (should (= (length (lispm-desktop-agent-claude-sessions)) 1))
+          (should (equal (funcall title) "Fix the build"))
+          (lispm-desktop-agent-claude--rename (car (lispm-desktop-agent-claude-sessions)) "Build fix")
+          (should (equal (funcall title) "Build fix"))
+          (lispm-desktop-agent-claude--rename (car (lispm-desktop-agent-claude-sessions)) " ")
+          (should (equal (funcall title) "Fix the build")))
+      (remhash file lispm-desktop-agent--session-cache)
+      (remhash empty lispm-desktop-agent--session-cache)
+      (delete-directory lispm-desktop-agent-claude-projects-directory t))))
+
 (ert-deftest lispm-desktop-test-first-start-in-batch ()
   "A batch Emacs settles on Emacs keys and Dracula without asking.
 Choices already made are kept, and the start that finds them made is
