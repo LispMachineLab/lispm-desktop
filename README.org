@@ -525,4 +525,4 @@ release =term-module-VERSION= LispM downloads where Cargo is missing (VERSION is
 
 * License
 
-GPL-3.0-or-later.  See [[file:LICENSE][LICENSE]].
+AGPL-3.0-or-later.  See [[file:LICENSE][LICENSE]].

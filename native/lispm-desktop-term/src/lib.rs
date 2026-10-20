@@ -1,7 +1,7 @@
 // lispm-desktop-term: terminals for lispm-desktop, emulated off Emacs's thread.
 //
 // Copyright (C) 2026  Ryan.K
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Emacs runs all of its Lisp, process output and redisplay on one thread,
 // so a terminal emulated in Lisp makes every terminal's output, shown or

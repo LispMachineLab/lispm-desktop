@@ -2,7 +2,7 @@
 # install.sh --- install LispM on macOS, or bring it up to date
 #
 # Copyright (C) 2026  Ryan.K
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 #   curl -fsSL https://lispmachinelab.github.io/install.sh | sh
 #
