@@ -258,22 +258,97 @@ The ellipsis takes the face of the text it follows."
                                                    (substring string 0 n))))))))))
       (concat (substring string 0 n) ellipsis))))
 
-(defun lispm-desktop-platinum-title-layout (width title-width &optional controls)
+(defconst lispm-desktop-platinum-box-margin 3
+  "Pixels from a title bar's end to the box nearest it, Mac OS 9's.")
+
+(defconst lispm-desktop-platinum-resize-corners
+  '((left top . 12) (right top . 12) (left bottom . 12) (right bottom . 15))
+  "Where macOS takes a press on an undecorated frame as resizing it from a
+corner: (SIDE END . SQUARE), a square SQUARE pixels on a side, in the
+frame, at its SIDE and END.  Between the corners it takes three pixels
+along each edge, and nothing outside the frame.  So AppKit reports a
+borderless resizable window on macOS 27, as an undecorated frame is; see
+\"Window frames\" in lispm-desktop-platinum-frames.el.")
+
+(defun lispm-desktop-platinum--resized-from-corners-p (frame)
+  "Return non-nil when the window system resizes FRAME from its corners, see
+`lispm-desktop-platinum-resize-corners': FRAME is undecorated, on macOS,
+and not full screen, which Emacs shows in a window that does not resize."
+  (and (eq (framep frame) 'ns)
+       (frame-parameter frame 'undecorated)
+       (not (memq (frame-parameter frame 'fullscreen) '(fullboth fullscreen)))))
+
+(defun lispm-desktop-platinum--box-margins (frame-width frame-height left right top)
+  "Return how far in from its ends a title bar stands the boxes nearest
+them, in a frame FRAME-WIDTH by FRAME-HEIGHT pixels the window system
+resizes from its corners: (LEFT . RIGHT) pixels.  The bar runs from
+column LEFT to RIGHT of the frame, its top at row TOP.  Mac OS 9 stood
+the boxes `lispm-desktop-platinum-box-margin' in; a box that would so lie
+in one of `lispm-desktop-platinum-resize-corners' stands past it, as a
+press there resizes the frame and never reaches the box:
+
+  margin(side) = max (box-margin,
+                      max { square - inset(side) | a corner at side
+                            whose rows the boxes' rows cross })
+
+where inset(left) = LEFT and inset(right) = FRAME-WIDTH - RIGHT.  A bar
+standing a corner's square in from the frame's side keeps Mac OS 9's."
+  (let* ((from (+ top lispm-desktop-platinum-box-top))
+         (to (+ from lispm-desktop-platinum-box-size))
+         (insets `((left . ,left) (right . ,(- frame-width right)))))
+    (cl-flet ((margin (side)
+                (seq-reduce (pcase-lambda (margin `(,corner ,end . ,square))
+                              (if (and (eq corner side)
+                                       (if (eq end 'top)
+                                           (< from square)
+                                         (> to (- frame-height square))))
+                                  (max margin (- square (alist-get side insets)))
+                                margin))
+                            lispm-desktop-platinum-resize-corners
+                            lispm-desktop-platinum-box-margin)))
+      (cons (margin 'left) (margin 'right)))))
+
+(defun lispm-desktop-platinum--window-box-margins (window)
+  "Return how far in from the ends of WINDOW's title bar its boxes stand,
+see `lispm-desktop-platinum--box-margins': Mac OS 9's unless the window
+system resizes WINDOW's frame from its corners.  A floating window's
+frame has two of them at its title bar's ends, and, rolled up, all four."
+  (let ((frame (window-frame window))
+        (margin lispm-desktop-platinum-box-margin))
+    (if (lispm-desktop-platinum--resized-from-corners-p frame)
+        (pcase-let ((`(,left ,top ,right ,_) (window-pixel-edges window)))
+          (lispm-desktop-platinum--box-margins
+           (frame-native-width frame) (frame-native-height frame)
+           left (- right (window-right-divider-width window) (window-scroll-bar-width window))
+           top))
+      (cons margin margin))))
+
+(defun lispm-desktop-platinum-title-layout (width title-width &optional controls margins)
   "Return how a title bar WIDTH pixels wide lays out a title TITLE-WIDTH wide.
 CONTROLS, as `lispm-desktop-platinum--window-controls' returns them,
-says which boxes the bar holds, by default all three.  The value is a
-plist: the title stretch, between the boxes, runs from :start to :end;
-the title, as wide as :title, starts at :label-x; :ridges lists the
-\(FROM . TO) columns of the ridges either side.  Spacing is Mac OS 9's:
-the close box three pixels in from the edge, four pixels to the ridges,
-four from the ridges to the zoom box, three to the collapse box and
-three to the edge.  The title is centred in the bar unless that would
-push it into the boxes; a title too wide is narrowed so that a short run
-of ridges stays on either side."
+says which boxes the bar holds, by default all three.  MARGINS,
+\(LEFT . RIGHT) pixels, stands the boxes nearest the bar's ends that far
+in, by default Mac OS 9's `lispm-desktop-platinum-box-margin'; an end
+without boxes keeps Mac OS 9's.  A window's bar stands its boxes clear
+of the corners its frame is resized from, see
+`lispm-desktop-platinum--window-box-margins'.  The value is a plist: the
+title stretch, between the boxes, runs
+from :start to :end; the title, as wide as :title, starts at :label-x;
+:ridges lists the \(FROM . TO) columns of the ridges either side;
+:margins, (LEFT . RIGHT), the bar's ground before the close box and after
+the last box.  Spacing is Mac OS 9's: the close box three pixels in from
+the edge, four pixels to the ridges, four from the ridges to the zoom
+box, three to the collapse box and three to the edge.  The title is
+centred in the bar unless that would push it into the boxes; a title too
+wide is narrowed so that a short run of ridges stays on either side."
   (pcase-let* ((`(,close ,zoom ,collapse) (or controls '(on on on)))
                (s lispm-desktop-platinum-box-size)
-               (start (if close (+ 3 s) 0))
-               (end (- width 3 (if zoom s 0) (if (and zoom collapse) 3 0) (if collapse s 0)))
+               (margin lispm-desktop-platinum-box-margin)
+               (`(,lead . ,trail) (or margins (cons margin margin)))
+               (lead (if close lead 0))
+               (trail (if (or zoom collapse) trail margin))
+               (start (if close (+ lead s) 0))
+               (end (- width trail (if zoom s 0) (if (and zoom collapse) 3 0) (if collapse s 0)))
                (from (+ start (if close 4 7)))
                (to (- end (if (or zoom collapse) 5 8)))
                (pad 6)
@@ -281,7 +356,7 @@ of ridges stays on either side."
                (title (max 0 (min title-width (- to from (* 2 (+ pad least))))))
                (label-x (max (+ from least pad)
                              (min (/ (- width title) 2) (- to least pad title)))))
-    (list :start start :end end :title title :label-x label-x
+    (list :start start :end end :title title :label-x label-x :margins (cons lead trail)
           :ridges (list (cons from (- label-x pad)) (cons (+ label-x title pad) to)))))
 
 (defun lispm-desktop-platinum--fixed-p (window)
@@ -331,32 +406,36 @@ collapses; a window collapses only when another shares its column."
          (framed (lispm-desktop-platinum--framed-p (window-frame window)))
          (edges (cons (not (and framed (window-at-side-p window 'left)))
                       (not (and framed (window-at-side-p window 'right)))))
+         (margins (lispm-desktop-platinum--window-box-margins window))
          (key (list lispm-desktop-platinum-generation width active icon title modified controls
-                    pressed status edges))
+                    pressed status edges margins))
          (cached (window-parameter window 'lispm-desktop-platinum-title-bar)))
     (if (equal (car cached) key)
         (cdr cached)
       (let ((bar (lispm-desktop-platinum-draw-title-bar width active icon title modified controls
-                                                         pressed status edges)))
+                                                         pressed status edges margins)))
         (set-window-parameter window 'lispm-desktop-platinum-title-bar (cons key bar))
         bar))))
 
 (defun lispm-desktop-platinum-draw-title-bar (width active icon title modified controls
-                                                     &optional pressed status edges)
+                                                     &optional pressed status edges margins)
   "Return a title bar WIDTH pixels wide for ICON and TITLE.
 ACTIVE draws the ridges and boxes; an inactive bar lies flat, its title
 greyed.  MODIFIED marks the close box; CONTROLS is a value of
 `lispm-desktop-platinum--window-controls'; PRESSED names the box held
 down, if any; STATUS, a coloured label, follows the title.  EDGES,
 \(LEAD . TRAIL), says whether the bar lights its left end and shades its
-right, by default both.  The bar is drawn as images, a stretch each
-between its boxes, so its lines run under the title too."
+right, by default both.  MARGINS stands the boxes in from the bar's
+ends, see `lispm-desktop-platinum-title-layout'.  The bar is drawn as
+images, a stretch each between its boxes, so its lines run under the
+title too."
   (pcase-let* ((label (concat (when icon (concat icon " ")) title
                               (when status (concat "  " status))))
                (face (if active 'lispm-desktop-platinum-title 'lispm-desktop-platinum-title-inactive))
                (`(,close ,zoom ,collapse) controls)
                (layout (lispm-desktop-platinum-title-layout
-                        width (lispm-desktop-platinum-content-width label face) controls))
+                        width (lispm-desktop-platinum-content-width label face) controls margins))
+               (`(,lead-margin . ,trail-margin) (plist-get layout :margins))
                (label (let ((label (copy-sequence label)))
                         (add-face-text-property 0 (length label) face t label)
                         (lispm-desktop-platinum-fit label (plist-get layout :title))))
@@ -382,7 +461,7 @@ between its boxes, so its lines run under the title too."
                   (apply #'lispm-desktop-platinum--title-part width :active t options)))
         (concat
          (when close
-           (concat (plain 3 :lead lead)
+           (concat (plain lead-margin :lead lead)
                    (box 'close #'lispm-desktop-platinum-close-window "Close this window")))
          (funcall title-part start end :lead (and lead (not close))
                   :ridges (mapcar (pcase-lambda (`(,from . ,to)) (cons (- from start) (- to start)))
@@ -393,7 +472,7 @@ between its boxes, so its lines run under the title too."
            (plain 3))
          (when collapse
            (box 'collapse #'lispm-desktop-platinum-collapse-window "Collapse this window to its title bar"))
-         (plain 3 :trail trail))))))
+         (plain trail-margin :trail trail))))))
 
 (defun lispm-desktop-platinum-title-bar ()
   "The tab line of every window: its title bar.
@@ -611,7 +690,8 @@ the title's left under the title bar."
                   (- (window-pixel-width window) (window-right-divider-width window)
                      (window-scroll-bar-width window))
                   (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)
-                  (lispm-desktop-platinum--window-controls window)))
+                  (lispm-desktop-platinum--window-controls window)
+                  (lispm-desktop-platinum--window-box-margins window)))
          (edges (window-pixel-edges window)))
     (cons (+ (nth 0 edges) (plist-get layout :label-x))
           (+ (nth 1 edges) (window-tab-line-height window)))))

@@ -46,6 +46,9 @@
 (defconst lispm-desktop-platinum-box-size 13
   "Side in pixels of a title bar box.")
 
+(defconst lispm-desktop-platinum-box-top 3
+  "Pixels from a title bar's top to its boxes'.")
+
 ;;;; Drawing (pure)
 
 (defvar lispm-desktop-platinum--images (make-hash-table :test #'equal)
@@ -131,7 +134,7 @@ turned over."
   (let* ((s lispm-desktop-platinum-box-size)
          (svg (svg-create s lispm-desktop-platinum-title-bar-height))
          (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
-         (y 3)
+         (y lispm-desktop-platinum-box-top)
          (ink (funcall grey #x22))
          (ramp (if pressed '(#x55 #x66 #x77 #x88 #x99 #xAA #xBB)
                  '(#x99 #xAA #xBB #xCC #xDD #xEE #xFF))))
