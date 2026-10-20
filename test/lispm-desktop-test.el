@@ -2137,6 +2137,54 @@ platinum, and shaded along its bottom over a black line."
                           (lispm-desktop-test--dracula-palette) 200 "3 items"))
                 'svg))))
 
+(ert-deftest lispm-desktop-test-header-button ()
+  "A header strip may open with a bevel button standing on its ground, six
+pixels in; the rest of the strip keeps its label centred on the whole,
+clear of the button."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (width (lispm-desktop-platinum-header-button-width "▲ home"))
+         (button (lispm-desktop-platinum-draw-header-button palette "▲ home"))
+         (pressed (lispm-desktop-platinum-draw-header-button palette "▲ home" 'pressed))
+         (disabled (lispm-desktop-platinum-draw-header-button palette "▲" 'disabled)))
+    (should (equal (lispm-desktop-test--size button) (cons width 22)))
+    (cl-flet ((at (svg x y) (lispm-desktop-test--pixel svg x y)))
+      (should (equal (at button 2 0) "#FFFFFF"))
+      (should (equal (at button 2 10) "#DDDDDD"))
+      (should (equal (at button 2 21) "#000000"))
+      (should (equal (at button 6 2) "#666666"))
+      (should (equal (at button 8 10) "#FFFFFF"))
+      (should (equal (at button (1- width) 10) "#333333"))
+      (should (equal (at button 10 18) "#333333"))
+      (should (equal (at button 10 19) "#DDDDDD"))
+      (should (equal (at pressed 6 10) "#111111"))
+      (should (equal (at disabled 6 10) "#999999")))
+    (should (dom-by-tag button 'text)))
+  (let ((palette (lispm-desktop-test--platinum-palette)))
+    (cl-flet ((label-x (svg) (dom-attr (car (dom-by-tag svg 'text)) 'x)))
+      (should (= (label-x (lispm-desktop-platinum-draw-header-strip palette 200 "3 items" 100))
+                 (- (label-x (lispm-desktop-platinum-draw-header-strip palette 300 "3 items")) 100)))
+      (should (= (label-x (lispm-desktop-platinum-draw-header-strip palette 40 "3 items" 100)) 8)))))
+
+(ert-deftest lispm-desktop-test-title-menu-from-keyboard ()
+  "The title menu pops up under the mouse from a Command click, and from
+the keyboard under the selected window's title."
+  (let ((calls nil))
+    (with-temp-buffer
+      (setq-local lispm-desktop-platinum-title-menu-function
+                  (lambda (_window) '((:label "Here" :action ignore))))
+      (cl-letf (((symbol-function 'lispm-desktop-popup-menu)
+                 (lambda (items &optional x y _align) (push (list items x y) calls))))
+        (save-window-excursion
+          (switch-to-buffer (current-buffer))
+          (call-interactively #'lispm-desktop-platinum-title-menu)
+          (lispm-desktop-platinum-title-menu (selected-window)))))
+    (pcase-let ((`((,_ ,mouse-x ,mouse-y) (,items ,x ,y)) calls))
+      (should (equal (plist-get (car items) :label) "Here"))
+      (should (integerp x))
+      (should (integerp y))
+      (should-not mouse-x)
+      (should-not mouse-y))))
+
 (ert-deftest lispm-desktop-test-group-box-edge ()
   "A group box's top edge is an engraved line, grey over lit, running down
 its sides; its title breaks the line on the panel's grey."
@@ -2169,6 +2217,34 @@ its folder's path, the folder first, each going there."
               (should (equal (plist-get (cadr items) :label) (lispm-desktop-finder--title root)))
               (funcall (plist-get (cadr items) :action)))
             (should (equal lispm-desktop-finder--directory root))))
+      (kill-buffer lispm-desktop-finder-buffer-name))))
+
+(ert-deftest lispm-desktop-test-finder-up-button ()
+  "The Finder's header opens with a button naming the enclosing folder,
+pressed to go there; at the top it is dimmed and does nothing."
+  (lispm-desktop-test--with-folder
+    (unwind-protect
+        (let ((root (file-name-as-directory folder)))
+          (lispm-desktop-finder--go (expand-file-name "zeta" folder))
+          (lispm-desktop-finder--in
+            (let* ((label (lispm-desktop-finder--up-label))
+                   (button (lispm-desktop-finder--up-button label)))
+              (should (equal (substring-no-properties label)
+                             (concat "▲ " (lispm-desktop-finder--title root))))
+              (should (eq (keymap-lookup (get-text-property 0 'keymap button)
+                                         "<header-line> <down-mouse-1>")
+                          #'lispm-desktop-finder--press-up)))
+            (cl-letf (((symbol-function 'lispm-desktop-platinum-press)
+                       (lambda (_position _pressed-p command) (funcall command))))
+              (lispm-desktop-finder--press-up
+               `(down-mouse-1 (,(selected-window) header-line (10 . 10) 0 nil nil (0 . 0) nil
+                               (0 . 0) (0 . 0)))))
+            (should (equal lispm-desktop-finder--directory root))
+            (should (equal lispm-desktop-finder--selected "zeta")))
+          (lispm-desktop-finder--go "/")
+          (lispm-desktop-finder--in
+            (should (equal (lispm-desktop-finder--up-label) "▲"))
+            (should-not (get-text-property 0 'keymap (lispm-desktop-finder--up-button "▲")))))
       (kill-buffer lispm-desktop-finder-buffer-name))))
 
 (ert-deftest lispm-desktop-test-control-strip-segments ()

@@ -49,7 +49,8 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   does, each returns to the place it was given, shrunk only while it does not fit.
 - *A Finder window*, opened by the home disk: a folder's items as large icons, floating over
   the desktop, the items and the room left counted in a header under its title bar, as Mac OS
-  9's was; Command-click its title for the folder's path.  A folder opens in the window, a file in the
+  9's was, opened by a button reading the enclosing folder's name that goes up to it;
+  Command-click its title, or type =C-c u=, for the folder's path.  A folder opens in the window, a file in the
   editor, which comes forward.  The arrows select, Return opens, Command-Up, Command-[ and
   Command-] go up, back and forward, Command-Delete moves the selected item to the Trash (the
   system's own, from where it can be put back), typing a name's first letters selects it, and
@@ -445,6 +446,7 @@ Two things to know when both builds run:
 | =C-c c=                | the right-click menu of what point is on, or of the icon selected |
 | =C-c o=                | the next application: the desktop, Emacs, the browser, Control Panels |
 | =C-c h=                | hide the desktop in the Dock, its windows out on the screen, or show it again |
+| =C-c u=                | the selected window's title menu: the Finder's path, else the window's buffers |
 | =C-c m=                | the menu bar from the keyboard: =C-f=, =C-b= to the menu beside, =C-n=, =C-p= or a letter to an item, =RET= chooses |
 | =C-c b=                | the Control Strip from the keyboard: =C-f=, =C-b= to a module, =RET= or =SPC= opens its menu, =C-p=, =C-n= move it up and down, =C-a=, =C-e= to the left and the right edge, =C-g= leaves |
 | =C-c B=                | hide the Control Strip, or show it again                   |
