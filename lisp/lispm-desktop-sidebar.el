@@ -45,7 +45,7 @@
 (declare-function lispm-desktop-agent--fresh-name "lispm-desktop-ai" (agent directory))
 (declare-function lispm-desktop-agent--buffer-p "lispm-desktop-ai" (buffer))
 (declare-function lispm-desktop-agent--running-p "lispm-desktop-ai" (buffer))
-(declare-function lispm-desktop-agent--independent-environment "lispm-desktop-ai" (environment))
+(declare-function lispm-desktop-agent-independent-environment "lispm-desktop-ai" (environment))
 (declare-function lispm-desktop-agent-list-visible-p "lispm-desktop-agent-list" ())
 (declare-function lispm-desktop-agent-list-show "lispm-desktop-agent-list" ())
 (declare-function lispm-desktop-agent-list-hide "lispm-desktop-agent-list" ())
@@ -436,7 +436,7 @@ The shell is the user's, run as an independent process in a terminal, see
                         (with-selected-window (lispm-desktop-agent--main-window)
                           (lispm-desktop-agent--project-directory))))
          (default-directory (file-name-as-directory directory))
-         (process-environment (lispm-desktop-agent--independent-environment process-environment))
+         (process-environment (lispm-desktop-agent-independent-environment process-environment))
          (program (or explicit-shell-file-name (getenv "ESHELL") shell-file-name)))
     (lispm-desktop-sidebar-show-in-main
      (lispm-desktop-terminal-make (lispm-desktop-agent--fresh-name 'shell directory) program "-l")))

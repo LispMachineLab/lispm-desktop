@@ -23,9 +23,9 @@
 
 ;;; Commentary:
 
-;; The agents view of the left sidebar: recorded and running Claude Code,
-;; Codex and Hermes sessions, and those of the agents running inside Emacs
-;; (`lispm-desktop-agent-emacs-agents'), grouped by project, with per-session actions.
+;; The agents view of the left sidebar: the recorded and running sessions
+;; of the agents (`lispm-desktop-agent-define'), grouped by project, with
+;; per-session actions.
 
 ;;; Code:
 
@@ -34,11 +34,12 @@
 (require 'subr-x)
 (require 'lispm-desktop-core)
 
-(declare-function lispm-desktop-agent-installed-p "lispm-desktop-ai" (agent))
-
-(defvar lispm-desktop-agent-emacs-agents)
-(declare-function lispm-desktop-agent--emacs-agent "lispm-desktop-ai" (agent))
+(defvar lispm-desktop-agents)
+(declare-function lispm-desktop-agent-available "lispm-desktop-ai" ())
+(declare-function lispm-desktop-agent--props "lispm-desktop-ai" (agent))
 (declare-function lispm-desktop-agent--emacs-buffer-agent "lispm-desktop-ai" (buffer))
+(declare-function lispm-desktop-agent--terminal-agent "lispm-desktop-ai" (buffer))
+(declare-function lispm-desktop-agent-bind-sidebar-keys "lispm-desktop-ai" ())
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
 (declare-function lispm-desktop-sidebar--insert-entry "lispm-desktop-sidebar"
@@ -60,30 +61,26 @@
   "Return DIRECTORY expanded, without trailing slash, abbreviated for display."
   (abbreviate-file-name (directory-file-name (expand-file-name directory))))
 
-(defconst lispm-desktop-agent-chat-directories
-  (list (expand-file-name "~") (expand-file-name "~/Documents/Codex/"))
-  "Directories whose sessions are project-less chats rather than project work.
-The home directory itself is a chat location; so is anything under the Codex
-app's dated scratch tree.")
-
 (defun lispm-desktop-agent--chat-directory-p (directory)
-  "Return non-nil when DIRECTORY holds project-less chat sessions."
+  "Return non-nil when DIRECTORY holds project-less chat sessions.
+The home directory itself is a chat location; so is anything under an
+agent's :chats directories, see `lispm-desktop-agent-define'."
   (let ((dir (directory-file-name (expand-file-name directory))))
-    (or (string= dir (car lispm-desktop-agent-chat-directories))
-        (string-prefix-p (cadr lispm-desktop-agent-chat-directories) (file-name-as-directory dir)))))
+    (or (string= dir (directory-file-name (expand-file-name "~")))
+        (seq-some (lambda (entry)
+                    (seq-some (lambda (chats)
+                                (string-prefix-p (file-name-as-directory (expand-file-name chats))
+                                                 (file-name-as-directory dir)))
+                              (plist-get (cdr entry) :chats)))
+                  lispm-desktop-agents))))
 
-(defun lispm-desktop-agent--claude-worktree-parent (directory)
-  "Return the repository owning DIRECTORY when it is a Claude Code worktree.
-Claude Code places worktrees under REPO/.claude/worktrees/NAME."
-  (when (string-match "\\`\\(.+?\\)/\\.claude/worktrees/[^/]+" directory)
-    (match-string 1 directory)))
-
-(defun lispm-desktop-agent--codex-worktree-name (directory)
-  "Return the repository name of DIRECTORY when it is a Codex worktree.
-Codex places worktrees under ~/.codex/worktrees/ID/NAME, which does not name
-the main checkout, so the caller matches NAME against known projects."
-  (when (string-match "/\\.codex/worktrees/[^/]+/\\([^/]+\\)" directory)
-    (match-string 1 directory)))
+(defun lispm-desktop-agent--worktree (directory)
+  "Return where DIRECTORY belongs when it is in one of an agent's worktrees,
+as that agent's :worktree says, see `lispm-desktop-agent-define'; else nil."
+  (seq-some (lambda (entry)
+              (when-let* ((worktree (plist-get (cdr entry) :worktree)))
+                (funcall worktree directory)))
+            lispm-desktop-agents))
 
 (defun lispm-desktop-agent--git-main-root (directory)
   "Return the main checkout root of the git repository containing DIRECTORY.
@@ -104,13 +101,14 @@ it to MAIN.  Return nil when DIRECTORY is missing or outside any repository."
 
 (defun lispm-desktop-agent--project-root (directory)
   "Return the project root of working DIRECTORY, or `chats' for chat sessions.
-Claude worktrees resolve to their repository, git checkouts and their
-subdirectories to the main checkout root; other directories stand alone."
+An agent's worktree known to belong to a repository resolves to it, git
+checkouts and their subdirectories to the main checkout root; other
+directories stand alone."
   (let ((dir (directory-file-name (expand-file-name directory))))
     (with-memoization (gethash dir lispm-desktop-agent--root-cache)
       (if (lispm-desktop-agent--chat-directory-p dir)
           'chats
-        (let ((base (or (lispm-desktop-agent--claude-worktree-parent dir) dir)))
+        (let ((base (or (plist-get (lispm-desktop-agent--worktree dir) :root) dir)))
           (directory-file-name (or (lispm-desktop-agent--git-main-root base) base)))))))
 
 (defun lispm-desktop-agent--location-label (directory root)
@@ -118,28 +116,27 @@ subdirectories to the main checkout root; other directories stand alone."
 Worktrees are named by their worktree, subdirectories by their relative path."
   (let ((dir (directory-file-name (expand-file-name directory))))
     (cond ((or (eq root 'chats) (string-equal-ignore-case dir root)) nil)
-          ((lispm-desktop-agent--claude-worktree-parent dir)
-           (concat "⎇ " (file-name-nondirectory dir)))
-          ((lispm-desktop-agent--codex-worktree-name dir) "⎇ codex worktree")
+          ((plist-get (lispm-desktop-agent--worktree dir) :label))
           ((string-prefix-p (file-name-as-directory root) (file-name-as-directory dir))
            (file-relative-name dir root))
           (t (abbreviate-file-name dir)))))
 
 (defun lispm-desktop-agent--resolve-roots (directories)
   "Return an alist mapping each of DIRECTORIES to its project root.
-Roots come from `lispm-desktop-agent--project-root'.  A Codex worktree that no
-longer exists cannot be followed through git, so it joins the known project
-whose directory name equals the worktree's repository name, when there is one."
+Roots come from `lispm-desktop-agent--project-root'.  An agent's worktree
+known only by its repository's name, as a Codex worktree that no longer
+exists and so cannot be followed through git, joins the known project
+whose directory name is that name, when there is one."
   (let* ((roots (mapcar (lambda (dir) (cons dir (lispm-desktop-agent--project-root dir)))
                         directories))
          (by-name (make-hash-table :test #'equal)))
     (pcase-dolist (`(,_ . ,root) roots)
-      (when (and (stringp root) (not (lispm-desktop-agent--codex-worktree-name root)))
+      (when (and (stringp root) (not (plist-get (lispm-desktop-agent--worktree root) :name)))
         (unless (gethash (file-name-nondirectory root) by-name)
           (puthash (file-name-nondirectory root) root by-name))))
     (mapcar (pcase-lambda (`(,dir . ,root))
               (cons dir (or (and (stringp root)
-                                 (when-let* ((name (lispm-desktop-agent--codex-worktree-name root)))
+                                 (when-let* ((name (plist-get (lispm-desktop-agent--worktree root) :name)))
                                    (gethash name by-name)))
                             root)))
             roots)))
@@ -216,18 +213,13 @@ about a minute of each other share their leading characters."
               (equal (buffer-local-value 'lispm-desktop-agent-buffer-session-id buffer) id))
             (lispm-desktop-agent--running-buffers)))
 
-(defface lispm-desktop-agent-claude-icon '((t :foreground "#D97757"))
-  "Face of Claude's mark: its terra cotta.
-A named face, as tab lines inherit an icon's face by name."
-  :group 'convenience)
-
 (defconst lispm-desktop-agent-icon-directory
   (expand-file-name "icons" lispm-desktop-directory)
-  "Directory of the image icons named in `lispm-desktop-agent-icons'.")
+  "Directory of the desktop's image icons of agents.")
 
 (defun lispm-desktop-agent-image-icon (file &rest args)
-  "Return FILE, an image of the agents' icons, as a one-line icon.
-FILE is in `lispm-desktop-agent-icon-directory'.
+  "Return FILE, an image, as a one-line icon of an agent.
+FILE is absolute, or relative to `lispm-desktop-agent-icon-directory'.
 ARGS are the nerd-icons keyword arguments: :height scales the icon relative
 to the frame's line height, :face and :v-adjust are accepted for the sake of
 callers that pass them to every icon function.  Where images cannot be
@@ -242,20 +234,11 @@ shown, a feather stands in for the image."
                                   :ascent 'center))
       (apply #'nerd-icons-mdicon "nf-md-feather" args))))
 
-(defconst lispm-desktop-agent-icons
-  '((claude nerd-icons-codicon "nf-cod-claude" lispm-desktop-agent-claude-icon)
-    (codex nerd-icons-codicon "nf-cod-openai" nil)
-    (hermes lispm-desktop-agent-image-icon "hermes.png" nil))
-  "Icon function, icon and face of each agent: Claude's mark in its terra
-cotta; OpenAI's mark, the maker of Codex, in the surrounding text's colour;
-and the Hermes desktop app's icon, the girl with the N choker, as an image.")
-
 (defun lispm-desktop-agent--icon-spec (agent)
-  "Return (FUNCTION ICON FACE) of AGENT's icon, as in `lispm-desktop-agent-icons'.
-An agent running inside Emacs names its own, see
-`lispm-desktop-agent-emacs-agents'."
-  (or (alist-get agent lispm-desktop-agent-icons)
-      (plist-get (lispm-desktop-agent--emacs-agent agent) :icon)))
+  "Return (FUNCTION ICON FACE) of AGENT's icon, its :icon, see
+`lispm-desktop-agent-define'; a robot for no agent known."
+  (or (plist-get (lispm-desktop-agent--props agent) :icon)
+      '(nerd-icons-codicon "nf-cod-robot" nil)))
 
 (defun lispm-desktop-agent--icon (agent)
   "Return the brand icon of AGENT."
@@ -269,13 +252,10 @@ An agent running inside Emacs names its own, see
     icon))
 
 (defun lispm-desktop-agent--buffer-agent (buffer)
-  "Return the agent running in agent BUFFER.
-A terminal is named by its agent; an in-Emacs agent recognizes its own."
-  (let ((name (buffer-name buffer)))
-    (cond ((lispm-desktop-agent--emacs-buffer-agent buffer))
-          ((string-match "\\`\\*\\([a-z]+\\):" name)
-           (intern (match-string 1 name)))
-          (t 'claude))))
+  "Return the agent running in agent BUFFER, or nil when it is none.
+A terminal knows its agent; an in-Emacs agent recognizes its own."
+  (or (lispm-desktop-agent--emacs-buffer-agent buffer)
+      (lispm-desktop-agent--terminal-agent buffer)))
 
 (defvar-local lispm-desktop-agent-list--folds nil
   "Alist of directory keys to an explicit folded state chosen by the user.
@@ -417,20 +397,13 @@ Archived sessions are left out unless `lispm-desktop-agent-list--show-archived'.
     (erase-buffer)
     (lispm-desktop-sidebar-set-toolbar
      'agents #'lispm-desktop-agent-list-refresh
-     ;; A new-session button per agent: the CLIs that are installed, then the
-     ;; agents running inside Emacs.
-     (append
-      (mapcan (pcase-lambda (`(,agent ,command ,help))
-                (when (lispm-desktop-agent-installed-p agent)
-                  (list (list (concat (lispm-desktop-agent--icon agent) "+") command help))))
-              '((claude lispm-desktop-agent-claude-new "New Claude Code session in the current project")
-                (codex lispm-desktop-agent-codex-new "New Codex session in the current project")
-                (hermes lispm-desktop-agent-hermes-new "New Hermes session in the current project")))
-      (mapcar (pcase-lambda (`(,agent . ,props))
-                (list (concat (lispm-desktop-agent--icon agent) "+") (plist-get props :command)
-                      (format "New %s session in the current project"
-                              (plist-get props :name))))
-              lispm-desktop-agent-emacs-agents))
+     ;; A new-session button per agent that can run here, those built
+     ;; in first.
+     (mapcar (pcase-lambda (`(,agent . ,props))
+               (list (concat (lispm-desktop-agent--icon agent) "+") (plist-get props :command)
+                     (format "New %s session in the current project"
+                             (plist-get props :name))))
+             (lispm-desktop-agent-available))
      ;; The archive toggle shows the archived count, pressed while archived
      ;; sessions are listed.
      (when (> archived 0)
@@ -498,9 +471,6 @@ Progress alone changes no label, so it never re-renders the sidebar."
   :doc "Keymap for the agent sidebar."
   :parent special-mode-map
   "g" #'lispm-desktop-agent-list-refresh
-  "c" #'lispm-desktop-agent-claude-new
-  "x" #'lispm-desktop-agent-codex-new
-  "h" #'lispm-desktop-agent-hermes-new
   "r" #'lispm-desktop-agent-list-rename
   "a" #'lispm-desktop-agent-list-toggle-archive
   "A" #'lispm-desktop-agent-list-toggle-show-archived
@@ -511,8 +481,12 @@ Progress alone changes no label, so it never re-renders the sidebar."
   "TAB" #'forward-button
   "<backtab>" #'backward-button)
 
+(when (fboundp 'lispm-desktop-agent-bind-sidebar-keys)
+  (lispm-desktop-agent-bind-sidebar-keys))
+
 (define-derived-mode lispm-desktop-agent-list-mode special-mode "Agents"
-  "Sidebar listing running and recorded Claude Code, Codex and Hermes sessions.
+  "Sidebar listing the agents' running and recorded sessions.
+Each agent adds the key starting it, see `lispm-desktop-agent-define'.
 \\{lispm-desktop-agent-list-mode-map}"
   (lispm-desktop-sidebar--setup-buffer))
 

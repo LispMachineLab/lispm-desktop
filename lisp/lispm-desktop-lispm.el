@@ -1,4 +1,4 @@
-;;; lispm-desktop-lispm.el --- LispM agents beside Claude Code, Codex and Hermes  -*- lexical-binding: t; -*-
+;;; lispm-desktop-lispm.el --- LispM agents, built into the editor  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
@@ -26,8 +26,8 @@
 ;; LispM runs agents inside Emacs rather than as CLIs in terminals.  You
 ;; talk to one in a chat buffer laid out like Claude Code's; its session is
 ;; stored as an org document out of sight (/transcript shows it).  This
-;; module registers it with the agent tools of lispm-desktop-ai, so it works as the
-;; others do:
+;; module makes it one of the editor's agents, built in
+;; (`lispm-desktop-agent-define'), so it works as the others do:
 ;;
 ;; - C-c a l (and l in the agents sidebar) starts a LispM agent at the
 ;;   current project root; C-u C-c a l asks for its role;
@@ -47,9 +47,7 @@
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-deps)
 
-(defvar lispm-desktop-agent-map)
 (defvar lispm-desktop-conversation-modes)
-(defvar lispm-desktop-agent-list-mode-map)
 (defvar lispm-interface)
 (defvar lispm-chat-agent)
 (defvar lispm-session-agent)
@@ -170,17 +168,22 @@ With a prefix argument, choose its ROLE."
   "Load LispM and register its agents with the agent tools."
   (lispm-desktop-deps-ensure 'lispm)
   (require 'lispm)
-  (setf (alist-get 'lispm lispm-desktop-agent-emacs-agents)
-        (list :name "LispM"
-              :icon '(lispm-desktop-agent-image-icon "lispm-lambda.png" nil)
-              :command #'lispm-desktop-agent-lispm-new
-              :sessions #'lispm-desktop-lispm-sessions
-              :new #'lispm-desktop-lispm-new
-              :resume #'lispm-desktop-lispm-resume
-              :buffer-p #'lispm-desktop-lispm-buffer-p
-              :send #'lispm-desktop-lispm-send
-              :rename #'lispm-desktop-lispm-rename
-              :files #'lispm-desktop-lispm-files))
+  (lispm-desktop-agent-define
+   'lispm
+   :name "LispM"
+   :icon '(lispm-desktop-agent-image-icon "lispm-lambda.png" nil)
+   :command #'lispm-desktop-agent-lispm-new
+   :key "l"
+   :built-in t
+   :sessions #'lispm-desktop-lispm-sessions
+   :new #'lispm-desktop-lispm-new
+   :resume #'lispm-desktop-lispm-resume
+   :buffer-p #'lispm-desktop-lispm-buffer-p
+   :send #'lispm-desktop-lispm-send
+   :rename #'lispm-desktop-lispm-rename
+   :files #'lispm-desktop-lispm-files
+   ;; Its ids are dated and end in random digits.
+   :short-id (lambda (id) (car (last (split-string id "-")))))
 
   ;; A chat keeps to the session column from the moment it is created.
   (add-to-list 'lispm-desktop-conversation-modes 'lispm-chat-mode)
@@ -188,9 +191,6 @@ With a prefix argument, choose its ROLE."
   (add-hook 'lispm-session-mode-hook #'lispm-desktop-lispm--tag-buffer)
   (add-hook 'lispm-state-change-functions #'lispm-desktop-lispm--changed)
   (add-hook 'lispm-title-change-functions #'lispm-desktop-lispm--changed)
-  (keymap-set lispm-desktop-agent-map "l" #'lispm-desktop-agent-lispm-new)
-  (with-eval-after-load 'lispm-desktop-agent-list
-    (keymap-set lispm-desktop-agent-list-mode-map "l" #'lispm-desktop-agent-lispm-new))
   (lispm-mode-line-mode 1))
 
 (provide 'lispm-desktop-lispm)

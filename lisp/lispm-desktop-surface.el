@@ -31,8 +31,9 @@
 ;; without its icons, as the desktop seen through.
 ;;
 ;; Its icons stand down the right edge, where Mac OS 9 put them: the home
-;; disk at the top, Emacs, the browser and the Control Panels folder under
-;; it, the Trash in the bottom corner.
+;; disk at the top, Emacs, the browser, the Applications folder, the App
+;; Store and the Control Panels folder under it, the Trash in the bottom
+;; corner.
 ;; A click selects an icon, darkening it and inverting its name, and a
 ;; double click opens it; the arrow keys select, Return or Command-O opens.
 ;; An icon is dragged anywhere on the desktop, a translucent copy of it
@@ -96,6 +97,8 @@ A workspace's main area shows it where it holds nothing else.")
     (applications :label "Applications" :icon "applications-32"
                   :command lispm-desktop-store-open-applications
                   :help "The applications installed, and the App Store installing more")
+    (store :label "App Store" :icon "app-store-32" :command lispm-desktop-store-show
+           :help "Applications and extensions to install")
     (control-panels :label "Control Panels" :icon "control-panels-32"
                     :command lispm-desktop-settings-open-folder
                     :help "The control panels: appearance, desktop, keyboard, Internet")

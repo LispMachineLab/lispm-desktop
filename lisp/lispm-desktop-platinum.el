@@ -73,12 +73,10 @@
 (declare-function lispm-desktop-agent--buffer-agent "lispm-desktop-agent-list" (buffer))
 (declare-function lispm-desktop-agent--buffer-p "lispm-desktop-ai" (buffer))
 (declare-function lispm-desktop-agent--icon "lispm-desktop-agent-list" (agent))
-(declare-function lispm-desktop-agent-installed-p "lispm-desktop-ai" (agent))
 (declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
 (declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
 (declare-function lispm-desktop-browser-workspace-p "lispm-desktop-browser" ())
 (defvar lispm-desktop-sidebar-views)
-(defvar lispm-desktop-agent-emacs-agents)
 
 (defgroup lispm-desktop-platinum nil
   "Mac OS 9's layout and forms for lispm-desktop."
@@ -2456,7 +2454,7 @@ Where images cannot be shown, a plain λ stands in."
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
 (defvar lispm-desktop-popup-menu-bar-step)
-(declare-function lispm-desktop-agent-installed-p "lispm-desktop-ai" (agent))
+(declare-function lispm-desktop-agent-available "lispm-desktop-ai" ())
 (declare-function lispm-desktop-store-application-items "lispm-desktop-store" ())
 (defvar lispm-desktop-theme)
 
@@ -2469,14 +2467,11 @@ bottom line, which the menu's outline then draws, as on Mac OS 9."
   "Return the items of the λ menu, as `lispm-desktop-popup-menu' takes them."
   `((:label "About LispM" :action lispm-desktop-platinum-about)
     separator
-    ,@(when (fboundp 'lispm-desktop-agent-lispm-new)
-        '((:label "New LispM Agent" :action lispm-desktop-agent-lispm-new)))
-    ,@(mapcan (pcase-lambda (`(,agent ,label ,command))
-                (when (lispm-desktop-agent-installed-p agent)
-                  (list (list :label label :action command))))
-              '((claude "New Claude Code Session" lispm-desktop-agent-claude-new)
-                (codex "New Codex Session" lispm-desktop-agent-codex-new)
-                (hermes "New Hermes Session" lispm-desktop-agent-hermes-new)))
+    ;; A new session of each agent that can run here, those built in first.
+    ,@(mapcar (pcase-lambda (`(,_ . ,props))
+                (list :label (format "New %s Session" (plist-get props :name))
+                      :action (plist-get props :command)))
+              (lispm-desktop-agent-available))
     (:label "Resume Session…" :action lispm-desktop-agent-sessions)
     (:label "Send Region to Agent" :action lispm-desktop-agent-send-region :enabled ,(use-region-p))
     separator
