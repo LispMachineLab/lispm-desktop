@@ -39,6 +39,7 @@
 (declare-function lispm-desktop-agent--props "lispm-desktop-ai" (agent))
 (declare-function lispm-desktop-agent--emacs-buffer-agent "lispm-desktop-ai" (buffer))
 (declare-function lispm-desktop-agent--terminal-agent "lispm-desktop-ai" (buffer))
+(declare-function lispm-desktop-agent-bind-sidebar-keys "lispm-desktop-ai" ())
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
 (declare-function lispm-desktop-sidebar--insert-entry "lispm-desktop-sidebar"
@@ -479,6 +480,9 @@ Progress alone changes no label, so it never re-renders the sidebar."
   "p" #'backward-button
   "TAB" #'forward-button
   "<backtab>" #'backward-button)
+
+(when (fboundp 'lispm-desktop-agent-bind-sidebar-keys)
+  (lispm-desktop-agent-bind-sidebar-keys))
 
 (define-derived-mode lispm-desktop-agent-list-mode special-mode "Agents"
   "Sidebar listing the agents' running and recorded sessions.

@@ -161,7 +161,7 @@ An agent running inside Emacs has these instead:
 
 Defining AGENT again replaces what it was.  Return AGENT."
   (if-let* ((entry (assq agent lispm-desktop-agents)))
-      (progn (lispm-desktop-agent--unbind-key (cdr entry))
+      (progn (lispm-desktop-agent--unbind-key agent (cdr entry))
              (setcdr entry properties))
     (setq lispm-desktop-agents (append lispm-desktop-agents (list (cons agent properties)))))
   (lispm-desktop-agent--bind-key agent properties)
@@ -170,10 +170,16 @@ Defining AGENT again replaces what it was.  Return AGENT."
 
 (defun lispm-desktop-agent-undefine (agent)
   "Make AGENT none of the desktop's agents any more.
-Its running sessions go on; nothing offers it, nor lists its sessions."
+Its terminals go on running, but the servers showing them Emacs's state
+stop now, while the code stopping them is still loaded: an extension
+undefines its agent as it is unloaded.  Nothing offers AGENT any more,
+nor lists its sessions."
   (when-let* ((entry (assq agent lispm-desktop-agents)))
-    (lispm-desktop-agent--unbind-key (cdr entry))
+    (dolist (buffer (buffer-list))
+      (when (eq (buffer-local-value 'lispm-desktop-agent-buffer-agent buffer) agent)
+        (lispm-desktop-agent-context-release buffer)))
     (setq lispm-desktop-agents (delq entry lispm-desktop-agents))
+    (lispm-desktop-agent--unbind-key agent (cdr entry))
     (lispm-desktop-agent--changed)))
 
 (defun lispm-desktop-agent--changed ()
@@ -192,20 +198,58 @@ can run, nothing otherwise."
               ,(plist-get properties :command)
               :filter ,(lambda (command) (and (lispm-desktop-agent-available-p agent) command))))
 
-(defun lispm-desktop-agent--bind-key (agent properties)
-  "Bind AGENT's key, of PROPERTIES, under \\`C-c a' and in the agents sidebar."
-  (when-let* ((key (plist-get properties :key)))
-    (let ((binding (lispm-desktop-agent--key-binding agent properties)))
-      (keymap-set lispm-desktop-agent-map key binding)
-      (with-eval-after-load 'lispm-desktop-agent-list
-        (keymap-set lispm-desktop-agent-list-mode-map key binding)))))
+(defvar lispm-desktop-agent--keys nil
+  "The keys bound to start agents, as (KEY . AGENT).")
 
-(defun lispm-desktop-agent--unbind-key (properties)
-  "Unbind the key of the agent of PROPERTIES."
+(defun lispm-desktop-agent--key-maps ()
+  "Return the keymaps agents' keys are bound in: \\`C-c a''s, and the
+agents sidebar's once it is loaded."
+  (delq nil (list lispm-desktop-agent-map (bound-and-true-p lispm-desktop-agent-list-mode-map))))
+
+(defun lispm-desktop-agent--key-taken-p (key)
+  "Return non-nil when KEY starts a command of its own, not an agent, in a
+keymap of `lispm-desktop-agent--key-maps'; what a keymap's parent binds
+does not count."
+  (let ((event (aref (key-parse key) 0))
+        (taken nil))
+    (dolist (map (lispm-desktop-agent--key-maps))
+      (map-keymap-internal (lambda (bound binding)
+                             (when (and binding (eq bound event))
+                               (setq taken t)))
+                           map))
+    taken))
+
+(defun lispm-desktop-agent--bind-key (agent properties)
+  "Bind AGENT's key, of PROPERTIES, under \\`C-c a' and in the agents
+sidebar; one another agent has is taken over, one starting another
+command is left to it."
   (when-let* ((key (plist-get properties :key)))
-    (keymap-unset lispm-desktop-agent-map key t)
-    (when (boundp 'lispm-desktop-agent-list-mode-map)
-      (keymap-unset lispm-desktop-agent-list-mode-map key t))))
+    (if (and (not (assoc key lispm-desktop-agent--keys))
+             (lispm-desktop-agent--key-taken-p key))
+        (message "%s gets no key: %s is taken" (plist-get properties :name) key)
+      (setf (alist-get key lispm-desktop-agent--keys nil nil #'equal) agent)
+      (dolist (map (lispm-desktop-agent--key-maps))
+        (keymap-set map key (lispm-desktop-agent--key-binding agent properties))))))
+
+(defun lispm-desktop-agent--unbind-key (agent properties)
+  "Unbind the key of AGENT, of PROPERTIES, when it is AGENT's; an agent
+still defined that wants it gets it."
+  (when-let* ((key (plist-get properties :key))
+              ((eq (alist-get key lispm-desktop-agent--keys nil nil #'equal) agent)))
+    (setq lispm-desktop-agent--keys (assoc-delete-all key lispm-desktop-agent--keys))
+    (dolist (map (lispm-desktop-agent--key-maps))
+      (keymap-unset map key t))
+    (when-let* ((other (seq-find (lambda (entry)
+                                   (and (not (eq (car entry) agent))
+                                        (equal (plist-get (cdr entry) :key) key)))
+                                 lispm-desktop-agents)))
+      (lispm-desktop-agent--bind-key (car other) (cdr other)))))
+
+(defun lispm-desktop-agent-bind-sidebar-keys ()
+  "Bind the agents' keys in the agents sidebar, as it is loaded."
+  (pcase-dolist (`(,key . ,agent) lispm-desktop-agent--keys)
+    (keymap-set lispm-desktop-agent-list-mode-map key
+                (lispm-desktop-agent--key-binding agent (lispm-desktop-agent--props agent)))))
 
 (defun lispm-desktop-agent--props (agent)
   "Return the properties of AGENT, or nil when it is no agent."
@@ -223,13 +267,17 @@ One run as a CLI can while its program is on PATH."
     (let ((program (plist-get props :program)))
       (or (null program) (and (executable-find program) t)))))
 
+(defun lispm-desktop-agent--ordered ()
+  "Return the agents, as (AGENT . PROPERTIES): those built in first, then
+the others, each in the order they were defined."
+  (append (seq-filter (lambda (entry) (plist-get (cdr entry) :built-in)) lispm-desktop-agents)
+          (seq-remove (lambda (entry) (plist-get (cdr entry) :built-in)) lispm-desktop-agents)))
+
 (defun lispm-desktop-agent-available ()
   "Return the agents that can run here, as (AGENT . PROPERTIES): those
 built in first, then the others in the order they were defined."
-  (let ((agents (seq-filter (lambda (entry) (lispm-desktop-agent-available-p (car entry)))
-                            lispm-desktop-agents)))
-    (append (seq-filter (lambda (entry) (plist-get (cdr entry) :built-in)) agents)
-            (seq-remove (lambda (entry) (plist-get (cdr entry) :built-in)) agents))))
+  (seq-filter (lambda (entry) (lispm-desktop-agent-available-p (car entry)))
+              (lispm-desktop-agent--ordered)))
 
 (defun lispm-desktop-agent--check-available (agent)
   "Return the properties of AGENT; signal a `user-error' unless it can run."
@@ -413,8 +461,9 @@ of a UUID."
   "Faces telling the agents apart in the session list, one per agent in turn.")
 
 (defun lispm-desktop-agent--label-face (agent)
-  "Return the face of AGENT's name in the session list."
-  (let ((index (or (seq-position (mapcar #'car lispm-desktop-agents) agent) 0)))
+  "Return the face of AGENT's name in the session list: the agents built
+in keep theirs, whichever extensions were loaded before them."
+  (let ((index (or (seq-position (mapcar #'car (lispm-desktop-agent--ordered)) agent) 0)))
     (nth (mod index (length lispm-desktop-agent-label-faces)) lispm-desktop-agent-label-faces)))
 
 (defun lispm-desktop-agent--session-label (session now)
@@ -445,8 +494,10 @@ A terminal an agent was started in says so, see `lispm-desktop-agent--launch';
 any other is taken by its name, \"*AGENT:...*\", as agent terminals are named."
   (and (memq (buffer-local-value 'major-mode buffer) '(eat-mode lispm-desktop-term-mode))
        (let ((agent (or (buffer-local-value 'lispm-desktop-agent-buffer-agent buffer)
-                        (and (string-match "\\`\\*\\([a-z]+\\):" (buffer-name buffer))
-                             (intern (match-string 1 (buffer-name buffer)))))))
+                        ;; Asked while tab labels are drawn: the match data stays.
+                        (save-match-data
+                          (and (string-match "\\`\\*\\([a-z]+\\):" (buffer-name buffer))
+                               (intern (match-string 1 (buffer-name buffer))))))))
          (and (plist-get (lispm-desktop-agent--props agent) :program) agent))))
 
 (defun lispm-desktop-agent--buffer-p (buffer)

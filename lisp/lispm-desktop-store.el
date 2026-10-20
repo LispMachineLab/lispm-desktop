@@ -185,6 +185,7 @@ for; a category holding nothing is left out.")
   "Height in pixels of an item of the grid, and of a line of the grid.")
 
 (defvar lispm-desktop-store-grid-map)
+(defvar lispm-desktop-store-disclosure-map)
 
 ;;;; Catalogs
 
@@ -443,6 +444,8 @@ one standing for its kind."
   "Return the version of the item ID, of PROPS, for its information."
   (let ((package (plist-get props :package)))
     (or (cond ((null package) (format "%d.%d" emacs-major-version emacs-minor-version))
+              ((equal (plist-get (lispm-desktop-store--installed id) :installed) "load-path")
+               "load path")
               ((and (lispm-desktop-store-installed-p id)
                     (lispm-desktop-store--package-version (lispm-desktop-store--package-name package))))
               ((consp package) (lispm-desktop-store--short (plist-get (cdr package) :rev))))
@@ -457,8 +460,10 @@ one standing for its kind."
 
 (defun lispm-desktop-store-update-available-p (id)
   "Return non-nil when the item ID is installed as its catalog no longer
-lists it: its package pinned to another commit."
+lists it: its package pinned to another commit.  One loaded from the load
+path, as a checkout's, is updated there, not by the App Store."
   (when-let* ((installed (lispm-desktop-store--installed id))
+              ((not (equal (plist-get installed :installed) "load-path")))
               (props (cdr (assq id (lispm-desktop-store-items))))
               (package (plist-get props :package))
               ((consp package)))
@@ -627,15 +632,16 @@ saying how to install it."
   (customize-save-variable 'lispm-desktop-store-installed
                            (assq-delete-all id (copy-alist lispm-desktop-store-installed))))
 
-(defun lispm-desktop-store--package-present-p (props)
-  "Return non-nil when the package of the item of PROPS is there already:
-installed, or, for an item loading a feature, that feature on the load
-path, as a checkout's."
+(defun lispm-desktop-store--package-present (props)
+  "Return where the package of the item of PROPS is already: `built-in' for
+none to install, `installed' for a package installed, `load-path' for an
+item's feature on the load path without a package, as a checkout's; nil
+when it is to be installed."
   (let ((package (plist-get props :package))
         (feature (plist-get props :feature)))
-    (or (null package)
-        (package-installed-p (lispm-desktop-store--package-name package))
-        (and feature (locate-library (symbol-name feature)) t))))
+    (cond ((null package) 'built-in)
+          ((package-installed-p (lispm-desktop-store--package-name package)) 'installed)
+          ((and feature (locate-library (symbol-name feature))) 'load-path))))
 
 (defun lispm-desktop-store--install-package (package)
   "Install PACKAGE, an item's :package; return what is installed: the
@@ -673,17 +679,28 @@ package's compilation, which would split the App Store's window."
 an application one of the desktop's, an extension loaded."
   (pcase-let* ((`(,id . ,props) item)
                (package (plist-get props :package))
-               (present (lispm-desktop-store--package-present-p props))
-               (installed (cond ((not present)
-                                 (lispm-desktop-store--status (format "Installing %s…" (plist-get props :name)))
-                                 (lispm-desktop-store--quietly
-                                   (lispm-desktop-store--install-package package)))
-                                ;; There already: taken as the catalog pins it.
-                                ((consp package) (plist-get (cdr package) :rev))
-                                (package (or (lispm-desktop-store--package-version package) "installed"))
-                                (t "built-in"))))
-    (lispm-desktop-store--keep id props :installed installed :owned (not present))
-    (lispm-desktop-store--register id (lispm-desktop-store--installed id))))
+               (present (lispm-desktop-store--package-present props))
+               (installed (pcase present
+                            ('nil
+                             (lispm-desktop-store--status (format "Installing %s…" (plist-get props :name)))
+                             (lispm-desktop-store--quietly
+                               (lispm-desktop-store--install-package package)))
+                            ;; A checkout's: no package of the App Store's
+                            ;; to update or delete.
+                            ('load-path "load-path")
+                            ('built-in "built-in")
+                            ;; Installed already: taken as the catalog pins it.
+                            (_ (if (consp package)
+                                   (plist-get (cdr package) :rev)
+                                 (or (lispm-desktop-store--package-version package) "installed"))))))
+    ;; Kept only once it takes part: a package that cannot be loaded is
+    ;; not left installed.
+    (condition-case err
+        (lispm-desktop-store--register id props)
+      (error (unless present
+               (lispm-desktop-store--quietly (lispm-desktop-store--delete-package package)))
+             (user-error "%s cannot be loaded: %s" (plist-get props :name) (error-message-string err))))
+    (lispm-desktop-store--keep id props :installed installed :owned (not present))))
 
 (defun lispm-desktop-store-install (id)
   "Install the item ID, and the items it requires first, once confirmed."
@@ -1422,6 +1439,7 @@ information, WIDTH pixels wide."
             (propertize (if lispm-desktop-store--information "Hide Item Information" "Show Item Information")
                         'face '(:inherit lispm-desktop-platinum-small :weight bold)))
     (make-text-button start (point) 'action (lambda (_) (lispm-desktop-store-toggle-information))
+                      'keymap lispm-desktop-store-disclosure-map
                       'face '(:inherit lispm-desktop-platinum-small :weight bold)
                       'help-echo "Show or hide the item's information"
                       'lispm-desktop-platinum-label "Item Information")
@@ -1442,7 +1460,8 @@ information, WIDTH pixels wide."
   "Return what the information of the item ID depends on, to draw it again
 when it changes."
   (and id (let ((props (cdr (assq id (lispm-desktop-store-items)))))
-            (list (lispm-desktop-store--fields id) props (lispm-desktop-store--description props)))))
+            (list (lispm-desktop-store--fields id) props (lispm-desktop-store--description props)
+                  (lispm-desktop-store--catalog-name (plist-get props :catalog))))))
 
 (defun lispm-desktop-store--placard ()
   "Return what the placard says: the App Store's doing, or its count."
@@ -1655,6 +1674,12 @@ the item clicked, or press the button clicked."
   (interactive "e")
   (pcase (lispm-desktop-store--grid-event event)
     (`(item . ,id) (lispm-desktop-store-act id))))
+
+(defvar-keymap lispm-desktop-store-disclosure-map
+  :doc "Keymap of the disclosure of the item's information: Space shows or
+hides it, as Return does, rather than pressing the item's button."
+  :parent button-map
+  "SPC" #'push-button)
 
 (defvar-keymap lispm-desktop-store-grid-map
   :doc "Keymap of the App Store's grid, for the mouse."

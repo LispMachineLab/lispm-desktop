@@ -177,7 +177,12 @@ boxes.  A download that fails, as offline, is only reported."
           (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
           (lispm-desktop-setup-langs)
           (lispm-desktop-setup-ai)
-          (lispm-desktop-setup-lispm)
+          ;; LispM is set up first, so its agent comes first; but the
+          ;; others are set up even when it cannot be, as offline at a
+          ;; first start that would install it.
+          (condition-case err
+              (lispm-desktop-setup-lispm)
+            (error (message "LispM's agents are not set up: %s" (error-message-string err))))
           (lispm-desktop-setup-claude)
           (lispm-desktop-setup-codex)
           ;; After init, so personal.el can still set `lispm-desktop-window-manager'.

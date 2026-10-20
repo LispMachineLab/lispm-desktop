@@ -36,6 +36,7 @@
 their keys bound in keymaps of the test's own."
   (declare (indent 1))
   `(let ((lispm-desktop-agents nil)
+         (lispm-desktop-agent--keys nil)
          (lispm-desktop-agent-map (make-sparse-keymap))
          (lispm-desktop-agent-list-mode-map (make-sparse-keymap)))
      (pcase-dolist (`(,agent . ,props) ,agents)
@@ -81,6 +82,30 @@ it can run; it does nothing once its program is gone or it is undefined."
       (lispm-desktop-agent-undefine 'codex)
       (should-not (keymap-lookup lispm-desktop-agent-map "x"))
       (should-not (keymap-lookup lispm-desktop-agent-list-mode-map "x")))))
+
+(ert-deftest lispm-desktop-test-agent-keys-leave-other-commands-be ()
+  "An agent's key taken by another command stays that command's, and its
+parent's bindings do not count; an agent taking another's key gives it
+back when it goes."
+  (lispm-desktop-test--with-agents nil
+    (keymap-set lispm-desktop-agent-map "r" #'lispm-desktop-agent-send-region)
+    (set-keymap-parent lispm-desktop-agent-list-mode-map special-mode-map)
+    (let ((inhibit-message t))
+      (lispm-desktop-agent-define 'greedy :name "Greedy" :new #'ignore :key "r" :command #'ignore))
+    (should (eq (keymap-lookup lispm-desktop-agent-map "r") 'lispm-desktop-agent-send-region))
+    (lispm-desktop-agent-undefine 'greedy)
+    (should (eq (keymap-lookup lispm-desktop-agent-map "r") 'lispm-desktop-agent-send-region))
+    ;; h is the sidebar's parent's, describe-mode: Hermes may have it.
+    (lispm-desktop-agent-define 'hermes :name "Hermes" :new #'ignore :key "h" :command 'lispm-hermes-new)
+    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'lispm-hermes-new))
+    (lispm-desktop-agent-define 'other :name "Other" :new #'ignore :key "h" :command 'other-new)
+    (should (eq (keymap-lookup lispm-desktop-agent-map "h") 'other-new))
+    (lispm-desktop-agent-undefine 'other)
+    (should (eq (keymap-lookup lispm-desktop-agent-map "h") 'lispm-hermes-new))
+    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'lispm-hermes-new))
+    (lispm-desktop-agent-undefine 'hermes)
+    (should-not (keymap-lookup lispm-desktop-agent-map "h"))
+    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'describe-mode))))
 
 (ert-deftest lispm-desktop-test-launch-requires-installed-cli ()
   "Starting an agent whose CLI is missing, or no agent at all, is a user
@@ -177,6 +202,43 @@ that agent is defined; a shell is no agent's."
             (lispm-desktop-agent-undefine 'codex)
             (should-not (lispm-desktop-agent--buffer-p named)))
         (mapc #'kill-buffer (list named tagged shell))))))
+
+(cl-defstruct (lispm-desktop-test--server (:constructor lispm-desktop-test--server-make))
+  "A server bound to a terminal in a test; STOPPED once it was stopped."
+  stopped)
+
+(cl-defmethod lispm-desktop-agent-context-stop ((server lispm-desktop-test--server))
+  "Note that SERVER was stopped."
+  (setf (lispm-desktop-test--server-stopped server) t))
+
+(ert-deftest lispm-desktop-test-undefined-agent-stops-its-servers ()
+  "Undefining an agent stops the servers of its terminals then, while its
+code is loaded, and leaves the terminals and other agents' servers be;
+the match data a caller holds survives telling terminals apart."
+  (lispm-desktop-test--with-agents
+      '((codex :name "Codex" :program "emacs") (claude :name "Claude Code" :program "emacs"))
+    (let ((codex (get-buffer-create "*codex:lispm-desktop-test*"))
+          (claude (get-buffer-create "*claude:lispm-desktop-test*"))
+          (codex-server (lispm-desktop-test--server-make))
+          (claude-server (lispm-desktop-test--server-make)))
+      (unwind-protect
+          (progn
+            (with-current-buffer codex (setq lispm-desktop-agent-buffer-agent 'codex))
+            (with-current-buffer claude (setq lispm-desktop-agent-buffer-agent 'claude))
+            (lispm-desktop-agent-context-bind codex-server codex)
+            (lispm-desktop-agent-context-bind claude-server claude)
+            (with-temp-buffer
+              (setq major-mode 'lispm-desktop-term-mode)
+              (rename-buffer "*claude:lispm-desktop-test-2*")
+              (string-match "\\(test\\)" "a test")
+              (lispm-desktop-agent--buffer-p (current-buffer))
+              (should (equal (match-beginning 1) 2)))
+            (lispm-desktop-agent-undefine 'codex)
+            (should (lispm-desktop-test--server-stopped codex-server))
+            (should-not (lispm-desktop-test--server-stopped claude-server))
+            (should (buffer-live-p codex)))
+        (lispm-desktop-agent-context-release-all)
+        (mapc #'kill-buffer (list codex claude))))))
 
 (ert-deftest lispm-desktop-test-agent-worktrees-join-their-projects ()
   "A Claude worktree joins its repository and a Codex worktree the known
@@ -4732,10 +4794,51 @@ when it is removed, which unloads it."
         (should-not (plist-get (cdr (assq 'ext lispm-desktop-store-installed)) :owned))
         (should (equal (car (lispm-desktop-store--action 'ext (cdr (assq 'ext (lispm-desktop-store-items)))))
                        "Installed"))
+        ;; The catalog pinning another commit is no update of the checkout's.
+        (setf (plist-get (cdr (plist-get (cdr (assq 'ext (plist-get (car lispm-desktop-store--catalogs) :items)))
+                                         :package))
+                         :rev)
+              "def")
+        (should-not (lispm-desktop-store-update-available-p 'ext))
+        (should (equal (lispm-desktop-store--version 'ext (cdr (assq 'ext (lispm-desktop-store-items))))
+                       "load path"))
         (lispm-desktop-store-remove 'ext)
         (should-not (featurep 'lispm-desktop-test-ext))
         (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
         (should-not lispm-desktop-store-installed)))))
+
+(ert-deftest lispm-desktop-test-store-extension-that-cannot-load ()
+  "An extension whose feature cannot be loaded is not kept as installed,
+and the package installed for it is deleted again."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((ext :kind extension :name "Ext" :feature lispm-desktop-test-no-such-feature
+            :package (lispm-desktop-test-no-such-feature :url "u" :rev "r"))))
+    (let ((packages nil) (deleted nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
+                ((symbol-function 'package-installed-p) (lambda (name &rest _) (memq name packages)))
+                ((symbol-function 'package-vc-install) (lambda (spec _rev) (push (car spec) packages)))
+                ((symbol-function 'lispm-desktop-store--delete-package) (lambda (package) (push package deleted))))
+        (should-error (lispm-desktop-store-install 'ext) :type 'user-error)
+        (should-not lispm-desktop-store-installed)
+        (should (equal deleted '((lispm-desktop-test-no-such-feature :url "u" :rev "r"))))))))
+
+(ert-deftest lispm-desktop-test-store-space-on-the-disclosure ()
+  "Space on the disclosure of the item's information shows or hides it,
+rather than pressing the selected item's button."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog "https://example.org/store"
+                                       '((calculator :kind app :name "Calculator" :command calc)))
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (lispm-desktop-store--render)
+      (goto-char (point-min))
+      (while (not (equal (get-text-property (point) 'lispm-desktop-platinum-label) "Item Information"))
+        (forward-char 1))
+      (should (eq (key-binding (kbd "SPC")) 'push-button))
+      (should lispm-desktop-store--information)
+      (call-interactively (key-binding (kbd "SPC")))
+      (should-not lispm-desktop-store--information))))
 
 (ert-deftest lispm-desktop-test-store-built-in-asks-nothing ()
   "An application built into Emacs is only made an application: nothing is
