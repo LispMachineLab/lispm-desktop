@@ -286,6 +286,16 @@ the window in front keeps the keyboard.")
   "Return how far in a menu's labels start, see `lispm-desktop-popup-small'."
   (if lispm-desktop-popup-small 15 lispm-desktop-popup-label-x))
 
+(defconst lispm-desktop-popup-icon-size 16
+  "Size in pixels of a menu item's icon, as Mac OS 9's Apple menu drew them.")
+
+(defun lispm-desktop-popup--icon-room (items)
+  "Return the pixels before the labels of a menu of ITEMS that its items'
+icons take: an icon and a gap when one of them has one, else none."
+  (if (seq-some (lambda (item) (and (consp item) (plist-get item :icon))) items)
+      (+ lispm-desktop-popup-icon-size 4)
+    0))
+
 (defun lispm-desktop-popup--key-margin ()
   "Return the blank pixels after a menu's longest label or key, see
 `lispm-desktop-popup-small'."
@@ -361,7 +371,8 @@ submenu shows the triangle pointing to it."
                                  ((lispm-desktop-popup--key item)
                                   (lispm-desktop-popup--label-width (lispm-desktop-popup--key item)))
                                  (t 0))))))
-    (+ (lispm-desktop-popup--label-x) label (if (> key 0) (+ 24 key) 0) (lispm-desktop-popup--key-margin))))
+    (+ (lispm-desktop-popup--label-x) (lispm-desktop-popup--icon-room items)
+       label (if (> key 0) (+ 24 key) 0) (lispm-desktop-popup--key-margin))))
 
 (defun lispm-desktop-popup--rows (items)
   "Return where the rows of a menu of ITEMS start, as (TOPS . HEIGHT).
@@ -379,13 +390,15 @@ TOPS lists each item's top in pixels; HEIGHT is the menu's."
 It is drawn as Mac OS 9 drew its menus, inside the outline the menu's
 frame draws: lit along its top and left, shaded along its bottom and
 right; items sixteen pixels tall, or 13 in a small menu (see
-`lispm-desktop-popup-small'), a check mark before the checked ones,
+`lispm-desktop-popup-small'), a check mark before the checked ones, the
+icon of those with an :icon before their label, as the Apple menu's,
 their key equivalents flush right and a black triangle on those holding
 a submenu; separators engraved across the whole width; disabled items
 greyed.  HIGHLIGHT is the index of the item under the mouse, drawn in the
 variation colour, light on dark, its edges lit and shaded in it too."
   (pcase-let* ((`(,tops . ,height) (lispm-desktop-popup--rows items))
                (svg (svg-create width height))
+               (icons (lispm-desktop-popup--icon-room items))
                (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
                (right (1- width))
                (bottom (1- height)))
@@ -420,7 +433,12 @@ variation colour, light on dark, its edges lit and shaded in it too."
                  (lispm-desktop-platinum--row svg 0 right bottom (plist-get palette :highlight-dark))))
              (when (plist-get item :checked)
                (lispm-desktop-platinum--draw-content svg "✓" (if lispm-desktop-popup-small 3 4) top h ink face))
-             (lispm-desktop-platinum--draw-content svg (plist-get item :label) (lispm-desktop-popup--label-x)
+             (when-let* ((icon (plist-get item :icon))
+                         (size (min lispm-desktop-popup-icon-size h)))
+               (lispm-desktop-platinum--draw-image svg icon (lispm-desktop-popup--label-x)
+                                                   (+ top (/ (- h size) 2)) size size))
+             (lispm-desktop-platinum--draw-content svg (plist-get item :label)
+                                                   (+ (lispm-desktop-popup--label-x) icons)
                                                    top h ink face)
              (cond ((plist-get item :submenu)
                     (lispm-desktop-platinum--draw-map
@@ -463,6 +481,17 @@ A submenu given as a function is asked for its items only now."
     (cl-loop repeat count
              do (setq index (mod (+ index direction) count))
              when (lispm-desktop-popup--enabled-p (nth index items)) return index)))
+
+(defun lispm-desktop-popup--submenu-place (level index submenu room)
+  "Return where the SUBMENU of LEVEL's item INDEX opens, as (X Y ALIGN) for
+`lispm-desktop-popup--level': beside the item, overlapping the menu's
+edge, or on its left when ROOM, the parent frame's width in pixels, has
+no room on its right, as Mac OS 9 turned a submenu at the screen's edge."
+  (let ((right (+ (plist-get level :x) (plist-get level :width) -2))
+        (y (+ (plist-get level :y) (lispm-desktop-popup--row-y level index) -1)))
+    (if (<= (+ right (lispm-desktop-popup--menu-width submenu)) (- room 2))
+        (list right y nil)
+      (list (+ (plist-get level :x) 2) y 'right))))
 
 ;; An open menu is a level: its frame, items, width, the item under the
 ;; mouse, and its place in the parent frame.  A submenu opens as another
@@ -527,7 +556,8 @@ label starts with CHAR, ignoring case, or nil."
 X and Y place the menu in the selected frame, by default under the
 mouse; ALIGN `right' puts its right edge at X.  Each item is a plist
 \(:label STRING :action FUNCTION [:enabled BOOL] [:checked BOOL]
-[:key STRING] [:submenu ITEMS-OR-FUNCTION]) or the symbol `separator'.
+[:key STRING] [:icon IMAGE] [:submenu ITEMS-OR-FUNCTION]) or the symbol
+`separator'.
 An item with a submenu opens it beside itself, as Mac OS 9's
 hierarchical menus did, when the mouse rests on it or Right is typed.
 Return the item chosen, or nil when the menu was cancelled."
@@ -572,10 +602,10 @@ without entering it."
              (redraw level)
              (let ((item (and index (nth index (plist-get level :items)))))
                (when-let* ((submenu (and item (lispm-desktop-popup--submenu item))))
-                 (funcall set (cons (lispm-desktop-popup--level
-                                     submenu
-                                     (+ (plist-get level :x) (plist-get level :width) -2)
-                                     (+ (plist-get level :y) (lispm-desktop-popup--row-y level index) -1))
+                 (funcall set (cons (apply #'lispm-desktop-popup--level submenu
+                                           (lispm-desktop-popup--submenu-place
+                                            level index submenu
+                                            (frame-pixel-width (or lispm-desktop-popup-parent (selected-frame)))))
                                     (levels)))))))
          (item (level)
            (when-let* ((index (plist-get level :highlight)))

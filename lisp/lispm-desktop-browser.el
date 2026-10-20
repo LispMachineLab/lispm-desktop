@@ -52,7 +52,9 @@
 ;;                                 and the Netscape N, its meteors falling
 ;;                                 while the page loads
 ;;                   text line     location toolbar: Bookmarks, the page's
-;;                                 icon, the address in an edit field (RET)
+;;                                 icon, the address in an edit field (RET),
+;;                                 then a button per pinned extension and
+;;                                 the Extensions button, its menu of them all
 ;;                   mode line     personal toolbar: a button per bookmark
 ;;   page window     tab line      a bevel button per tab, then "+"
 ;;                   below         the page
@@ -231,7 +233,7 @@ Extensions is among them where pages can run Chrome extensions."
     (lispm-desktop-browser-bookmarks "Bookmarks" lispm-desktop-browser--bookmark-items)
     ,@(when (and (fboundp 'lispm-browser-extensions-supported-p)
                  (lispm-browser-extensions-supported-p))
-        '((lispm-desktop-browser-extensions-menu "Extensions" lispm-browser-extensions--menu-items)))
+        '((lispm-desktop-browser-extensions-menu "Extensions" lispm-browser-extensions-menu-items)))
     (lispm-desktop-browser-window "Window" lispm-desktop-browser--window-items)))
 
 ;;;;; Drawing Netscape's chrome
@@ -319,7 +321,9 @@ fill='%r' stroke='%i' stroke-linejoin='round'/><path d='M8.8 8.8 L15.2 15.2 M15.
 L8.8 15.2' stroke='%w' stroke-width='2.6' stroke-linecap='round'/>")
     (bookmarks . "<path d='M5.5 2.5 L18.5 2.5 L18.5 21.5 L12 16.5 L5.5 21.5 Z' fill='%f' \
 stroke='%i' stroke-linejoin='round'/><path d='M8.5 6.5 L15.5 6.5' stroke='%c' \
-stroke-width='1.5'/>"))
+stroke-width='1.5'/>")
+    (extensions . "<path d='M4.5 8 H8.4 A2.6 2.6 0 1 1 13 8 H17 V11.9 A2.6 2.6 0 1 1 17 16.5 \
+V20.5 H4.5 Z' fill='%f' stroke='%i' stroke-linejoin='round'/>"))
   "The toolbar's icons, each SVG drawn on a 24-pixel square; see
 `lispm-desktop-browser--ink' for the colours named in them.")
 
@@ -541,6 +545,176 @@ the page's `lispm-browser-status-note'."
                             "Loading…")))
               (or lispm-browser-status-note "Document: Done")))))
 
+;;;;; Extension buttons
+;;
+;; The location toolbar ends, as Chrome's toolbar does, with a button per
+;; extension pinned to it, then the Extensions button, a puzzle piece,
+;; whose menu holds them all; lispm-browser keeps them and runs them.  Each
+;; is a small bevel button: the extension's own icon, greyed when it does
+;; nothing on the page, its badge at the lower right, and pushed in while
+;; its popup, hanging under it, is up.
+
+(declare-function lispm-browser-extensions-buttons "lispm-browser-extensions" ())
+(declare-function lispm-browser-extensions-button-menu-items "lispm-browser-extensions" (id))
+(declare-function lispm-browser-extensions-button-anchor "lispm-browser-extensions" (window top height id))
+(declare-function lispm-browser-extensions-event-anchor "lispm-browser-extensions" (event))
+(defvar lispm-browser-extensions-anchor-function)
+(defvar lispm-desktop-popup-parent)
+
+(defconst lispm-desktop-browser-extension-size 24
+  "Size in pixels of an extension's button on the location toolbar.")
+
+(defconst lispm-desktop-browser-extension-gap 2
+  "Pixels between the location toolbar's extension buttons.")
+
+(defun lispm-desktop-browser--draw-badge (text color text-color)
+  "Return SVG of an extension button's badge TEXT, in COLOR with its text in
+TEXT-COLOR, at the button's lower right, as Chrome draws badges: four
+characters at most."
+  (let* ((text (truncate-string-to-width text 4))
+         (size lispm-desktop-browser-extension-size)
+         (width (max 10 (+ 4 (* 5 (string-width text)))))
+         (family (car (lispm-desktop-browser--font))))
+    (format "<rect x='%d' y='%d' width='%d' height='10' rx='2' fill='%s'/>\
+<text x='%d' y='%d' font-family='%s' font-size='8' font-weight='bold' text-anchor='middle' fill='%s'>%s</text>"
+            (- size width 1) (- size 11) width (lispm-desktop-browser--escape color)
+            (- size 1 (/ width 2)) (- size 3) (lispm-desktop-browser--escape family)
+            (lispm-desktop-browser--escape text-color) (lispm-desktop-browser--escape text))))
+
+(defun lispm-desktop-browser--draw-extension (button)
+  "Return SVG of extension BUTTON's toolbar button, see
+`lispm-browser-extensions-buttons'."
+  (let* ((size lispm-desktop-browser-extension-size)
+         (icon (plist-get button :icon))
+         (data (and icon (image-property icon :data)))
+         (enabled (plist-get button :enabled))
+         (pressed (plist-get button :open))
+         (inset (+ (/ (- size 16) 2) (if pressed 1 0)))
+         (badge (plist-get button :badge)))
+    (concat
+     (format "<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' \
+width='%d' height='%d' viewBox='0 0 %d %d'>" size size size size)
+     (lispm-desktop-browser--bevel size size pressed)
+     (if data
+         (format "<image x='%d' y='%d' width='16' height='16' opacity='%s' xlink:href='data:image/png;base64,%s'/>"
+                 inset inset (if enabled "1" "0.45") (base64-encode-string data t))
+       ;; No icon: the initial of its name, as Chrome shows.
+       (format "<text x='%d' y='%d' font-family='%s' font-size='13' font-weight='bold' text-anchor='middle' fill='%s'>%s</text>"
+               (/ size 2) (+ inset 13) (lispm-desktop-browser--escape (car (lispm-desktop-browser--font)))
+               (lispm-desktop-platinum--color (if enabled :text :shade))
+               (lispm-desktop-browser--escape (upcase (substring (or (plist-get button :name) "?") 0 1)))))
+     (if badge
+         (lispm-desktop-browser--draw-badge badge (plist-get button :badge-color) (plist-get button :badge-text-color))
+       "")
+     "</svg>")))
+
+(defun lispm-desktop-browser--draw-puzzle (pressed)
+  "Return SVG of the Extensions button, the puzzle piece in a bevel button,
+pushed in when PRESSED."
+  (let ((size lispm-desktop-browser-extension-size))
+    (lispm-desktop-browser--svg
+     size size
+     (lispm-desktop-browser--bevel size size pressed)
+     (format "<g transform='translate(%d %d) scale(0.75)'>%s</g>" (+ 3 (if pressed 1 0)) (+ 3 (if pressed 1 0))
+             (format-spec (alist-get 'extensions lispm-desktop-browser--icons) (lispm-desktop-browser--ink t))))))
+
+(defun lispm-desktop-browser--popup-at (items anchor)
+  "Pop up ITEMS as a Mac OS 9 menu under ANCHOR, a button's rectangle in
+its frame, see `lispm-browser-extensions-anchor-function': flush with its
+right edge, as the buttons end the toolbar."
+  (pcase-let ((`(,frame ,x ,y ,width ,height) anchor))
+    (let ((lispm-desktop-popup-parent frame))
+      (lispm-desktop-popup-menu items (+ x width) (+ y height) 'right))))
+
+(defun lispm-desktop-browser-extensions-menu (&optional event)
+  "Pop up the Extensions menu under the location toolbar's Extensions
+button, or at mouse EVENT."
+  (interactive (list (and (mouse-event-p last-nonmenu-event) last-nonmenu-event)))
+  (let ((anchor (or (and event (lispm-browser-extensions-event-anchor event))
+                    (lispm-desktop-browser--extension-anchor 'menu))))
+    (if anchor
+        (lispm-desktop-browser--popup-at (lispm-browser-extensions-menu-items) anchor)
+      (lispm-desktop-popup-menu (lispm-browser-extensions-menu-items)))))
+
+(defun lispm-desktop-browser--extension-menu (id event)
+  "Pop up the menu of extension ID's button, clicked with EVENT."
+  (when-let* ((anchor (lispm-browser-extensions-event-anchor event)))
+    (lispm-desktop-browser--popup-at (lispm-browser-extensions-button-menu-items id) anchor)))
+
+(defun lispm-desktop-browser--extension-map (id)
+  "Return the keymap of extension ID's toolbar button: a click presses it,
+its popup hanging under it; a right or Control click shows its menu."
+  (let ((map (make-sparse-keymap))
+        (menu (lambda (event) (interactive "e") (lispm-desktop-browser--extension-menu id event))))
+    (keymap-set map "<down-mouse-1>" #'ignore)
+    (keymap-set map "<mouse-1>" (lambda (event)
+                                  (interactive "e")
+                                  (lispm-browser-extensions-press id (lispm-browser-extensions-event-anchor event))))
+    (keymap-set map "<down-mouse-3>" menu)
+    (keymap-set map "<mouse-3>" #'ignore)
+    (keymap-set map "C-<down-mouse-1>" menu)
+    (keymap-set map "C-<mouse-1>" #'ignore)
+    map))
+
+(defvar lispm-desktop-browser-extensions-button-map
+  (let ((map (make-sparse-keymap)))
+    (keymap-set map "<down-mouse-1>" #'lispm-desktop-browser-extensions-menu)
+    (keymap-set map "<mouse-1>" #'ignore)
+    map)
+  "Keymap of the location toolbar's Extensions button.")
+
+(defun lispm-desktop-browser--extension-button (button)
+  "Return extension BUTTON for the location toolbar."
+  (let ((id (plist-get button :id)))
+    (propertize " " 'display (lispm-desktop-browser--image
+                              (list 'extension id (plist-get button :name)
+                                    (let ((icon (plist-get button :icon))) (and icon (image-property icon :data)))
+                                    (plist-get button :badge) (plist-get button :badge-color)
+                                    (plist-get button :badge-text-color) (plist-get button :enabled)
+                                    (plist-get button :open))
+                              (lambda () (lispm-desktop-browser--draw-extension button)))
+                'lispm-browser-extensions-button id 'pointer 'arrow
+                'help-echo (plist-get button :name)
+                'keymap (lispm-desktop-browser--extension-map id))))
+
+(defun lispm-desktop-browser--extension-buttons ()
+  "Return the location toolbar's extension buttons and its Extensions
+button, as (STRING . WIDTH), WIDTH in pixels; nil where pages run no
+extensions, or nothing is drawn."
+  (when (and (display-graphic-p)
+             (fboundp 'lispm-browser-extensions-supported-p)
+             (lispm-browser-extensions-supported-p))
+    (let* ((buttons (lispm-browser-extensions-buttons))
+           (gap (lispm-desktop-platinum--space lispm-desktop-browser-extension-gap))
+           (size lispm-desktop-browser-extension-size))
+      (cons (concat (mapconcat (lambda (button) (concat (lispm-desktop-browser--extension-button button) gap))
+                               buttons "")
+                    (propertize " " 'display (lispm-desktop-browser--image
+                                              '(puzzle) (lambda () (lispm-desktop-browser--draw-puzzle nil)))
+                                'lispm-browser-extensions-button 'menu 'pointer 'arrow
+                                'help-echo "Extensions: press one, pin them, manage them"
+                                'keymap lispm-desktop-browser-extensions-button-map))
+            (+ (* (length buttons) (+ size lispm-desktop-browser-extension-gap)) size)))))
+
+(defun lispm-desktop-browser--extension-anchor (id)
+  "Return where the location toolbar's button of extension ID is, or the
+Extensions button's for `menu', for its popup to hang from.  This is
+`lispm-browser-extensions-anchor-function' on the desktop."
+  (when-let* ((window (lispm-desktop-browser--address-window)))
+    (pcase-let ((`(,_ ,top . ,_) (window-pixel-edges window))
+                (`(,_ ,text-top . ,_) (window-inside-pixel-edges window)))
+      (lispm-browser-extensions-button-anchor
+       window (+ (- text-top top) (/ (- lispm-desktop-browser-address-height lispm-desktop-browser-extension-size) 2))
+       lispm-desktop-browser-extension-size id))))
+
+(defun lispm-desktop-browser--redraw-extensions ()
+  "Redraw the location toolbar's extension buttons, leaving the address
+alone.  This is on `lispm-browser-extensions-changed-hook'."
+  (when-let* ((buffer (get-buffer lispm-desktop-browser-address-buffer-name)))
+    (with-current-buffer buffer
+      (lispm-desktop-browser--draw-field)
+      (force-mode-line-update))))
+
 ;;;;; Address window
 
 (defvar-local lispm-desktop-browser--address-start nil
@@ -622,20 +796,26 @@ inhibited and the edit mark cleared."
 (defun lispm-desktop-browser--draw-field ()
   "Draw the address as Mac OS 9's edit text field: framed in black, in the
 list colour, reaching across the toolbar to a few pixels short of its
-right edge; ringed in the focus colour while it has the keyboard.  The
-field grows as the address is typed at its end."
+right edge, or of the extension buttons that end it; ringed in the focus
+colour while it has the keyboard.  The field grows as the address is
+typed at its end."
   (let ((face (if (eq (selected-window) (get-buffer-window (current-buffer)))
                   'lispm-desktop-platinum-field-focused
-                'lispm-desktop-platinum-field)))
+                'lispm-desktop-platinum-field))
+        (extensions (lispm-desktop-browser--extension-buttons)))
     (unless lispm-desktop-browser--field
       (setq lispm-desktop-browser--field (make-overlay 1 1 nil nil t)))
     (overlay-put lispm-desktop-browser--field 'face face)
     (overlay-put lispm-desktop-browser--field 'before-string
                  (propertize " " 'face face 'display '(space :width (4))))
-    ;; The cursor at the address's end stands on the field's blank rest.
+    ;; The cursor at the address's end stands on the field's blank rest,
+    ;; then come the extension buttons.
     (overlay-put lispm-desktop-browser--field 'after-string
-                 (propertize " " 'face face 'cursor t
-                             'display '(space :align-to (- right (12)))))
+                 (concat (propertize " " 'face face 'cursor t
+                                     'display `(space :align-to (- right (,(+ 12 (if extensions (+ (cdr extensions) 8) 0))))))
+                         (if extensions
+                             (concat (lispm-desktop-platinum--space 8) (car extensions))
+                           "")))
     (when lispm-desktop-browser--address-start
       (move-overlay lispm-desktop-browser--field lispm-desktop-browser--address-start (point-max)))))
 
@@ -1224,6 +1404,9 @@ Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
   (add-hook 'lispm-browser-change-hook #'lispm-desktop-browser--sync-now)
   (add-hook 'lispm-browser-redraw-hook #'lispm-desktop-browser--retitle)
   (add-hook 'lispm-browser-before-quit-hook #'lispm-desktop-browser--before-quit)
+  ;; The extension buttons on the location toolbar.
+  (setq lispm-browser-extensions-anchor-function #'lispm-desktop-browser--extension-anchor)
+  (add-hook 'lispm-browser-extensions-changed-hook #'lispm-desktop-browser--redraw-extensions)
   (add-hook 'lispm-browser-quit-hook #'lispm-desktop-browser--quit)
   (lispm-browser-setup 'none))
 
