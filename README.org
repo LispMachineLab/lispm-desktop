@@ -4,8 +4,8 @@
 
 LispM's Emacs distribution: Emacs set up as a workspace for coding agents, ready from the first
 start.  [[https://github.com/LispMachineLab/lispm-agent][LispM Agent]] runs agents inside Emacs;
-LispM Desktop gives them a place to work, and puts Claude Code, Codex and Hermes beside them when
-you have those installed.  Its browser is
+LispM Desktop gives them a place to work, and puts Claude Code and Codex beside them when you have
+those installed, and other agents, as Hermes, once its App Store has added them.  Its browser is
 [[https://github.com/LispMachineLab/lispm-browser][LispM Browser]], drawn as Netscape
 Communicator's window was.  In code, the prefix is ~lispm-desktop-~.
 
@@ -17,7 +17,7 @@ LispM is four projects, each a repository of its own under
 | [[https://github.com/LispMachineLab/lispm-agent][lispm-agent]]     | LispM Agent: AI agents that run inside Emacs, their conversations org documents, their tools Elisp |
 | *lispm-desktop*   | LispM Desktop, this repository: Emacs laid out as Mac OS 9's desktop, a workspace for agents, ready from the first start |
 | [[https://github.com/LispMachineLab/lispm-browser][lispm-browser]]   | LispM Browser: a WebKit browser in Emacs, with tabs, keyboard hints and Chrome extensions |
-| [[https://github.com/LispMachineLab/lispm-store][lispm-store]]     | LispM Store: the catalog of applications, agents and skills LispM Desktop's App Store installs |
+| [[https://github.com/LispMachineLab/lispm-store][lispm-store]]     | LispM Store: the catalog of applications and extensions LispM Desktop's App Store installs |
 
 The agents and the browser each stand on their own; LispM Desktop runs both, the agents in its
 sidebar and the browser as one of its applications, and installs them at its first start (see
@@ -33,7 +33,7 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   blue-violet under Platinum), or a colour and a picture of your own (see [[*Your own
   settings][Your own settings]]).  Its icons stand down the right edge as Mac OS 9's did: the
   home disk and the applications, Emacs (with Emacs's own icon), the browser, the Applications
-  folder (the App Store and what it installed) and the Control Panels folder, at the top,
+  folder (the App Store and what it installed), the App Store and the Control Panels folder, at the top,
   the Trash in the bottom corner, bulging once something is in it.  Click one to select it,
   double-click it (or press Return) to open it; C-n, C-p, C-f and C-b select from the keyboard
   and C-M-n, C-M-p, C-M-f and C-M-b move the icon selected a cell.  Drag one anywhere: a
@@ -112,8 +112,10 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   headings, disclosure triangles, one row per item with its date or place in the right-hand
   column, shaded down its length as the sorted column was, the selected row in the highlight
   colour, and a count of the items at the bottom.  The agents view lists every agent session,
-  running or recorded, grouped by project: LispM's, and those of Claude Code, Codex and Hermes
-  when their CLI is on ~PATH~.  Click one to resume it where it ran.
+  running or recorded, grouped by project: LispM's, those of Claude Code and Codex, and those of
+  the agents the App Store added, as Hermes.  An agent run as a CLI takes part only while its
+  program is on ~PATH~: without it, no button, menu item or key offers it and none of its sessions
+  are listed.  Click one to resume it where it ran.
 - *Control Panels*, as Mac OS 9's: the desktop's Control Panels folder opens a Finder window
   holding a panel each, and the λ menu's Control Panels lists them too.  A panel opens in a
   window floating over the desktop, titled with its name, its tabs choosing among the panels as
@@ -122,20 +124,25 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
   browser's home page and search address, its history and its bookmarks.  Each choice takes
   effect at once where it can and is kept for the next start.
-- *The App Store*, laid out as Mac OS 9's Extensions Manager, installs what LispM runs beyond
-  what it ships with: applications, Emacs packages each running in a window of its own on the
-  desktop (Elfeed, EMMS, Emacs's own Calculator); agents, LispM's roles; and skills for LispM's
-  agents.  It lists them in groups from catalogs, git repositories holding a =catalog.eld=,
+- *The App Store*, laid out as the Mac App Store in Mac OS 9's forms, installs what LispM runs
+  beyond what it ships with: applications, Emacs packages each running in a window of its own on
+  the desktop (Elfeed, EMMS, Emacs's own Calculator and its games); and extensions, packages
+  adding to the editor, as Hermes, an agent beside Claude Code and Codex.  It lists them from
+  catalogs, git repositories holding a =catalog.eld=,
   [[https://github.com/LispMachineLab/lispm-store][lispm-store]] by default
-  (~lispm-desktop-store-catalogs~): each item checked while installed, with its version and its
-  catalog, under the list Install from URL…, Update and Remove, and the item's information below.
-  Nothing is installed unasked: a role's or a skill's text and code, or where a package comes
-  from and the commit it is pinned to, shows under the list while an alert asks, and an update
-  shows what changes.  Install from URL… takes a git URL: a repository with a catalog becomes
-  one more catalog, any other Emacs package an application.  The λ menu opens the App Store and
-  lists the applications installed, and so does the desktop's Applications folder.  The
-  keyboard does all of it: =C-n=, =C-p= from row to row, =SPC= installs or removes, =RET= opens,
-  =i= the item's information, =u= updates, =g= checks the catalogs, =+= installs from a URL.
+  (~lispm-desktop-store-catalogs~): the categories down the left (All, News, Music,
+  Productivity, Utilities, Games, Extensions, Updates), the chosen one's items as icons in a
+  grid, each with its button, Get, Open or Update; under the grid Install from URL… and Remove,
+  and the selected item's information below.  An extension whose program is not on ~PATH~ is
+  greyed out, its information saying how to install the program.  Nothing is installed unasked:
+  where a package comes from and the commit it is pinned to shows under the window while an
+  alert asks, and an update shows what changes.  Install from URL… takes a git URL: a repository
+  with a catalog becomes one more catalog, any other Emacs package an application.  The λ menu
+  and the desktop's App Store icon open it; the λ menu lists the applications installed, and so
+  does the desktop's Applications folder.  The keyboard does all of it: =C-f=, =C-b=, =C-n=, =C-p=
+  from icon to icon, =M-n=, =M-p= from category to category, =RET= or =SPC= presses the selected
+  item's button, =/= searches, =i= shows its information, =u= updates, =D= removes, =g= checks the
+  catalogs, =+= installs from a URL.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
   bottom-left corner at first: a collapse box, scroll arrows, a module each for Appearance, Desktop, Keyboard and
   Internet, and Emacs's own battery, load average and mail flag, then a tab.  Pressing a module
@@ -219,8 +226,9 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
 - *A main area* that keeps agent chats and terminals on the left and everything else, files
   first, on the right, however a buffer is opened, and *a workspace per project*, owning that
   project's buffers.
-- *Agents that see Emacs*: Claude Code connects over its IDE protocol, Codex and Hermes over MCP,
-  and all of them can read the selection, the open and unsaved files, and Flymake's diagnostics.
+- *Agents that see Emacs*: Claude Code connects over its IDE protocol, Codex (and Hermes, once
+  installed) over MCP, and all of them can read the selection, the open and unsaved files, and
+  Flymake's diagnostics.
 - *Terminals that never stall Emacs*.  Emacs runs Lisp, process output and redisplay on one
   thread, so a terminal emulated in Lisp decodes everything its program writes on that thread,
   shown or not, and a few agents resuming long sessions at once froze Emacs.  lispm-desktop
@@ -322,8 +330,8 @@ nothing more is needed; for any other server, local or hosted, see LispM Agent's
 
 Optional, and picked up when present:
 
-- [[https://github.com/anthropics/claude-code][Claude Code]] (~claude~), Codex (~codex~) and Hermes
-  (~hermes~) on ~PATH~;
+- [[https://github.com/anthropics/claude-code][Claude Code]] (~claude~) and Codex (~codex~) on ~PATH~;
+  Hermes (~hermes~) too, once the App Store has added it;
 - [[https://rustup.rs][Rust]] (~cargo~), to build the terminals' module (=make native= builds it by
   hand); without it, the module built for your computer is downloaded, see above;
 - Swift (Xcode or its command line tools), on macOS 15.4 and later, to build LispM Browser's
@@ -441,7 +449,7 @@ Two things to know when both builds run:
 | =C-c b=                | the Control Strip from the keyboard: =C-f=, =C-b= to a module, =RET= or =SPC= opens its menu, =C-p=, =C-n= move it up and down, =C-a=, =C-e= to the left and the right edge, =C-g= leaves |
 | =C-c B=                | hide the Control Strip, or show it again                   |
 | =C-c a l=              | start a LispM agent in this project (=C-u= to pick a role) |
-| =C-c a c=, =x=, =h=    | start Claude Code, Codex or Hermes in this project         |
+| =C-c a c=, =x=, =h=    | start Claude Code, Codex or Hermes (once added) in this project |
 | =C-c a s=              | resume any recorded session                                |
 | =C-c a a=              | show or hide the agents view (or click Agents)             |
 | =C-c a r=              | put a reference to the region into a running agent's input |

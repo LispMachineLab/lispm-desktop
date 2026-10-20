@@ -77,6 +77,8 @@
 (declare-function lispm-desktop-agent--project-root "lispm-desktop-agent-list" (directory))
 (declare-function lispm-desktop-agent-list-refresh "lispm-desktop-agent-list" ())
 (declare-function lispm-desktop-agent-list--refresh-when-idle "lispm-desktop-agent-list" ())
+(declare-function lispm-desktop-agent-list-refresh-on-exit "lispm-desktop-agent-list" (&optional terminal &rest _))
+(declare-function lispm-desktop-agent-list-refresh-on-status "lispm-desktop-agent-list" (buffer))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup--frame-xy "lispm-desktop-popup" (position))
