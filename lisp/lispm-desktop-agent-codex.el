@@ -85,7 +85,7 @@ the Codex index overrides it later, see `lispm-desktop-agent-codex--named',
 since the index changes without the transcript and so is no part of what is
 memoized per transcript.  Its :started time, float seconds, is when the
 session began, which ties a freshly started terminal to it, see
-`lispm-desktop-agent--claim-sessions'.  Return nil for a transcript without
+`lispm-desktop-agent-claim-sessions'.  Return nil for a transcript without
 metadata."
   (when-let* ((meta (seq-find (lambda (object)
                                 (equal (plist-get object :type) "session_meta"))
@@ -131,12 +131,10 @@ SESSION is nil or has neither a name nor a title of its own to show."
   "Return every recorded Codex session.
 Forked threads share their session's id; the desktop keeps the newest."
   (let ((names (lispm-desktop-agent-codex--thread-names)))
-    (delq nil (mapcar (lambda (file)
-                        (lispm-desktop-agent-codex--named
-                         (lispm-desktop-agent-cached-session
-                          file (apply-partially #'lispm-desktop-agent-codex--session file))
-                         names))
-                      (lispm-desktop-agent-codex--files)))))
+    (lispm-desktop-agent-file-sessions (lispm-desktop-agent-codex--files)
+                                       #'lispm-desktop-agent-codex--session
+                                       (lambda (session)
+                                         (lispm-desktop-agent-codex--named session names)))))
 
 (defun lispm-desktop-agent-codex--rename (session title)
   "Give Codex SESSION the TITLE: a thread name appended to its index."

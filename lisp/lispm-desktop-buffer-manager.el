@@ -42,7 +42,7 @@
 (require 'lispm-desktop-platinum)
 
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
-(declare-function lispm-desktop-agent--buffer-p "lispm-desktop-ai" (buffer))
+(declare-function lispm-desktop-agent-buffer-p "lispm-desktop-ai" (buffer))
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
 
 (defconst lispm-desktop-buffer-manager-buffer-name "*Buffer Manager*"
@@ -94,7 +94,7 @@ PROCESSES and CHILDREN are the tables of
 (defun lispm-desktop-buffer-manager--kind (buffer)
   "Return what kind of buffer BUFFER is, in words."
   (with-current-buffer buffer
-    (cond ((and (fboundp 'lispm-desktop-agent--buffer-p) (lispm-desktop-agent--buffer-p buffer)) "Agent")
+    (cond ((and (fboundp 'lispm-desktop-agent-buffer-p) (lispm-desktop-agent-buffer-p buffer)) "Agent")
           ((and (fboundp 'lispm-desktop-terminal-buffer-p) (lispm-desktop-terminal-buffer-p buffer)) "Terminal")
           ((derived-mode-p 'xwidget-webkit-mode) "Web Page")
           ((derived-mode-p 'dired-mode) "Folder")

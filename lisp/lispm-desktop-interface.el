@@ -206,13 +206,13 @@ Without `tabspaces-mode' nothing happens."
         (tabspaces--remember-project-tab directory name))
       fresh)))
 
-(declare-function lispm-desktop-shell-new "lispm-desktop-sidebar" (&optional directory))
+(declare-function lispm-desktop-shell-new "lispm-desktop-shells" (&optional directory))
 
 (defun lispm-desktop-workspace-show-alone (buffer)
   "Show BUFFER as the only buffer of the workspace just created.
 A new tab starts with the previous workspace's buffer on display; replacing
 it and resetting the tab's buffer list keeps that buffer out."
-  (let ((window (lispm-desktop-agent--main-window)))
+  (let ((window (lispm-desktop-platinum-main-window)))
     (set-window-buffer window buffer)
     (select-window window))
   (tabspaces-reset-buffer-list)
@@ -351,7 +351,7 @@ characters stay straight."
   (add-to-list 'display-buffer-alist
                '(lispm-desktop-main-area--session-p lispm-desktop-main-area-display-session))
   (add-to-list 'display-buffer-alist
-               '(lispm-desktop-sidebar--view-buffer-p lispm-desktop-sidebar-display-view))
+               '(lispm-desktop-sidebar-view-buffer-p lispm-desktop-sidebar-display-view))
   (setq switch-to-buffer-obey-display-actions t
         switch-to-buffer-in-dedicated-window 'pop)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-browser--on-workspace-select)
@@ -393,7 +393,6 @@ characters stay straight."
   (use-package treemacs
     :bind (("C-c p t" . treemacs-add-and-display-current-project)
            ("C-c p T" . treemacs))
-    :hook (treemacs-mode . lispm-desktop-sidebar--files-toolbar)
     :config
     (setq treemacs-indentation-string (propertize " " 'display '(space :width (12)))
           treemacs-indentation 1)
@@ -467,8 +466,6 @@ characters stay straight."
     (add-hook 'eat-update-hook #'lispm-desktop-eat-mark-unmodified)
     :hook ((eat-mode . lispm-desktop-eat-terminal-display)
            (eat-mode . lispm-desktop-eat-terminal-keys)
-           (eat-exit . lispm-desktop-shell-list-refresh)
-           (lispm-desktop-term-exit-functions . lispm-desktop-shell-list-refresh)
            (eshell-load . eat-eshell-mode)
            (eshell-load . eat-eshell-visual-command-mode)))
 

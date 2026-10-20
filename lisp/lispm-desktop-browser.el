@@ -1148,9 +1148,9 @@ no session of the workspace left comes along."
          (browser (or shown (car (lispm-browser-tabs)))))
     (cond ((and browser fresh) (lispm-desktop-workspace-show-alone browser))
           (browser (unless (get-buffer-window browser)
-                     (select-window (lispm-desktop-agent--main-window))
+                     (select-window (lispm-desktop-platinum-main-window))
                      (pop-to-buffer-same-window browser)))
-          (t (select-window (lispm-desktop-agent--main-window))
+          (t (select-window (lispm-desktop-platinum-main-window))
              (xwidget-webkit-browse-url lispm-browser-home-url t)
              (when fresh (tabspaces-reset-buffer-list))))
     (lispm-desktop-browser--ensure-layout)))
@@ -1356,7 +1356,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 Its pages take the desktop's keys, see `lispm-desktop-setup-interface'."
   (lispm-desktop-browser--adopt-old-files)
   (setq lispm-browser-window-function #'lispm-desktop-browser--window
-        lispm-browser-tab-window-function #'lispm-desktop-agent--main-window
+        lispm-browser-tab-window-function #'lispm-desktop-platinum-main-window
         lispm-browser-show-function #'lispm-desktop-browser-show
         lispm-browser-raise-function #'lispm-desktop-browser--raise
         lispm-browser-clipboard-function #'lispm-desktop-clipboard-text)

@@ -84,6 +84,7 @@
 (require 'lispm-desktop-languages)
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-agent-list)
+(require 'lispm-desktop-shells)
 (require 'lispm-desktop-lispm)
 (require 'lispm-desktop-agent-claude)
 (require 'lispm-desktop-agent-codex)
@@ -182,6 +183,8 @@ boxes.  A download that fails, as offline, is only reported."
           (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
           (lispm-desktop-setup-langs)
           (lispm-desktop-setup-ai)
+          (lispm-desktop-setup-agent-list)
+          (lispm-desktop-setup-shells)
           ;; LispM is set up first, so its agent comes first; but the
           ;; others are set up even when it cannot be, as offline at a
           ;; first start that would install it.
