@@ -1,0 +1,79 @@
+name: install
+
+# install.sh, run as a newcomer runs it, on Apple silicon and on Intel:
+# LispM.app made of Emacs, and the packages installed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - install.sh
+      - macos/**
+      - early-init.el
+      - init.el
+      - lisp/lispm-desktop-early.el
+      - lisp/lispm-desktop-packages.el
+      - .github/workflows/install.yml
+  pull_request:
+    paths:
+      - install.sh
+      - macos/**
+      - early-init.el
+      - init.el
+      - lisp/lispm-desktop-early.el
+      - lisp/lispm-desktop-packages.el
+      - .github/workflows/install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: LispM.app on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    env:
+      LISPM_HOME: ${{ github.workspace }}/../lispm
+      LISPM_APP_DIR: ${{ github.workspace }}/../Applications
+      LISPM_OPEN: '0'
+    steps:
+      - uses: actions/checkout@v7
+      # The installer keeps a checkout it finds on no branch as it is, so
+      # the change under test is what LispM.app runs.
+      - name: Check out the change as LispM's
+        run: |
+          mkdir -p "$LISPM_HOME"
+          git clone -q "$GITHUB_WORKSPACE" "$LISPM_HOME/lispm-desktop"
+          git -C "$LISPM_HOME/lispm-desktop" checkout -q --detach "$GITHUB_SHA"
+      - name: Install
+        run: sh install.sh
+      - name: Check LispM.app
+        run: |
+          app=$LISPM_APP_DIR/LispM.app
+          codesign --verify --strict "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = org.lispmachinelab.lispm
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")" = LispM
+          # The launcher starts Emacs on the checkout, its packages installed
+          # and native compilation working.
+          "$app/Contents/MacOS/LispM" --batch --eval '
+            (progn
+              (unless (file-equal-p user-emacs-directory
+                                    (expand-file-name "lispm-desktop" (getenv "LISPM_HOME")))
+                (error "Not the checkout: %s" user-emacs-directory))
+              (package-initialize)
+              (dolist (package (quote (vertico consult magit exec-path-from-shell)))
+                (unless (package-installed-p package)
+                  (error "Not installed: %s" package)))
+              (load (expand-file-name "lisp/lispm-desktop-early" user-emacs-directory) nil t)
+              (require (quote comp))
+              (native-compile (quote (lambda (x) (1+ x))))
+              (princ (format "LispM runs %s\n" user-emacs-directory)))'
+      - name: Show what failed
+        if: failure()
+        run: |
+          sw_vers
+          xcode-select -p
+          grep -n -E 'error|rror:|clang|ld:' "$LISPM_HOME/install.log" | grep -v '^[0-9]*:  ' | head -n 40 || true
