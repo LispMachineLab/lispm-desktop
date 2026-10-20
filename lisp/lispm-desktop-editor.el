@@ -55,6 +55,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
 (require 'lispm-desktop-surface)
 
 (declare-function lispm-desktop-show-desktop "lispm-desktop-coherence" (&optional screen))
@@ -75,17 +76,11 @@
 (defvar lispm-desktop-editor--frame nil
   "The floating editor's child frame, or nil while the editor is full screen.")
 
-(defvar lispm-desktop-editor--geometry nil
-  "Where the floating editor was last: (LEFT TOP WIDTH HEIGHT) in pixels.")
-
 (defvar lispm-desktop-editor--last-workspace nil
   "Name of the workspace the full-screen editor showed when it was left.")
 
 (defvar lispm-desktop-editor--moving nil
   "Non-nil while the editor moves between full screen and floating.")
-
-(defvar lispm-desktop-editor--shade nil
-  "While the floating editor is rolled up: its windows and text height.")
 
 (defvar lispm-desktop-editor--closed nil
   "Non-nil once the floating editor was closed, until it is opened again.
@@ -334,7 +329,8 @@ floating editor, are left alone."
   (let ((frame (selected-frame)))
     ;; Another application's window, out on the computer's screen too,
     ;; is no screen, whose workspaces the strip goes on.
-    (unless (or lispm-desktop-editor--moving (minibufferp) lispm-desktop-editor--shade
+    (unless (or lispm-desktop-editor--moving (minibufferp)
+                (lispm-desktop-app-window-rolled-p lispm-desktop-editor--frame)
                 (and (not (lispm-desktop-apps-screen-p frame)) (not (eq frame lispm-desktop-editor--frame))))
       (let ((strip (get-buffer-window lispm-desktop-editor-strip-buffer-name)))
         (cond ((lispm-desktop-editor--in-workspace-p)
@@ -415,15 +411,6 @@ it opens again as it was."
            (select-frame-set-input-focus lispm-desktop-editor--frame)))
         ((not (lispm-desktop-editor--in-workspace-p))
          (lispm-desktop-editor-activate))))
-
-(defun lispm-desktop-editor--refocus ()
-  "Give the floating editor the keyboard back after a menu bar menu closes.
-A click on the menu bar focuses the frame under it; the editor stays in
-front, so it takes the focus again."
-  (when (and (eq (lispm-desktop-apps-frontmost) 'editor) (lispm-desktop-editor-floating-p)
-             (frame-visible-p lispm-desktop-editor--frame)
-             (not (eq (selected-frame) lispm-desktop-editor--frame)))
-    (select-frame-set-input-focus lispm-desktop-editor--frame)))
 
 ;;;; Documents opened from elsewhere
 
@@ -510,40 +497,35 @@ without the window configuration that ties it to FROM."
   "Return where the editor floats first: most of SCREEN, under its menu bar."
   (let* ((width (frame-inner-width screen))
          (height (frame-inner-height screen))
-         (top (+ (tab-bar-height screen t) 20))
+         (top (+ (lispm-desktop-app-window-menu-bar-height screen) 20))
          (left (round (* width 0.06))))
     (list left top (- width (* 2 left)) (- height top 40))))
 
-(defun lispm-desktop-editor--make-frame (screen)
-  "Return the floating editor's child frame of SCREEN, not yet shown."
-  (pcase-let* ((`(,left ,top ,width ,height)
-                (or lispm-desktop-editor--geometry (lispm-desktop-editor--default-geometry screen)))
-               (frame (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (make-frame
-                         `((parent-frame . ,screen)
-                           (minibuffer . ,(minibuffer-window screen))
-                           (name . "Emacs") (lispm-desktop-editor . t) (lispm-desktop-app . editor)
-                           (lispm-desktop-window . t) (top-visible . 30)
-                           (undecorated . t) (visibility . nil)
-                           (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                           (menu-bar-lines . 0) (tool-bar-lines . 0)
-                           (internal-border-width . 0)
-                           (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                           (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                           (user-position . t)
-                           (left . ,left) (top . ,top)
-                           (width . (text-pixels . ,width))
-                           (height . (text-pixels . ,height)))))))
-    (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum--color :chrome))
-    (when (fboundp 'tabspaces--set-buffer-predicate)
-      (tabspaces--set-buffer-predicate frame))
-    frame))
+(defun lispm-desktop-editor--set-buffer-predicate (frame)
+  "Let FRAME, the floating editor, switch only among its workspaces' buffers."
+  (when (fboundp 'tabspaces--set-buffer-predicate)
+    (tabspaces--set-buffer-predicate frame)))
 
-(defun lispm-desktop-editor--geometry-of (frame)
-  "Return where floating FRAME is: (LEFT TOP WIDTH HEIGHT) in pixels, over
-its screen."
-  (lispm-desktop-apps--geometry frame))
+(defun lispm-desktop-editor--roll (_frame)
+  "Leave the floating editor, selected, one window for its title strip, and
+return the strip's height: the editor rolls up to it."
+  ;; The strip's height is measured before its window goes: the one
+  ;; window left fills the frame until the frame shrinks to it.
+  (let* ((strip (get-buffer-window lispm-desktop-editor-strip-buffer-name))
+         (height (if strip (window-pixel-height strip) 60))
+         (window (car (lispm-desktop-main-area--windows)))
+         (ignore-window-parameters t))
+    (delete-other-windows window)
+    (set-window-dedicated-p window nil)
+    (set-window-buffer window (lispm-desktop-editor--strip-buffer))
+    height))
+
+;; The editor's own code shows and hides its window: the editor floats
+;; only some of the time, and once closed it stays hidden.
+(lispm-desktop-app-window-define 'editor
+  :name "Emacs" :geometry #'lispm-desktop-editor--default-geometry
+  :after-make #'lispm-desktop-editor--set-buffer-predicate
+  :roll #'lispm-desktop-editor--roll :follow nil)
 
 (defun lispm-desktop-editor-float ()
   "Float the editor in a window of its own over the desktop."
@@ -554,7 +536,7 @@ its screen."
            (_ (lispm-desktop-editor--take-off-chrome screen))
            (workspace (or (with-selected-frame screen (lispm-desktop-editor--current-workspace))
                           lispm-desktop-editor--last-workspace))
-           (frame (lispm-desktop-editor--make-frame screen)))
+           (frame (lispm-desktop-app-window-make-frame 'editor screen)))
       (with-selected-frame screen
         (lispm-desktop--select-tab))
       (lispm-desktop-editor--move-workspaces screen frame)
@@ -590,7 +572,7 @@ its screen."
            (_ (lispm-desktop-editor--take-off-chrome frame))
            (workspace (with-selected-frame frame (lispm-desktop-editor--current-workspace))))
       (lispm-desktop-editor--unshade)
-      (setq lispm-desktop-editor--geometry (lispm-desktop-editor--geometry-of frame))
+      (lispm-desktop-app-window-release frame)
       (lispm-desktop-editor--move-workspaces frame screen)
       (setq lispm-desktop-editor--frame nil)
       (select-frame-set-input-focus screen)
@@ -608,32 +590,15 @@ box does."
 
 (defun lispm-desktop-editor--unshade ()
   "Roll the floating editor down again, when it is rolled up."
-  (when lispm-desktop-editor--shade
-    (pcase-let ((`(,config . ,height) lispm-desktop-editor--shade))
-      (setq lispm-desktop-editor--shade nil)
-      (lispm-desktop-platinum-roll-down lispm-desktop-editor--frame height)
-      (set-window-configuration config))))
+  (when (lispm-desktop-editor-floating-p)
+    (lispm-desktop-app-window-roll-down lispm-desktop-editor--frame)))
 
 (defun lispm-desktop-editor-shade ()
   "Roll the floating editor up to its title strip, or down again, as Mac OS 9
 rolled a window up into its title bar."
   (interactive)
   (when (lispm-desktop-editor-floating-p)
-    (if lispm-desktop-editor--shade
-        (lispm-desktop-editor--unshade)
-      (with-selected-frame lispm-desktop-editor--frame
-        (setq lispm-desktop-editor--shade (cons (current-window-configuration)
-                                                (frame-text-height lispm-desktop-editor--frame)))
-        ;; The strip's height is measured before its window goes: the one
-        ;; window left fills the frame until the frame shrinks to it.
-        (let* ((strip (get-buffer-window lispm-desktop-editor-strip-buffer-name))
-               (height (if strip (window-pixel-height strip) 60))
-               (window (car (lispm-desktop-main-area--windows)))
-               (ignore-window-parameters t))
-          (delete-other-windows window)
-          (set-window-dedicated-p window nil)
-          (set-window-buffer window (lispm-desktop-editor--strip-buffer))
-          (lispm-desktop-platinum-roll-up lispm-desktop-editor--frame height))))))
+    (lispm-desktop-app-window-toggle-roll lispm-desktop-editor--frame)))
 
 ;;;; Menus
 
@@ -782,7 +747,6 @@ This is the editor's `lispm-desktop-empty-function'."
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-editor--remember-workspace)
   (add-hook 'tab-bar-tab-post-select-functions
             (lambda (&rest _) (lispm-desktop-editor--render-strip)) 90)
-  (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-editor--refocus)
   (add-hook 'lispm-desktop-activate-hook #'lispm-desktop-editor--show-with-desktop)
   (add-to-list 'display-buffer-alist '(lispm-desktop-editor--astray-p lispm-desktop-editor-display)))
 

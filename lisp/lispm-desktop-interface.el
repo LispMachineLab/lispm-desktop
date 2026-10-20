@@ -384,10 +384,6 @@ characters stay straight."
   (setq switch-to-buffer-obey-display-actions t
         switch-to-buffer-in-dedicated-window 'pop)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-browser--on-workspace-select)
-  ;; The floating browser follows the application in front, as the Finder
-  ;; window does, and takes the keyboard back after a menu bar menu.
-  (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-browser--follow-frontmost)
-  (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-browser--refocus)
   (with-eval-after-load 'xwidget
     (lispm-desktop-browser-bind-keys xwidget-webkit-mode-map)
     ;; C-y pastes into the page, which the buffer's text is not, and

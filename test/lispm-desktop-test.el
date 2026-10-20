@@ -4852,6 +4852,206 @@ others share the application's frame, else the application's window."
                 (should (eq closed 'elfeed)))
             (set-frame-parameter frame 'lispm-desktop-window-kind nil)))))))
 
+(defmacro lispm-desktop-test--with-window-kinds (frames &rest body)
+  "Run BODY among the fake FRAMES, as `lispm-desktop-test--with-frames' does,
+each a floating window of the kind its parameter `lispm-desktop-window-kind'
+names, registered as open.  In BODY, `selected' is the frame selected,
+`focused' the frames given the keyboard, the latest first, `after' the
+frames whose keyboard went on, `activated' how often the desktop came in
+front, and `hidden' whether the desktop is hidden in the Dock.  A window
+is at (1 2 300 200), or at its parameter `geometry'."
+  (declare (indent 1))
+  `(lispm-desktop-test--with-frames ,frames
+       (let ((lispm-desktop-app-window--frames nil)
+             (lispm-desktop-app-window--geometry nil)
+             (lispm-desktop-apps--frontmost nil)
+             (lispm-desktop-apps-frontmost-functions (list #'lispm-desktop-app-window--follow-frontmost))
+             (selected 'screen)
+             (focused nil)
+             (after nil)
+             (activated 0)
+             (hidden nil))
+         (dolist (frame (mapcar #'car parameters))
+           (when-let* ((id (frame-parameter frame 'lispm-desktop-window-kind)))
+             (push (cons id frame) lispm-desktop-app-window--frames)))
+         (setq lispm-desktop-app-window--frames (nreverse lispm-desktop-app-window--frames))
+         (cl-letf (((symbol-function 'selected-frame) (lambda () selected))
+                   ((symbol-function 'select-frame-set-input-focus)
+                    (lambda (frame &rest _) (setq selected frame) (push frame focused)))
+                   ((symbol-function 'lispm-desktop-apps-focus-after)
+                    (lambda (frame) (push frame after) (setq selected 'screen)))
+                   ((symbol-function 'lispm-desktop-activate)
+                    (lambda () (cl-incf activated) (lispm-desktop-apps-set-frontmost 'desktop)))
+                   ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&optional _) hidden))
+                   ((symbol-function 'lispm-desktop-apps-screen) (lambda () 'screen))
+                   ((symbol-function 'lispm-desktop-apps--geometry)
+                    (lambda (frame) (or (frame-parameter frame 'geometry) '(1 2 300 200))))
+                   ((symbol-function 'lispm-desktop-apps-keep-on-desktop) #'ignore)
+                   ((symbol-function 'lispm-desktop-platinum-show-window)
+                    (lambda (frame) (set-frame-parameter frame 'visibility t)))
+                   ((symbol-function 'lispm-desktop-platinum-hide-window)
+                    (lambda (frame) (set-frame-parameter frame 'visibility nil)))
+                   ((symbol-function 'lispm-desktop-platinum-raise-window) (lambda (frame) (push frame raised)))
+                   ((symbol-function 'lispm-desktop-platinum-rolled-up-height)
+                    (lambda (frame) (frame-parameter frame 'rolled)))
+                   ((symbol-function 'lispm-desktop-platinum-roll-down)
+                    (lambda (frame _height) (set-frame-parameter frame 'rolled nil)))
+                   ((symbol-function 'frame-root-window) (lambda (&optional _) (selected-window)))
+                   ((symbol-function 'delete-frame)
+                    (lambda (&optional frame _force)
+                      (run-hook-with-args 'delete-frame-functions frame)
+                      (setq parameters (assq-delete-all frame parameters)))))
+           (let ((delete-frame-functions (list #'lispm-desktop-app-window--forget)))
+             ,@body)))))
+
+(defconst lispm-desktop-test--window-kinds
+  '((screen (visibility . t))
+    (finder (lispm-desktop-window-kind . finder) (lispm-desktop-app . desktop) (visibility . t))
+    (settings (lispm-desktop-window-kind . settings) (lispm-desktop-app . settings) (visibility . t))
+    (store (lispm-desktop-window-kind . store) (lispm-desktop-app . store) (visibility . t))
+    (editor (lispm-desktop-window-kind . editor) (lispm-desktop-app . editor) (visibility . t))
+    (browser (lispm-desktop-window-kind . browser) (lispm-desktop-app . browser) (visibility . t)))
+  "The fake floating windows of `lispm-desktop-test--with-window-kinds':
+the Finder window, Control Panels, the App Store and the floating editor
+and browser, all shown.")
+
+(ert-deftest lispm-desktop-test-app-window-kinds-follow-frontmost ()
+  "The floating windows hide from the full-screen editor, the floating
+browser only from it; they show again with the desktop, and the window of
+the application in front comes over the others, the Finder window
+excepted, and the floating editor too, whose own code shows and hides it."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (let ((lispm-desktop-browser-floating t)
+          (floating nil))
+      (cl-letf (((symbol-function 'lispm-desktop-editor-floating-p) (lambda () floating)))
+        (cl-flet ((shown () (seq-filter #'frame-visible-p '(finder settings store editor browser))))
+          (lispm-desktop-apps-set-frontmost 'editor)
+          (should (equal (shown) '(editor)))
+          (setq raised nil)
+          (lispm-desktop-apps-set-frontmost 'desktop)
+          (should (equal (shown) '(finder settings store editor browser)))
+          (should-not raised)
+          (lispm-desktop-apps-set-frontmost 'store)
+          (should (equal raised '(store)))
+          (setq floating t raised nil)
+          (lispm-desktop-apps-set-frontmost 'editor)
+          (should (equal (shown) '(finder settings store editor browser)))
+          (should (equal raised '(editor)))
+          (setq lispm-desktop-browser-floating nil)
+          (lispm-desktop-apps-set-frontmost 'store)
+          (should (equal (shown) '(finder settings store editor browser))))))))
+
+(ert-deftest lispm-desktop-test-app-window-close-bookkeeping ()
+  "A floating window closed, by its close box or deleted as by C-x 5 0, is
+remembered where it was, at the height it rolls down to; the keyboard goes
+on only when it had it, and the desktop comes in front only when the
+window's application was in front.  A window closed twice is closed once."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (set-frame-parameter 'settings 'rolled 500)
+    (lispm-desktop-apps-set-frontmost 'store)
+    ;; Control Panels, behind the App Store and without the keyboard.
+    (lispm-desktop-app-window-close 'settings)
+    (should-not (lispm-desktop-app-window-open-p 'settings))
+    (should-not (frame-parameter 'settings 'rolled))
+    (should (equal (alist-get 'settings lispm-desktop-app-window--geometry) '(1 2 300 200)))
+    (should-not after)
+    (should (eq (lispm-desktop-apps-frontmost) 'store))
+    ;; The App Store, in front and with the keyboard, deleted as by C-x 5 0.
+    (setq selected 'store)
+    (set-frame-parameter 'store 'geometry '(10 20 640 640))
+    (delete-frame 'store)
+    (should-not (lispm-desktop-app-window-open-p 'store))
+    (should (equal (alist-get 'store lispm-desktop-app-window--geometry) '(10 20 640 640)))
+    (should (equal after '(store)))
+    (should (eq (lispm-desktop-apps-frontmost) 'desktop))
+    (lispm-desktop-app-window--retire 'store)
+    (should (equal after '(store)))))
+
+(ert-deftest lispm-desktop-test-app-window-released ()
+  "The floating editor or browser going full screen is forgotten as its
+kind's window, its place remembered, the application in front and the
+keyboard left to its own code."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (lispm-desktop-apps-set-frontmost 'editor)
+    (setq selected 'editor)
+    (lispm-desktop-app-window-release 'editor)
+    (delete-frame 'editor)
+    (should-not (lispm-desktop-app-window-open-p 'editor))
+    (should (equal (alist-get 'editor lispm-desktop-app-window--geometry) '(1 2 300 200)))
+    (should (eq (lispm-desktop-apps-frontmost) 'editor))
+    (should-not after)))
+
+(ert-deftest lispm-desktop-test-app-window-opens-out-with-the-desktop-hidden ()
+  "A floating window opening brings the desktop in front first, unless the
+desktop is hidden in the Dock: the window then opens out on the computer's
+screen.  So does the browser quitting."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (lispm-desktop-app-window-ensure 'settings)
+    (should (= activated 1))
+    (setq hidden t)
+    (lispm-desktop-app-window-ensure 'settings)
+    (should (= activated 1))
+    (cl-letf (((symbol-function 'lispm-desktop-browser--close-workspace) #'ignore))
+      (lispm-desktop-browser--quit)
+      (should (= activated 1))
+      (setq hidden nil)
+      (lispm-desktop-browser--quit)
+      (should (= activated 2)))))
+
+(ert-deftest lispm-desktop-test-app-window-refocus ()
+  "After a menu bar menu, the window of the application in front takes the
+keyboard back; the Finder window only when it had it."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (let ((lispm-desktop-finder--had-focus nil))
+      (lispm-desktop-apps-set-frontmost 'settings)
+      (lispm-desktop-app-window--refocus)
+      (should (equal focused '(settings)))
+      (lispm-desktop-apps-set-frontmost 'desktop)
+      (setq selected 'screen)
+      (lispm-desktop-app-window--refocus)
+      (should (equal focused '(settings)))
+      (setq lispm-desktop-finder--had-focus t)
+      (lispm-desktop-app-window--refocus)
+      (should (equal focused '(finder settings))))))
+
+(ert-deftest lispm-desktop-test-app-window-first-places ()
+  "Each kind's window opens first where its kind puts it, under the menu
+bar, a window system or not; only windows that cascade count for the
+cascade of an application's window."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (let ((made nil))
+      (cl-letf (((symbol-function 'make-frame) (lambda (params) (setq made params) 'new))
+                ((symbol-function 'minibuffer-window) #'ignore)
+                ((symbol-function 'set-face-attribute) #'ignore)
+                ((symbol-function 'set-window-buffer) #'ignore)
+                ((symbol-function 'set-window-dedicated-p) #'ignore)
+                ((symbol-function 'lispm-desktop-finder--buffer) #'ignore)
+                ((symbol-function 'lispm-desktop-settings--buffer) #'ignore)
+                ((symbol-function 'frame-inner-width) (lambda (&optional _) 1200))
+                ((symbol-function 'frame-inner-height) (lambda (&optional _) 800))
+                ;; As in an Emacs without a window system.
+                ((symbol-function 'tab-bar-height) nil))
+        (cl-flet ((place (id)
+                    (setq lispm-desktop-app-window--frames
+                          (assq-delete-all id lispm-desktop-app-window--frames))
+                    (lispm-desktop-app-window-make-frame id 'screen)
+                    (list (alist-get 'left made) (alist-get 'top made))))
+          (should (equal (place 'finder) '(40 30)))
+          (should (equal (place 'settings) '(340 50)))
+          (should (equal (place 'editor) '(72 20)))
+          (should (equal (place 'browser) '(120 30)))
+          ;; The App Store, the only window open that cascades, is not counted
+          ;; for itself; an application's window cascades from it.
+          (setq lispm-desktop-app-window--frames
+                (seq-filter (lambda (entry) (eq (car entry) 'store)) lispm-desktop-app-window--frames))
+          (lispm-desktop-app-window-make-frame 'elfeed 'screen)
+          (should (equal (list (alist-get 'left made) (alist-get 'top made)) '(82 62)))
+          (should (eq (alist-get 'lispm-desktop-app-window made) 'elfeed))
+          (should (eq (alist-get 'lispm-desktop-close-function made) 'lispm-desktop-app-window-close-box))
+          (lispm-desktop-app-window-make-frame 'editor 'screen)
+          (should-not (assq 'lispm-desktop-app-window made))
+          (should-not (assq 'lispm-desktop-close-function made)))))))
+
 (ert-deftest lispm-desktop-test-app-window-modes ()
   "The Finder window's, Control Panels' and the App Store's buffers derive
 from the floating windows' mode: no cursor, no fringes, no wrapped lines."
