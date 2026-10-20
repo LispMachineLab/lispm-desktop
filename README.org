@@ -123,8 +123,9 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   the Appearance control panel's did, each group of settings framed in a group box.  Appearance chooses the colour theme (Dracula, Platinum,
   or any other installed); Desktop the desktop's colour, its picture and how the picture covers
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
-  browser's home page and search address, its history and its bookmarks.  Each choice takes
-  effect at once where it can and is kept for the next start.
+  browser's home page and search address, its history and its bookmarks; Software Update keeps
+  LispM up to date (see [[*Updating][Updating]]).  Each choice takes effect at once where it can
+  and is kept for the next start.
 - *The App Store*, laid out as the Mac App Store in Mac OS 9's forms, installs what LispM runs
   beyond what it ships with: applications, Emacs packages each running in a window of its own on
   the desktop (Elfeed, EMMS, Emacs's own Calculator and its games); and extensions, packages
@@ -285,7 +286,8 @@ browser's Chrome extensions support with Swift, and LispM's terminals where Rust
 installed (else it downloads them, built for the Mac and checked), and opens LispM, whose
 first start asks only how you edit and which appearance you want.
 
-Run the line again to update.  The checkout keeps what Emacs writes, the packages and your
+LispM keeps itself up to date (see [[*Updating][Updating]]); running the line again updates it
+too.  The checkout keeps what Emacs writes, the packages and your
 settings (=personal.el=) among it; to uninstall, delete =/Applications/LispM.app= and =~/.lispm=
 (where =skills/= holds the skills you wrote for LispM's agents, if any).
 
@@ -511,15 +513,21 @@ desktop's checkout, else installed with package-vc.
 
 * Updating
 
-#+begin_src sh
-git -C ~/lispm-desktop pull
-#+end_src
+The Software Update control panel, as Mac OS 9's, keeps the checkouts LispM runs from up to
+date with the branch each follows: the desktop's, and LispM Agent's and LispM Browser's where
+they are checked out beside it (=~/.lispm= holds all three).  Update Now checks at once; by
+itself it checks every day, or every week, in the background.  An update is installed as LispM
+quits, never while it runs, so that old code and new never mix: Restart to Update installs it
+at once, else the next quit does; with Ask me before installing updates checked, it waits for
+Restart to Update.  A checkout with changes or commits of its own, or on no branch, is left as
+it is.  An update to LispM.app itself (=install.sh=, =macos/=) is made by =install.sh=, run
+after LispM quits, which opens LispM again when it is done.  The log (Show Log) lists what was
+installed, and =M-x lispm-desktop-update-now= checks from anywhere.
 
-updates the desktop; =M-x package-vc-upgrade-all= updates LispM Agent and LispM Browser where
-package-vc installed them (=git pull= in their checkouts where you keep them beside it), and
-=M-x package-upgrade-all= the other packages.  When the
-update changed the terminals' module, the next start rebuilds it in the background (downloads
-it, without Rust), terminals running in Eat until it is ready.
+Where package-vc installed LispM Agent and LispM Browser, =M-x package-vc-upgrade-all= updates
+them, and =M-x package-upgrade-all= the other packages.  When the update changed the terminals'
+module, the next start rebuilds it in the background (downloads it, without Rust), terminals
+running in Eat until it is ready.
 
 * Tests
 
