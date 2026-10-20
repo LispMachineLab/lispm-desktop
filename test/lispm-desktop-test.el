@@ -31,18 +31,65 @@
 (require 'ert)
 (require 'lispm-desktop)
 
-(ert-deftest lispm-desktop-test-agent-installed-p ()
-  "An agent counts as installed exactly when its CLI is on PATH."
-  (let ((lispm-desktop-agent-programs '((claude . "lispm-desktop-test-no-such-program")
-                                        (codex . "emacs"))))
-    (should-not (lispm-desktop-agent-installed-p 'claude))
-    (should (lispm-desktop-agent-installed-p 'codex))))
+(defmacro lispm-desktop-test--with-agents (agents &rest body)
+  "Run BODY with AGENTS, (AGENT . PROPERTIES), the only agents defined,
+their keys bound in keymaps of the test's own."
+  (declare (indent 1))
+  `(let ((lispm-desktop-agents nil)
+         (lispm-desktop-agent-map (make-sparse-keymap))
+         (lispm-desktop-agent-list-mode-map (make-sparse-keymap)))
+     (pcase-dolist (`(,agent . ,props) ,agents)
+       (apply #'lispm-desktop-agent-define agent props))
+     ,@body))
+
+(ert-deftest lispm-desktop-test-agent-available-p ()
+  "An agent run as a CLI can run exactly when its program is on PATH; one
+running inside Emacs always can; one never defined cannot."
+  (lispm-desktop-test--with-agents
+      '((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program")
+        (codex :name "Codex" :program "emacs")
+        (lispm :name "LispM" :new ignore))
+    (should-not (lispm-desktop-agent-available-p 'claude))
+    (should (lispm-desktop-agent-available-p 'codex))
+    (should (lispm-desktop-agent-available-p 'lispm))
+    (should-not (lispm-desktop-agent-available-p 'hermes))
+    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(codex lispm)))))
+
+(ert-deftest lispm-desktop-test-agents-built-in-first ()
+  "Agents are offered those built in first, then in the order defined."
+  (lispm-desktop-test--with-agents
+      '((hermes :name "Hermes" :new ignore)
+        (lispm :name "LispM" :new ignore :built-in t)
+        (claude :name "Claude Code" :new ignore :built-in t))
+    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(lispm claude hermes)))
+    (lispm-desktop-agent-define 'hermes :name "Hermes, again" :new #'ignore)
+    (should (equal (mapcar #'car lispm-desktop-agents) '(hermes lispm claude)))
+    (lispm-desktop-agent-undefine 'lispm)
+    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(claude hermes)))))
+
+(ert-deftest lispm-desktop-test-agent-keys-follow-the-agent ()
+  "An agent's key starts it, under C-c a and in the agents sidebar, while
+it can run; it does nothing once its program is gone or it is undefined."
+  (let ((program "emacs"))
+    (lispm-desktop-test--with-agents
+        `((codex :name "Codex" :program "emacs" :key "x" :command lispm-desktop-agent-codex-new))
+      (should (eq (keymap-lookup lispm-desktop-agent-map "x") 'lispm-desktop-agent-codex-new))
+      (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "x") 'lispm-desktop-agent-codex-new))
+      (setf (plist-get (alist-get 'codex lispm-desktop-agents) :program) "lispm-desktop-test-no-such-program")
+      (should-not (keymap-lookup lispm-desktop-agent-map "x"))
+      (setf (plist-get (alist-get 'codex lispm-desktop-agents) :program) program)
+      (lispm-desktop-agent-undefine 'codex)
+      (should-not (keymap-lookup lispm-desktop-agent-map "x"))
+      (should-not (keymap-lookup lispm-desktop-agent-list-mode-map "x")))))
 
 (ert-deftest lispm-desktop-test-launch-requires-installed-cli ()
-  "Starting an agent whose CLI is missing is a user error, before anything runs."
-  (let ((lispm-desktop-agent-programs '((claude . "lispm-desktop-test-no-such-program"))))
+  "Starting an agent whose CLI is missing, or no agent at all, is a user
+error, before anything runs."
+  (lispm-desktop-test--with-agents
+      '((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program"))
     (should-error (lispm-desktop-agent--launch 'claude temporary-file-directory "x" nil)
-                  :type 'user-error)))
+                  :type 'user-error)
+    (should-error (lispm-desktop-agent-new 'hermes temporary-file-directory) :type 'user-error)))
 
 (ert-deftest lispm-desktop-test-claude-follows-emacs-theme ()
   "Claude Code starts with its theme \"auto\", asking the terminal for
@@ -59,55 +106,124 @@ local settings, or in its old global configuration other than the default
       (unwind-protect
           (progn
             (make-directory project)
-            (should (equal (lispm-desktop-agent--theme-arguments 'claude project) auto))
-            (should-not (lispm-desktop-agent--theme-arguments 'codex project))
-            (should-not (lispm-desktop-agent--theme-arguments 'hermes project))
+            (should (equal (lispm-desktop-agent-claude--arguments project) auto))
             (put-json (expand-file-name ".claude.json" home) "{\"numStartups\":3,\"theme\":\"dark\"}")
             (put-json (expand-file-name ".claude/settings.json" home) "{\"theme\":")
-            (should (equal (lispm-desktop-agent--theme-arguments 'claude project) auto))
+            (should (equal (lispm-desktop-agent-claude--arguments project) auto))
             (dolist (file (list (expand-file-name ".claude.json" home)
                                 (expand-file-name ".claude/settings.json" home)
                                 (expand-file-name ".claude/settings.json" project)
                                 (expand-file-name ".claude/settings.local.json" project)))
               (put-json file "{\"permissions\":{},\"theme\":\"light-daltonized\"}")
-              (should-not (lispm-desktop-agent--theme-arguments 'claude project))
+              (should-not (lispm-desktop-agent-claude--arguments project))
               (put-json file "[]"))
             ;; Launched, Claude gets the arguments before its own.
             (let (command)
-              (cl-letf (((symbol-function 'lispm-desktop-agent--check-installed) #'ignore)
-                        ((symbol-function 'lispm-desktop-agent-ide-start) #'ignore)
-                        ((symbol-function 'lispm-desktop-terminal-make)
-                         (lambda (_name &rest program)
-                           (setq command program)
-                           (get-buffer-create " *lispm-desktop-test-launch*"))))
-                (unwind-protect
-                    (lispm-desktop-agent--launch 'claude project "lispm-desktop-test-launch"
-                                                 '("--session-id" "x"))
-                  (kill-buffer " *lispm-desktop-test-launch*")))
+              (lispm-desktop-test--with-agents nil
+                (lispm-desktop-setup-claude)
+                (cl-letf (((symbol-function 'lispm-desktop-agent-available-p) #'always)
+                          ((symbol-function 'lispm-desktop-agent-ide-start) #'ignore)
+                          ((symbol-function 'lispm-desktop-terminal-make)
+                           (lambda (_name &rest program)
+                             (setq command program)
+                             (get-buffer-create " *lispm-desktop-test-launch*"))))
+                  (unwind-protect
+                      (lispm-desktop-agent--launch 'claude project "lispm-desktop-test-launch"
+                                                   '("--session-id" "x"))
+                    (kill-buffer " *lispm-desktop-test-launch*"))))
               (should (equal command `("claude" ,@auto "--session-id" "x")))))
         (delete-directory home t)))))
 
 (ert-deftest lispm-desktop-test-sessions-skip-missing-agents ()
   "No record of an agent whose CLI is missing is read or listed."
-  (let ((lispm-desktop-agent-emacs-agents nil)
-        (read nil))
-    (cl-letf (((symbol-function 'lispm-desktop-agent-installed-p) #'ignore)
-              ((symbol-function 'lispm-desktop-agent--claude-files) (lambda () (setq read t) nil))
-              ((symbol-function 'lispm-desktop-agent--codex-files) (lambda () (setq read t) nil))
-              ((symbol-function 'lispm-desktop-agent--codex-thread-names) (lambda () (setq read t) nil))
-              ((symbol-function 'lispm-desktop-agent-hermes-sessions) (lambda () (setq read t) nil)))
+  (let ((read nil))
+    (lispm-desktop-test--with-agents
+        `((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program"
+                  :sessions ,(lambda () (setq read t) nil)))
       (should (null (lispm-desktop-agent-sessions-list)))
       (should-not read))))
 
-(ert-deftest lispm-desktop-test-sessions-include-emacs-agents ()
-  "Sessions of agents running inside Emacs are listed, newest first."
-  (let ((lispm-desktop-agent-emacs-agents
-         `((lispm :sessions ,(lambda ()
-                               (list (list :agent 'lispm :id "a" :time 1.0)
-                                     (list :agent 'lispm :id "b" :time 2.0)))))))
-    (cl-letf (((symbol-function 'lispm-desktop-agent-installed-p) #'ignore))
+(ert-deftest lispm-desktop-test-sessions-of-every-agent ()
+  "Every agent's sessions are listed, newest first; an agent whose
+sessions cannot be read lists none, and the others still list theirs."
+  (lispm-desktop-test--with-agents
+      `((lispm :name "LispM" :new ignore
+               :sessions ,(lambda ()
+                            (list (list :agent 'lispm :id "a" :time 1.0)
+                                  (list :agent 'lispm :id "b" :time 3.0))))
+        (codex :name "Codex" :program "emacs"
+               :sessions ,(lambda () (list (list :agent 'codex :id "c" :time 2.0))))
+        (broken :name "Broken" :new ignore :sessions ,(lambda () (error "No store"))))
+    (let ((inhibit-message t))
       (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
-                     '("b" "a"))))))
+                     '("b" "c" "a"))))))
+
+(ert-deftest lispm-desktop-test-agent-terminals-know-their-agent ()
+  "A terminal is an agent's when started for it, or named after it while
+that agent is defined; a shell is no agent's."
+  (lispm-desktop-test--with-agents
+      '((codex :name "Codex" :program "emacs"))
+    (let ((named (get-buffer-create "*codex:lispm-desktop-test*"))
+          (tagged (get-buffer-create "*lispm-desktop-test-tagged*"))
+          (shell (get-buffer-create "*zsh:lispm-desktop-test*")))
+      (unwind-protect
+          (progn
+            (dolist (buffer (list named tagged shell))
+              (with-current-buffer buffer (setq major-mode 'lispm-desktop-term-mode)))
+            (with-current-buffer tagged (setq lispm-desktop-agent-buffer-agent 'codex))
+            (should (eq (lispm-desktop-agent--buffer-agent named) 'codex))
+            (should (eq (lispm-desktop-agent--buffer-agent tagged) 'codex))
+            (should-not (lispm-desktop-agent--buffer-p shell))
+            (lispm-desktop-agent-undefine 'codex)
+            (should-not (lispm-desktop-agent--buffer-p named)))
+        (mapc #'kill-buffer (list named tagged shell))))))
+
+(ert-deftest lispm-desktop-test-agent-worktrees-join-their-projects ()
+  "A Claude worktree joins its repository and a Codex worktree the known
+project of its name; the Codex app's scratch tree holds chats."
+  (lispm-desktop-test--with-agents nil
+    (lispm-desktop-setup-claude)
+    (lispm-desktop-setup-codex)
+    (let* ((repo (make-temp-file "lispm-desktop-test-repo" t))
+           (claude (expand-file-name ".claude/worktrees/feature" repo))
+           (codex (expand-file-name (format "~/.codex/worktrees/1a2b/%s" (file-name-nondirectory repo))))
+           (scratch (expand-file-name "2026-10-20/chat" lispm-desktop-agent-codex-chats-directory)))
+      (unwind-protect
+          (progn
+            (make-directory claude t)
+            (let ((roots (lispm-desktop-agent--resolve-roots (list repo claude codex scratch))))
+              (should (equal (cdr (assoc claude roots)) (directory-file-name repo)))
+              (should (equal (cdr (assoc codex roots)) (directory-file-name repo)))
+              (should (eq (cdr (assoc scratch roots)) 'chats)))
+            (should (equal (lispm-desktop-agent--location-label claude (directory-file-name repo))
+                           "⎇ feature"))
+            (should (equal (lispm-desktop-agent--location-label codex (directory-file-name repo))
+                           "⎇ codex worktree")))
+        (clrhash lispm-desktop-agent--root-cache)
+        (delete-directory repo t)))))
+
+(ert-deftest lispm-desktop-test-codex-sessions-named-by-the-index ()
+  "A Codex session is titled by its thread name in the index, else by its
+first prompt; context Codex injects is no prompt."
+  (let* ((home (make-temp-file "lispm-desktop-test-codex" t))
+         (lispm-desktop-agent-codex-sessions-directory (expand-file-name "sessions/" home))
+         (lispm-desktop-agent-codex-index-file (expand-file-name "session_index.jsonl" home))
+         (file (expand-file-name "2026/10/20/rollout-1.jsonl" lispm-desktop-agent-codex-sessions-directory)))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory file) t)
+          (with-temp-file file
+            (insert "{\"type\":\"session_meta\",\"payload\":{\"id\":\"0199\",\"cwd\":\"/tmp\",\"timestamp\":\"2026-10-20T08:00:00Z\"}}\n"
+                    "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions\"}]}}\n"
+                    "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Fix the build\"}}\n"))
+          (let ((session (car (lispm-desktop-agent-codex-sessions))))
+            (should (equal (plist-get session :title) "Fix the build"))
+            (should (equal (plist-get session :id) "0199"))
+            (should (numberp (plist-get session :started))))
+          (lispm-desktop-agent-codex--rename (list :id "0199") "Build fix")
+          (should (equal (plist-get (car (lispm-desktop-agent-codex-sessions)) :title) "Build fix")))
+      (remhash file lispm-desktop-agent--session-cache)
+      (delete-directory home t))))
 
 (ert-deftest lispm-desktop-test-first-start-in-batch ()
   "A batch Emacs settles on Emacs keys and Dracula without asking.
@@ -458,9 +574,8 @@ repository, lisp/ holding its sources."
                                                 :lisp-dir "lisp")))))))
 
 (ert-deftest lispm-desktop-test-directory ()
-  "`lispm-desktop-directory' is the checkout, holding the agents' icons and the Hermes bridge."
+  "`lispm-desktop-directory' is the checkout, holding the agents' icons."
   (should (file-exists-p (expand-file-name "lisp/lispm-desktop.el" lispm-desktop-directory)))
-  (should (file-exists-p lispm-desktop-agent-mcp-hermes-bridge))
   (should (file-directory-p lispm-desktop-agent-icon-directory)))
 
 
@@ -1360,7 +1475,7 @@ routing while the old workspace is still in front."
 different buttons: pressing one draws only it pushed in."
   (let* ((icon (lambda (file) (propertize " " 'display (list 'image :type 'png :file file))))
          (hermes (lispm-desktop-sidebar--toolbar-button (concat (funcall icon "hermes.png") "+")
-                                                        #'lispm-desktop-agent-hermes-new "Hermes" 'header-line))
+                                                        #'lispm-desktop-agent-codex-new "Hermes" 'header-line))
          (lispm (lispm-desktop-sidebar--toolbar-button (concat (funcall icon "lispm.png") "+")
                                                        #'lispm-desktop-agent-lispm-new "LispM" 'header-line)))
     (should (equal hermes lispm))
@@ -3304,7 +3419,7 @@ Emacs is idle: reading transcripts must not stall the terminal scheduler."
         (should (= scheduled 0)))
       (with-current-buffer (get-buffer-create "*claude:lispm-desktop-test*")
         (unwind-protect
-            (progn
+            (lispm-desktop-test--with-agents '((claude :name "Claude Code" :program "emacs"))
               (setq major-mode 'lispm-desktop-term-mode)
               (lispm-desktop-agent-list-refresh-on-exit (current-buffer) 0)
               (lispm-desktop-agent-list-refresh-on-exit (current-buffer) 0)
@@ -3449,7 +3564,7 @@ idle, when its label there changes; progress alone does not."
                (lambda (&rest _) (setq scheduled (1+ scheduled)) nil)))
       (with-current-buffer (get-buffer-create "*codex:lispm-desktop-test*")
         (unwind-protect
-            (progn
+            (lispm-desktop-test--with-agents '((codex :name "Codex" :program "emacs"))
               (setq major-mode 'lispm-desktop-term-mode)
               (setq lispm-desktop-term-status-records '((:state working :progress 10)))
               (lispm-desktop-agent-list-refresh-on-status (current-buffer))

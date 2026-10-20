@@ -29,7 +29,7 @@
 ;; servers, one per agent terminal:
 ;;
 ;;   lispm-desktop-agent-ide  Claude Code's IDE protocol, over a WebSocket
-;;   lispm-desktop-agent-mcp  plain MCP over HTTP, for Codex and Hermes
+;;   lispm-desktop-agent-mcp  plain MCP over HTTP, for the others, as Codex
 ;;
 ;;   terminal --launch--> server --bind--> stops with its terminal
 ;;   request --`lispm-desktop-agent-context-handle'--> tool (directory, arguments)

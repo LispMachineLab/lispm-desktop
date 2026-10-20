@@ -34,10 +34,10 @@
 ;;   workspaces     one per project, owning that project's buffers
 ;;   coherence      windows out on the computer's screen, the desktop in
 ;;                  the Dock (C-c h)
-;;   agents         LispM's, running inside Emacs, and Claude Code, Codex
-;;                  and Hermes, each when its CLI is on PATH (C-c a)
-;;   App Store      applications, agents and skills to install, from
-;;                  catalogs, laid out as Mac OS 9's Extensions Manager
+;;   agents         LispM's, running inside Emacs, and Claude Code and
+;;                  Codex, each when its CLI is on PATH (C-c a); others,
+;;                  as Hermes, are extensions from the App Store
+;;   App Store      applications and extensions to install, from catalogs
 ;;
 ;; Its init.el runs `lispm-desktop-setup' and then the user's own file,
 ;; `lispm-desktop-user-file'.  An existing configuration can use it the same way:
@@ -82,6 +82,8 @@
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-agent-list)
 (require 'lispm-desktop-lispm)
+(require 'lispm-desktop-agent-claude)
+(require 'lispm-desktop-agent-codex)
 
 (defvar nerd-icons-font-family)
 (declare-function nerd-icons-install-fonts "nerd-icons" (&optional pfx))
@@ -176,6 +178,8 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-langs)
           (lispm-desktop-setup-ai)
           (lispm-desktop-setup-lispm)
+          (lispm-desktop-setup-claude)
+          (lispm-desktop-setup-codex)
           ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
           (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
           (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
