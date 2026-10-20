@@ -1112,15 +1112,14 @@ again, as Mac OS 9 rolled a window up into its title bar."
             (lispm-desktop-platinum-roll-up lispm-desktop-browser--frame height)))))))
 
 (defun lispm-desktop-browser--follow-frontmost (app)
-  "Show the floating browser with the desktop and alongside the floating
-editor; hide it from the full-screen editor, whose workspace it would
-cover.  This is one of `lispm-desktop-apps-frontmost-functions'."
+  "Show the floating browser with the desktop, alongside the floating editor
+and the other applications; hide it from the full-screen editor, whose
+workspace it would cover.
+This is one of `lispm-desktop-apps-frontmost-functions'."
   (when (and (lispm-desktop-browser-floating-p)
              ;; Out on the computer's screen, it stays where it is.
              (not (lispm-desktop-apps-out-p lispm-desktop-browser--frame)))
-    (let ((shown (or (memq app '(desktop browser settings))
-                     (and (eq app 'editor) (fboundp 'lispm-desktop-editor-floating-p)
-                          (lispm-desktop-editor-floating-p)))))
+    (let ((shown (not (and (eq app 'editor) (lispm-desktop-apps-full-screen-p app)))))
       (cond ((and shown (not (frame-visible-p lispm-desktop-browser--frame)))
              (lispm-desktop-platinum-show-window lispm-desktop-browser--frame)
              ;; The editor in front stays over it.

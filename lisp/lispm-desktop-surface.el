@@ -93,6 +93,9 @@ A workspace's main area shows it where it holds nothing else.")
             :help "The editor: your projects, agents and shells")
     (browser :label "Browser" :icon "netscape" :command lispm-desktop-browser-show
              :visible lispm-desktop--browser-p :help "The web browser")
+    (applications :label "Applications" :icon "applications-32"
+                  :command lispm-desktop-store-open-applications
+                  :help "The applications installed, and the App Store installing more")
     (control-panels :label "Control Panels" :icon "control-panels-32"
                     :command lispm-desktop-settings-open-folder
                     :help "The control panels: appearance, desktop, keyboard, Internet")

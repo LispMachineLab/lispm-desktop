@@ -11,12 +11,13 @@ Communicator's window was.  In code, the prefix is ~lispm-desktop-~.
 
 * The LispM projects
 
-LispM is three projects, each a repository of its own under
+LispM is four projects, each a repository of its own under
 [[https://github.com/LispMachineLab][LispMachineLab]]:
 
 | [[https://github.com/LispMachineLab/lispm-agent][lispm-agent]]     | LispM Agent: AI agents that run inside Emacs, their conversations org documents, their tools Elisp |
 | *lispm-desktop*   | LispM Desktop, this repository: Emacs laid out as Mac OS 9's desktop, a workspace for agents, ready from the first start |
 | [[https://github.com/LispMachineLab/lispm-browser][lispm-browser]]   | LispM Browser: a WebKit browser in Emacs, with tabs, keyboard hints and Chrome extensions |
+| [[https://github.com/LispMachineLab/lispm-store][lispm-store]]     | LispM Store: the catalog of applications, agents and skills LispM Desktop's App Store installs |
 
 The agents and the browser each stand on their own; LispM Desktop runs both, the agents in its
 sidebar and the browser as one of its applications, and installs them at its first start (see
@@ -31,8 +32,8 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
 - *A desktop*, where Emacs starts, in the theme's colours tinted with its accent (Mac OS 8's
   blue-violet under Platinum), or a colour and a picture of your own (see [[*Your own
   settings][Your own settings]]).  Its icons stand down the right edge as Mac OS 9's did: the
-  home disk and the applications, Emacs (with Emacs's own icon), the browser and the Control
-  Panels folder, at the top,
+  home disk and the applications, Emacs (with Emacs's own icon), the browser, the Applications
+  folder (the App Store and what it installed) and the Control Panels folder, at the top,
   the Trash in the bottom corner, bulging once something is in it.  Click one to select it,
   double-click it (or press Return) to open it; C-n, C-p, C-f and C-b select from the keyboard
   and C-M-n, C-M-p, C-M-f and C-M-b move the icon selected a cell.  Drag one anywhere: a
@@ -55,8 +56,8 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   a right click offers Open, New Folder, Rename, Move to Trash and Copy Path.  It belongs to the desktop: it shows
   with it, and with the floating editor and browser, and steps aside for the full-screen editor
   and browser.
-- *Applications*, one in front at a time, as on Mac OS 9: the desktop, Emacs the editor, and the
-  browser.  The one in front fills the menu bar with its menus; the Application menu at the
+- *Applications*, one in front at a time, as on Mac OS 9: the desktop, Emacs the editor, the
+  browser, and those the App Store installs.  The one in front fills the menu bar with its menus; the Application menu at the
   right end names it and lists the others.  Files, folders, terminals and agents opened while the
   desktop or the browser is in front open in the editor, which comes forward.
 - *A menu bar* along the top: LispM's rainbow λ at its left end, as Mac OS 9 had its rainbow
@@ -121,6 +122,20 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
   browser's home page and search address, its history and its bookmarks.  Each choice takes
   effect at once where it can and is kept for the next start.
+- *The App Store*, laid out as Mac OS 9's Extensions Manager, installs what LispM runs beyond
+  what it ships with: applications, Emacs packages each running in a window of its own on the
+  desktop (Elfeed, EMMS, Emacs's own Calculator); agents, LispM's roles; and skills for LispM's
+  agents.  It lists them in groups from catalogs, git repositories holding a =catalog.eld=,
+  [[https://github.com/LispMachineLab/lispm-store][lispm-store]] by default
+  (~lispm-desktop-store-catalogs~): each item checked while installed, with its version and its
+  catalog, under the list Install from URL…, Update and Remove, and the item's information below.
+  Nothing is installed unasked: a role's or a skill's text and code, or where a package comes
+  from and the commit it is pinned to, shows under the list while an alert asks, and an update
+  shows what changes.  Install from URL… takes a git URL: a repository with a catalog becomes
+  one more catalog, any other Emacs package an application.  The λ menu opens the App Store and
+  lists the applications installed, and so does the desktop's Applications folder.  The
+  keyboard does all of it: =C-n=, =C-p= from row to row, =SPC= installs or removes, =RET= opens,
+  =i= the item's information, =u= updates, =g= checks the catalogs, =+= installs from a URL.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
   bottom-left corner at first: a collapse box, scroll arrows, a module each for Appearance, Desktop, Keyboard and
   Internet, and Emacs's own battery, load average and mail flag, then a tab.  Pressing a module

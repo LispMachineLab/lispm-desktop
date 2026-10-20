@@ -435,13 +435,15 @@ desktop, the browser's pages and Emacs's own internal buffers."
   "Return non-nil when a document is about to show outside the editor.
 That is any of `lispm-desktop-editor--document-p' while another application is
 in front: the desktop, the Finder window or the browser, outside the
-minibuffer.  This is the `display-buffer-alist' condition sending documents to
-the editor."
+minibuffer.  An installed application's window keeps what it shows, see
+lispm-desktop-app-window.el.  This is the `display-buffer-alist' condition
+sending documents to the editor."
   (when-let* ((buffer (get-buffer buffer-or-name)))
     (and (not lispm-desktop-editor--moving)
          (not lispm-desktop-editor--displaying)
          (not (active-minibuffer-window))
          (not (lispm-desktop-editor--frame-p (selected-frame)))
+         (not (frame-parameter (selected-frame) 'lispm-desktop-app-window))
          (lispm-desktop-editor--document-p buffer))))
 
 (defun lispm-desktop-editor-display (buffer alist)
