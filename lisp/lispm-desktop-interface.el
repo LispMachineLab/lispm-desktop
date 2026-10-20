@@ -217,40 +217,6 @@ it and resetting the tab's buffer list keeps that buffer out."
 
 ;;;; Tab bar
 
-(defun lispm-desktop-tab-bar--rgb (color)
-  "Return COLOR as a list of red, green and blue between 0 and 1, or nil.
-A colour written #RRGGBB is read as written, whatever the display can
-show; any other name is resolved by the display."
-  (if (and (stringp color)
-           (string-match (concat "\\`#\\([[:xdigit:]]\\{2\\}\\)"
-                                 "\\([[:xdigit:]]\\{2\\}\\)\\([[:xdigit:]]\\{2\\}\\)\\'")
-                         color))
-      (mapcar (lambda (group) (/ (string-to-number (match-string group color) 16) 255.0))
-              '(1 2 3))
-    (and color (color-name-to-rgb color))))
-
-(defun lispm-desktop-tab-bar--blend (from to ratio)
-  "Return the colour RATIO of the way from colour FROM to colour TO.
-Each component is rounded to the nearest of its 256 values, so a blend
-falling on one of them comes back exactly.  Return nil when either
-colour cannot be resolved, as on a text terminal."
-  (when-let* ((a (lispm-desktop-tab-bar--rgb from))
-              (b (lispm-desktop-tab-bar--rgb to)))
-    (apply #'format "#%02x%02x%02x"
-           (cl-mapcar (lambda (x y) (round (* 255 (+ x (* ratio (- y x)))))) a b))))
-
-(defun lispm-desktop-tab-bar--bar-color ()
-  "Return the colour of the bars above the windows: the editor a shade darker.
-The tab bar and the windows' buffer tab lines share it, so the two read as
-one band above the buffers."
-  (lispm-desktop-tab-bar--blend (face-background 'default nil t) "#000000" 0.25))
-
-(defun lispm-desktop-tab-bar--muted-color ()
-  "Return the text colour of unselected tabs: dimmed, yet legible on the bar.
-The theme's `shadow' colour alone is too faint on the darker bar."
-  (lispm-desktop-tab-bar--blend (face-foreground 'shadow nil t)
-                                (face-foreground 'default nil t) 0.35))
-
 (defun lispm-desktop-tab-bar-tab-name ()
   "Name the current tab after the buffer of its main, non-side window.
 Agent terminals are named by their session title."

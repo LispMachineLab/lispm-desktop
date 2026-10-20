@@ -236,15 +236,14 @@ Extensions is among them where pages can run Chrome extensions."
 ;;
 ;; Each part is an SVG drawn once per palette and state, then kept.
 
-(defvar lispm-desktop-platinum--generation)
-(declare-function lispm-desktop-tab-bar--blend "lispm-desktop-interface" (from to ratio))
+(defvar lispm-desktop-platinum-generation)
 
 (defvar lispm-desktop-browser--images (make-hash-table :test #'equal)
   "Drawn chrome images, by palette generation and key.")
 
 (defun lispm-desktop-browser--image (key draw)
   "Return the image of KEY, calling DRAW for its SVG text the first time."
-  (let ((key (cons lispm-desktop-platinum--generation key)))
+  (let ((key (cons lispm-desktop-platinum-generation key)))
     (or (gethash key lispm-desktop-browser--images)
         (progn
           (when (> (hash-table-count lispm-desktop-browser--images) 256)
@@ -285,11 +284,11 @@ fill (f), face (c), the stop sign's red (r) and white (w); greyed unless
 ENABLED."
   (let ((red (or (ignore-errors (face-foreground 'error nil t)) "#CC3333")))
     (if enabled
-        `((?i . ,(lispm-desktop-platinum--color :text)) (?f . ,(lispm-desktop-platinum--color :accent))
-          (?c . ,(lispm-desktop-platinum--color :content)) (?r . ,red) (?w . "#FFFFFF"))
-      `((?i . ,(lispm-desktop-platinum--color :shade)) (?f . ,(lispm-desktop-platinum--color :muted))
-        (?c . ,(lispm-desktop-platinum--color :chrome)) (?r . ,(lispm-desktop-platinum--color :muted))
-        (?w . ,(lispm-desktop-platinum--color :chrome))))))
+        `((?i . ,(lispm-desktop-platinum-color :text)) (?f . ,(lispm-desktop-platinum-color :accent))
+          (?c . ,(lispm-desktop-platinum-color :content)) (?r . ,red) (?w . "#FFFFFF"))
+      `((?i . ,(lispm-desktop-platinum-color :shade)) (?f . ,(lispm-desktop-platinum-color :muted))
+        (?c . ,(lispm-desktop-platinum-color :chrome)) (?r . ,(lispm-desktop-platinum-color :muted))
+        (?w . ,(lispm-desktop-platinum-color :chrome))))))
 
 (defconst lispm-desktop-browser--icons
   '((back . "<path d='M2.5 12 L11.5 3.5 L11.5 8 L21.5 8 L21.5 16 L11.5 16 L11.5 20.5 Z' \
@@ -328,12 +327,12 @@ V20.5 H4.5 Z' fill='%f' stroke='%i' stroke-linejoin='round'/>"))
 
 (defun lispm-desktop-browser--bevel (width height pressed)
   "Return SVG of a WIDTH by HEIGHT bevel, pushed in when PRESSED."
-  (let ((light (lispm-desktop-platinum--color :light))
-        (shade (lispm-desktop-platinum--color :shade))
-        (chrome (lispm-desktop-platinum--color :chrome)))
+  (let ((light (lispm-desktop-platinum-color :light))
+        (shade (lispm-desktop-platinum-color :shade))
+        (chrome (lispm-desktop-platinum-color :chrome)))
     (concat
      (format "<rect width='%d' height='%d' fill='%s'/>" width height
-             (if pressed (lispm-desktop-tab-bar--blend chrome shade 0.45) chrome))
+             (if pressed (lispm-desktop-platinum-blend chrome shade 0.45) chrome))
      (format "<rect width='%d' height='1' fill='%s'/><rect width='1' height='%d' fill='%s'/>"
              width (if pressed shade light) height (if pressed shade light))
      (format "<rect y='%d' width='%d' height='1' fill='%s'/><rect x='%d' width='1' height='%d' fill='%s'/>"
@@ -352,7 +351,7 @@ greyed unless ENABLED, pushed in when PRESSED."
              (format-spec (alist-get icon lispm-desktop-browser--icons) ink))
      (format "<text x='%d' y='%d' font-family='%s' font-size='%d' text-anchor='middle' fill='%s'>%s</text>"
              (/ width 2) (- height 6 (if pressed -1 0)) (lispm-desktop-browser--escape family) size
-             (if enabled (lispm-desktop-platinum--color :text) (lispm-desktop-platinum--color :shade))
+             (if enabled (lispm-desktop-platinum-color :text) (lispm-desktop-platinum-color :shade))
              (lispm-desktop-browser--escape label)))))
 
 (defconst lispm-desktop-browser--logo
@@ -409,8 +408,8 @@ meteor shower falling (nil while the page rests), pushed in when PRESSED."
 (defun lispm-desktop-browser--draw-padlock (secure)
   "Return SVG of the status bar's padlock: shut and in the accent colour
 when SECURE, open and grey when not."
-  (let ((ink (lispm-desktop-platinum--color (if secure :text :shade)))
-        (fill (lispm-desktop-platinum--color (if secure :accent :muted))))
+  (let ((ink (lispm-desktop-platinum-color (if secure :text :shade)))
+        (fill (lispm-desktop-platinum-color (if secure :accent :muted))))
     (lispm-desktop-browser--svg
      12 14
      (format "<path d='%s' fill='none' stroke='%s' stroke-width='1.6'/>"
@@ -424,11 +423,11 @@ when SECURE, open and grey when not."
   (let ((filled (round (* (min 1 (max 0 fraction)) 78))))
     (lispm-desktop-browser--svg
      80 10
-     (format "<rect width='80' height='10' fill='%s'/>" (lispm-desktop-platinum--color :frame))
-     (format "<rect x='1' y='1' width='78' height='8' fill='%s'/>" (lispm-desktop-platinum--color :content))
+     (format "<rect width='80' height='10' fill='%s'/>" (lispm-desktop-platinum-color :frame))
+     (format "<rect x='1' y='1' width='78' height='8' fill='%s'/>" (lispm-desktop-platinum-color :content))
      (if (> filled 0)
          (format "<rect x='1' y='1' width='%d' height='8' fill='%s'/>" filled
-                 (lispm-desktop-platinum--color :accent))
+                 (lispm-desktop-platinum-color :accent))
        ""))))
 
 ;;;;; Navigation toolbar
@@ -458,7 +457,7 @@ ENABLED is t, or a key of `lispm-desktop-browser--navigation' saying when.")
                 (lambda (event)
                   (interactive "e")
                   (let ((start (event-start event)))
-                    (lispm-desktop-platinum-press start (lispm-desktop-platinum--same-target-p start)
+                    (lispm-desktop-platinum-press start (lispm-desktop-platinum-same-target-p start)
                                                   (lambda ()
                                                     (with-selected-window (posn-window start)
                                                       (call-interactively command)))))))
@@ -471,7 +470,7 @@ See `lispm-desktop-browser-tools'."
   (pcase-let* ((`(,icon ,label ,command ,help ,condition) tool)
                (enabled (or (eq condition t) (plist-get lispm-desktop-browser--navigation condition)))
                (target (cons 'header-line icon))
-               (pressed (and enabled (lispm-desktop-platinum--pressed-p target)))
+               (pressed (and enabled (lispm-desktop-platinum-pressed-p target)))
                (width (max 46 (+ 14 (lispm-desktop-browser--label-width label)))))
     (propertize " " 'display (lispm-desktop-browser--image
                               (list 'tool icon enabled pressed width)
@@ -483,7 +482,7 @@ See `lispm-desktop-browser-tools'."
   "Return the throbber, which goes home when clicked, as Netscape's N went
 to Netscape's own page."
   (let* ((target '(header-line . throbber))
-         (pressed (lispm-desktop-platinum--pressed-p target))
+         (pressed (lispm-desktop-platinum-pressed-p target))
          (frame lispm-desktop-browser--throbber-frame))
     (propertize " " 'display (lispm-desktop-browser--image
                               (list 'throbber frame pressed)
@@ -494,8 +493,8 @@ to Netscape's own page."
 (defun lispm-desktop-browser--toolbar ()
   "Return the navigation toolbar, the address window's header line: big
 buttons, an icon over each name, and the throbber at the right end."
-  (concat (lispm-desktop-platinum--space 6)
-          (mapconcat #'lispm-desktop-browser--tool-button lispm-desktop-browser-tools (lispm-desktop-platinum--space 2))
+  (concat (lispm-desktop-platinum-space 6)
+          (mapconcat #'lispm-desktop-browser--tool-button lispm-desktop-browser-tools (lispm-desktop-platinum-space 2))
           (propertize " " 'display `(space :align-to (- right (,(+ lispm-desktop-browser-tool-height 10)))))
           (lispm-desktop-browser--throbber)))
 
@@ -597,7 +596,7 @@ width='%d' height='%d' viewBox='0 0 %d %d'>" size size size size)
        ;; No icon: the initial of its name, as Chrome shows.
        (format "<text x='%d' y='%d' font-family='%s' font-size='13' font-weight='bold' text-anchor='middle' fill='%s'>%s</text>"
                (/ size 2) (+ inset 13) (lispm-desktop-browser--escape (car (lispm-desktop-browser--font)))
-               (lispm-desktop-platinum--color (if enabled :text :shade))
+               (lispm-desktop-platinum-color (if enabled :text :shade))
                (lispm-desktop-browser--escape (upcase (substring (or (plist-get button :name) "?") 0 1)))))
      (if badge
          (lispm-desktop-browser--draw-badge badge (plist-get button :badge-color) (plist-get button :badge-text-color))
@@ -681,7 +680,7 @@ extensions, or nothing is drawn."
              (fboundp 'lispm-browser-extensions-supported-p)
              (lispm-browser-extensions-supported-p))
     (let* ((buttons (lispm-browser-extensions-buttons))
-           (gap (lispm-desktop-platinum--space lispm-desktop-browser-extension-gap))
+           (gap (lispm-desktop-platinum-space lispm-desktop-browser-extension-gap))
            (size lispm-desktop-browser-extension-size))
       (cons (concat (mapconcat (lambda (button) (concat (lispm-desktop-browser--extension-button button) gap))
                                buttons "")
@@ -776,7 +775,7 @@ inhibited and the edit mark cleared."
       (insert (propertize " " 'display `(space :width (8) :height (,lispm-desktop-browser-address-height)
                                                :ascent 65))
               (lispm-desktop-browser--bookmarks-button)
-              (lispm-desktop-platinum--space 10)
+              (lispm-desktop-platinum-space 10)
               (or (and page (lispm-browser-favicon page)) (lispm-desktop-platinum-icon "globe"))
               " "
               (propertize "Location:" 'face 'lispm-desktop-platinum-toolbar-label)
@@ -810,7 +809,7 @@ typed at its end."
                  (concat (propertize " " 'face face 'cursor t
                                      'display `(space :align-to (- right (,(+ 12 (if extensions (+ (cdr extensions) 8) 0))))))
                          (if extensions
-                             (concat (lispm-desktop-platinum--space 8) (car extensions))
+                             (concat (lispm-desktop-platinum-space 8) (car extensions))
                            "")))
     (when lispm-desktop-browser--address-start
       (move-overlay lispm-desktop-browser--field lispm-desktop-browser--address-start (point-max)))))

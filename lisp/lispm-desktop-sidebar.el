@@ -79,9 +79,9 @@ white, black is legible as it is.  Colours come only from faces this
 function never sets, so re-running it is idempotent."
   (require 'ansi-color)
   (when-let* ((background (face-background 'default nil t))
-              (dark (< (apply #'+ (or (lispm-desktop-tab-bar--rgb background) '(1 1 1))) 1.5))
+              (dark (< (apply #'+ (or (lispm-desktop-platinum-rgb background) '(1 1 1))) 1.5))
               (dim (face-foreground 'shadow nil t))
-              (black (lispm-desktop-tab-bar--blend background "#000000" 0.2)))
+              (black (lispm-desktop-platinum-blend background "#000000" 0.2)))
     (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
     (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
 
@@ -115,7 +115,7 @@ toolbars are, it shows itself pushed in from the window's
          ;; properties, and icons drawn as images all read " ", so the new
          ;; session buttons of two agents with image icons had one label.
          (target (list row command label))
-         (pressed (lispm-desktop-platinum--pressed-p target))
+         (pressed (lispm-desktop-platinum-pressed-p target))
          (button (if face
                      (let ((styled (copy-sequence label)))
                        (add-face-text-property 0 (length styled)
@@ -134,7 +134,7 @@ toolbars are, it shows itself pushed in from the window's
                                           (interactive "e")
                                           (let ((start (event-start event)))
                                             (lispm-desktop-platinum-press
-                                             start (lispm-desktop-platinum--same-target-p start)
+                                             start (lispm-desktop-platinum-same-target-p start)
                                              (lambda ()
                                                (with-selected-window (posn-window start)
                                                  (call-interactively command)))))))
@@ -329,7 +329,7 @@ take the `button' face of the row, underline and all."
   "Return the right-hand column of a row holding META, flush right.
 The column is shaded down its whole length, as Finder shaded the column
 a list was sorted by."
-  (let* ((meta (lispm-desktop-platinum--fit (propertize (or meta "") 'face
+  (let* ((meta (lispm-desktop-platinum-fit (propertize (or meta "") 'face
                                                         (or (get-text-property 0 'face (or meta ""))
                                                             'lispm-desktop-platinum-list))
                                             (- (lispm-desktop-sidebar--column-pixels) 16)))
@@ -349,7 +349,7 @@ shortened to fit between them."
   (let ((room (- width (string-pixel-width (propertize lead 'face 'lispm-desktop-platinum-list))
                  (lispm-desktop-sidebar--column-pixels) 12)))
     (concat lead
-            (lispm-desktop-platinum--fit (propertize name 'face (or (get-text-property 0 'face name)
+            (lispm-desktop-platinum-fit (propertize name 'face (or (get-text-property 0 'face name)
                                                                     'lispm-desktop-platinum-list))
                                          (max 0 room))
             (lispm-desktop-sidebar--sorted-column meta))))

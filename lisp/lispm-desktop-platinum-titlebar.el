@@ -75,7 +75,7 @@ BOX is :close, :zoom or :collapse; see `lispm-desktop-platinum-box-functions'."
   "Give the current buffer's windows no title bar, as for transient popups."
   (setq-local tab-line-format nil))
 
-(defun lispm-desktop-platinum--buffer-title (buffer)
+(defun lispm-desktop-platinum-buffer-title (buffer)
   "Return the title of BUFFER's window."
   (or (buffer-local-value 'lispm-desktop-platinum-title buffer)
       (and (fboundp 'lispm-desktop-agent-buffer-label) (lispm-desktop-agent-buffer-label buffer))
@@ -118,7 +118,7 @@ That is the text property `lispm-desktop-platinum-target'."
   (when-let* ((string (posn-string position)))
     (get-text-property (cdr string) 'lispm-desktop-platinum-target (car string))))
 
-(defun lispm-desktop-platinum--same-target-p (position)
+(defun lispm-desktop-platinum-same-target-p (position)
   "Return a predicate true of positions on the same target as POSITION."
   (let ((window (posn-window position))
         (area (posn-area position))
@@ -128,7 +128,7 @@ That is the text property `lispm-desktop-platinum-target'."
            (eq (posn-area release) area)
            (equal (lispm-desktop-platinum--press-target release) target)))))
 
-(defun lispm-desktop-platinum--pressed-p (target)
+(defun lispm-desktop-platinum-pressed-p (target)
   "Return non-nil while TARGET is held down in the window being drawn."
   (equal (window-parameter (selected-window) 'lispm-desktop-platinum-pressed) target))
 
@@ -145,7 +145,7 @@ HELP describes it.  It is pressed rather than clicked, see
                                       (interactive "e")
                                       (let ((start (event-start event)))
                                         (lispm-desktop-platinum-press
-                                         start (lispm-desktop-platinum--same-target-p start)
+                                         start (lispm-desktop-platinum-same-target-p start)
                                          (lambda () (funcall command (posn-window start)))))))
                         (keymap-set map "<tab-line> <mouse-1>" #'ignore)
                         map)))
@@ -202,7 +202,7 @@ window that is not a session."
                  (select-window to))
         (message "Sessions keep to the left, everything else to the right")))))
 
-(defun lispm-desktop-platinum--fit (string width)
+(defun lispm-desktop-platinum-fit (string width)
   "Return STRING shortened with an ellipsis to fit WIDTH pixels.
 The ellipsis takes the face of the text it follows."
   (if (<= (string-pixel-width string) width)
@@ -280,7 +280,7 @@ collapses; a window collapses only when another shares its column."
                    (window-right-divider-width window)
                    (window-scroll-bar-width window)))
          (icon (lispm-desktop-platinum--buffer-icon buffer))
-         (title (lispm-desktop-platinum--buffer-title buffer))
+         (title (lispm-desktop-platinum-buffer-title buffer))
          (modified (and (buffer-file-name buffer) (buffer-modified-p buffer)))
          (controls (lispm-desktop-platinum--window-controls window))
          ;; What a terminal's program says it is doing, see lispm-desktop-term.
@@ -292,17 +292,17 @@ collapses; a window collapses only when another shares its column."
          (framed (lispm-desktop-platinum--framed-p (window-frame window)))
          (edges (cons (not (and framed (window-at-side-p window 'left)))
                       (not (and framed (window-at-side-p window 'right)))))
-         (key (list lispm-desktop-platinum--generation width active icon title modified controls
+         (key (list lispm-desktop-platinum-generation width active icon title modified controls
                     pressed status edges))
          (cached (window-parameter window 'lispm-desktop-platinum-title-bar)))
     (if (equal (car cached) key)
         (cdr cached)
-      (let ((bar (lispm-desktop-platinum--draw-title-bar width active icon title modified controls
+      (let ((bar (lispm-desktop-platinum-draw-title-bar width active icon title modified controls
                                                          pressed status edges)))
         (set-window-parameter window 'lispm-desktop-platinum-title-bar (cons key bar))
         bar))))
 
-(defun lispm-desktop-platinum--draw-title-bar (width active icon title modified controls
+(defun lispm-desktop-platinum-draw-title-bar (width active icon title modified controls
                                                      &optional pressed status edges)
   "Return a title bar WIDTH pixels wide for ICON and TITLE.
 ACTIVE draws the ridges and boxes; an inactive bar lies flat, its title
@@ -317,10 +317,10 @@ between its boxes, so its lines run under the title too."
                (face (if active 'lispm-desktop-platinum-title 'lispm-desktop-platinum-title-inactive))
                (`(,close ,zoom ,collapse) controls)
                (layout (lispm-desktop-platinum-title-layout
-                        width (lispm-desktop-platinum--content-width label face) controls))
+                        width (lispm-desktop-platinum-content-width label face) controls))
                (label (let ((label (copy-sequence label)))
                         (add-face-text-property 0 (length label) face t label)
-                        (lispm-desktop-platinum--fit label (plist-get layout :title))))
+                        (lispm-desktop-platinum-fit label (plist-get layout :title))))
                (start (plist-get layout :start))
                (end (plist-get layout :end))
                (lead (if edges (car edges) t))
@@ -381,7 +381,7 @@ the last one shows the desktop."
       (lispm-desktop-sidebar-select view)))
    (t
     (let ((buffer (window-buffer window)))
-      (when (lispm-desktop-platinum--confirm-close buffer)
+      (when (lispm-desktop-platinum-confirm-close buffer)
         (let ((kill-buffer-query-functions nil))
           (kill-buffer buffer))
         ;; The main area's last window uncovers the desktop, as closing
@@ -392,11 +392,11 @@ the last one shows the desktop."
             (when (fboundp 'lispm-desktop-show)
               (lispm-desktop-show window)))))))))
 
-(defun lispm-desktop-platinum--confirm-close (buffer)
+(defun lispm-desktop-platinum-confirm-close (buffer)
   "Ask, as Mac OS 9 asked, whether BUFFER may close; return non-nil if so.
 A modified file asks to be saved first, and is saved when told to; a
 buffer whose process still runs asks before the process is stopped."
-  (let ((name (lispm-desktop-platinum--buffer-title buffer))
+  (let ((name (lispm-desktop-platinum-buffer-title buffer))
         (process (get-buffer-process buffer)))
     (cond
      ((and (buffer-file-name buffer) (buffer-modified-p buffer))
@@ -420,7 +420,7 @@ buffer whose process still runs asks before the process is stopped."
             (replace-regexp-in-string "\\s-*([^()]*)\\s-*\\'" "" (string-trim prompt))
             '(("No" no cancel ?n) ("Yes" yes default ?y)))))
 
-(defun lispm-desktop-platinum--names (names)
+(defun lispm-desktop-platinum-quoted-names (names)
   "Return NAMES as a phrase: the first three quoted, then a count of the rest."
   (let ((quoted (mapcar (lambda (name) (format "“%s”" (string-trim name "\\*" "\\*")))
                         (seq-take names 3)))
@@ -441,10 +441,10 @@ lispm-desktop-term's terminals, whose programs are not Emacs's processes."
                         (when (and (memq (process-status process) '(run stop open listen))
                                    (process-query-on-exit-flag process))
                           (if (buffer-live-p (process-buffer process))
-                              (lispm-desktop-platinum--buffer-title (process-buffer process))
+                              (lispm-desktop-platinum-buffer-title (process-buffer process))
                             (process-name process))))
                       (process-list)))
-    (mapcar #'lispm-desktop-platinum--buffer-title
+    (mapcar #'lispm-desktop-platinum-buffer-title
             (and (fboundp 'lispm-desktop-term-running-buffers) (lispm-desktop-term-running-buffers))))))
 
 (defun lispm-desktop-platinum--unsaved-documents ()
@@ -461,7 +461,7 @@ RESTART'ing, as Mac OS 9 asked; return nil if one was cancelled."
     (dolist (buffer documents)
       (pcase (lispm-desktop-popup-alert
               'caution (format "Save changes to the document “%s” before %s?"
-                               (lispm-desktop-platinum--buffer-title buffer)
+                               (lispm-desktop-platinum-buffer-title buffer)
                                (if restart "restarting" "quitting"))
               ;; y and n answer as `save-some-buffers' takes them.
               '(("Don’t Save" discard nil ?\M-d ?n) ("Cancel" cancel cancel)
@@ -496,7 +496,7 @@ Emacs again.  Where alerts cannot be drawn, QUIT asks."
                                   'caution (format "%s Emacs while programs are running?" verb)
                                   `(("Cancel" cancel cancel) (,verb quit default))
                                   (format "%s stops %s." (if restart "Restarting" "Quitting")
-                                          (lispm-desktop-platinum--names programs)))))
+                                          (lispm-desktop-platinum-quoted-names programs)))))
                    (run-hook-with-args-until-failure 'kill-emacs-query-functions)
                    ;; As `save-buffers-kill-emacs', confirm only when nothing
                    ;; was asked already.
@@ -536,7 +536,7 @@ Only a window sharing its column with another can roll up."
                              (window-total-height window))
                    nil t))))
 
-(defun lispm-desktop-platinum--window-buffers (window)
+(defun lispm-desktop-platinum-window-buffers (window)
   "Return the buffers WINDOW could show: its workspace's.
 Hidden buffers and the sidebar's lists are left out."
   (seq-remove (lambda (buffer)
@@ -568,11 +568,11 @@ Finder window gives its folder's path, as Mac OS 9's did.")
 the title's left under the title bar."
   (let* ((buffer (window-buffer window))
          (icon (lispm-desktop-platinum--buffer-icon buffer))
-         (label (concat (when icon (concat icon " ")) (lispm-desktop-platinum--buffer-title buffer)))
+         (label (concat (when icon (concat icon " ")) (lispm-desktop-platinum-buffer-title buffer)))
          (layout (lispm-desktop-platinum-title-layout
                   (- (window-pixel-width window) (window-right-divider-width window)
                      (window-scroll-bar-width window))
-                  (lispm-desktop-platinum--content-width label 'lispm-desktop-platinum-title)
+                  (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)
                   (lispm-desktop-platinum--window-controls window)))
          (edges (window-pixel-edges window)))
     (cons (+ (nth 0 edges) (plist-get layout :label-x))
@@ -594,12 +594,12 @@ from the keyboard, for the selected window."
                                              (window-buffer window))))
          (funcall function window)
        (mapcar (lambda (buffer)
-                 (list :label (lispm-desktop-platinum--buffer-title buffer)
+                 (list :label (lispm-desktop-platinum-buffer-title buffer)
                        :action (lambda ()
                                  (select-window window)
                                  (switch-to-buffer buffer))
                        :checked (eq buffer (window-buffer window))))
-               (seq-take (lispm-desktop-platinum--window-buffers window) 30)))
+               (seq-take (lispm-desktop-platinum-window-buffers window) 30)))
      x y)))
 
 (provide 'lispm-desktop-platinum-titlebar)

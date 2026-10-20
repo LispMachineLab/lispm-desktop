@@ -188,7 +188,7 @@ C-c u, New Folder in the File menu."
   "Hold the button EVENT pressed, going to the enclosing folder if let go on it."
   (interactive "e")
   (let ((start (event-start event)))
-    (lispm-desktop-platinum-press start (lispm-desktop-platinum--same-target-p start)
+    (lispm-desktop-platinum-press start (lispm-desktop-platinum-same-target-p start)
                                   #'lispm-desktop-finder-up)))
 
 (defvar-keymap lispm-desktop-finder--up-button-map
@@ -200,7 +200,7 @@ C-c u, New Folder in the File menu."
   "Return what the button going to the enclosing folder reads: an arrow up
 and the folder's name, or the arrow alone at the top, where it is dimmed."
   (if-let* ((parent (lispm-desktop-finder--parent lispm-desktop-finder--directory)))
-      (concat "▲ " (lispm-desktop-platinum--fit
+      (concat "▲ " (lispm-desktop-platinum-fit
                     (propertize (lispm-desktop-finder--title parent) 'face 'lispm-desktop-platinum-small)
                     160))
     "▲"))
@@ -212,7 +212,7 @@ and dimmed at the top, where there is no folder to go to."
   (if (not (lispm-desktop-finder--parent lispm-desktop-finder--directory))
       (lispm-desktop-platinum-header-button label 'disabled)
     (propertize (lispm-desktop-platinum-header-button
-                 label (and (lispm-desktop-platinum--pressed-p lispm-desktop-finder--up-target) 'pressed))
+                 label (and (lispm-desktop-platinum-pressed-p lispm-desktop-finder--up-target) 'pressed))
                 'help-echo "Go to the enclosing folder (Delete)"
                 'lispm-desktop-platinum-target lispm-desktop-finder--up-target
                 'keymap lispm-desktop-finder--up-button-map)))
@@ -266,7 +266,7 @@ the disk."
           (insert "\n")
           (seq-do-indexed
            (lambda (item column)
-             (let ((label (lispm-desktop-platinum--fit
+             (let ((label (lispm-desktop-platinum-fit
                            (propertize (concat " " (car item) " ")
                                        'face (if (equal (car item) lispm-desktop-finder--selected)
                                                  'lispm-desktop-label-selected

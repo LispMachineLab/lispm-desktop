@@ -37,7 +37,6 @@
 (require 'lispm-desktop-platinum-draw)
 (require 'lispm-desktop-modal)
 
-(declare-function lispm-desktop-tab-bar--blend "lispm-desktop-interface" (from to ratio))
 
 ;;;; Header strips, header buttons and group boxes
 
@@ -50,10 +49,10 @@
 lit along its top, platinum, shaded along its bottom over a black line."
   (let ((h lispm-desktop-platinum-header-strip-height)
         (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
-    (lispm-desktop-platinum--fill svg 0 0 width h (funcall grey #xDD))
-    (lispm-desktop-platinum--row svg 0 (1- width) 0 (funcall grey #xFF))
-    (lispm-desktop-platinum--row svg 0 (1- width) (- h 2) (funcall grey #xAA))
-    (lispm-desktop-platinum--row svg 0 (1- width) (1- h) (plist-get palette :outline))))
+    (lispm-desktop-platinum-svg-fill svg 0 0 width h (funcall grey #xDD))
+    (lispm-desktop-platinum-svg-row svg 0 (1- width) 0 (funcall grey #xFF))
+    (lispm-desktop-platinum-svg-row svg 0 (1- width) (- h 2) (funcall grey #xAA))
+    (lispm-desktop-platinum-svg-row svg 0 (1- width) (1- h) (plist-get palette :outline))))
 
 (defun lispm-desktop-platinum-draw-header-strip (palette width &optional label left)
   "Return an SVG of a window's header strip WIDTH pixels wide, in PALETTE.
@@ -68,11 +67,11 @@ whole strip, kept clear of the opening."
          (svg (svg-create width h)))
     (lispm-desktop-platinum--draw-header-ground svg width palette)
     (when label
-      (let ((x (- (/ (- (+ left width) (lispm-desktop-platinum--content-width
+      (let ((x (- (/ (- (+ left width) (lispm-desktop-platinum-content-width
                                          label 'lispm-desktop-platinum-small))
                      2)
                   left)))
-        (lispm-desktop-platinum--draw-content
+        (lispm-desktop-platinum-svg-content
          svg label (if (> left 0) (max 8 x) x)
          1 (- h 3) (plist-get palette :text) 'lispm-desktop-platinum-small)))
     svg))
@@ -86,9 +85,9 @@ returns one."
   (let* ((left (or left 0))
          (width (- (window-pixel-width) (window-right-divider-width) (window-scroll-bar-width) left)))
     (propertize " " 'display
-                (lispm-desktop-platinum--image
+                (lispm-desktop-platinum-image
                  (list 'header-strip label width left)
-                 (lambda () (lispm-desktop-platinum-draw-header-strip lispm-desktop-platinum--palette
+                 (lambda () (lispm-desktop-platinum-draw-header-strip lispm-desktop-platinum-current-palette
                                                                       width label left))))))
 
 (defconst lispm-desktop-platinum-header-button-height 17
@@ -96,7 +95,7 @@ returns one."
 
 (defun lispm-desktop-platinum-header-button-width (label)
   "Return the width of a header strip's opening holding a button reading LABEL."
-  (+ 6 (lispm-desktop-platinum--content-width label 'lispm-desktop-platinum-small)
+  (+ 6 (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-small)
      (* 2 lispm-desktop-platinum-bevel-padding)))
 
 (defun lispm-desktop-platinum-draw-header-button (palette label &optional state)
@@ -119,9 +118,9 @@ strip follows, drawn by `lispm-desktop-platinum-draw-header-strip'."
   "Return a header strip's opening, a bevel button reading LABEL in STATE,
 as a string displaying it; see `lispm-desktop-platinum-draw-header-button'."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'header-button (lispm-desktop-platinum--content-key label) state)
-               (lambda () (lispm-desktop-platinum-draw-header-button lispm-desktop-platinum--palette
+               (lambda () (lispm-desktop-platinum-draw-header-button lispm-desktop-platinum-current-palette
                                                                      label state)))))
 
 (defconst lispm-desktop-platinum-group-title-height 18
@@ -140,20 +139,20 @@ frame's sides at the top of a line as tall as a line of text."
          (lit (lispm-desktop-platinum-grey palette #xFF)))
     (if bottom
         (progn
-          (lispm-desktop-platinum--column svg 0 0 y dark)
-          (lispm-desktop-platinum--column svg 1 0 (1- y) lit)
-          (lispm-desktop-platinum--column svg (- width 2) 0 y dark)
-          (lispm-desktop-platinum--column svg (1- width) 0 (1+ y) lit))
-      (lispm-desktop-platinum--column svg 0 y (1- h) dark)
-      (lispm-desktop-platinum--column svg 1 (1+ y) (1- h) lit)
-      (lispm-desktop-platinum--column svg (- width 2) y (1- h) dark)
-      (lispm-desktop-platinum--column svg (1- width) y (1- h) lit))
-    (lispm-desktop-platinum--row svg 0 (- width 2) y dark)
-    (lispm-desktop-platinum--row svg 1 (1- width) (1+ y) lit)
+          (lispm-desktop-platinum-svg-column svg 0 0 y dark)
+          (lispm-desktop-platinum-svg-column svg 1 0 (1- y) lit)
+          (lispm-desktop-platinum-svg-column svg (- width 2) 0 y dark)
+          (lispm-desktop-platinum-svg-column svg (1- width) 0 (1+ y) lit))
+      (lispm-desktop-platinum-svg-column svg 0 y (1- h) dark)
+      (lispm-desktop-platinum-svg-column svg 1 (1+ y) (1- h) lit)
+      (lispm-desktop-platinum-svg-column svg (- width 2) y (1- h) dark)
+      (lispm-desktop-platinum-svg-column svg (1- width) y (1- h) lit))
+    (lispm-desktop-platinum-svg-row svg 0 (- width 2) y dark)
+    (lispm-desktop-platinum-svg-row svg 1 (1- width) (1+ y) lit)
     (when title
-      (let ((title-width (lispm-desktop-platinum--content-width title 'lispm-desktop-platinum-title)))
-        (lispm-desktop-platinum--fill svg 8 0 (+ title-width 8) h (lispm-desktop-platinum-grey palette #xEE))
-        (lispm-desktop-platinum--draw-content svg title 12 0 h (plist-get palette :text)
+      (let ((title-width (lispm-desktop-platinum-content-width title 'lispm-desktop-platinum-title)))
+        (lispm-desktop-platinum-svg-fill svg 8 0 (+ title-width 8) h (lispm-desktop-platinum-grey palette #xEE))
+        (lispm-desktop-platinum-svg-content svg title 12 0 h (plist-get palette :text)
                                               'lispm-desktop-platinum-title)))
     svg))
 
@@ -161,23 +160,23 @@ frame's sides at the top of a line as tall as a line of text."
   "Return a group box's edge WIDTH pixels wide as a string displaying it.
 See `lispm-desktop-platinum-draw-group-edge'."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'group-edge width title bottom)
-               (lambda () (lispm-desktop-platinum-draw-group-edge lispm-desktop-platinum--palette
+               (lambda () (lispm-desktop-platinum-draw-group-edge lispm-desktop-platinum-current-palette
                                                                   width title bottom)))))
 
 (defun lispm-desktop-platinum-group-side (height)
   "Return a group box's side for a line HEIGHT pixels tall, as a string
 displaying it: the grey line and the lit one beside it."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'group-side height)
                (lambda ()
                  (let ((svg (svg-create 2 height)))
-                   (lispm-desktop-platinum--fill svg 0 0 1 height
-                                                 (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #x88))
-                   (lispm-desktop-platinum--fill svg 1 0 1 height
-                                                 (lispm-desktop-platinum-grey lispm-desktop-platinum--palette #xFF))
+                   (lispm-desktop-platinum-svg-fill svg 0 0 1 height
+                                                 (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #x88))
+                   (lispm-desktop-platinum-svg-fill svg 1 0 1 height
+                                                 (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xFF))
                    svg)))))
 
 ;;;; Controls (pure)
@@ -201,7 +200,7 @@ The edge of the pane the tabs stand on takes three rows more.")
 (defconst lispm-desktop-platinum-strip-height 24
   "Height in pixels of the Control Strip, its outline included.")
 
-(defun lispm-desktop-platinum--draw-map (svg x y rows colors)
+(defun lispm-desktop-platinum-svg-pixel-map (svg x y rows colors)
   "Draw ROWS, strings of pixels, on SVG from X, Y.
 COLORS maps each character to its colour; a character it leaves out is
 left clear."
@@ -231,7 +230,7 @@ and its :label."
              :lit (g #x44) :lit-inner (g #x55) :face (g #x66)
              :shade-inner (g #x77) :shade (g #x88)
              :corner (g #x44) :corner-low (g #x77) :corner-inner (g #x44)
-             :label (lispm-desktop-platinum--legible (g #x66) (plist-get palette :text) (g #xFF))))
+             :label (lispm-desktop-platinum-legible (g #x66) (plist-get palette :text) (g #xFF))))
       ('disabled
        (let ((face (g #xDD)))
          (list :outline (g #x88) :edge (g #x88)
@@ -256,10 +255,10 @@ the bottom and right.  The pixels its corners cut off are left clear."
     (cl-flet ((dot (dx dy part)
                 (lispm-desktop-platinum--dot svg (+ x dx) (+ y dy) (plist-get colors part)))
               (row (from to dy part)
-                (lispm-desktop-platinum--row svg (+ x from) (+ x to) (+ y dy) (plist-get colors part)))
+                (lispm-desktop-platinum-svg-row svg (+ x from) (+ x to) (+ y dy) (plist-get colors part)))
               (column (dx from to part)
-                (lispm-desktop-platinum--column svg (+ x dx) (+ y from) (+ y to) (plist-get colors part))))
-      (lispm-desktop-platinum--fill svg (+ x 1) (+ y 1) (- w 2) (- h 2) (plist-get colors :face))
+                (lispm-desktop-platinum-svg-column svg (+ x dx) (+ y from) (+ y to) (plist-get colors part))))
+      (lispm-desktop-platinum-svg-fill svg (+ x 1) (+ y 1) (- w 2) (- h 2) (plist-get colors :face))
       ;; The outline.
       (row 3 (- w 4) 0 :outline)
       (row 3 (- w 4) (- h 1) :outline)
@@ -314,9 +313,9 @@ A DISABLED button's ring is a flat grey outline."
          (meet (if disabled lit (funcall grey #x88))))
     (cl-flet ((dot (dx dy color) (lispm-desktop-platinum--dot svg (+ x dx) (+ y dy) color))
               (row (from to dy color)
-                (lispm-desktop-platinum--row svg (+ x from) (+ x to) (+ y dy) color))
+                (lispm-desktop-platinum-svg-row svg (+ x from) (+ x to) (+ y dy) color))
               (column (dx from to color)
-                (lispm-desktop-platinum--column svg (+ x dx) (+ y from) (+ y to) color)))
+                (lispm-desktop-platinum-svg-column svg (+ x dx) (+ y from) (+ y to) color)))
       ;; The band.
       (row 3 (- w 4) 1 lit)
       (row 2 3 2 lit)
@@ -351,7 +350,7 @@ A DISABLED button's ring is a flat grey outline."
                                     (3 . ,(- h 1)) (,(- w 4) . ,(- h 1))))
         (dot dx dy edge)))))
 
-(defun lispm-desktop-platinum--draw-focus-ring (svg x y width height radius palette)
+(defun lispm-desktop-platinum-svg-focus-ring (svg x y width height radius palette)
   "Draw on SVG the keyboard focus ring about the WIDTH by HEIGHT box at X, Y.
 The ring is two pixels in PALETTE's focus colour just outside the box,
 its corners rounded by RADIUS, as Mac OS 9 ringed the control the
@@ -385,11 +384,11 @@ PAD keep their places as the focus moves.  FONT is a value of
          (pad (max pad (+ ring (if focused 2 0))))
          (h lispm-desktop-platinum-button-height)
          (svg (svg-create (+ width (* 2 pad)) (+ h (* 2 pad)))))
-    (lispm-desktop-platinum--draw-push-button svg pad pad palette label width
+    (lispm-desktop-platinum-svg-push-button svg pad pad palette label width
                                               :state state :default default :focused focused :font font)
     svg))
 
-(cl-defun lispm-desktop-platinum--draw-push-button (svg x y palette label width
+(cl-defun lispm-desktop-platinum-svg-push-button (svg x y palette label width
                                                         &key state default focused font)
   "Draw on SVG at X, Y a push button WIDTH pixels wide reading LABEL.
 Its rings, when DEFAULT or FOCUSED, are drawn about it; see
@@ -398,7 +397,7 @@ Its rings, when DEFAULT or FOCUSED, are drawn about it; see
         (h lispm-desktop-platinum-button-height)
         (colors (lispm-desktop-platinum--push-button-colors palette state)))
     (when focused
-      (lispm-desktop-platinum--draw-focus-ring svg (- x ring) (- y ring)
+      (lispm-desktop-platinum-svg-focus-ring svg (- x ring) (- y ring)
                                                (+ width (* 2 ring)) (+ h (* 2 ring))
                                                (+ 3 ring) palette))
     (when default
@@ -411,7 +410,7 @@ Its rings, when DEFAULT or FOCUSED, are drawn about it; see
 
 ;;;;; Bevel buttons
 
-(defun lispm-desktop-platinum--bevel-button-colors (palette state)
+(defun lispm-desktop-platinum-bevel-button-colors (palette state)
   "Return the colours of a bevel button's parts in STATE, as a plist.
 STATE is nil, `pressed' or `disabled'.  The parts are its outline lit
 along the top and left (:outline-lit) and shaded along the bottom and
@@ -423,7 +422,7 @@ its two shaded lines (:shade-inner, :shade) and its :label."
        (list :outline-lit (g #x11) :outline-shade (g #x44)
              :lit (g #x44) :lit-inner (g #x66) :face (g #x88)
              :shade-inner (g #x99) :shade (g #xBB)
-             :label (lispm-desktop-platinum--legible (g #x88) (plist-get palette :text) (g #xFF))))
+             :label (lispm-desktop-platinum-legible (g #x88) (plist-get palette :text) (g #xFF))))
       ('disabled
        (let ((face (g #xCC)))
          (list :outline-lit (g #x99) :outline-shade (g #x99)
@@ -444,7 +443,7 @@ and two shaded along the bottom and right.  STATE is nil, `pressed'
 \(darkened, its bevel turned over) or `disabled' (flat, its outline and
 label greyed).  LABEL, when given, is centred: a string as Emacs would
 show it in FACE, its icons and images included, see
-`lispm-desktop-platinum--draw-content'."
+`lispm-desktop-platinum-svg-content'."
   (let ((svg (svg-create width height)))
     (lispm-desktop-platinum--draw-bevel-button svg 0 0 palette width height
                                                :state state :label label :face face)
@@ -455,14 +454,14 @@ show it in FACE, its icons and images included, see
                                                          (face 'lispm-desktop-platinum-list))
   "Draw on SVG at X, Y a bevel button WIDTH by HEIGHT pixels, in PALETTE.
 See `lispm-desktop-platinum-draw-bevel-button'."
-  (let ((colors (lispm-desktop-platinum--bevel-button-colors palette state))
+  (let ((colors (lispm-desktop-platinum-bevel-button-colors palette state))
         (w width)
         (h height))
     (cl-flet ((row (from to line part)
-                (lispm-desktop-platinum--row svg (+ x from) (+ x to) (+ y line) (plist-get colors part)))
+                (lispm-desktop-platinum-svg-row svg (+ x from) (+ x to) (+ y line) (plist-get colors part)))
               (column (col from to part)
-                (lispm-desktop-platinum--column svg (+ x col) (+ y from) (+ y to) (plist-get colors part))))
-      (lispm-desktop-platinum--fill svg x y w h (plist-get colors :face))
+                (lispm-desktop-platinum-svg-column svg (+ x col) (+ y from) (+ y to) (plist-get colors part))))
+      (lispm-desktop-platinum-svg-fill svg x y w h (plist-get colors :face))
       (row 1 (- w 2) 1 :lit)
       (column 1 1 (- h 2) :lit)
       (row 2 (- w 3) 2 :lit-inner)
@@ -476,8 +475,8 @@ See `lispm-desktop-platinum-draw-bevel-button'."
       (column (- w 1) 1 (- h 1) :outline-shade)
       (row 1 (- w 1) (- h 1) :outline-shade))
     (when label
-      (lispm-desktop-platinum--draw-content
-       svg label (+ x (/ (- w (lispm-desktop-platinum--content-width label face)) 2)) y h
+      (lispm-desktop-platinum-svg-content
+       svg label (+ x (/ (- w (lispm-desktop-platinum-content-width label face)) 2)) y h
        (plist-get colors :label) face))))
 
 ;;;;; Tabs
@@ -514,8 +513,8 @@ label is black, none heavier than the others."
          (shade-soft (funcall grey #x44))
          (shade-lit (funcall grey (if front #xDD #xCC))))
     (cl-flet ((dot (x y color) (lispm-desktop-platinum--dot svg x y color))
-              (row (from to y color) (lispm-desktop-platinum--row svg from to y color)))
-      (lispm-desktop-platinum--fill svg 0 0 w h (plist-get palette :chrome))
+              (row (from to y color) (lispm-desktop-platinum-svg-row svg from to y color)))
+      (lispm-desktop-platinum-svg-fill svg 0 0 w h (plist-get palette :chrome))
       (seq-do-indexed
        (pcase-lambda (`(,left . ,step) y)
          (let ((right (- w 1 left)))
@@ -552,8 +551,8 @@ label is black, none heavier than the others."
         (row 0 (1- w) h outline)
         (row 0 (1- w) (+ h 1) between)
         (row 0 (1- w) (+ h 2) (funcall grey #xFF))))
-    (lispm-desktop-platinum--draw-content
-     svg label (/ (- w (lispm-desktop-platinum--content-width label face)) 2) 0 h
+    (lispm-desktop-platinum-svg-content
+     svg label (/ (- w (lispm-desktop-platinum-content-width label face)) 2) 0 h
      (plist-get palette :text) face)
     svg))
 
@@ -564,10 +563,10 @@ It is as tall as a tab and the pane's edge under it, see
 outline and lit band below, in PALETTE."
   (let* ((h lispm-desktop-platinum-tab-height)
          (svg (svg-create width (+ h 3))))
-    (lispm-desktop-platinum--fill svg 0 0 width h (plist-get palette :chrome))
-    (lispm-desktop-platinum--row svg 0 (1- width) h (plist-get palette :outline))
-    (lispm-desktop-platinum--row svg 0 (1- width) (+ h 1) (lispm-desktop-platinum-grey palette #xCC))
-    (lispm-desktop-platinum--row svg 0 (1- width) (+ h 2) (lispm-desktop-platinum-grey palette #xFF))
+    (lispm-desktop-platinum-svg-fill svg 0 0 width h (plist-get palette :chrome))
+    (lispm-desktop-platinum-svg-row svg 0 (1- width) h (plist-get palette :outline))
+    (lispm-desktop-platinum-svg-row svg 0 (1- width) (+ h 1) (lispm-desktop-platinum-grey palette #xCC))
+    (lispm-desktop-platinum-svg-row svg 0 (1- width) (+ h 2) (lispm-desktop-platinum-grey palette #xFF))
     svg))
 
 ;;;;; Placards, radio buttons, check boxes
@@ -581,12 +580,12 @@ value of `lispm-desktop-platinum-svg-font', by default the list's."
   (let ((svg (svg-create width height))
         (w width)
         (h height))
-    (lispm-desktop-platinum--fill svg 0 0 w h (plist-get palette :outline))
-    (lispm-desktop-platinum--fill svg 1 1 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xDD))
-    (lispm-desktop-platinum--row svg 1 (- w 2) 1 (lispm-desktop-platinum-grey palette #xFF))
-    (lispm-desktop-platinum--column svg 1 1 (- h 2) (lispm-desktop-platinum-grey palette #xFF))
-    (lispm-desktop-platinum--row svg 2 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xAA))
-    (lispm-desktop-platinum--column svg (- w 2) 2 (- h 2) (lispm-desktop-platinum-grey palette #xAA))
+    (lispm-desktop-platinum-svg-fill svg 0 0 w h (plist-get palette :outline))
+    (lispm-desktop-platinum-svg-fill svg 1 1 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xDD))
+    (lispm-desktop-platinum-svg-row svg 1 (- w 2) 1 (lispm-desktop-platinum-grey palette #xFF))
+    (lispm-desktop-platinum-svg-column svg 1 1 (- h 2) (lispm-desktop-platinum-grey palette #xFF))
+    (lispm-desktop-platinum-svg-row svg 2 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xAA))
+    (lispm-desktop-platinum-svg-column svg (- w 2) 2 (- h 2) (lispm-desktop-platinum-grey palette #xAA))
     (when label
       (let ((font (or font (lispm-desktop-platinum-svg-font 'lispm-desktop-platinum-list))))
         (lispm-desktop-platinum--label svg label (/ w 2.0)
@@ -631,8 +630,8 @@ to two pixels for the ring."
       (svg-circle svg middle middle 2
                   :fill (if disabled
                             (funcall grey #x88)
-                          (lispm-desktop-platinum--legible
-                           (lispm-desktop-tab-bar--blend from to 0.5)
+                          (lispm-desktop-platinum-legible
+                           (lispm-desktop-platinum-blend from to 0.5)
                            (plist-get palette :outline) (plist-get palette :text)))))
     svg))
 
@@ -652,14 +651,14 @@ pixels for the ring."
          (pressed (eq state 'pressed))
          (ink (if disabled (funcall grey #x88) (plist-get palette :outline))))
     (when focused
-      (lispm-desktop-platinum--draw-focus-ring svg pad (+ pad 2) 12 12 0 palette))
-    (lispm-desktop-platinum--fill svg pad (+ pad 2) 12 12 ink)
-    (lispm-desktop-platinum--fill svg (+ pad 1) (+ pad 3) 10 10 (funcall grey (if pressed #xAA #xDD)))
+      (lispm-desktop-platinum-svg-focus-ring svg pad (+ pad 2) 12 12 0 palette))
+    (lispm-desktop-platinum-svg-fill svg pad (+ pad 2) 12 12 ink)
+    (lispm-desktop-platinum-svg-fill svg (+ pad 1) (+ pad 3) 10 10 (funcall grey (if pressed #xAA #xDD)))
     (unless disabled
-      (lispm-desktop-platinum--row svg (+ pad 1) (+ pad 9) (+ pad 3) (funcall grey (if pressed #x88 #xFF)))
-      (lispm-desktop-platinum--column svg (+ pad 1) (+ pad 3) (+ pad 11) (funcall grey (if pressed #x88 #xFF)))
-      (lispm-desktop-platinum--row svg (+ pad 2) (+ pad 10) (+ pad 12) (funcall grey (if pressed #xDD #x88)))
-      (lispm-desktop-platinum--column svg (+ pad 10) (+ pad 4) (+ pad 12) (funcall grey (if pressed #xDD #x88))))
+      (lispm-desktop-platinum-svg-row svg (+ pad 1) (+ pad 9) (+ pad 3) (funcall grey (if pressed #x88 #xFF)))
+      (lispm-desktop-platinum-svg-column svg (+ pad 1) (+ pad 3) (+ pad 11) (funcall grey (if pressed #x88 #xFF)))
+      (lispm-desktop-platinum-svg-row svg (+ pad 2) (+ pad 10) (+ pad 12) (funcall grey (if pressed #xDD #x88)))
+      (lispm-desktop-platinum-svg-column svg (+ pad 10) (+ pad 4) (+ pad 12) (funcall grey (if pressed #xDD #x88))))
     (when on
       (svg-polyline svg (mapcar (pcase-lambda (`(,x . ,y)) (cons (+ x pad) (+ y pad)))
                                 '((2.5 . 7.5) (5.5 . 10.5) (12.5 . 1.5)))
@@ -692,15 +691,15 @@ outlined in a dark grey, its frame flat.  The middle is left clear."
          (title lispm-desktop-platinum-title-bar-height)
          (right (- w 2))
          (bottom (- h 2)))
-    (cl-flet ((row (from to y color) (lispm-desktop-platinum--row svg from to y color))
-              (column (x from to color) (lispm-desktop-platinum--column svg x from to color)))
+    (cl-flet ((row (from to y color) (lispm-desktop-platinum-svg-row svg from to y color))
+              (column (x from to color) (lispm-desktop-platinum-svg-column svg x from to color)))
       ;; The shadow.
       (column (1- w) 2 (1- h) (plist-get palette :outline))
       (row 2 (1- w) (1- h) (plist-get palette :outline))
       ;; The band, flat to begin with.
-      (lispm-desktop-platinum--fill svg 1 1 5 (- h 3) (funcall grey (if active #xCC #xDD)))
-      (lispm-desktop-platinum--fill svg (- w 7) 1 5 (- h 3) (funcall grey (if active #xCC #xDD)))
-      (lispm-desktop-platinum--fill svg 1 (- h 7) (- w 3) 5 (funcall grey (if active #xCC #xDD)))
+      (lispm-desktop-platinum-svg-fill svg 1 1 5 (- h 3) (funcall grey (if active #xCC #xDD)))
+      (lispm-desktop-platinum-svg-fill svg (- w 7) 1 5 (- h 3) (funcall grey (if active #xCC #xDD)))
+      (lispm-desktop-platinum-svg-fill svg 1 (- h 7) (- w 3) 5 (funcall grey (if active #xCC #xDD)))
       (if (not active)
           (progn
             (column 5 (1+ title) (- h 7) outline)
@@ -807,12 +806,12 @@ drawn in the strip's own greys, :strip and its light and shades."
          (dark (plist-get palette :strip-dark))
          ;; Arrows and triangles black on Platinum's greys; on a dark
          ;; theme's, its text colour.
-         (ink (lispm-desktop-platinum--legible face outline (plist-get palette :text))))
+         (ink (lispm-desktop-platinum-legible face outline (plist-get palette :text))))
     (if (eq kind 'tab)
         (progn
           (when behind
-            (lispm-desktop-platinum--fill svg 0 0 w h behind))
-          (lispm-desktop-platinum--draw-map
+            (lispm-desktop-platinum-svg-fill svg 0 0 w h behind))
+          (lispm-desktop-platinum-svg-pixel-map
            svg 0 0 (if (eq side 'right) lispm-desktop-platinum--strip-tab-right
                      lispm-desktop-platinum--strip-tab)
          `((?# . ,outline) (?f . ,(funcall grey #xCC)) (?w . ,light)
@@ -822,24 +821,24 @@ drawn in the strip's own greys, :strip and its light and shades."
              (right (- w (if (eq outer 'right) 3 2)))
              (pressed (eq state 'pressed))
              (sunk (or pressed (eq state 'disabled))))
-        (lispm-desktop-platinum--fill svg 0 0 w h outline)
-        (lispm-desktop-platinum--fill svg left 1 (- right left -1) (- h 2) (if pressed dark face))
+        (lispm-desktop-platinum-svg-fill svg 0 0 w h outline)
+        (lispm-desktop-platinum-svg-fill svg left 1 (- right left -1) (- h 2) (if pressed dark face))
         (cl-flet ((band (top-left bottom-right width)
                     (dotimes (i width)
-                      (lispm-desktop-platinum--row svg (+ left i) (- right i) (+ 1 i) (nth i top-left))
-                      (lispm-desktop-platinum--column svg (+ left i) (+ 1 i) (- h 2 i) (nth i top-left))
-                      (lispm-desktop-platinum--row svg (+ left i 1) (- right i) (- h 2 i)
+                      (lispm-desktop-platinum-svg-row svg (+ left i) (- right i) (+ 1 i) (nth i top-left))
+                      (lispm-desktop-platinum-svg-column svg (+ left i) (+ 1 i) (- h 2 i) (nth i top-left))
+                      (lispm-desktop-platinum-svg-row svg (+ left i 1) (- right i) (- h 2 i)
                                                    (nth i bottom-right))
-                      (lispm-desktop-platinum--column svg (- right i) (+ 1 i) (- h 2 i)
+                      (lispm-desktop-platinum-svg-column svg (- right i) (+ 1 i) (- h 2 i)
                                                       (nth i bottom-right)))))
           (cond (pressed
-                 (let ((deep (lispm-desktop-tab-bar--blend dark outline 0.5)))
+                 (let ((deep (lispm-desktop-platinum-blend dark outline 0.5)))
                    (band (list deep deep) (list face face) 2)))
                 (sunk (band (list dark) (list light) 1))
                 (t (band (list face light) (list dark shade) 2))))
         (pcase kind
           ('collapse
-           (lispm-desktop-platinum--draw-map
+           (lispm-desktop-platinum-svg-pixel-map
             svg (+ left 2) 8 lispm-desktop-platinum--strip-collapse
             `((?l . ,(funcall grey #x55)) (?c . ,(plist-get palette :thumb-light))
               (?r . ,(funcall grey #x88)) (?q . ,(funcall grey #x44)) (?b . ,light))))
@@ -847,21 +846,21 @@ drawn in the strip's own greys, :strip and its light and shades."
            (let ((colors (if (eq state 'disabled)
                              `((?l . ,(funcall grey #x55)) (?j . ,(funcall grey #xDD)))
                            `((?l . ,ink) (?j . ,ink)))))
-             (lispm-desktop-platinum--draw-map
+             (lispm-desktop-platinum-svg-pixel-map
               svg 2 7 (if (eq kind 'left) lispm-desktop-platinum--strip-arrow
                         (mapcar #'reverse lispm-desktop-platinum--strip-arrow))
               colors)))
           ('module
            (when focused
              (dotimes (i 2)
-               (lispm-desktop-platinum--row svg (+ left i) (- right i) (+ 1 i) (plist-get palette :focus))
-               (lispm-desktop-platinum--row svg (+ left i) (- right i) (- h 2 i) (plist-get palette :focus))
-               (lispm-desktop-platinum--column svg (+ left i) (+ 1 i) (- h 2 i) (plist-get palette :focus))
-               (lispm-desktop-platinum--column svg (- right i) (+ 1 i) (- h 2 i) (plist-get palette :focus))))
-           (cond ((stringp icon) (lispm-desktop-platinum--embed-icon svg icon 2 3 16))
-                 (icon (lispm-desktop-platinum--embed-svg svg icon 2 3 16 16)))
+               (lispm-desktop-platinum-svg-row svg (+ left i) (- right i) (+ 1 i) (plist-get palette :focus))
+               (lispm-desktop-platinum-svg-row svg (+ left i) (- right i) (- h 2 i) (plist-get palette :focus))
+               (lispm-desktop-platinum-svg-column svg (+ left i) (+ 1 i) (- h 2 i) (plist-get palette :focus))
+               (lispm-desktop-platinum-svg-column svg (- right i) (+ 1 i) (- h 2 i) (plist-get palette :focus))))
+           (cond ((stringp icon) (lispm-desktop-platinum-svg-icon svg icon 2 3 16))
+                 (icon (lispm-desktop-platinum-svg-embed svg icon 2 3 16 16)))
            (when menu
-             (lispm-desktop-platinum--draw-map
+             (lispm-desktop-platinum-svg-pixel-map
               svg 21 8 '("#" "##" "###" "####" "####" "###" "##" "#")
               `((?# . ,ink))))))))
     svg))
@@ -876,13 +875,13 @@ its icons and images included; STATE is nil, `pressed' or `disabled';
 HEIGHT defaults to 20 pixels.  See `lispm-desktop-platinum-draw-bevel-button'."
   (let* ((face (or face 'lispm-desktop-platinum-list))
          (height (or height 20))
-         (width (+ (lispm-desktop-platinum--content-width label face)
+         (width (+ (lispm-desktop-platinum-content-width label face)
                    (* 2 lispm-desktop-platinum-bevel-padding))))
     (propertize " " 'display
-                (lispm-desktop-platinum--image
+                (lispm-desktop-platinum-image
                  (list 'bevel (lispm-desktop-platinum--content-key label) state height face width)
                  (lambda ()
-                   (lispm-desktop-platinum-draw-bevel-button lispm-desktop-platinum--palette width height
+                   (lispm-desktop-platinum-draw-bevel-button lispm-desktop-platinum-current-palette width height
                                                              :state state :label label :face face))))))
 
 (cl-defun lispm-desktop-platinum-push-button (label &key state default focused pad)
@@ -893,19 +892,19 @@ button keeps its place as the keyboard comes and goes."
   (let ((width (lispm-desktop-platinum-push-button-width label))
         (pad (or pad (if default 5 2))))
     (propertize " " 'display
-                (lispm-desktop-platinum--image
+                (lispm-desktop-platinum-image
                  (list 'push label width state default focused pad)
                  (lambda ()
-                   (lispm-desktop-platinum-draw-push-button lispm-desktop-platinum--palette label width
+                   (lispm-desktop-platinum-draw-push-button lispm-desktop-platinum-current-palette label width
                                                             :state state :default default
                                                             :focused focused :pad pad))))))
 
 (defun lispm-desktop-platinum--tab-edge (width)
   "Return the pane's edge WIDTH pixels wide, as a string displaying it."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'tab-edge width)
-               (lambda () (lispm-desktop-platinum-draw-tab-edge lispm-desktop-platinum--palette width)))))
+               (lambda () (lispm-desktop-platinum-draw-tab-edge lispm-desktop-platinum-current-palette width)))))
 
 (defun lispm-desktop-platinum-tabs (tabs width &optional face)
   "Return a row of TABS standing on their pane's edge, WIDTH pixels wide.
@@ -919,14 +918,14 @@ runs it on to WIDTH, as Mac OS 9 drew a tab control along its pane."
          (used lead)
          (parts
           (mapcar (pcase-lambda (`(,label ,front . ,properties))
-                    (let ((tab-width (+ (lispm-desktop-platinum--content-width label face)
+                    (let ((tab-width (+ (lispm-desktop-platinum-content-width label face)
                                         (* 2 lispm-desktop-platinum-tab-padding))))
                       (setq used (+ used tab-width 2))
                       (concat (apply #'propertize " " 'display
-                                     (lispm-desktop-platinum--image
+                                     (lispm-desktop-platinum-image
                                       (list 'tab (lispm-desktop-platinum--content-key label) front face tab-width)
                                       (lambda ()
-                                        (lispm-desktop-platinum-draw-tab lispm-desktop-platinum--palette
+                                        (lispm-desktop-platinum-draw-tab lispm-desktop-platinum-current-palette
                                                                          label tab-width :front front
                                                                          :face face)))
                                      properties)
@@ -942,9 +941,9 @@ runs it on to WIDTH, as Mac OS 9 drew a tab control along its pane."
 FOCUSED rings it; either way it leaves room for the ring, so it keeps its
 place as the keyboard comes and goes.  See `lispm-desktop-platinum-draw-radio'."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'radio on state focused)
-               (lambda () (lispm-desktop-platinum-draw-radio lispm-desktop-platinum--palette on
+               (lambda () (lispm-desktop-platinum-draw-radio lispm-desktop-platinum-current-palette on
                                                              :state state :focused focused :pad 2)))))
 
 (defconst lispm-desktop-platinum--list-check-boxes
@@ -966,7 +965,7 @@ and s the greys #FF, #DD, #AA, #88 and #77.")
   "Return an SVG of a list's check box in PALETTE, twelve pixels square.
 STATE is `on', `off' or `mixed', see `lispm-desktop-platinum--list-check-boxes'."
   (let ((svg (svg-create 12 12)))
-    (lispm-desktop-platinum--draw-map
+    (lispm-desktop-platinum-svg-pixel-map
      svg 0 0 (alist-get state lispm-desktop-platinum--list-check-boxes)
      `((?# . ,(plist-get palette :outline))
        ,@(mapcar (pcase-lambda (`(,char . ,level)) (cons char (lispm-desktop-platinum-grey palette level)))
@@ -977,18 +976,18 @@ STATE is `on', `off' or `mixed', see `lispm-desktop-platinum--list-check-boxes'.
   "Return a list's check box in STATE as a string displaying it.
 See `lispm-desktop-platinum-draw-list-check-box'."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'list-check-box state)
-               (lambda () (lispm-desktop-platinum-draw-list-check-box lispm-desktop-platinum--palette state)))))
+               (lambda () (lispm-desktop-platinum-draw-list-check-box lispm-desktop-platinum-current-palette state)))))
 
 (defun lispm-desktop-platinum-check-box (on &optional state focused pad)
   "Return a check box, checked when ON, in STATE, as a string displaying it.
 FOCUSED rings it, and PAD leaves room about it; see
 `lispm-desktop-platinum-draw-check-box'."
   (propertize " " 'display
-              (lispm-desktop-platinum--image
+              (lispm-desktop-platinum-image
                (list 'check-box on state focused pad)
-               (lambda () (lispm-desktop-platinum-draw-check-box lispm-desktop-platinum--palette on
+               (lambda () (lispm-desktop-platinum-draw-check-box lispm-desktop-platinum-current-palette on
                                                                  :state state :focused focused
                                                                  :pad (or pad 0))))))
 
@@ -1002,7 +1001,7 @@ FOCUSED rings it, and PAD leaves room about it; see
 ;; push button pressed, from the keyboard or with the mouse, is drawn
 ;; pushed in until it is let go.
 
-(defvar-local lispm-desktop-platinum--focus nil
+(defvar-local lispm-desktop-platinum-focus nil
   "Position of the control drawn focused in this buffer, or nil.")
 
 (defun lispm-desktop-platinum--swap-image (position image)
@@ -1018,14 +1017,14 @@ Controls carry their images as the text properties
 Buffers holding controls run this from `post-command-hook', and after
 drawing their controls again."
   (let ((here (and (get-text-property (point) 'lispm-desktop-platinum-focused) (point)))
-        (before lispm-desktop-platinum--focus))
+        (before lispm-desktop-platinum-focus))
     (unless (eql here before)
       (when (and before (< before (point-max))
                  (get-text-property before 'lispm-desktop-platinum-plain))
         (lispm-desktop-platinum--swap-image before (get-text-property before 'lispm-desktop-platinum-plain)))
       (when here
         (lispm-desktop-platinum--swap-image here (get-text-property here 'lispm-desktop-platinum-focused)))
-      (setq lispm-desktop-platinum--focus here))))
+      (setq lispm-desktop-platinum-focus here))))
 
 (defun lispm-desktop-platinum--press-at (position)
   "Draw the push button at POSITION pushed in, until it is let go.
@@ -1070,7 +1069,7 @@ Space do, or as a press of the mouse does; other buttons are pushed as
   "<down-mouse-1>" #'lispm-desktop-platinum--mouse-push
   "<mouse-1>" #'ignore)
 
-(defun lispm-desktop-platinum--image-of (control)
+(defun lispm-desktop-platinum-image-of (control)
   "Return the image CONTROL, a string displaying one, shows."
   (get-text-property 0 'display control))
 
@@ -1082,7 +1081,7 @@ button is drawn focused while point is on it, see
 kept in its `lispm-desktop-platinum-label' property.  A DISABLED button
 is drawn dimmed and does nothing; Tab passes it by."
   (if disabled
-      (insert (propertize " " 'display (lispm-desktop-platinum--image-of
+      (insert (propertize " " 'display (lispm-desktop-platinum-image-of
                                         (lispm-desktop-platinum-push-button label :state 'disabled))
                           'lispm-desktop-platinum-label label 'face nil 'help-echo (or help label)))
     (lispm-desktop-platinum--insert-push-button label action help default)))
@@ -1090,14 +1089,14 @@ is drawn dimmed and does nothing; Tab passes it by."
 (defun lispm-desktop-platinum--insert-push-button (label action help default)
   "Insert an enabled push button, see `lispm-desktop-platinum-insert-push-button'."
   (insert-text-button " "
-                      'display (lispm-desktop-platinum--image-of
+                      'display (lispm-desktop-platinum-image-of
                                 (lispm-desktop-platinum-push-button label :default default))
-                      'lispm-desktop-platinum-plain (lispm-desktop-platinum--image-of
+                      'lispm-desktop-platinum-plain (lispm-desktop-platinum-image-of
                                                      (lispm-desktop-platinum-push-button label :default default))
-                      'lispm-desktop-platinum-focused (lispm-desktop-platinum--image-of
+                      'lispm-desktop-platinum-focused (lispm-desktop-platinum-image-of
                                                        (lispm-desktop-platinum-push-button
                                                         label :default default :focused t))
-                      'lispm-desktop-platinum-pressed (lispm-desktop-platinum--image-of
+                      'lispm-desktop-platinum-pressed (lispm-desktop-platinum-image-of
                                                        (lispm-desktop-platinum-push-button
                                                         label :default default :state 'pressed))
                       'action (lambda (_) (funcall action))

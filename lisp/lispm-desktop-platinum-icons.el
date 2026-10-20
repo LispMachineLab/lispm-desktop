@@ -124,10 +124,10 @@ from changes."
   (with-current-buffer buffer
     (let ((key (list major-mode buffer-file-name default-directory (buffer-name))))
       (if (and (equal (car lispm-desktop-platinum--icon-cache) key)
-               (eq (cadr lispm-desktop-platinum--icon-cache) lispm-desktop-platinum--palette))
+               (eq (cadr lispm-desktop-platinum--icon-cache) lispm-desktop-platinum-current-palette))
           (cddr lispm-desktop-platinum--icon-cache)
         (cddr (setq lispm-desktop-platinum--icon-cache
-                    (cons key (cons lispm-desktop-platinum--palette
+                    (cons key (cons lispm-desktop-platinum-current-palette
                                     (lispm-desktop-platinum--choose-icon buffer)))))))))
 
 (defun lispm-desktop-platinum--choose-icon (buffer)

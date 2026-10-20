@@ -80,6 +80,20 @@
 (defvar lispm-desktop-platinum--battery nil
   "The battery status `display-battery-mode' last read, an alist.")
 
+(defun lispm-desktop-platinum-battery ()
+  "Return what the battery reported last, as `battery-status-function' does,
+or nil before it reports."
+  lispm-desktop-platinum--battery)
+
+(defun lispm-desktop-platinum-load ()
+  "Return the load average `display-time-mode' last showed, \"\" below its
+threshold."
+  lispm-desktop-platinum--load)
+
+(defun lispm-desktop-platinum-new-mail-p ()
+  "Return non-nil when `display-time-mode' last found new mail."
+  lispm-desktop-platinum--mail)
+
 (defun lispm-desktop-platinum--note-time ()
   "Note the load average and the mail flag Emacs has just computed.
 Run from `display-time-hook', inside `display-time-update'."
@@ -97,10 +111,10 @@ a bolt across it; a nearly empty one is filled in red."
   (let* ((svg (svg-create 16 16))
          (ink (plist-get palette :text))
          (level (round (* 10 (/ (max 0 (min 100 percent)) 100.0)))))
-    (lispm-desktop-platinum--fill svg 0 4 14 8 ink)
-    (lispm-desktop-platinum--fill svg 1 5 12 6 (plist-get palette :strip))
-    (lispm-desktop-platinum--fill svg 14 6 2 4 ink)
-    (lispm-desktop-platinum--fill svg 2 6 level 4 (if (< percent 10) "#CE3131" ink))
+    (lispm-desktop-platinum-svg-fill svg 0 4 14 8 ink)
+    (lispm-desktop-platinum-svg-fill svg 1 5 12 6 (plist-get palette :strip))
+    (lispm-desktop-platinum-svg-fill svg 14 6 2 4 ink)
+    (lispm-desktop-platinum-svg-fill svg 2 6 level 4 (if (< percent 10) "#CE3131" ink))
     (when charging
       (svg-polygon svg '((8 . 3) (4 . 8) (6.5 . 8) (5 . 13) (10 . 7) (7.5 . 7) (9 . 3))
                    :fill (plist-get palette :accent) :stroke (plist-get palette :strip)
@@ -113,7 +127,7 @@ bars rising left to right, filled to FRACTION."
   (let ((svg (svg-create 16 16)))
     (dotimes (i 3)
       (let ((height (* 4 (1+ i))))
-        (lispm-desktop-platinum--fill svg (1+ (* i 5)) (- 14 height) 4 height
+        (lispm-desktop-platinum-svg-fill svg (1+ (* i 5)) (- 14 height) 4 height
                                       (if (> fraction (/ i 3.0))
                                           (plist-get palette :text)
                                         (plist-get palette :strip-dark)))))
@@ -188,7 +202,7 @@ It runs COMMAND, described by HELP, and is highlighted while its menu is open."
 (defun lispm-desktop-platinum--status-menu (key items)
   "Pop up ITEMS under the status title KEY that was just clicked."
   (let ((x (car (posn-x-y (event-start last-input-event)))))
-    (lispm-desktop-platinum--with-open-menu key
+    (lispm-desktop-platinum-with-open-menu key
       (lispm-desktop-popup-menu items (max 0 (- x 12)) (lispm-desktop-platinum--menu-y)))))
 
 (defun lispm-desktop-platinum-time-menu ()

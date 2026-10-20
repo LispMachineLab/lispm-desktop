@@ -683,10 +683,10 @@ listed an application's windows."
          separator
          ,@(mapcar (lambda (buffer)
                      (lispm-desktop-editor--item (truncate-string-to-width
-                                                  (lispm-desktop-platinum--buffer-title buffer) 48 nil nil "…")
+                                                  (lispm-desktop-platinum-buffer-title buffer) 48 nil nil "…")
                                                  (lambda () (switch-to-buffer buffer))
                                                  :checked (eq buffer shown)))
-                   (seq-take (lispm-desktop-platinum--window-buffers (selected-window)) 30)))))))
+                   (seq-take (lispm-desktop-platinum-window-buffers (selected-window)) 30)))))))
 
 (defun lispm-desktop-editor-menus ()
   "Return the editor's menus, for the menu bar while it is in front."

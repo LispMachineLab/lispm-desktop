@@ -124,14 +124,14 @@ PROCESSES and CHILDREN are the tables of
   "Return a memory bar FRACTION full, as About This Computer drew one."
   (let ((filled (round (* (min 1 (max 0 fraction)) 58))))
     (propertize " " 'display
-                (lispm-desktop-platinum--image
+                (lispm-desktop-platinum-image
                  (list 'memory-bar filled)
                  (lambda ()
                    (let ((svg (svg-create 60 10)))
-                     (svg-rectangle svg 0 0 60 10 :fill (lispm-desktop-platinum--color :frame))
-                     (svg-rectangle svg 1 1 58 8 :fill (lispm-desktop-platinum--color :content))
+                     (svg-rectangle svg 0 0 60 10 :fill (lispm-desktop-platinum-color :frame))
+                     (svg-rectangle svg 1 1 58 8 :fill (lispm-desktop-platinum-color :content))
                      (when (> filled 0)
-                       (svg-rectangle svg 1 1 filled 8 :fill (lispm-desktop-platinum--color :accent)))
+                       (svg-rectangle svg 1 1 filled 8 :fill (lispm-desktop-platinum-color :accent)))
                      svg))))))
 
 (defun lispm-desktop-buffer-manager--entries ()
@@ -159,7 +159,7 @@ PROCESSES and CHILDREN are the tables of
                 ;; The icon is one character drawn two wide: the name is cut
                 ;; short of the column, so it never runs into the next.
                 (concat (lispm-desktop-platinum-buffer-icon buffer) " "
-                        (truncate-string-to-width (lispm-desktop-platinum--buffer-title buffer)
+                        (truncate-string-to-width (lispm-desktop-platinum-buffer-title buffer)
                                                   29 nil nil "…"))
                 (lispm-desktop-buffer-manager--kind buffer)
                 (lispm-desktop-buffer-manager--number (lispm-desktop-buffer-manager--size bytes) bytes)
@@ -226,7 +226,7 @@ The refresh timer stops once the list is no longer shown."
   (interactive)
   (when-let* ((buffer (tabulated-list-get-id))
               ((buffer-live-p buffer))
-              ((lispm-desktop-platinum--confirm-close buffer)))
+              ((lispm-desktop-platinum-confirm-close buffer)))
     (let ((kill-buffer-query-functions nil))
       (kill-buffer buffer))
     (lispm-desktop-buffer-manager-refresh)))
@@ -269,9 +269,9 @@ turn the order over."
   (let* ((width (window-body-width nil t))
          (columns (lispm-desktop-buffer-manager--columns width)))
     (propertize " " 'display
-                (lispm-desktop-platinum--image
+                (lispm-desktop-platinum-image
                  (list 'manager-header columns)
-                 (lambda () (lispm-desktop-platinum-draw-list-header lispm-desktop-platinum--palette
+                 (lambda () (lispm-desktop-platinum-draw-list-header lispm-desktop-platinum-current-palette
                                                                      columns
                                                                      (* (frame-char-width)
                                                                         (1+ tabulated-list-padding)))))

@@ -259,7 +259,7 @@ the desktop's edge would hang out of Emacs's frame over the screen."
       (unless (and (= fit-width (frame-text-width frame))
                    (= fit-height (frame-text-height frame)))
         (set-frame-size frame fit-width fit-height t)
-        (lispm-desktop-platinum--frame-update frame))
+        (lispm-desktop-platinum-frame-update frame))
       (let ((x (max (+ desktop-left frame-left)
                     (min left (- desktop-right frame-right extra-width fit-width))))
             (y (max (+ desktop-top frame-top)
