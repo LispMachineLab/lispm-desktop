@@ -1446,6 +1446,32 @@ view defined again keeps its place."
       (lispm-desktop-sidebar-select 'test)
       (should asked))))
 
+(ert-deftest lispm-desktop-test-views-asked-for-elsewhere-show ()
+  "A view asked for while the editor is out of sight is shown, though the
+editor, coming forward, brings back the view it showed before; asked for
+in the editor in front, it hides."
+  (let* ((in-front nil)
+         ;; The view the editor shows, seen or not: Agents, from startup.
+         (shown 'agents)
+         (define (lambda (view)
+                   (list view
+                         :visible (lambda () (and in-front (eq shown view)))
+                         :show (lambda () (setq shown view))
+                         :hide (lambda () (setq shown nil))))))
+    (cl-letf (((symbol-function 'lispm-desktop-editor--prepare-view) (lambda () (setq in-front t)))
+              (lispm-desktop-sidebar-views (list (funcall define 'files) (funcall define 'agents)))
+              (lispm-desktop-sidebar-prepare-function #'lispm-desktop-editor--prepare-view)
+              (lispm-desktop-sidebar-change-hook nil))
+      (lispm-desktop-sidebar-select 'agents)
+      (should (eq shown 'agents))
+      (lispm-desktop-sidebar-select 'agents)
+      (should-not shown)
+      ;; Another view asked for from the desktop replaces the one brought back.
+      (lispm-desktop-sidebar-select 'agents)
+      (setq in-front nil)
+      (lispm-desktop-sidebar-select 'files)
+      (should (eq shown 'files)))))
+
 (ert-deftest lispm-desktop-test-menu-bar-follows-the-application ()
   "The menu bar holds the menus of the application in front."
   (let ((lispm-desktop-platinum-menus-function #'lispm-desktop-apps-menus))

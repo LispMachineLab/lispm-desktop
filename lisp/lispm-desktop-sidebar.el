@@ -515,10 +515,14 @@ view is asked for elsewhere, as on the desktop.")
 (defun lispm-desktop-sidebar-select (view)
   "Show VIEW in the left sidebar, or hide the sidebar when VIEW is shown.
 Every other view is hidden first, so at most one is ever visible; see
-`lispm-desktop-sidebar-prepare-function' for views asked for outside the editor."
-  (when lispm-desktop-sidebar-prepare-function
-    (funcall lispm-desktop-sidebar-prepare-function))
+`lispm-desktop-sidebar-prepare-function' for views asked for outside the editor.
+Only a view shown where it is asked for hides: asked for on the desktop,
+VIEW is shown, whatever the editor showed out of sight."
+  ;; Read before the editor comes forward, which brings back the view it
+  ;; showed when it was left.
   (let ((current (lispm-desktop-sidebar-current-view)))
+    (when lispm-desktop-sidebar-prepare-function
+      (funcall lispm-desktop-sidebar-prepare-function))
     (dolist (entry lispm-desktop-sidebar-views)
       (when (lispm-desktop-sidebar--call (car entry) :visible)
         (lispm-desktop-sidebar--call (car entry) :hide)))
