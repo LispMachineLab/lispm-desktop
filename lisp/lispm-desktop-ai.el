@@ -861,15 +861,28 @@ Archiving hides a session in Emacs only; it never alters agent data.")
   "Return the key identifying SESSION across agents, \"AGENT:ID\"."
   (format "%s:%s" (plist-get session :agent) (plist-get session :id)))
 
+(defun lispm-desktop-agent--read-state ()
+  "Return the plist the state file holds, or nil without one.
+A file holding no such plist is moved aside, to the same name ending in
+.unreadable, and said so, for the next write would replace it."
+  (let ((file lispm-desktop-agent-state-file))
+    (when (file-readable-p file)
+      (let ((state (with-temp-buffer
+                     (insert-file-contents file)
+                     (condition-case nil (read (current-buffer)) (error 'unreadable)))))
+        (if (and (plistp state) (listp (plist-get state :archived)))
+            state
+          (let ((aside (concat file ".unreadable")))
+            (rename-file file aside t)
+            (message "Cannot read %s; moved to %s"
+                     (abbreviate-file-name file) (abbreviate-file-name aside)))
+          nil)))))
+
 (defun lispm-desktop-agent--archived-keys ()
   "Return the archived session keys, reading the state file on first use."
   (when (eq lispm-desktop-agent--archived 'unloaded)
     (setq lispm-desktop-agent--archived
-          (when (file-readable-p lispm-desktop-agent-state-file)
-            (plist-get (with-temp-buffer
-                         (insert-file-contents lispm-desktop-agent-state-file)
-                         (ignore-errors (read (current-buffer))))
-                       :archived))))
+          (plist-get (lispm-desktop-agent--read-state) :archived)))
   lispm-desktop-agent--archived)
 
 (defun lispm-desktop-agent--archived-p (session)
@@ -883,9 +896,12 @@ Archiving hides a session in Emacs only; it never alters agent data.")
     (setq lispm-desktop-agent--archived (if archived
                                             (cons key (delete key keys))
                                          (delete key keys)))
-    (with-temp-file lispm-desktop-agent-state-file
-      (let ((print-length nil) (print-level nil))
-        (prin1 (list :archived lispm-desktop-agent--archived) (current-buffer))))))
+    (let ((part (concat lispm-desktop-agent-state-file ".part")))
+      (with-temp-file part
+        (let ((print-length nil) (print-level nil))
+          (prin1 (list :archived lispm-desktop-agent--archived) (current-buffer))))
+      ;; Renamed into place, so the file is there whole or not at all.
+      (rename-file part lispm-desktop-agent-state-file t))))
 
 (defun lispm-desktop-agent--rename (session title)
   "Rename SESSION to TITLE the way its own agent records names, see the
