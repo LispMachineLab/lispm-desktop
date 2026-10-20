@@ -64,7 +64,9 @@
 `lispm-desktop-platinum-menus-function' does, :activate brings it in front,
 :visible, when given, is a function deciding whether it can run here, and
 :running one deciding whether it runs now; without it, an application runs
-whenever it can.")
+whenever it can.  The functions are symbols or lambdas; an application
+whose function is not defined does not run.  Applications installed
+later are added with `lispm-desktop-define-app'.")
 
 (defvar lispm-desktop-apps--frontmost nil
   "The application in front, a key of `lispm-desktop-apps', or nil at first.")
@@ -84,6 +86,37 @@ with the desktop and hides from the full-screen editor.")
     (setq lispm-desktop-apps--frontmost app)
     (force-mode-line-update t))
   (run-hook-with-args 'lispm-desktop-apps-frontmost-functions app))
+
+(declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
+(defvar lispm-desktop-browser-floating)
+
+(defun lispm-desktop-apps-full-screen-p (app)
+  "Return non-nil when APP, in front, fills the screen and covers the
+floating windows: the editor or the browser, unless it floats itself.
+The floating windows show while any other application is in front."
+  (pcase app
+    ('editor (not (and (fboundp 'lispm-desktop-editor-floating-p) (lispm-desktop-editor-floating-p))))
+    ('browser (not (bound-and-true-p lispm-desktop-browser-floating)))))
+
+(defun lispm-desktop-define-app (key &rest properties)
+  "Make KEY an application with PROPERTIES, as `lispm-desktop-apps' holds one.
+An application defined again keeps its place in the Application menu; a
+new one comes after the others, as installed from the App Store.  The
+list is copied, never changed in place.  Return KEY."
+  (setq lispm-desktop-apps
+        (if (assq key lispm-desktop-apps)
+            (mapcar (lambda (app) (if (eq (car app) key) (cons key properties) app))
+                    lispm-desktop-apps)
+          (append lispm-desktop-apps (list (cons key properties)))))
+  (force-mode-line-update t)
+  key)
+
+(defun lispm-desktop-remove-app (key)
+  "Remove the application KEY; the desktop comes in front if it was there."
+  (setq lispm-desktop-apps (seq-remove (lambda (app) (eq (car app) key)) lispm-desktop-apps))
+  (when (eq lispm-desktop-apps--frontmost key)
+    (lispm-desktop-apps-set-frontmost 'desktop))
+  (force-mode-line-update t))
 
 (defun lispm-desktop-apps-out-p (frame)
   "Return the screen FRAME belongs to when FRAME is out on the computer's
@@ -268,7 +301,7 @@ function."
   "Return the applications that can run here."
   (seq-filter (lambda (app)
                 (let ((visible (plist-get (cdr app) :visible)))
-                  (or (not visible) (and (fboundp visible) (funcall visible)))))
+                  (or (not visible) (and (functionp visible) (funcall visible)))))
               lispm-desktop-apps))
 
 (defun lispm-desktop-apps-activate (app)
@@ -279,7 +312,7 @@ function."
   "Return the applications running now, in the Application menu's order."
   (seq-filter (lambda (app)
                 (let ((running (plist-get (cdr app) :running)))
-                  (or (not running) (and (fboundp running) (funcall running)))))
+                  (or (not running) (and (functionp running) (funcall running)))))
               (lispm-desktop-apps--available)))
 
 (defun lispm-desktop-apps-next ()
@@ -295,7 +328,7 @@ has a page open, Control Panels while they are open."
 (defun lispm-desktop-apps-menus ()
   "Return the frontmost application's menus, for the menu bar."
   (let ((menus (plist-get (alist-get (lispm-desktop-apps-frontmost) lispm-desktop-apps) :menus)))
-    (and menus (fboundp menus) (funcall menus))))
+    (and (functionp menus) (funcall menus))))
 
 (defun lispm-desktop-apps-application ()
   "Return the frontmost application as (ICON . NAME), for the Application menu."

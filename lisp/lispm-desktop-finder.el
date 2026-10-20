@@ -699,17 +699,14 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
 ;;;; With the desktop
 
 (defun lispm-desktop-finder--follow-frontmost (app)
-  "Show the Finder window with the desktop and the control panels, and with
-the floating editor or browser; hide it from the full-screen editor and
-browser.
+  "Show the Finder window with the desktop, the control panels and the
+applications floating over it, the editor and browser too when they float;
+hide it from the full-screen editor and browser.
 This is one of `lispm-desktop-apps-frontmost-functions'."
   (when (and (frame-live-p lispm-desktop-finder--frame)
              ;; Out on the computer's screen, it stays where it is.
              (not (lispm-desktop-apps-out-p lispm-desktop-finder--frame)))
-    (let ((shown (or (memq app '(desktop settings))
-                     (and (eq app 'editor) (fboundp 'lispm-desktop-editor-floating-p)
-                          (lispm-desktop-editor-floating-p))
-                     (and (eq app 'browser) (bound-and-true-p lispm-desktop-browser-floating)))))
+    (let ((shown (not (lispm-desktop-apps-full-screen-p app))))
       (cond ((and shown (not (frame-visible-p lispm-desktop-finder--frame)))
              (lispm-desktop-platinum-show-window lispm-desktop-finder--frame)
              ;; The application in front stays over it.

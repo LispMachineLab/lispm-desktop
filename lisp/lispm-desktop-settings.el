@@ -590,10 +590,7 @@ This is one of `lispm-desktop-apps-frontmost-functions'."
   (when (and (lispm-desktop-settings-open-p)
              ;; Out on the computer's screen, it stays where it is.
              (not (lispm-desktop-apps-out-p lispm-desktop-settings--frame)))
-    (let ((shown (or (memq app '(desktop settings))
-                     (and (eq app 'editor) (fboundp 'lispm-desktop-editor-floating-p)
-                          (lispm-desktop-editor-floating-p))
-                     (and (eq app 'browser) (bound-and-true-p lispm-desktop-browser-floating)))))
+    (let ((shown (not (lispm-desktop-apps-full-screen-p app))))
       (cond ((and shown (not (frame-visible-p lispm-desktop-settings--frame)))
              (lispm-desktop-platinum-show-window lispm-desktop-settings--frame)
              (when-let* ((front (pcase app
