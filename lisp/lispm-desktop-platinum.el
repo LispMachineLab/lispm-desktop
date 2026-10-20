@@ -2952,6 +2952,22 @@ while it is out on the computer's screen, a window of its own."
       lispm-desktop-platinum-frame-inset
     '(0 . 0)))
 
+(defun lispm-desktop-platinum--frame-margins ()
+  "Return what a window's frame takes around the window standing in it:
+\(LEFT TOP RIGHT BOTTOM) pixels.  Past `lispm-desktop-platinum-frame-inset',
+it is as wide on the right and at the bottom as on the left, and a pixel
+of shadow more."
+  (pcase-let ((`(,side . ,top) lispm-desktop-platinum-frame-inset))
+    (list side top (1+ side) (1+ side))))
+
+(defun lispm-desktop-platinum-window-margins (frame)
+  "Return what the frame carrying floating window FRAME takes around it:
+\(LEFT TOP RIGHT BOTTOM) pixels, see `lispm-desktop-platinum--frame-margins',
+or none while FRAME is not framed."
+  (if (lispm-desktop-platinum--framed-p frame)
+      (lispm-desktop-platinum--frame-margins)
+    (list 0 0 0 0)))
+
 (defun lispm-desktop-platinum-window-position (frame)
   "Return where floating window FRAME stands, (X . Y) in pixels: over its
 screen, counted from the screen's inside as a child frame's position is,
@@ -3066,10 +3082,10 @@ elsewhere; moved by a pixel first, it is placed anew."
 
 (defun lispm-desktop-platinum--frame-size (frame)
   "Return the size of the frame of floating window FRAME: (WIDTH . HEIGHT)
-in pixels, FRAME's and the insets."
-  (pcase-let ((`(,left . ,top) lispm-desktop-platinum-frame-inset))
-    (cons (+ (frame-pixel-width frame) (* 2 left) 1)
-          (+ (frame-pixel-height frame) top left 1))))
+in pixels, FRAME's and its margins, see `lispm-desktop-platinum--frame-margins'."
+  (pcase-let ((`(,left ,top ,right ,bottom) (lispm-desktop-platinum--frame-margins)))
+    (cons (+ (frame-pixel-width frame) left right)
+          (+ (frame-pixel-height frame) top bottom))))
 
 (defvar lispm-desktop-platinum-window-min-size)
 
@@ -3129,8 +3145,9 @@ done resizing it from its edges, a step at a time."
 
 (defun lispm-desktop-platinum--frame-update (frame)
   "Bring the frame of floating window FRAME up to date: as large as FRAME
-and the insets, around FRAME again when the window system resized either
-from its edges, and drawn active while FRAME is selected."
+and its margins, see `lispm-desktop-platinum--frame-margins', around FRAME
+again when the window system resized either from its edges, and drawn
+active while FRAME is selected."
   (when-let* ((outer (frame-parameter frame 'lispm-desktop-platinum-frame))
               ((frame-live-p outer))
               ((frame-live-p frame)))

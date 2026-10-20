@@ -420,12 +420,9 @@ one with Option, Alt or Super moves it too, where a key gives those."
 
 (defun lispm-desktop-strip--bounds (screen)
   "Return where the strip may lie on SCREEN, (LEFT TOP RIGHT BOTTOM) in
-pixels: under the menu bar, down to the bottom over the echo area."
-  ;; The root window of a screen split in windows is not live, and only a
-  ;; live window has a divider: the bottom windows' is the one.
-  (pcase-let ((`(,left ,top ,right ,bottom) (window-pixel-edges (frame-root-window screen))))
-    (list left top right
-          (- bottom (window-bottom-divider-width (car (window-at-side-list screen 'bottom)))))))
+pixels: the desktop, under the menu bar, down to the bottom over the echo
+area, see `lispm-desktop-apps-desktop-edges'."
+  (lispm-desktop-apps-desktop-edges screen))
 
 (defun lispm-desktop-strip--position (bounds width side raised)
   "Return where a strip WIDTH pixels wide lies within BOUNDS, as
