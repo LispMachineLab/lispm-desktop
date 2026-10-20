@@ -2091,6 +2091,41 @@ pixels: a checkerboard whose phase follows where the line is."
     (should (equal (list (plist-get (cdr image) :data-width) (plist-get (cdr image) :data-height)) '(6 2)))
     (should-not (plist-member (cdr image) :width))))
 
+(ert-deftest lispm-desktop-test-outline-keeps-thin ()
+  "A frame kept to draw an outline's lines gets its font a pixel tall
+back once a theme, or a change to the default face, gave it the default
+font again, and is sized again in the desktop's colour; while it has
+that font, it is left as it is."
+  (lispm-desktop-test--with-frames '((line (font . "Monaco-1")
+                                           (lispm-desktop-platinum-thin-font . "Monaco-1")
+                                           (lispm-desktop-platinum-line . (1 14 0 nil 3))))
+    (let ((sizes nil))
+      (cl-letf (((symbol-function 'set-frame-font)
+                 (lambda (font _keep frames)
+                   (push (font-get font :size) sizes)
+                   (dolist (frame frames)
+                     (frame-put frame 'font (format "Monaco-%d" (font-get font :size))))))
+                ((symbol-function 'lispm-desktop-platinum--desktop-color) (lambda () "#6666CC")))
+        (lispm-desktop-platinum--keep-thin 'line)
+        (should-not sizes)
+        (should (frame-get 'line 'lispm-desktop-platinum-line))
+        ;; A theme enabled: the default face's font, a line 16 pixels
+        ;; tall, and the theme's background.
+        (frame-put 'line 'font "Monaco-12")
+        (frame-put 'line 'background-color "#FFFFFF")
+        (lispm-desktop-platinum--keep-thin 'line)
+        (should (equal sizes '(1)))
+        (should (equal (frame-get 'line 'font) "Monaco-1"))
+        (should (equal (frame-get 'line 'background-color) "#6666CC"))
+        (should-not (frame-get 'line 'lispm-desktop-platinum-line))
+        ;; A font that cannot be a pixel tall is not set again and again.
+        (cl-letf (((symbol-function 'set-frame-font)
+                   (lambda (_font _keep _frames) (push 'failed sizes))))
+          (frame-put 'line 'font "Bitmap-13")
+          (lispm-desktop-platinum--keep-thin 'line)
+          (lispm-desktop-platinum--keep-thin 'line)
+          (should (equal sizes '(failed 1))))))))
+
 (ert-deftest lispm-desktop-test-drag-keeps-in-front ()
   "What a drag draws comes back over whatever came in front of it, and is
 left where it is while it is in front."

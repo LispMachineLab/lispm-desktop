@@ -3403,6 +3403,24 @@ Mac OS 9's patterns did, wherever the line is."
   "The frames drawing outlines' lines, by what they are drawn over:
 \(PARENT . FRAMES), PARENT nil for the computer's screen.")
 
+(defun lispm-desktop-platinum--keep-thin (frame)
+  "Give FRAME, a frame drawing a line of an outline, a font a pixel tall
+unless it has it, so the frame can be a pixel thin.  Enabling a theme,
+even the one enabled, or changing the default face gives every frame
+the default face's font and the theme's background again: a frame kept
+for the next outline would then be a line of text tall, a bar in the
+theme's background across the window dragged."
+  (unless (equal (frame-parameter frame 'font)
+                 (frame-parameter frame 'lispm-desktop-platinum-thin-font))
+    (ignore-errors (set-frame-font (font-spec :family (face-attribute 'default :family nil t) :size 1)
+                                   nil (list frame)))
+    ;; Kept as it came out, so a font that cannot be a pixel tall is not
+    ;; set again at every line drawn.
+    (set-frame-parameter frame 'lispm-desktop-platinum-thin-font (frame-parameter frame 'font))
+    (set-frame-parameter frame 'background-color (lispm-desktop-platinum--desktop-color))
+    ;; Sized under the other font, it is sized again.
+    (set-frame-parameter frame 'lispm-desktop-platinum-line nil)))
+
 (defun lispm-desktop-platinum--make-line-frame (parent)
   "Return a new frame to draw a line of an outline in, over PARENT, or on
 the computer's screen, above its windows, when PARENT is nil.  Its font
@@ -3424,8 +3442,7 @@ is a pixel tall, so the frame can be a pixel thin."
                      (background-color . ,(lispm-desktop-platinum--desktop-color))
                      ,@(unless parent '((z-group . above)))
                      (width . 2) (height . 1))))))
-    (ignore-errors (set-frame-font (font-spec :family (face-attribute 'default :family nil t) :size 1)
-                                 nil (list frame)))
+    (lispm-desktop-platinum--keep-thin frame)
     (with-current-buffer buffer
       (setq-local mode-line-format nil header-line-format nil tab-line-format nil
                   cursor-type nil cursor-in-non-selected-windows nil
@@ -3459,6 +3476,7 @@ A line with a colour after its five values is drawn solid in it."
                (height (max 1 (if vertical length thickness)))
                (parity (mod (+ x y (car origin) (cdr origin)) 2))
                (size (list width height parity color lispm-desktop-platinum--generation)))
+    (lispm-desktop-platinum--keep-thin frame)
     (unless (equal size (frame-parameter frame 'lispm-desktop-platinum-line))
       (set-frame-parameter frame 'lispm-desktop-platinum-line size)
       (let ((window-min-width 1) (window-safe-min-width 1)
