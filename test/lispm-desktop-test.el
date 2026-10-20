@@ -729,6 +729,129 @@ the boxes spaced as Mac OS 9 spaced them."
     (should (> (plist-get close-only :end) (plist-get all :end)))
     (should (> (plist-get close-only :title) (plist-get all :title)))))
 
+(ert-deftest lispm-desktop-test-title-layout-margins ()
+  "Margins stand the boxes nearest the bar's ends that far in, the title
+stretch between giving up the room; an end without boxes keeps Mac OS
+9's margin."
+  (let* ((s lispm-desktop-platinum-box-size)
+         (margin lispm-desktop-platinum-box-margin)
+         (layout (lispm-desktop-platinum-title-layout 600 100 nil '(12 . 15)))
+         (close-only (lispm-desktop-platinum-title-layout 600 100 '(on nil nil) '(12 . 15))))
+    (should (equal (plist-get layout :margins) '(12 . 15)))
+    (should (= (plist-get layout :start) (+ 12 s)))
+    (should (= (plist-get layout :end) (- 600 15 s 3 s)))
+    (should (equal (plist-get close-only :margins) (cons 12 margin)))
+    (should (= (plist-get close-only :end) (- 600 margin)))
+    (should (equal (plist-get (lispm-desktop-platinum-title-layout 600 100) :margins)
+                   (cons margin margin)))))
+
+(defun lispm-desktop-test--box-in-corner-p (frame-width frame-height box)
+  "Return non-nil when BOX, (X0 Y0 X1 Y1) in pixels, crosses a corner macOS
+resizes a frame FRAME-WIDTH by FRAME-HEIGHT pixels from."
+  (pcase-let ((`(,x0 ,y0 ,x1 ,y1) box))
+    (seq-some (pcase-lambda (`(,side ,end . ,square))
+                (let ((x (if (eq side 'left) 0 (- frame-width square)))
+                      (y (if (eq end 'top) 0 (- frame-height square))))
+                  (and (< x0 (+ x square)) (< x x1) (< y0 (+ y square)) (< y y1))))
+              lispm-desktop-platinum-resize-corners)))
+
+(defun lispm-desktop-test--outer-boxes (left right top margins)
+  "Return the boxes nearest the ends of a title bar from LEFT to RIGHT, its
+top at TOP, standing them at MARGINS: the close box and the last box, as
+\(X0 Y0 X1 Y1) in pixels."
+  (pcase-let ((s lispm-desktop-platinum-box-size)
+              (y (+ top lispm-desktop-platinum-box-top))
+              (`(,lead . ,trail) margins))
+    (list (list (+ left lead) y (+ left lead s) (+ y s))
+          (list (- right trail s) y (- right trail) (+ y s)))))
+
+(ert-deftest lispm-desktop-test-box-margins-clear-resize-corners ()
+  "A title bar's outermost boxes stand clear of every corner macOS resizes
+their frame from, and no further in than that takes, Mac OS 9's margin
+the least.  A floating window's bar runs along its frame's top; rolled
+up, the bar is the whole frame."
+  (let ((margin lispm-desktop-platinum-box-margin))
+    (pcase-dolist (`(,geometry ,expected)
+                   '(((400 300 0 400 0) (12 . 12))         ; a floating window
+                     ((400 22 0 400 0) (12 . 15))          ; rolled up
+                     ((400 300 0 400 8) (12 . 12))         ; the boxes' top row in the corners'
+                     ((400 300 0 400 9) (3 . 3))           ; the boxes under the corners
+                     ((400 300 5 390 0) (7 . 3))           ; the bar in from the frame's sides
+                     ((1440 900 300 900 40) (3 . 3))))     ; a window amid the screen
+      (pcase-let* ((`(,width ,height ,left ,right ,top) geometry)
+                   (margins (apply #'lispm-desktop-platinum--box-margins geometry))
+                   (`(,lead . ,trail) margins))
+        (should (equal margins expected))
+        (dolist (box (lispm-desktop-test--outer-boxes left right top margins))
+          (should-not (lispm-desktop-test--box-in-corner-p width height box)))
+        ;; A pixel further out, a box lies in a corner, unless it stood at
+        ;; Mac OS 9's margin already.
+        (pcase-let ((`(,close ,last) (lispm-desktop-test--outer-boxes
+                                      left right top (cons (1- lead) (1- trail)))))
+          (should (or (= lead margin) (lispm-desktop-test--box-in-corner-p width height close)))
+          (should (or (= trail margin) (lispm-desktop-test--box-in-corner-p width height last))))))))
+
+(ert-deftest lispm-desktop-test-resized-from-corners ()
+  "macOS resizes an undecorated frame from its corners unless it is full
+screen; a decorated frame, or one of another window system, it does not."
+  (cl-flet ((resized (system parameters)
+              (cl-letf (((symbol-function 'framep) (lambda (_) system))
+                        ((symbol-function 'frame-parameter)
+                         (lambda (_ parameter) (alist-get parameter parameters))))
+                (lispm-desktop-platinum--resized-from-corners-p 'frame))))
+    (should (resized 'ns '((undecorated . t))))
+    (should (resized 'ns '((undecorated . t) (fullscreen . maximized))))
+    (should-not (resized 'ns '((undecorated . t) (fullscreen . fullboth))))
+    (should-not (resized 'ns nil))
+    (should-not (resized 'x '((undecorated . t))))))
+
+(ert-deftest lispm-desktop-test-window-box-margins ()
+  "A window's title bar keeps Mac OS 9's margins unless the window system
+resizes its frame from the corners; then they come of where the bar runs
+in the frame, its right end before the window's divider and scroll bar."
+  (let ((margin lispm-desktop-platinum-box-margin))
+    (should (equal (lispm-desktop-platinum--window-box-margins (selected-window))
+                   (cons margin margin)))
+    (cl-letf (((symbol-function 'lispm-desktop-platinum--resized-from-corners-p) #'always)
+              ((symbol-function 'frame-native-width) (lambda (&optional _) 410))
+              ((symbol-function 'frame-native-height) (lambda (&optional _) 300))
+              ((symbol-function 'window-pixel-edges) (lambda (&optional _) '(0 0 410 300)))
+              ((symbol-function 'window-right-divider-width) (lambda (&optional _) 4))
+              ((symbol-function 'window-scroll-bar-width) (lambda (&optional _) 6)))
+      ;; The bar ends ten pixels in from the frame's right, past where
+      ;; the corner reaches less Mac OS 9's margin.
+      (should (equal (lispm-desktop-platinum--window-box-margins (selected-window))
+                     (cons 12 margin))))))
+
+(defun lispm-desktop-test--bar-pieces (bar)
+  "Return the pieces of title bar BAR in order, as (TARGET . WIDTH): TARGET
+the box a piece is, or nil for the bar's ground, WIDTH its image's in
+pixels."
+  (mapcar (lambda (position)
+            (let ((data (plist-get (cdr (get-text-property position 'display bar)) :data)))
+              (cons (get-text-property position 'lispm-desktop-platinum-target bar)
+                    (string-to-number
+                     (dom-attr (with-temp-buffer
+                                 (insert data)
+                                 (libxml-parse-xml-region (point-min) (point-max)))
+                               'width)))))
+          (number-sequence 0 (1- (length bar)))))
+
+(ert-deftest lispm-desktop-test-title-bar-stands-boxes-at-margins ()
+  "A title bar stands its close box and its last box at the margins given,
+its pieces filling its width."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+                                                                                  "#777777" "#6363CE"))
+         (s lispm-desktop-platinum-box-size)
+         (pieces (lispm-desktop-test--bar-pieces
+                  (lispm-desktop-platinum-draw-title-bar 600 t nil "codex" nil '(on on on)
+                                                          nil nil nil '(12 . 15)))))
+    (should (= (apply #'+ (mapcar #'cdr pieces)) 600))
+    (should (equal (seq-take pieces 2) `((nil . 12) (close . ,s))))
+    (should (equal (last pieces 2) `((collapse . ,s) (nil . 15))))))
+
 (ert-deftest lispm-desktop-test-palette-derives-from-theme ()
   "The chrome is the content darkened; bevels lean to the text and to black."
   (let ((palette (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
