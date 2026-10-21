@@ -34,6 +34,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum-titlebar)
+(require 'lispm-desktop-platinum-coach)
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
@@ -72,14 +73,15 @@ the window that had the keyboard gets it back once the walk is over.")
 row of pixels a string: black (#) softened in greys (5, A, D) into the
 bar's lit edges (W).  The right corner is its mirror.")
 
-(cl-defun lispm-desktop-platinum-draw-menu-title (palette width &key label highlighted corner)
+(cl-defun lispm-desktop-platinum-draw-menu-title (palette width &key label highlighted corner marked)
   "Return an SVG of a stretch of the menu bar WIDTH pixels wide, in PALETTE.
 The bar is `lispm-desktop-platinum-menu-bar-height' tall: a lit top line,
 platinum, a shaded line and a black line along its bottom.  LABEL, a
 string as Emacs would show it in the menu titles' face, its icons
 included, is centred; HIGHLIGHTED draws it as an open menu's title, in
 the variation colour, light on dark.  CORNER, `left' or `right', rounds
-the screen's corner over that end."
+the screen's corner over that end.  MARKED circles the title with a
+coach mark, see lispm-desktop-platinum-coach.el."
   (let* ((h lispm-desktop-platinum-menu-bar-height)
          (svg (svg-create width h))
          (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
@@ -110,6 +112,10 @@ the screen's corner over that end."
            (mapcar (lambda (row) (reverse (concat row (make-string (- 9 (length row)) ?\s))))
                    lispm-desktop-platinum--screen-corner)
            (cons '(?W . nil) colors)))))
+    (when marked
+      ;; A flat loop along the title, between the bar's lit top line and
+      ;; its shaded bottom lines.
+      (lispm-desktop-platinum-svg-coach-mark svg 2.5 2.5 (- width 5) (- h 7) 2 1))
     svg))
 
 (defun lispm-desktop-platinum--menu-title (key label command help &optional active corner)
@@ -118,17 +124,20 @@ HELP describes it; ACTIVE draws it highlighted, as an open menu, the
 highlight spanning the title's padding, as Mac OS 9 highlighted a whole
 title.  The title is drawn as an image, so the bar's lines run under it;
 CORNER rounds the screen's corner over it, see
-`lispm-desktop-platinum-draw-menu-title'.  The title string keeps LABEL
+`lispm-desktop-platinum-draw-menu-title'; a coach mark circles it while
+it is what the mark circles, (menu . KEY).  The title string keeps LABEL
 in its `lispm-desktop-platinum-label' property."
   (let* ((width (+ (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-menu-title)
                    (* 2 lispm-desktop-platinum-menu-padding)))
+         (marked (lispm-desktop-platinum-coach-marked-p (cons 'menu key)))
          (title (propertize " " 'display
                             (lispm-desktop-platinum-image
-                             (list 'menu-title (lispm-desktop-platinum--content-key label) width active corner)
+                             (list 'menu-title (lispm-desktop-platinum--content-key label) width active corner
+                                   marked)
                              (lambda ()
                                (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette width
                                                                        :label label :highlighted active
-                                                                       :corner corner)))
+                                                                       :corner corner :marked marked)))
                             'lispm-desktop-platinum-label label
                             'lispm-desktop-platinum-highlighted active)))
     `(,key menu-item ,title ,command :help ,help)))
@@ -138,7 +147,7 @@ in its `lispm-desktop-platinum-label' property."
   (list 'lispm-desktop-menu-filler 'menu-item
         (propertize " " 'display
                     (lispm-desktop-platinum-image
-                     (list 'menu-title nil width nil nil)
+                     (list 'menu-title nil width nil nil nil)
                      (lambda () (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette
                                                                         width))))
         #'ignore))

@@ -64,9 +64,11 @@
 `lispm-desktop-platinum-menus-function' does, :activate brings it in front,
 :visible, when given, is a function deciding whether it can run here, and
 :running one deciding whether it runs now; without it, an application runs
-whenever it can.  The functions are symbols or lambdas; an application
-whose function is not defined does not run.  Applications installed
-later are added with `lispm-desktop-define-app'.")
+whenever it can.  :folder, a large icon as :icon is a small one, makes it
+an application built in: the Applications folder holds it, and the λ
+menu's Applications lists it, whether it runs or not.  The functions are
+symbols or lambdas; an application whose function is not defined does not
+run.  Applications installed later are added with `lispm-desktop-define-app'.")
 
 (defvar lispm-desktop-apps--frontmost nil
   "The application in front, a key of `lispm-desktop-apps', or nil at first.")
@@ -344,6 +346,11 @@ function."
                 (let ((visible (plist-get (cdr app) :visible)))
                   (or (not visible) (and (functionp visible) (funcall visible)))))
               lispm-desktop-apps))
+
+(defun lispm-desktop-apps-built-in ()
+  "Return the applications built in, those with a :folder icon, as
+`lispm-desktop-apps' says: (KEY . PROPERTIES)."
+  (seq-filter (lambda (app) (plist-get (cdr app) :folder)) lispm-desktop-apps))
 
 (defun lispm-desktop-apps-activate (app)
   "Bring APP, a key of `lispm-desktop-apps', in front."

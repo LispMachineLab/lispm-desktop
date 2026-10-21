@@ -61,6 +61,7 @@
 ;;   lispm-desktop-platinum-icons
 ;;   lispm-desktop-platinum-frames
 ;;   lispm-desktop-platinum-titlebar
+;;   lispm-desktop-platinum-coach
 ;;   lispm-desktop-platinum-menubar
 ;;   lispm-desktop-platinum-scroll
 ;;   lispm-desktop-platinum-status
@@ -78,6 +79,7 @@
 (require 'lispm-desktop-platinum-icons)
 (require 'lispm-desktop-platinum-frames)
 (require 'lispm-desktop-platinum-titlebar)
+(require 'lispm-desktop-platinum-coach)
 (require 'lispm-desktop-platinum-menubar)
 (require 'lispm-desktop-platinum-scroll)
 (require 'lispm-desktop-platinum-status)

@@ -376,6 +376,14 @@ one with Option, Alt or Super moves it too, where a key gives those."
   "Return non-nil while the Control Strip is shown."
   (frame-live-p lispm-desktop-strip--frame))
 
+(defun lispm-desktop-strip-edges ()
+  "Return where the Control Strip is, (X Y WIDTH HEIGHT) in pixels over its
+screen, counted as a child frame's position is; nil while it is hidden."
+  (when (and (lispm-desktop-strip--live-p) (frame-visible-p lispm-desktop-strip--frame))
+    (pcase-let ((`(,x . ,y) (frame-position lispm-desktop-strip--frame)))
+      (list x y (frame-pixel-width lispm-desktop-strip--frame)
+            (frame-pixel-height lispm-desktop-strip--frame)))))
+
 (defun lispm-desktop-strip--buffer ()
   "Return the buffer the Control Strip is drawn in, made when missing."
   (or (get-buffer lispm-desktop-strip-buffer-name)

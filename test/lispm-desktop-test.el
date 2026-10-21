@@ -537,6 +537,375 @@ minibuffer, by the same keys; C-g puts them off."
   (cl-letf (((symbol-function 'read-multiple-choice) (lambda (&rest _) (signal 'quit nil))))
     (should-not (lispm-desktop-assistant-ask lispm-desktop-assistant-questions))))
 
+(defun lispm-desktop-test--path-points (path)
+  "Return the points of PATH, path data of moves and lines, as (X . Y)."
+  (let ((points nil) (start 0))
+    (while (string-match "\\([-0-9.]+\\) \\([-0-9.]+\\)" path start)
+      (push (cons (string-to-number (match-string 1 path)) (string-to-number (match-string 2 path)))
+            points)
+      (setq start (match-end 0)))
+    (nreverse points)))
+
+(ert-deftest lispm-desktop-test-coach-mark-loop ()
+  "A coach mark is a loop filling its box, going once round and a little
+further, its two ends side by side; its box is an oval's through the
+corners of what it circles, clear of them by the margin asked."
+  (let* ((points (lispm-desktop-test--path-points (lispm-desktop-platinum-coach-mark-path 10 20 100 40 2)))
+         (first (car points))
+         (last (car (last points))))
+    (should (string-prefix-p "M" (lispm-desktop-platinum-coach-mark-path 10 20 100 40)))
+    (dolist (point points)
+      (should (<= 9 (car point) 111))
+      (should (<= 19 (cdr point) 61)))
+    ;; Round: points on each side of the box.
+    (should (seq-find (lambda (point) (< (car point) 15)) points))
+    (should (seq-find (lambda (point) (> (car point) 105)) points))
+    (should (seq-find (lambda (point) (> (cdr point) 55)) points))
+    ;; A little further than once round: the ends are near each other at
+    ;; the top, the last one outside the first.
+    (should (< (cdr first) 30))
+    (should (< (abs (- (car first) (car last))) 25))
+    (should (< (cdr last) (cdr first))))
+  (pcase-let ((`(,x ,y ,w ,h) (lispm-desktop-platinum-coach-mark-box 100 100 40 20 5)))
+    (should (< x 95))
+    (should (< y 95))
+    (should (> (+ x w) 145))
+    (should (> (+ y h) 125))
+    (should (= (+ x (/ w 2)) 120))))
+
+(ert-deftest lispm-desktop-test-coach-mark-menu-title ()
+  "The menu bar title the coach mark circles is drawn with its loop, in
+red; the others are not, and the mark is part of the title's image."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (lispm-desktop-platinum-current-palette palette)
+         (red lispm-desktop-platinum-coach-mark-color))
+    (cl-flet ((red-p (svg) (seq-find (lambda (path) (equal (dom-attr path 'stroke) red))
+                                     (dom-by-tag svg 'path))))
+      (should (red-p (lispm-desktop-platinum-draw-menu-title palette 60 :label "File" :marked t)))
+      (should-not (red-p (lispm-desktop-platinum-draw-menu-title palette 60 :label "File"))))
+    (let ((lispm-desktop-platinum-menus-function nil)
+          (lispm-desktop-platinum-coach-mark nil))
+      (let ((plain (nth 2 (car (lispm-desktop-platinum-menu-bar)))))
+        (setq lispm-desktop-platinum-coach-mark '(menu . lispm-desktop-lambda))
+        (should-not (equal (get-text-property 0 'display plain)
+                           (get-text-property 0 'display (nth 2 (car (lispm-desktop-platinum-menu-bar))))))
+        (should (lispm-desktop-platinum-coach-marked-p '(menu . lispm-desktop-lambda)))
+        (should-not (lispm-desktop-platinum-coach-marked-p '(menu . lispm-desktop-application)))))))
+
+(ert-deftest lispm-desktop-test-coach-mark-on-the-desktop ()
+  "The desktop draws the coach mark round one of its icons, or round a
+place on the screen, counted from the desktop's own top left; the loop
+stays on the desktop.  Setting the mark draws again what shows it."
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+    (with-current-buffer (lispm-desktop-buffer)
+      (let ((red (regexp-quote (format "stroke=\"%s\"" lispm-desktop-platinum-coach-mark-color)))
+            (lispm-desktop--selected nil))
+        (let ((lispm-desktop-platinum-coach-mark nil))
+          (should-not (string-match-p red (lispm-desktop--svg 800 600))))
+        (let ((lispm-desktop-platinum-coach-mark '(icon . home)))
+          (let ((svg (lispm-desktop--svg 800 600)))
+            (should (string-match-p red svg))
+            (pcase-let ((`(,_ ,left ,top ,right ,_) (assq 'home lispm-desktop--hits))
+                        (points (lispm-desktop-test--path-points
+                                 (progn (string-match "<path d=\"\\([^\"]*\\)\"[^>]*stroke=" svg)
+                                        (match-string 1 svg)))))
+              (dolist (point points)
+                (should (<= 0 (car point) 800))
+                (should (<= 0 (cdr point) 600)))
+              (should (seq-find (lambda (point) (< (car point) left)) points))
+              (should (seq-find (lambda (point) (> (car point) (min right 790))) points))
+              (should (seq-find (lambda (point) (< (cdr point) (+ top 10))) points)))))
+        (let ((lispm-desktop-platinum-coach-mark (cons 'area (lambda () '(200 320 100 30)))))
+          (let ((points (lispm-desktop-test--path-points
+                         (let ((svg (lispm-desktop--svg 800 600 nil '(0 . 20))))
+                           (string-match "<path d=\"\\([^\"]*\\)\"[^>]*stroke=" svg)
+                           (match-string 1 svg)))))
+            ;; 320 on the screen is 300 on a desktop under a 20-pixel menu bar.
+            (should (seq-find (lambda (point) (< (cdr point) 300)) points))
+            (should (seq-find (lambda (point) (> (cdr point) 330)) points))
+            (should-not (seq-find (lambda (point) (> (cdr point) 350)) points))))
+        (let ((lispm-desktop-platinum-coach-mark (cons 'area #'ignore)))
+          (should-not (string-match-p red (lispm-desktop--svg 800 600))))))
+    (let* ((drawn nil)
+           (lispm-desktop-platinum-coach-mark nil)
+           (lispm-desktop-platinum-coach-mark-functions (list (lambda (mark) (push mark drawn)))))
+      (lispm-desktop-platinum-set-coach-mark '(icon . store))
+      (should (equal drawn '((icon . store))))
+      (lispm-desktop-platinum-set-coach-mark nil)
+      (should (equal drawn '(nil (icon . store)))))))
+
+(ert-deftest lispm-desktop-test-guide-steps ()
+  "Every step of the guide has a title, words, an icon that is there and
+keys Emacs can read; what it circles is a menu bar title, a desktop
+icon or a place a function returns, and what Show Me calls is a function."
+  (dolist (step lispm-desktop-guide-steps)
+    (let ((properties (cdr step)))
+      (should (stringp (plist-get properties :title)))
+      (should (stringp (plist-get properties :text)))
+      (should (file-readable-p (lispm-desktop-platinum-icon-file (plist-get properties :icon))))
+      (pcase (plist-get properties :mark)
+        ('nil)
+        (`(menu . ,key) (should (memq key '(lispm-desktop-lambda lispm-desktop-application))))
+        (`(icon . ,key) (should (assq key lispm-desktop-items)))
+        (`(area . ,function) (should (fboundp function)))
+        (mark (ert-fail (list "Unknown mark" mark))))
+      (when-let* ((show (plist-get properties :show)))
+        (should (fboundp show)))
+      (dolist (entry (plist-get properties :keys))
+        (should (stringp (nth 1 entry)))
+        (dolist (keys (split-string (car entry) ", *" t))
+          (should (key-valid-p keys))))))
+  (should (file-readable-p (lispm-desktop-platinum-icon-file "guide"))))
+
+(ert-deftest lispm-desktop-test-guide-shows-what-is-here ()
+  "Steps whose subject is missing are left out, and keys whose predicate
+says no; the guide's place stays within the steps left."
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
+            ((symbol-function 'lispm-desktop-strip-edges) #'ignore)
+            ((symbol-function 'lispm-desktop-coherence-available-p) #'ignore))
+    (let ((keys (mapcar #'car (lispm-desktop-guide--steps))))
+      (should-not (memq 'browser keys))
+      (should-not (memq 'strip keys))
+      (should (equal (car keys) 'welcome))
+      (should (equal (car (last keys)) 'keys)))
+    (should-not (lispm-desktop-guide--keys (assq 'windows lispm-desktop-guide-steps)))
+    (let ((lispm-desktop-guide--index 99))
+      (should (eq (car (lispm-desktop-guide--step)) 'keys))))
+  (cl-letf (((symbol-function 'lispm-desktop-coherence-available-p) #'always))
+    (should (equal (mapcar #'car (lispm-desktop-guide--keys (assq 'windows lispm-desktop-guide-steps)))
+                   '("C-c h")))))
+
+(ert-deftest lispm-desktop-test-guide-goes-step-by-step ()
+  "Next and Back go from step to step, each circling what it speaks of;
+Back does nothing on the first step, and Next on the last puts the guide
+away, to start over the next time."
+  (let ((lispm-desktop-guide--index 0)
+        (lispm-desktop-guide--playing nil)
+        (lispm-desktop-guide--undo nil)
+        (marks nil)
+        (closed nil))
+    (cl-letf (((symbol-function 'lispm-desktop-guide--render) #'ignore)
+              ((symbol-function 'lispm-desktop-guide--frame) #'ignore)
+              ((symbol-function 'lispm-desktop-platinum-set-coach-mark) (lambda (mark) (push mark marks)))
+              ((symbol-function 'lispm-desktop-guide-close) (lambda () (setq closed t))))
+      (lispm-desktop-guide-previous)
+      (should (= lispm-desktop-guide--index 0))
+      (should-not marks)
+      (lispm-desktop-guide-next)
+      (should (= lispm-desktop-guide--index 1))
+      (should (equal (car marks) '(menu . lispm-desktop-lambda)))
+      (lispm-desktop-guide-previous)
+      (should (= lispm-desktop-guide--index 0))
+      (should (null (car marks)))
+      (setq lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
+      (should-not closed)
+      (lispm-desktop-guide-next)
+      (should closed)
+      (should (= lispm-desktop-guide--index 0)))))
+
+(ert-deftest lispm-desktop-test-guide-plays-by-itself ()
+  "Playing by itself, the guide does a step's Show Me a moment after the
+step comes, if it is still on it; what Show Me opened is put back as the
+guide goes on, is skipped or is closed, and the guide stops playing once
+closed.  Skip starts the guide over the next time."
+  (let ((lispm-desktop-guide--index 0)
+        (lispm-desktop-guide--playing t)
+        (lispm-desktop-guide--undo nil)
+        (lispm-desktop-guide--timer nil)
+        (timers nil)
+        (put-back 0)
+        (closed nil))
+    (cl-letf (((symbol-function 'lispm-desktop-guide--render) #'ignore)
+              ((symbol-function 'lispm-desktop-platinum-set-coach-mark) #'ignore)
+              ((symbol-function 'run-at-time)
+               (lambda (_time _repeat function &rest args) (push (cons function args) timers) nil))
+              ((symbol-function 'lispm-desktop-guide-close)
+               (lambda () (setq closed t) (lispm-desktop-guide--closed))))
+      ;; The welcome shows nothing; the λ menu's step shows its menu.
+      (lispm-desktop-guide--go 0)
+      (should-not timers)
+      (lispm-desktop-guide--go 1)
+      (should (equal (mapcar #'car timers) '(lispm-desktop-guide--play)))
+      (should (eq (car (nth 1 (car timers))) 'lambda-menu))
+      ;; Played once the guide is on another step, it does nothing.
+      (let ((shown nil))
+        (cl-letf (((symbol-function 'lispm-desktop-guide--frame) #'always)
+                  ((symbol-function 'lispm-desktop-guide-show-me) (lambda () (setq shown t))))
+          (lispm-desktop-guide--play (assq 'welcome lispm-desktop-guide-steps))
+          (should-not shown)
+          (lispm-desktop-guide--play (lispm-desktop-guide--step))
+          (should shown)))
+      ;; What was opened is put back as the guide goes on.
+      (setq lispm-desktop-guide--undo (lambda () (cl-incf put-back)))
+      (lispm-desktop-guide-next)
+      (should (= put-back 1))
+      (should-not lispm-desktop-guide--undo)
+      (setq lispm-desktop-guide--undo (lambda () (cl-incf put-back)))
+      (lispm-desktop-guide-skip)
+      (should closed)
+      (should (= put-back 2))
+      (should (= lispm-desktop-guide--index 0))
+      (should-not lispm-desktop-guide--playing))))
+
+(ert-deftest lispm-desktop-test-guide-shows-a-menu-for-a-while ()
+  "A menu Show Me opens gets the keys it is to be typed first; playing by
+itself, the guide closes it after a while with Escape, unless something
+was typed meanwhile, and takes back an Escape left unread."
+  (let ((lispm-desktop-guide--playing t)
+        (unread-command-events nil)
+        (tick nil)
+        (seen nil))
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (_time _repeat function &rest _) (setq tick function) (timer-create))))
+      (defalias 'lispm-desktop-test--modal
+        (lambda ()
+          (interactive)
+          ;; Reading the key typed first counts as an event read.
+          (setq seen (pop unread-command-events))
+          (cl-incf num-nonmacro-input-events)
+          ;; Time passes, nothing typed: Escape is typed into the menu.
+          (funcall tick)
+          (push (copy-sequence unread-command-events) seen)
+          ;; The menu closes otherwise, its Escape unread.
+          ))
+      (unwind-protect
+          (progn
+            (should-not (lispm-desktop-guide--modal 'lispm-desktop-test--modal '(return)))
+            (should (equal seen '((escape) . return)))
+            (should-not unread-command-events)
+            ;; Something typed meanwhile: the menu is left to the user.
+            (setq seen nil)
+            (cl-letf (((symbol-function 'lispm-desktop-test--modal)
+                       (lambda ()
+                         (interactive)
+                         (cl-incf num-nonmacro-input-events 2)
+                         (funcall tick)
+                         (setq seen (copy-sequence unread-command-events)))))
+              (lispm-desktop-guide--modal 'lispm-desktop-test--modal)
+              (should-not seen))
+            ;; Not playing: no Escape at all.
+            (let ((lispm-desktop-guide--playing nil))
+              (setq tick nil)
+              (cl-letf (((symbol-function 'lispm-desktop-test--modal) (lambda () (interactive) nil)))
+                (lispm-desktop-guide--modal 'lispm-desktop-test--modal))
+              (should-not tick)))
+        (fmakunbound 'lispm-desktop-test--modal)))))
+
+(ert-deftest lispm-desktop-test-guide-window ()
+  "The guide's window shows the step's title, words and keys as key caps,
+and its buttons: Show Me where the step shows something, Back but on the
+first step, Next, or Done on the last; its bottom says how far along it
+is.  The keys go from step to step."
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+    (with-temp-buffer
+      (lispm-desktop-guide-mode)
+      (let ((lispm-desktop-guide-buffer-name (buffer-name))
+            (lispm-desktop-guide--index 0))
+        (cl-flet ((labels ()
+                    (let ((found nil))
+                      (save-excursion
+                        (goto-char (point-min))
+                        (while (< (point) (point-max))
+                          (when-let* ((label (get-text-property (point) 'lispm-desktop-platinum-label)))
+                            (push (cons label (and (button-at (point)) t)) found))
+                          (forward-char 1)))
+                      (nreverse found))))
+          (lispm-desktop-guide--render)
+          (should (string-search "Welcome to LispM" (buffer-string)))
+          (should (string-search "the next step" (buffer-string)))
+          (should (equal (labels) '(("Skip" . t) ("Back") ("Next" . t))))
+          (should (equal lispm-desktop-platinum-info
+                         (format "Step 1 of %d" (length (lispm-desktop-guide--steps)))))
+          (setq lispm-desktop-guide--index 1)
+          (lispm-desktop-guide--render)
+          (should (string-search "The λ menu" (buffer-string)))
+          (should (equal (labels) '(("Skip" . t) ("Show Me" . t) ("Back" . t) ("Next" . t))))
+          (setq lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
+          (lispm-desktop-guide--render)
+          (should (equal (labels) '(("Back" . t) ("Done" . t))))))
+      (dolist (key '("n" "SPC" "C-f" "C-n"))
+        (should (eq (keymap-lookup lispm-desktop-guide-mode-map key) 'lispm-desktop-guide-next)))
+      (dolist (key '("p" "DEL" "C-b" "C-p"))
+        (should (eq (keymap-lookup lispm-desktop-guide-mode-map key) 'lispm-desktop-guide-previous)))
+      (should (eq (keymap-lookup lispm-desktop-guide-mode-map "q") 'lispm-desktop-guide-close)))))
+
+(ert-deftest lispm-desktop-test-guide-is-an-application ()
+  "The guide is an application built in: the Applications folder holds it
+after the App Store, the λ menu's Applications lists it, and the
+Application menu while it is open; in front, its menus are File and Go,
+Go listing every step, the one the guide is on checked."
+  (let ((lispm-desktop-apps lispm-desktop-apps)
+        (lispm-desktop-store-installed '((calculator :kind app :name "Calculator" :command calc)))
+        (lispm-desktop-guide--index 1))
+    (lispm-desktop-guide--define-app)
+    (should (equal (mapcar #'car (lispm-desktop-apps-built-in)) '(guide)))
+    (should (equal (seq-take (lispm-desktop-store--folder-items) 3)
+                   (list '("App Store" "app-store-32" lispm-desktop-store-show)
+                         (list "LispM Guide" "guide-32" (nth 2 (nth 1 (lispm-desktop-store--folder-items))))
+                         (nth 2 (lispm-desktop-store--folder-items)))))
+    (should (equal (mapcar #'car (lispm-desktop-store--folder-items)) '("App Store" "LispM Guide" "Calculator")))
+    (should (equal (mapcar (lambda (item) (plist-get item :label)) (lispm-desktop-store-application-items))
+                   '("LispM Guide" "Calculator")))
+    (should (file-readable-p (lispm-desktop-platinum-icon-file "guide-32")))
+    (cl-letf (((symbol-function 'lispm-desktop-guide-open-p) #'ignore))
+      (should-not (assq 'guide (lispm-desktop-apps--available))))
+    (cl-letf (((symbol-function 'lispm-desktop-guide-open-p) #'always))
+      (should (assq 'guide (lispm-desktop-apps--available))))
+    (let ((lispm-desktop-apps--frontmost 'guide))
+      (should (equal (mapcar #'cadr (lispm-desktop-apps-menus)) '("File" "Go")))
+      (should (equal (cdr (lispm-desktop-apps-application)) "LispM Guide")))
+    (let* ((items (lispm-desktop-guide--go-items))
+           (steps (seq-filter #'consp (cdr (memq 'separator items)))))
+      (should (= (length steps) (length (lispm-desktop-guide--steps))))
+      (should (equal (seq-keep (lambda (item) (plist-get item :checked)) steps) '(t)))
+      (should (plist-get (nth 1 steps) :checked))
+      (should (plist-get (car items) :enabled)))))
+
+(ert-deftest lispm-desktop-test-guide-opens-centred ()
+  "The guide's window stands in the middle of the desktop, its frame's
+margins counted, and never past the desktop's top left."
+  (should (equal (lispm-desktop-guide--centre '(0 20 1000 620) 400 300 '(6 1 7 7))
+                 (cons (+ 6 (/ (- 1000 400 13) 2)) (+ 20 1 (/ (- 600 300 8) 2)))))
+  (should (equal (lispm-desktop-guide--centre '(0 20 300 200) 400 300 '(6 1 7 7)) '(6 . 21))))
+
+(ert-deftest lispm-desktop-test-guide-first-time ()
+  "The guide shows itself once, and says so for every later start; where
+it cannot be drawn, a line says how to start instead.  A batch Emacs
+does neither."
+  (let ((lispm-desktop-guide-shown nil)
+        (saved nil)
+        (shown nil)
+        (said nil))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value &rest _) (push (cons variable value) saved) (set variable value)))
+              ((symbol-function 'run-with-idle-timer) (lambda (&rest _) (setq shown t)))
+              ((symbol-function 'lispm-desktop-guide--welcome) (lambda () (setq said t))))
+      (lispm-desktop-guide-first-time)
+      (should-not (or saved shown said))
+      (let ((noninteractive nil))
+        (cl-letf (((symbol-function 'display-graphic-p) #'ignore))
+          (lispm-desktop-guide-first-time)
+          (should (equal saved '((lispm-desktop-guide-shown . t))))
+          (should said)
+          (should-not shown)
+          (setq said nil saved nil)
+          (lispm-desktop-guide-first-time)
+          (should-not (or saved said)))
+        (setq lispm-desktop-guide-shown nil)
+        (cl-letf (((symbol-function 'display-graphic-p) #'always)
+                  ((symbol-function 'image-type-available-p) #'always))
+          (lispm-desktop-guide-first-time)
+          (should shown)
+          (should-not said))))))
+
+(ert-deftest lispm-desktop-test-guide-in-the-help-menu ()
+  "The desktop's menus end with Help once the guide offers itself there."
+  (let ((lispm-desktop-help-items-function nil))
+    (should-not (assq 'lispm-desktop-menu-help (lispm-desktop-menus)))
+    (setq lispm-desktop-help-items-function #'lispm-desktop-guide-help-items)
+    (should (equal (car (last (lispm-desktop-menus))) '(lispm-desktop-menu-help "Help" lispm-desktop--help-items)))
+    (should (eq (plist-get (car (lispm-desktop--help-items)) :action) 'lispm-desktop-guide))))
+
 (defmacro lispm-desktop-test--with-themes (&rest body)
   "Run BODY with two empty themes, `lispm-desktop-test-light' enabled and
 saved with Customize as `lispm-desktop-theme', and

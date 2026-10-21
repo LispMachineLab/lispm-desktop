@@ -585,11 +585,44 @@ and ASCENT measure and set its name."
              center (+ label-top 2 ascent) (lispm-desktop--escape family) size
              (if selected content text) (lispm-desktop--escape (plist-get spec :label))))))
 
-(defun lispm-desktop--svg (width height &optional picture)
+(defun lispm-desktop--coach-mark (width height origin)
+  "Return SVG text of the coach mark, when it circles something on a
+desktop WIDTH by HEIGHT pixels whose top left is at ORIGIN, (X . Y) on
+its screen; else the empty string.  It circles (icon . KEY), the icon
+KEY and its name, or (area . FUNCTION), the rectangle FUNCTION returns,
+\(X Y WIDTH HEIGHT) on the screen counted as a child frame's position
+is, or nil for none, as a window's: the mark lies on the desktop, under
+whatever is over it.  The loop is kept within the desktop, flattened
+where it would leave it.  See lispm-desktop-platinum-coach.el."
+  (pcase (pcase lispm-desktop-platinum-coach-mark
+           (`(icon . ,key)
+            (pcase (assq key lispm-desktop--hits)
+              (`(,_ ,left ,top ,right ,bottom) (list left top (- right left) (- bottom top)))))
+           (`(area . ,function)
+            (pcase (funcall function)
+              (`(,x ,y ,w ,h) (list (- x (car origin)) (- y (cdr origin)) w h)))))
+    (`(,x ,y ,w ,h)
+     (pcase-let* ((pen 3)
+                  (`(,left ,top ,box-width ,box-height)
+                   (lispm-desktop-platinum-coach-mark-box x y w h 4))
+                  ;; The pen and the loop's spread past the box.
+                  (edge (+ pen 1))
+                  (right (min (- width edge) (+ left box-width)))
+                  (bottom (min (- height edge) (+ top box-height)))
+                  (left (max edge left))
+                  (top (max edge top)))
+       (if (and (> right left) (> bottom top))
+           (lispm-desktop-platinum-coach-mark-element left top (- right left) (- bottom top) pen)
+         "")))
+    (_ "")))
+
+(defun lispm-desktop--svg (width height &optional picture origin)
   "Return the desktop drawn WIDTH by HEIGHT pixels, as SVG text, PICTURE
 over it, by default `lispm-desktop-picture'.  Icons stand where
 `lispm-desktop--layout' puts them; where each went is kept in
-`lispm-desktop--hits'."
+`lispm-desktop--hits'.  The coach mark goes over them, see
+`lispm-desktop--coach-mark', the desktop's top left at ORIGIN, by
+default 0, 0."
   (pcase-let* ((`(,family ,size ,ascent) (lispm-desktop--font))
                (parts nil))
     (setq lispm-desktop--hits nil)
@@ -611,6 +644,7 @@ over it, by default `lispm-desktop-picture'.  Icons stand where
              width height width height)
      (lispm-desktop--background width height picture)
      (apply #'concat (reverse parts))
+     (lispm-desktop--coach-mark width height (or origin '(0 . 0)))
      "</svg>")))
 
 (defun lispm-desktop--background (width height &optional picture)
@@ -656,14 +690,22 @@ Where images cannot be shown, its icons are listed by name."
               (let* ((picture (and lispm-desktop-picture
                                    (file-readable-p (expand-file-name lispm-desktop-picture))
                                    (lispm-desktop--picture-file width height)))
-                     (image (apply #'create-image (lispm-desktop--svg width height picture) 'svg t
+                     (origin (window-inside-pixel-edges window))
+                     (image (apply #'create-image (lispm-desktop--svg width height picture
+                                                                      (cons (car origin) (cadr origin)))
+                                   'svg t
                                    :scale 1 :ascent 100
                                    (when picture (list :base-uri picture)))))
                 (insert (propertize " " 'display image 'pointer 'arrow))
                 ;; Each drawing is a new image as large as the window; the
                 ;; last one is let go at once, or a drag would heap them up.
+                ;; It is let go from the desktop's frame, which Emacs then
+                ;; draws anew: the new image may take the last one's place
+                ;; in the image cache, and so look the same to redisplay.
+                ;; From every frame, the frame drawn anew would be the
+                ;; first that shares the cache, not the desktop's.
                 (when lispm-desktop--image
-                  (image-flush lispm-desktop--image t))
+                  (image-flush lispm-desktop--image (window-frame window)))
                 (setq lispm-desktop--image image))
             (dolist (item (lispm-desktop--items))
               (insert (if (eq (car item) lispm-desktop--selected) " ▶ " "   ")
@@ -1280,12 +1322,24 @@ on the Finder window when it had the keyboard last, else on the desktop."
   "Return the items of the desktop's View menu."
   (lispm-desktop--arrange-items))
 
+(defvar lispm-desktop-help-items-function nil
+  "Function returning the items of the desktop's Help menu, as
+`lispm-desktop-popup-menu' takes them, or nil for no Help menu.")
+
+(defun lispm-desktop--help-items ()
+  "Return the items of the desktop's Help menu."
+  (funcall lispm-desktop-help-items-function))
+
 (defun lispm-desktop-menus ()
-  "Return the desktop's menus, for the menu bar while it is in front."
-  '((lispm-desktop-menu-file "File" lispm-desktop--file-items)
+  "Return the desktop's menus, for the menu bar while it is in front: as
+the Finder's, File, View, Go and Special, and Help last, when there is
+help to give, see `lispm-desktop-help-items-function'."
+  `((lispm-desktop-menu-file "File" lispm-desktop--file-items)
     (lispm-desktop-menu-view "View" lispm-desktop--view-items)
     (lispm-desktop-menu-go "Go" lispm-desktop-finder--go-items)
-    (lispm-desktop-menu-special "Special" lispm-desktop--special-items)))
+    (lispm-desktop-menu-special "Special" lispm-desktop--special-items)
+    ,@(when lispm-desktop-help-items-function
+        '((lispm-desktop-menu-help "Help" lispm-desktop--help-items)))))
 
 (defun lispm-desktop--scroll-bar (buffer)
   "Say no scroll bar for BUFFER, the desktop or its empty window.
@@ -1314,6 +1368,7 @@ personal.el included, and the Trash is looked at every few seconds."
         lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop--paint)) 90)
+  (add-hook 'lispm-desktop-platinum-coach-mark-functions (lambda (_) (lispm-desktop--render)))
   (add-hook 'window-setup-hook #'lispm-desktop-activate 95))
 
 (provide 'lispm-desktop-surface)
