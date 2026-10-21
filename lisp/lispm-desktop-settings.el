@@ -36,6 +36,8 @@
 ;;   Keyboard    Vim or Emacs keys
 ;;   Internet    the browser's home page and search address, its history
 ;;               and its bookmarks
+;;   Network     the proxy every connection LispM makes goes through, see
+;;               lispm-desktop-proxy.el
 ;;   Software Update  Update Now, and how LispM checks for updates and
 ;;               installs them by itself, see lispm-desktop-update.el
 ;;
@@ -52,6 +54,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-update)
+(require 'lispm-desktop-proxy)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -70,6 +73,7 @@
 (declare-function lispm-browser-bookmarks "lispm-browser-places" ())
 (declare-function lispm-desktop-browser-edit-bookmarks "lispm-desktop-browser-places" ())
 (declare-function lispm-browser-available-p "lispm-browser" ())
+(declare-function lispm-browser-proxy-followed-p "lispm-browser-proxy" ())
 
 (defconst lispm-desktop-settings-buffer-name " *Control Panels*"
   "Name of the control panel's window's buffer.")
@@ -79,6 +83,7 @@
     (desktop "Desktop" lispm-desktop-settings--desktop "desktop-picture-32")
     (keyboard "Keyboard" lispm-desktop-settings--keyboard "keyboard-32")
     (browser "Internet" lispm-desktop-settings--browser "globe-32" lispm-desktop-settings--browser-p)
+    (network "Network" lispm-desktop-settings--network "network-32")
     (update "Software Update" lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
 INSERT fills the window with the panel, ICON is its large icon in the
@@ -412,6 +417,69 @@ desktop's SVG cannot read."
   (lispm-desktop-settings--button "Edit Bookmarks…" #'lispm-desktop-browser-edit-bookmarks
                                   "List the bookmarks in the browser")
   (insert "\n"))
+
+(defun lispm-desktop-settings--proxy-server ()
+  "Ask for the proxy's address, HOST:PORT, and keep it; return non-nil
+when one is kept."
+  (let ((server (string-trim (read-string "Proxy server (host:port): " lispm-desktop-proxy-server))))
+    (cond ((string-empty-p server) nil)
+          ((lispm-desktop-proxy-parse-server server)
+           (lispm-desktop-settings--save 'lispm-desktop-proxy-server server)
+           t)
+          (t (user-error "Write the proxy server as host:port, as 127.0.0.1:7890")))))
+
+(defun lispm-desktop-settings--proxy-type (type)
+  "Send LispM's connections through a proxy of TYPE, `http' or `socks5', or
+through none when TYPE is nil.  The proxy's address is asked for when
+none is known yet."
+  (when (or (null type)
+            (lispm-desktop-proxy-parse-server lispm-desktop-proxy-server)
+            (lispm-desktop-settings--proxy-server))
+    (lispm-desktop-settings--save 'lispm-desktop-proxy-type type)))
+
+(defun lispm-desktop-settings--proxy-exceptions ()
+  "Ask for the hosts reached directly, not through the proxy, and keep them."
+  (lispm-desktop-settings--save
+   'lispm-desktop-proxy-exceptions
+   (split-string (read-string "Hosts reached directly (separated by commas): "
+                              (string-join lispm-desktop-proxy-exceptions ", "))
+                 "[, ]+" t)))
+
+(defun lispm-desktop-settings--network ()
+  "Insert the Network panel: the proxy, none, HTTP or SOCKS5, its address,
+and the hosts reached directly."
+  (lispm-desktop-settings--heading "Proxy")
+  (pcase-dolist (`(,type ,label ,note) '((nil "None" "the system's own, if any")
+                                         (http "HTTP" "HTTPS goes through it too")
+                                         (socks5 "SOCKS5" "it looks the names up too")))
+    (lispm-desktop-settings--radio label (eq lispm-desktop-proxy-type type)
+                                   (lambda () (lispm-desktop-settings--proxy-type type))
+                                   note))
+  (insert "\n")
+  (lispm-desktop-settings--note (if lispm-desktop-proxy-server
+                                    (format "Server: %s" lispm-desktop-proxy-server)
+                                  "No server yet."))
+  (insert lispm-desktop-settings--indent)
+  (lispm-desktop-settings--button "Change…" #'lispm-desktop-settings--proxy-server
+                                  "Change the proxy's address, host:port")
+  (insert "\n\n")
+  (lispm-desktop-settings--note "Emacs, the browser's pages and the programs Emacs starts")
+  (lispm-desktop-settings--note "all connect through it.")
+  (when (and lispm-desktop-proxy-type (lispm-desktop-settings--browser-p)
+             (fboundp 'lispm-browser-proxy-followed-p)
+             (not (lispm-browser-proxy-followed-p)))
+    (lispm-desktop-settings--note "The browser's pages follow once its module is built."))
+  (lispm-desktop-settings--heading "Direct Connections")
+  (lispm-desktop-settings--note
+   (if lispm-desktop-proxy-exceptions
+       (lispm-desktop-settings--truncate (string-join lispm-desktop-proxy-exceptions ", ") 58)
+     "None but this computer's own addresses."))
+  (insert lispm-desktop-settings--indent)
+  (lispm-desktop-settings--button "Change…" #'lispm-desktop-settings--proxy-exceptions
+                                  "Change the hosts reached directly, not through the proxy")
+  (insert "\n\n")
+  (lispm-desktop-settings--note "Hosts reached directly, not through the proxy, and their")
+  (lispm-desktop-settings--note "subdomains; this computer's own addresses always are."))
 
 (defun lispm-desktop-settings--when (time)
   "Return TIME as the Software Update panel tells it: today at 23:50, or

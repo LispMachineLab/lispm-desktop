@@ -3879,7 +3879,8 @@ positions, the keys, the browser's pages."
                      '((themes "Dracula" "Platinum")
                        (desktop "From the theme" "Fill" "Tile" "Arrange Icons")
                        (keyboard "Vim keys" "Emacs keys" "next start")
-                       (browser "Home Page" "Clear History" "Edit Bookmarks")))
+                       (browser "Home Page" "Clear History" "Edit Bookmarks")
+                       (network "Proxy" "None" "HTTP" "SOCKS5" "Direct Connections")))
         (lispm-desktop-settings-select panel)
         (let ((text (concat (buffer-string)
                             ;; Push buttons draw their labels in their images.
@@ -3908,6 +3909,39 @@ positions, the keys, the browser's pages."
           (should button)
           (button-activate button))
         (should (equal (car saved) '(lispm-desktop-editing-style . emacs)))))))
+
+(ert-deftest lispm-desktop-test-settings-proxy-asks-for-its-server ()
+  "Choosing a proxy without a server asks for one first, and keeps neither
+when none is given; with one, the choice is saved."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (let ((saved nil)
+        (answer "")
+        (lispm-desktop-proxy-type nil)
+        (lispm-desktop-proxy-server nil))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (push (cons variable value) saved) (set variable value)))
+              ((symbol-function 'read-string)
+               (lambda (&rest _) (if (functionp answer) (funcall answer) answer))))
+      (with-current-buffer (lispm-desktop-settings--buffer)
+        (lispm-desktop-settings-select 'network)
+        (let ((press (lambda (label)
+                       (let ((button (next-button (point-min))))
+                         (while (and button (not (string-search label (button-label button))))
+                           (setq button (next-button (button-end button))))
+                         (button-activate button)))))
+          (funcall press "SOCKS5")
+          (should-not saved)
+          (setq answer "nonsense")
+          (should-error (funcall press "SOCKS5") :type 'user-error)
+          (should-not saved)
+          (setq answer "127.0.0.1:7890")
+          (funcall press "SOCKS5")
+          (should (equal (reverse saved) '((lispm-desktop-proxy-server . "127.0.0.1:7890")
+                                           (lispm-desktop-proxy-type . socks5))))
+          (setq answer (lambda () (error "Asked again")))
+          (funcall press "HTTP")
+          (should (equal (car saved) '(lispm-desktop-proxy-type . http))))))))
 
 (ert-deftest lispm-desktop-test-control-panels-folder ()
   "The Control Panels folder is a Finder folder of a panel each: opening an
@@ -6588,6 +6622,202 @@ installed; its check boxes save their choices."
     (should (equal (dom-attr focused 'width) 18))
     (should-not (string-search focus (prin1-to-string plain)))
     (should (string-search focus (prin1-to-string focused)))))
+
+;;;; The proxy
+
+(ert-deftest lispm-desktop-test-proxy-server-and-url ()
+  "The proxy's address is HOST:PORT, a scheme before it passed over, an IPv6
+host in brackets; its URL tells programs its kind, a SOCKS5 proxy looking
+names up."
+  (should (equal (lispm-desktop-proxy-parse-server "127.0.0.1:7890") '("127.0.0.1" . 7890)))
+  (should (equal (lispm-desktop-proxy-parse-server " http://proxy.example:8080/ ") '("proxy.example" . 8080)))
+  (should (equal (lispm-desktop-proxy-parse-server "[::1]:1080") '("::1" . 1080)))
+  (dolist (bad '(nil "" "127.0.0.1" "127.0.0.1:" ":7890" "host:0" "host:65536" "a b:1" "::1:1080"))
+    (should-not (lispm-desktop-proxy-parse-server bad)))
+  (should (equal (lispm-desktop-proxy--url 'http "127.0.0.1:7890") "http://127.0.0.1:7890"))
+  (should (equal (lispm-desktop-proxy--url 'socks5 "[::1]:1080") "socks5h://[::1]:1080"))
+  (should-not (lispm-desktop-proxy--url nil "127.0.0.1:7890"))
+  (should-not (lispm-desktop-proxy--url 'http nil)))
+
+(ert-deftest lispm-desktop-test-proxy-direct-hosts ()
+  "This computer is always reached directly, and so are the exceptions and
+the hosts below them; \"*\" is every host."
+  (let ((lispm-desktop-proxy-exceptions '("example.com" ".intranet" "*.corp.example")))
+    (dolist (host '("localhost" "127.0.0.1" "127.0.0.2" "::1" "[::1]" "example.com" "www.Example.com"
+                    "wiki.intranet" "a.corp.example"))
+      (should (lispm-desktop-proxy-direct-p host)))
+    (dolist (host '("notexample.com" "example.org" "intranet.example" "github.com"))
+      (should-not (lispm-desktop-proxy-direct-p host)))
+    (should (equal (lispm-desktop-proxy-direct-hosts)
+                   '("localhost" "127.0.0.1" "::1" "example.com" ".intranet" "*.corp.example"))))
+  (let ((lispm-desktop-proxy-exceptions '("*")))
+    (should (lispm-desktop-proxy-direct-p "github.com"))))
+
+(defmacro lispm-desktop-test--with-proxy-environment (&rest body)
+  "Run BODY with an environment of its own, set with no proxy of LispM's."
+  (declare (indent 0))
+  `(let ((process-environment (copy-sequence process-environment))
+         (lispm-desktop-proxy--original-environment nil)
+         (lispm-desktop-proxy-change-functions nil))
+     (dolist (variable (append lispm-desktop-proxy-variables lispm-desktop-proxy-exception-variables))
+       (setenv variable nil))
+     ,@body))
+
+(ert-deftest lispm-desktop-test-proxy-environment ()
+  "The programs Emacs starts are told the proxy, and the hosts reached
+directly, those the environment named before kept; without a proxy, the
+environment is as it was."
+  (lispm-desktop-test--with-proxy-environment
+    (setenv "https_proxy" "http://old:1")
+    (setenv "NO_PROXY" "corp.example")
+    (lispm-desktop-proxy--apply 'socks5 "127.0.0.1:7890" '("intranet"))
+    (dolist (variable lispm-desktop-proxy-variables)
+      (should (equal (getenv variable) "socks5h://127.0.0.1:7890")))
+    (should (equal (getenv "no_proxy") "localhost,127.0.0.1,::1,intranet"))
+    (should (equal (getenv "NO_PROXY") "localhost,127.0.0.1,::1,intranet,corp.example"))
+    ;; Another proxy, then none: what was there before is back.
+    (lispm-desktop-proxy--apply 'http "proxy.example:8080" nil)
+    (should (equal (getenv "https_proxy") "http://proxy.example:8080"))
+    (should (equal (getenv "NO_PROXY") "localhost,127.0.0.1,::1,corp.example"))
+    (lispm-desktop-proxy--apply nil "proxy.example:8080" nil)
+    (should (equal (getenv "https_proxy") "http://old:1"))
+    (should (equal (getenv "NO_PROXY") "corp.example"))
+    (should-not (getenv "ALL_PROXY"))
+    (should-not (getenv "no_proxy"))
+    ;; No proxy, nothing was set: nothing is touched.
+    (setenv "ALL_PROXY" "socks5://mine:1")
+    (lispm-desktop-proxy--apply nil nil nil)
+    (should (equal (getenv "ALL_PROXY") "socks5://mine:1"))))
+
+(ert-deftest lispm-desktop-test-proxy-follows-its-settings ()
+  "A setting changed, by the panel, Customize or `setq', is followed at
+once, and the browser is told; a binding with `let' changes nothing."
+  (lispm-desktop-test--with-proxy-environment
+    (let ((lispm-desktop-proxy-type nil)
+          (lispm-desktop-proxy-server "127.0.0.1:7890")
+          (lispm-desktop-proxy-exceptions nil)
+          (told nil))
+      (add-hook 'lispm-desktop-proxy-change-functions (lambda (url hosts) (push (list url hosts) told)))
+      (lispm-desktop-proxy--changed 'lispm-desktop-proxy-type 'http 'set nil)
+      (should (equal (car told) '("http://127.0.0.1:7890" ("localhost" "127.0.0.1" "::1"))))
+      (should (equal (getenv "http_proxy") "http://127.0.0.1:7890"))
+      (lispm-desktop-proxy--changed 'lispm-desktop-proxy-type 'socks5 'let nil)
+      (lispm-desktop-proxy--changed 'lispm-desktop-proxy-type 'socks5 'set (current-buffer))
+      (should (= (length told) 1))
+      (lispm-desktop-proxy--changed 'lispm-desktop-proxy-type nil 'set nil)
+      (should (equal (car told) '(nil ("localhost" "127.0.0.1" "::1"))))
+      (should-not (getenv "http_proxy")))))
+
+(ert-deftest lispm-desktop-test-proxy-url-locator ()
+  "url.el goes through an HTTP proxy, but not to a host reached directly;
+under a SOCKS5 proxy its streams go through socks.el, and without one,
+url.el finds proxies as it did."
+  (let ((lispm-desktop-proxy-type 'http)
+        (lispm-desktop-proxy-server "127.0.0.1:7890")
+        (lispm-desktop-proxy-exceptions nil)
+        (lispm-desktop-proxy--url-locator (lambda (_ host) (concat "BEFORE " host)))
+        (url (url-generic-parse-url "https://example.com/")))
+    (should (equal (lispm-desktop-proxy-find-for-url url "example.com") "PROXY 127.0.0.1:7890"))
+    (should (equal (lispm-desktop-proxy-find-for-url url "localhost") "DIRECT"))
+    (let ((lispm-desktop-proxy-type 'socks5))
+      (should (equal (lispm-desktop-proxy-find-for-url url "example.com") "DIRECT")))
+    (let ((lispm-desktop-proxy-type nil))
+      (should (equal (lispm-desktop-proxy-find-for-url url "example.com") "BEFORE example.com")))))
+
+(ert-deftest lispm-desktop-test-proxy-socks-streams ()
+  "Under a SOCKS5 proxy, url.el's streams are opened through it, HTTPS's
+negotiated over it and its certificate checked; others open as before."
+  ;; Loaded before they are stubbed, as opening a stream loads them.
+  (mapc #'require '(socks gnutls nsm puny))
+  (let ((lispm-desktop-proxy-type 'socks5)
+        (lispm-desktop-proxy-server "127.0.0.1:1080")
+        (lispm-desktop-proxy-exceptions nil)
+        (url-gateway-unplugged nil)
+        (url-gateway-method 'native)
+        (calls nil))
+    (cl-letf (((symbol-function 'socks-open-network-stream)
+               (lambda (_name _buffer host service)
+                 (push (list 'socks socks-server host service) calls)
+                 'stream))
+              ((symbol-function 'gnutls-negotiate)
+               (lambda (&rest spec) (push (list 'tls (plist-get spec :hostname)) calls) 'tls-stream))
+              ((symbol-function 'nsm-verify-connection)
+               (lambda (stream host port) (push (list 'check stream host port) calls) stream)))
+      (let ((open (lambda (&rest args) (push (cons 'direct args) calls) 'direct-stream)))
+        (should (eq (lispm-desktop-proxy--url-open-stream open "n" nil "example.com" 80) 'stream))
+        (should (equal (car calls) '(socks ("LispM" "127.0.0.1" 1080 5) "example.com" 80)))
+        (setq calls nil)
+        (should (eq (lispm-desktop-proxy--url-open-stream open "n" nil "example.com" 443 'tls) 'tls-stream))
+        (should (equal (reverse calls) '((socks ("LispM" "127.0.0.1" 1080 5) "example.com" 443)
+                                         (tls "example.com")
+                                         (check tls-stream "example.com" 443))))
+        (setq calls nil)
+        (should (eq (lispm-desktop-proxy--url-open-stream open "n" nil "127.0.0.1" 8080) 'direct-stream))
+        (let ((lispm-desktop-proxy-type 'http))
+          (should (eq (lispm-desktop-proxy--url-open-stream open "n" nil "example.com" 80 'tls)
+                      'direct-stream)))
+        (should (equal (mapcar #'car calls) '(direct direct)))))))
+
+(defun lispm-desktop-test--proxy-server (kind)
+  "Start a proxy of KIND, `http' or `socks5', on a free loopback port; return
+its process.  It answers each request itself, with a page naming the host
+asked for, and keeps the hosts in its `hosts' property."
+  (let ((server
+         (make-network-process
+          :name "lispm-desktop-test-proxy" :server t :host 'local :service t
+          :coding 'binary :noquery t
+          :filter
+          (lambda (connection string)
+            (let* ((server (process-get connection 'server))
+                   (input (concat (or (process-get connection 'input) "") string))
+                   (state (or (process-get connection 'state) (if (eq kind 'socks5) 'greeting 'request)))
+                   (answer (lambda (host)
+                             (process-put server 'hosts (cons host (process-get server 'hosts)))
+                             (let ((body (format "proxied %s" host)))
+                               (process-send-string
+                                connection
+                                (format "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+                                        (length body) body))))))
+              (pcase state
+                ((and 'greeting (guard (>= (length input) 3)))
+                 (process-send-string connection (unibyte-string 5 0))
+                 (setq input "" state 'connect))
+                ((and 'connect (guard (and (>= (length input) 5)
+                                           (>= (length input) (+ 7 (aref input 4))))))
+                 (process-put connection 'host (substring input 5 (+ 5 (aref input 4))))
+                 (process-send-string connection (unibyte-string 5 0 0 1 0 0 0 0 0 0))
+                 (setq input "" state 'request))
+                ((and 'request (guard (string-search "\r\n\r\n" input)))
+                 (funcall answer (or (process-get connection 'host)
+                                     (and (string-match "\\`GET http://\\([^/:]+\\)" input)
+                                          (match-string 1 input))))
+                 (setq input "" state 'answered)))
+              (process-put connection 'input input)
+              (process-put connection 'state state)))
+          :log (lambda (server connection _message)
+                 (process-put connection 'server server)))))
+    server))
+
+(ert-deftest lispm-desktop-test-proxy-url-retrieves-through-it ()
+  "url.el retrieves through an HTTP proxy and through a SOCKS5 one."
+  (dolist (kind '(http socks5))
+    (let* ((server (lispm-desktop-test--proxy-server kind))
+           (lispm-desktop-proxy-type kind)
+           (lispm-desktop-proxy-server (format "127.0.0.1:%d" (process-contact server :service)))
+           (lispm-desktop-proxy-exceptions nil)
+           (url-proxy-locator #'lispm-desktop-proxy-find-for-url)
+           (url-request-noninteractive t))
+      (advice-add 'url-open-stream :around #'lispm-desktop-proxy--url-open-stream)
+      (unwind-protect
+          (let ((buffer (url-retrieve-synchronously "http://lispm-test.invalid/page" t t 10)))
+            (should buffer)
+            (with-current-buffer buffer
+              (goto-char (point-min))
+              (should (search-forward "proxied lispm-test.invalid" nil t)))
+            (kill-buffer buffer)
+            (should (equal (process-get server 'hosts) '("lispm-test.invalid"))))
+        (advice-remove 'url-open-stream #'lispm-desktop-proxy--url-open-stream)
+        (delete-process server)))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
