@@ -31,6 +31,9 @@
 (require 'ert)
 (require 'lispm-desktop)
 
+;; The words as the code writes them, whatever the computer's language.
+(setq lispm-desktop-language 'en)
+
 (defmacro lispm-desktop-test--with-agents (agents &rest body)
   "Run BODY with AGENTS, (AGENT . PROPERTIES), the only agents defined,
 their keys bound in keymaps of the test's own."
@@ -2197,11 +2200,6 @@ other key closes the panel and goes on to Emacs."
       (should (string-search "3 sessions" (lispm-desktop-platinum-mode-line-left)))
       (should (string-empty-p (string-trim (substring-no-properties
                                             (lispm-desktop-platinum-mode-line-right))))))))
-
-(ert-deftest lispm-desktop-test-sidebar-count ()
-  "List windows count their items in the singular or the plural."
-  (should (equal (lispm-desktop-sidebar-count 1 "session") "1 session"))
-  (should (equal (lispm-desktop-sidebar-count 3 "session" "1 running") "3 sessions, 1 running")))
 
 (ert-deftest lispm-desktop-test-sidebar-keeps-width ()
   "The frame narrowing, the main area gives up the columns and the sidebar
@@ -9986,6 +9984,294 @@ centred along its bottom, under a caption."
       (should (equal (dom-attr menu 'height) (cdr (lispm-desktop-popup--rows items))))
       (should (equal (dom-attr alert 'height) (plist-get layout :height)))
       (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-desktop-popup-alert-width))))))
+
+;;;; The language LispM speaks
+
+(defun lispm-desktop-test--source-files ()
+  "Return the desktop's Lisp files."
+  (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'"))
+
+(defun lispm-desktop-test--time-format-p (text)
+  "Return non-nil when TEXT is a `format-time-string' format: it has a
+conversion `format' has not, as %H or %B."
+  (let ((case-fold-search nil))
+    (string-match-p "%[-_0^#]*[0-9]*[HMIpABbYymZz]" text)))
+
+(defun lispm-desktop-test--messages ()
+  "Return the messages the desktop's code gives to translate: a hash table
+from a catalog key (see `lispm-desktop-i18n--key') to a plist: :message,
+:context, :plural, the plural's English, :time for a time format, and
+:places, where the message is written, as FILE:LINE."
+  (let ((messages (make-hash-table :test #'equal)))
+    (dolist (file (lispm-desktop-test--source-files))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (emacs-lisp-mode)
+        (let ((name (file-name-nondirectory file)))
+          (goto-char (point-min))
+          (while (re-search-forward
+                  "(\\(lispm-desktop-\\(?:tr\\(?:-n\\|-in\\|-noop\\)?\\|format-time\\)\\)[ \t\n]+\"" nil t)
+            (let ((function (intern (match-string 1)))
+                  (start (match-beginning 0)))
+              (unless (nth 8 (save-excursion (syntax-ppss start)))
+              (let* ((line (line-number-at-pos start))
+                     (form (save-excursion (goto-char start) (read (current-buffer))))
+                     (args (cdr form))
+                     (context (cond ((eq function 'lispm-desktop-tr-in) (pop args))
+                                    ((eq function 'lispm-desktop-tr-noop) (nth 1 args))))
+                     (message (car args))
+                     (key (lispm-desktop-i18n--key message context))
+                     (entry (gethash key messages)))
+                (puthash key
+                         (list :message message :context context
+                               :plural (or (plist-get entry :plural)
+                                           (and (eq function 'lispm-desktop-tr-n) (nth 1 args)))
+                               :time (or (plist-get entry :time) (eq function 'lispm-desktop-format-time)
+                                         (lispm-desktop-test--time-format-p message))
+                               :places (append (plist-get entry :places) (list (format "%s:%d" name line))))
+                         messages))))))))
+    messages))
+
+(defun lispm-desktop-test--format-arguments (text)
+  "Return the arguments format string TEXT takes, as (INDEX . CONVERSION),
+sorted: `%1$s' takes argument 1, and a plain `%s' the one after the
+last taken."
+  (let ((arguments nil) (next 1) (start 0))
+    (while (string-match "%\\(?:\\([0-9]+\\)\\$\\)?[-+ #0]*[0-9]*\\(?:\\.[0-9]+\\)?\\([a-zA-Z%]\\)" text start)
+      (setq start (match-end 0))
+      (unless (equal (match-string 2 text) "%")
+        (let ((index (if (match-string 1 text) (string-to-number (match-string 1 text)) next)))
+          (push (cons index (match-string 2 text)) arguments)
+          (setq next (1+ index)))))
+    (sort arguments (lambda (a b) (< (car a) (car b))))))
+
+(defconst lispm-desktop-test--translated-languages '(de fr ja zh-Hans zh-Hant)
+  "The languages whose catalogs translate every message.")
+
+(defconst lispm-desktop-test--spellings
+  '(("colour" . "color") ("centre" . "center") ("grey" . "gray") ("favourite" . "favorite")
+    ("behaviour" . "behavior") ("cancelled" . "canceled") ("labelled" . "labeled"))
+  "Words Britain and the United States spell apart: (BRITISH . AMERICAN),
+the start of a word.  Customize stays, Emacs's name for its settings.")
+
+(defun lispm-desktop-test--spelled-p (text spellings)
+  "Return non-nil when TEXT has a word starting as one of SPELLINGS."
+  (let ((case-fold-search t))
+    (seq-some (lambda (spelling) (string-match-p (concat "\\b" spelling) text)) spellings)))
+
+(ert-deftest lispm-desktop-test-i18n-translates-every-message ()
+  "Every language but English translates every message the code gives,
+a plural in as many forms as the language has; no catalog holds a
+message the code no longer gives."
+  (let ((messages (lispm-desktop-test--messages)))
+    (should (> (hash-table-count messages) 1000))
+    (dolist (language (mapcar #'car lispm-desktop-languages))
+      (let ((catalog (plist-get (lispm-desktop-i18n-read-catalog language) :messages))
+            (forms (if (alist-get language lispm-desktop-i18n-plural-forms) 2 1)))
+        (should (plist-get (lispm-desktop-i18n-read-catalog language) :name))
+        (maphash (lambda (key _)
+                   (should-not (list language 'stale key (gethash key messages))))
+                 (let ((stale (copy-hash-table catalog)))
+                   (maphash (lambda (key _) (remhash key stale)) messages)
+                   stale))
+        (when (memq language lispm-desktop-test--translated-languages)
+          (maphash (lambda (key entry)
+                     (let ((translation (gethash key catalog)))
+                       (unless (and translation
+                                    (if (plist-get entry :plural)
+                                        (or (and (stringp translation) (= forms 1))
+                                            (and (consp translation) (= (length translation) forms)))
+                                      (stringp translation)))
+                         (should-not (list language 'missing key)))))
+                   messages))))))
+
+(ert-deftest lispm-desktop-test-i18n-keeps-arguments ()
+  "A translation takes the arguments its message takes, in any order; a
+time format may say the time its own way."
+  (let ((messages (lispm-desktop-test--messages)))
+    (dolist (language (mapcar #'car lispm-desktop-languages))
+      (maphash (lambda (key translation)
+                 (when-let* ((entry (gethash key messages))
+                             ((not (plist-get entry :time))))
+                   (let ((expected (lispm-desktop-test--format-arguments (plist-get entry :message))))
+                     (dolist (text (ensure-list translation))
+                       (let ((arguments (lispm-desktop-test--format-arguments text)))
+                         ;; A plural's form may leave the count unsaid, as
+                         ;; "one item" does.
+                         (unless (or (equal arguments expected)
+                                     (and (plist-get entry :plural)
+                                          (equal arguments (cl-remove-if (lambda (a) (equal (cdr a) "d"))
+                                                                         expected))))
+                           (should-not (list language key text))))))))
+               (plist-get (lispm-desktop-i18n-read-catalog language) :messages)))))
+
+(ert-deftest lispm-desktop-test-i18n-english-spelling ()
+  "The code's English spells as Britain does: American English changes
+every message spelled so, and British English every one spelled the
+American way; neither keeps the other's spelling."
+  (let ((messages (lispm-desktop-test--messages))
+        (british (mapcar #'car lispm-desktop-test--spellings))
+        (american (mapcar #'cdr lispm-desktop-test--spellings)))
+    (pcase-dolist (`(,language ,from) `((en-US ,british) (en-GB ,american)))
+      (let ((catalog (plist-get (lispm-desktop-i18n-read-catalog language) :messages)))
+        (maphash (lambda (key entry)
+                   (dolist (text (cons (plist-get entry :message) (ensure-list (plist-get entry :plural))))
+                     (when (and (lispm-desktop-test--spelled-p text from) (not (gethash key catalog)))
+                       (should-not (list language 'spelled-as-written key))))
+                   (dolist (text (ensure-list (gethash key catalog)))
+                     (should-not (and (lispm-desktop-test--spelled-p text from) (list language key text)))))
+                 messages)))))
+
+(ert-deftest lispm-desktop-test-i18n-translates ()
+  "A message shows in the language spoken, formatted, as written where
+the catalog lacks it; a plural takes the language's form for the count;
+a message said in a context is looked up in it."
+  (let ((lispm-desktop-i18n--catalogs nil)
+        (lispm-desktop-language 'fr))
+    (cl-letf (((symbol-function 'lispm-desktop-i18n-read-catalog)
+               (lambda (_language)
+                 (let ((table (make-hash-table :test #'equal)))
+                   (puthash "Step %d of %d" "Étape %1$d sur %2$d" table)
+                   (puthash "%d item" '("%d élément" "%d éléments") table)
+                   (puthash (lispm-desktop-i18n--key "Open" "state") "Ouvert" table)
+                   (puthash "Open" "Ouvrir" table)
+                   (puthash (lispm-desktop-i18n--key "Home" "web page") "Accueil" table)
+                   (puthash "Home" "Départ" table)
+                   (list :name "Français" :messages table)))))
+      (should (equal (lispm-desktop-tr "Step %d of %d" 2 3) "Étape 2 sur 3"))
+      (should (equal (lispm-desktop-tr "Not in the catalog") "Not in the catalog"))
+      (should (equal (lispm-desktop-tr "%d%% done" 5) "5% done"))
+      (should (equal (lispm-desktop-tr "Open") "Ouvrir"))
+      (should (equal (lispm-desktop-tr-in "state" "Open") "Ouvert"))
+      (should (equal (lispm-desktop-tr (lispm-desktop-tr-noop "Home" "web page")) "Accueil"))
+      (should (equal (lispm-desktop-tr (lispm-desktop-tr-noop "Home")) "Départ"))
+      (should (equal (mapcar (lambda (n) (lispm-desktop-tr-n "%d item" "%d items" n)) '(0 1 2))
+                     '("0 élément" "1 élément" "2 éléments")))
+      (should (equal (lispm-desktop-tr-n "%d page" "%d pages" 0) "0 pages"))
+      (should (equal (lispm-desktop-tr-n "%s, %d item" "%s, %d items" 1 "LispM" 1) "LispM, 1 item"))
+      (should (equal (lispm-desktop-language-name 'fr) "Français")))))
+
+(ert-deftest lispm-desktop-test-i18n-system-language ()
+  "The computer's language is the first of its preferred languages LispM
+speaks: Chinese by script, else by region; English American in the
+United States, else British; American English when none is spoken."
+  (should (equal (mapcar #'lispm-desktop-i18n-language-of
+                         '("zh-Hant-HK" "zh-Hans-HK" "zh-TW" "zh_HK.UTF-8" "zh-CN" "zh" "en" "en-US"
+                           "en_US.UTF-8" "en-HK" "en-GB" "fr-CA" "de_CH" "ja-JP" "ko-KR" "C"))
+                 '(zh-Hant zh-Hans zh-Hant zh-Hant zh-Hans zh-Hans en-US en-US
+                   en-US en-GB en-GB fr de ja nil nil)))
+  (let ((lispm-desktop-i18n--system-languages '("yue-Hant-HK" "ja-HK" "en-US")))
+    (should (eq (lispm-desktop-system-language) 'ja)))
+  (let ((lispm-desktop-i18n--system-languages '("ko-KR")))
+    (should (eq (lispm-desktop-system-language) 'en-US)))
+  (let ((lispm-desktop-i18n--system-languages '("zh-Hant-TW"))
+        (lispm-desktop-language nil))
+    (should (eq (lispm-desktop-current-language) 'zh-Hant))))
+
+(ert-deftest lispm-desktop-test-i18n-words ()
+  "Lines break between words, and between the characters of Chinese and
+Japanese, punctuation kept off a line's start and opening brackets off
+its end."
+  (should (equal (lispm-desktop-i18n-words "Hello  big\nworld") '("Hello" " big" " world")))
+  (should (equal (lispm-desktop-i18n-words "\u4f60\u597d\uff0c\u4e16\u754c\u3002")
+                 '("\u4f60" "\u597d\uff0c" "\u4e16" "\u754c\u3002")))
+  (should (equal (lispm-desktop-i18n-words "\u300cLispM\u300d\u3092")
+                 '("\u300cLispM\u300d" "\u3092")))
+  (should (equal (lispm-desktop-i18n-wrap "one two three four" (lambda (line) (<= (length line) 8)))
+                 '("one two" "three" "four")))
+  (should (equal (lispm-desktop-i18n-wrap "\u4f60\u597d\uff0c\u4e16\u754c" (lambda (line) (<= (length line) 3)))
+                 '("\u4f60\u597d\uff0c" "\u4e16\u754c"))))
+
+(ert-deftest lispm-desktop-test-i18n-format-time ()
+  "Times are said in the language spoken, its month names included."
+  (let ((lispm-desktop-language 'en))
+    (should (equal (lispm-desktop-format-time "%-d %B %Y" (encode-time '(0 0 12 18 10 2026 nil nil t)))
+                   "18 October 2026"))))
+
+(ert-deftest lispm-desktop-test-i18n-set-language ()
+  "Choosing a language saves it and draws what shows words again, once,
+and only when the language spoken changes."
+  (let ((lispm-desktop-language 'en)
+        (lispm-desktop-language-changed-hook nil)
+        (drawn 0))
+    (add-hook 'lispm-desktop-language-changed-hook (lambda () (setq drawn (1+ drawn))))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value &rest _) (set-default variable value))))
+      (lispm-desktop-set-language 'de)
+      (should (eq lispm-desktop-language 'de))
+      (should (= drawn 1))
+      (lispm-desktop-set-language 'de)
+      (should (= drawn 1))
+      (should-error (lispm-desktop-set-language 'xx) :type 'user-error))))
+
+(ert-deftest lispm-desktop-test-assistant-language ()
+  "At the first start the language is asked first, in two columns of eight
+smaller buttons chosen by digits; the language chosen speaks on the
+next pages, and putting the questions off goes back to the computer's."
+  (let* ((lispm-desktop-language nil)
+         (questions (cons lispm-desktop-assistant-language-question lispm-desktop-assistant-questions))
+         (page (lispm-desktop-assistant--page (car questions) 0 3))
+         (layout (lispm-desktop-assistant--layout 1000 600 page))
+         (cards (plist-get layout :cards)))
+    (should (= (length cards) 8))
+    (pcase-let ((`((,ax ,ay ,aw ,ah) (,bx ,by ,_ ,_) (,cx ,cy ,_ ,_)) cards))
+      (should (= ay by))
+      (should (< (+ ax aw) bx))
+      (should (= ax cx))
+      (should (> cy (+ ay ah))))
+    (should (equal (mapcar #'car (plist-get page :choices)) '(nil en-US en-GB de fr ja zh-Hans zh-Hant)))
+    (let ((languages nil))
+      (cl-letf (((symbol-function 'lispm-desktop-tr)
+                 (lambda (message &rest args)
+                   (push lispm-desktop-language languages)
+                   (if args (apply #'format message args) message))))
+        (lispm-desktop-test--with-assistant '(?4 ?e ?d)
+          (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                         '((lispm-desktop-language . de) (lispm-desktop-editing-style . emacs)
+                           (lispm-desktop-theme . dracula))))
+          (should (eq lispm-desktop-language 'de))
+          (should (memq 'de languages))))
+      (lispm-desktop-test--with-assistant '(?6 escape)
+        (should-not (lispm-desktop-assistant--ask-on-page questions))
+        (should-not lispm-desktop-language)))))
+
+(ert-deftest lispm-desktop-test-settings-language ()
+  "The Language panel offers the computer's language and each of LispM's,
+named in itself, and choosing one speaks it."
+  (let ((lispm-desktop-language 'en)
+        (chosen nil))
+    (cl-letf (((symbol-function 'lispm-desktop-set-language) (lambda (language) (setq chosen (list language)))))
+      (with-temp-buffer
+        (lispm-desktop-settings--language)
+        (let ((text (buffer-string)))
+          (should (string-search "The computer's language" text))
+          (dolist (language (mapcar #'car lispm-desktop-languages))
+            (should (string-search (lispm-desktop-language-name language) text))))
+        (goto-char (point-min))
+        (search-forward (lispm-desktop-language-name 'de))
+        (push-button (1- (point)))
+        (should (equal chosen '(de)))))))
+
+(defun lispm-desktop-test-report-catalogs ()
+  "Print, for each language, the messages its catalog lacks and those it
+holds no longer.  Run with `make i18n'."
+  (let ((messages (lispm-desktop-test--messages)))
+    (dolist (language (mapcar #'car lispm-desktop-languages))
+      (let ((catalog (plist-get (lispm-desktop-i18n-read-catalog language) :messages))
+            (missing 0) (stale 0))
+        (when (memq language lispm-desktop-test--translated-languages)
+          (maphash (lambda (key entry)
+                     (unless (gethash key catalog)
+                       (setq missing (1+ missing))
+                       (princ (format "%s: missing %S (%s)\n" language key
+                                      (string-join (plist-get entry :places) " ")))))
+                   messages))
+        (maphash (lambda (key _)
+                   (unless (gethash key messages)
+                     (setq stale (1+ stale))
+                     (princ (format "%s: stale %S\n" language key))))
+                 catalog)
+        (princ (format "%s: %d missing, %d stale\n" language missing stale))))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

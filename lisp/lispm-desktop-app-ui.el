@@ -57,6 +57,11 @@
 ;; App Store's other applications in lispm-desktop-app-skins.el; a
 ;; package of the App Store may describe itself the same way.
 ;;
+;; What an application says of itself here, its title, buttons, status,
+;; menus, keys and pages, is in English, translated as it is shown, see
+;; lispm-desktop-i18n.el: words of its own that no catalog holds show as
+;; they are.
+;;
 ;; `lispm-desktop-app-ui-audit' opens every application installed in
 ;; turn and reports what of this it finds missing.
 
@@ -71,6 +76,7 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-app-board)
 (require 'lispm-desktop-needs)
+(require 'lispm-desktop-i18n)
 
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
@@ -87,7 +93,10 @@ KEY is a major mode: its buffers, and those of the modes derived from
 it, take PROPERTIES in an application's window.  It is an application's
 key instead for an application whose buffer has no mode of its own, as
 Pong's.  Any property may be left out; what it says is then found out
-from the application:
+from the application.  Its words, the title, the buttons' LABELs, the
+strip's label, the menus' TITLEs and items, the keys' WHATs, the status
+and the page's TEXT and buttons, are in English, translated as they are
+shown; a function may return them translated already:
 
 :app      the key of the application, or a list of them, the buffers
           belong to, for :run.
@@ -182,9 +191,12 @@ naming it with :app."
   (plist-get (alist-get app lispm-desktop-apps) property))
 
 (defun lispm-desktop-app-ui-name (&optional app)
-  "Return the name of APP, by default the current buffer's application."
+  "Return the name of APP, by default the current buffer's application, in
+the language LispM speaks."
   (let ((app (or app (lispm-desktop-app-ui--buffer-app))))
-    (or (lispm-desktop-app-ui--app-property app :name) (and app (capitalize (symbol-name app))))))
+    (if-let* ((name (lispm-desktop-app-ui--app-property app :name)))
+        (lispm-desktop-tr name)
+      (and app (capitalize (symbol-name app))))))
 
 (defun lispm-desktop-app-ui-game-p (&optional app)
   "Return non-nil when APP, by default the current buffer's application,
@@ -327,14 +339,15 @@ application's prefix, `tetris-start-game' as Start Game."
   (lispm-desktop-app-ui-label (or (lispm-desktop-app-ui--bare-name command) (symbol-name command))))
 
 (defconst lispm-desktop-app-ui-button-commands
-  '(("New Game" . "\\`\\(?:start\\|new\\|restart\\)\\(?:-game\\)?\\'")
-    ("Pause" . "\\`\\(?:pause\\|toggle-pause\\)\\(?:-game\\)?\\'")
-    ("Undo" . "\\`\\(?:undo\\|undo-move\\|takes?-back\\|human-takes-back\\)\\'")
-    ("Hint" . "\\`\\(?:hint\\|suggest\\|solve-suggest\\)\\'")
-    ("Update" . "\\`\\(?:update\\|fetch\\|refresh\\)\\'"))
+  `((,(lispm-desktop-tr-noop "New Game") . "\\`\\(?:start\\|new\\|restart\\)\\(?:-game\\)?\\'")
+    (,(lispm-desktop-tr-noop "Pause") . "\\`\\(?:pause\\|toggle-pause\\)\\(?:-game\\)?\\'")
+    (,(lispm-desktop-tr-noop "Undo") . "\\`\\(?:undo\\|undo-move\\|takes?-back\\|human-takes-back\\)\\'")
+    (,(lispm-desktop-tr-noop "Hint") . "\\`\\(?:hint\\|suggest\\|solve-suggest\\)\\'")
+    (,(lispm-desktop-tr-noop "Update") . "\\`\\(?:update\\|fetch\\|refresh\\)\\'"))
   "The push buttons an application's window holds when nothing says which:
 \(LABEL . REGEXP), for the first of its commands whose name, its
-application's prefix taken off, REGEXP matches.")
+application's prefix taken off, REGEXP matches.  LABEL is in English,
+translated where shown.")
 
 (defun lispm-desktop-app-ui--found-buttons ()
   "Return the push buttons found among the current buffer's commands."
@@ -351,10 +364,14 @@ application's prefix taken off, REGEXP matches.")
 
 (defun lispm-desktop-app-ui-buttons ()
   "Return the push buttons of the current buffer's window, as (LABEL
-COMMAND ENABLED), each LABEL a string and ENABLED non-nil or nil."
+COMMAND ENABLED), each LABEL a string in the language LispM speaks and
+ENABLED non-nil or nil."
   (let ((buttons (lispm-desktop-app-ui-get :buttons 'found)))
     (mapcar (pcase-lambda (`(,label ,command ,enabled))
-              (list (or (if (functionp label) (lispm-desktop-app-ui--safely label) label) "…") command
+              (list (if-let* ((label (if (functionp label) (lispm-desktop-app-ui--safely label) label)))
+                        (lispm-desktop-tr label)
+                      "…")
+                    command
                     (or (null enabled) (and (lispm-desktop-app-ui--safely enabled) t))))
             (cond ((eq buttons 'found) (lispm-desktop-app-ui--found-buttons))
                   ((functionp buttons) (lispm-desktop-app-ui--safely buttons))
@@ -387,9 +404,11 @@ COMMAND ENABLED), each LABEL a string and ENABLED non-nil or nil."
       (setq text (replace-match "\\1,\\2\\3" t nil text)))
     text))
 
-(defconst lispm-desktop-app-ui-status-variables '(("Score" . "score") ("Moves" . "moves"))
-  "What an application's status says when nothing says what: (LABEL .
-NAME), for each of its variables PREFIX-NAME holding a number.")
+(defconst lispm-desktop-app-ui-status-variables
+  `((,(lispm-desktop-tr-noop "Score %s") . "score") (,(lispm-desktop-tr-noop "Moves %s") . "moves"))
+  "What an application's status says when nothing says what: (FORMAT .
+NAME), for each of its variables PREFIX-NAME holding a number, FORMAT
+saying the number in English, translated where shown.")
 
 (defun lispm-desktop-app-ui--found-status ()
   "Return the status found in the current buffer: the numbers its
@@ -401,8 +420,8 @@ process state."
                         (seq-some (lambda (prefix)
                                     (let ((variable (intern-soft (concat prefix name))))
                                       (and variable (boundp variable) (numberp (symbol-value variable))
-                                           (format "%s %s" label (lispm-desktop-app-ui--number
-                                                                  (symbol-value variable))))))
+                                           (lispm-desktop-tr label (lispm-desktop-app-ui--number
+                                                                    (symbol-value variable))))))
                                   prefixes))
                       lispm-desktop-app-ui-status-variables)
             ,(let ((process (string-trim (format-mode-line mode-line-process))))
@@ -411,13 +430,14 @@ process state."
 
 (defun lispm-desktop-app-ui-status ()
   "Return what the bottom of the current buffer's window says: a list of
-strings, see :status."
+strings, see :status, in the language LispM speaks."
   (let ((status (lispm-desktop-app-ui-get :status 'found)))
-    (seq-remove (lambda (text) (or (null text) (string-empty-p text)))
-                (ensure-list (cond ((eq status 'found) (lispm-desktop-app-ui--safely
-                                                        #'lispm-desktop-app-ui--found-status))
-                                   ((functionp status) (lispm-desktop-app-ui--safely status))
-                                   (t status))))))
+    (if (eq status 'found)
+        (seq-remove (lambda (text) (or (null text) (string-empty-p text)))
+                    (lispm-desktop-app-ui--safely #'lispm-desktop-app-ui--found-status))
+      (mapcar #'lispm-desktop-tr
+              (seq-remove (lambda (text) (or (null text) (string-empty-p text)))
+                          (ensure-list (if (functionp status) (lispm-desktop-app-ui--safely status) status)))))))
 
 ;;;; The strip of buttons
 
@@ -450,15 +470,17 @@ dimmed unless ENABLED."
       (propertize (lispm-desktop-platinum-header-button
                    label (and (lispm-desktop-platinum-pressed-p target) 'pressed))
                   'help-echo (let ((keys (where-is-internal command nil t)))
-                               (if keys (format "%s (%s)" label (key-description keys)) label))
+                               (if keys (lispm-desktop-tr "%s (%s)" label (key-description keys)) label))
                   'lispm-desktop-platinum-target target
                   'lispm-desktop-app-ui-command command
                   'keymap lispm-desktop-app-ui--button-map))))
 
 (defun lispm-desktop-app-ui--label ()
-  "Return what the strip says after its buttons, or nil."
-  (when-let* ((label (lispm-desktop-app-ui-get :label)))
-    (lispm-desktop-app-ui--safely label)))
+  "Return what the strip says after its buttons, in the language LispM
+speaks, or nil."
+  (when-let* ((label (lispm-desktop-app-ui-get :label))
+              (text (lispm-desktop-app-ui--safely label)))
+    (lispm-desktop-tr text)))
 
 (defun lispm-desktop-app-ui-strip ()
   "Return the strip under the window's title bar: its push buttons, then
@@ -485,15 +507,19 @@ what the application says there, as Finder windows' strips."
                                   (where-is-internal action (list (current-local-map))))))
         (key-description keys)))))
 
-(defun lispm-desktop-app-ui--in-window (window items)
+(defun lispm-desktop-app-ui--in-window (window items &optional translate)
   "Return menu ITEMS acting in WINDOW: their commands run there, with the
-keys typing them there shown, and so do their submenus'."
+keys typing them there shown, and so do their submenus'.  TRANSLATE
+non-nil translates their labels, in English, as a skin's menus are."
   (mapcar (lambda (item)
             (if (not (consp item))
                 item
               (let ((action (plist-get item :action))
                     (submenu (plist-get item :submenu))
+                    (label (plist-get item :label))
                     (item (copy-sequence item)))
+                (when (and translate (stringp label))
+                  (setq item (plist-put item :label (lispm-desktop-tr label))))
                 (when action
                   (unless (plist-get item :key)
                     (setq item (plist-put item :key (lispm-desktop-app-ui--key action window))))
@@ -502,32 +528,37 @@ keys typing them there shown, and so do their submenus'."
                   (setq item (plist-put item :submenu
                                         (lambda ()
                                           (lispm-desktop-app-ui--in-window
-                                           window (with-selected-window window (funcall submenu)))))))
+                                           window (with-selected-window window (funcall submenu))
+                                           translate)))))
                 item)))
           items))
 
 (defun lispm-desktop-app-ui--own-menu (app window)
   "Return the menu of APP's window when its mode has none in the menu bar:
-:menu, or one listing its commands, the strip's first, under its name,
-or Game for a game."
+:menu, translated, or one listing its commands, the strip's first, under
+its name, or Game for a game."
   (with-current-buffer (window-buffer window)
-    (pcase-let* ((`(,title . ,items)
-                  (or (lispm-desktop-app-ui-get :menu)
-                      (let* ((commands (lispm-desktop-app-ui-commands))
-                             (buttons (delq nil (mapcar (lambda (button) (assq (nth 1 button) commands))
-                                                        (lispm-desktop-app-ui-buttons))))
-                             (others (seq-take (seq-difference commands buttons) 24))
-                             (item (pcase-lambda (`(,command ,keys . ,_))
-                                     (list :label (lispm-desktop-app-ui-command-label command) :action command
-                                           :key (key-description keys)))))
-                        (cons (if (lispm-desktop-app-ui-game-p app) "Game" (lispm-desktop-app-ui-name app))
-                              (lambda ()
-                                `(,@(mapcar item buttons) ,@(and buttons others '(separator))
-                                  ,@(mapcar item others))))))))
+    (pcase-let* ((own (lispm-desktop-app-ui-get :menu))
+                 (`(,title . ,items)
+                  (if own
+                      (cons (lispm-desktop-tr (car own)) (cdr own))
+                    (let* ((commands (lispm-desktop-app-ui-commands))
+                           (buttons (delq nil (mapcar (lambda (button) (assq (nth 1 button) commands))
+                                                      (lispm-desktop-app-ui-buttons))))
+                           (others (seq-take (seq-difference commands buttons) 24))
+                           (item (pcase-lambda (`(,command ,keys . ,_))
+                                   (list :label (lispm-desktop-app-ui-command-label command) :action command
+                                         :key (key-description keys)))))
+                      (cons (if (lispm-desktop-app-ui-game-p app)
+                                (lispm-desktop-tr "Game")
+                              (lispm-desktop-app-ui-name app))
+                            (lambda ()
+                              `(,@(mapcar item buttons) ,@(and buttons others '(separator))
+                                ,@(mapcar item others))))))))
       (when items
         (list (list (intern (format "lispm-desktop-app-ui-%s-own" app)) title
                     (lambda () (lispm-desktop-app-ui--in-window
-                                window (with-selected-window window (funcall items))))))))))
+                                window (with-selected-window window (funcall items)) (and own t)))))))))
 
 (defun lispm-desktop-app-ui--mode-menus (app window)
   "Return the menus of APP's window: its mode's own menus of the menu bar,
@@ -551,7 +582,7 @@ or else one of its commands, see `lispm-desktop-app-ui--own-menu'."
 and Close Window."
   `(,@(when-let* (((window-live-p window))
                   (new (with-current-buffer (window-buffer window) (lispm-desktop-app-ui--new-command))))
-        `((:label ,(if (lispm-desktop-app-ui-game-p app) "New Game" "New")
+        `((:label ,(if (lispm-desktop-app-ui-game-p app) (lispm-desktop-tr "New Game") (lispm-desktop-tr "New"))
            :action ,(lambda () (lispm-desktop-app-ui-call window new))
            :key ,(lispm-desktop-app-ui--key new window))
           separator))
@@ -561,22 +592,23 @@ and Close Window."
   "Return the items of APP's Help menu: its keys, what it is, and
 installing what it uses beyond Emacs that is missing."
   (let ((name (lispm-desktop-app-ui-name app)))
-    `((:label ,(format "%s Keys" name) :action ,(lambda () (lispm-desktop-app-ui-show-keys app)))
-      (:label ,(format "About %s" name) :action ,(lambda () (lispm-desktop-app-ui-about app)))
+    `((:label ,(lispm-desktop-tr "%s Keys" name) :action ,(lambda () (lispm-desktop-app-ui-show-keys app)))
+      (:label ,(lispm-desktop-tr "About %s" name) :action ,(lambda () (lispm-desktop-app-ui-about app)))
       ,@(when-let* ((missing (lispm-desktop-needs-missing (lispm-desktop-app-ui-needs app) t)))
           (cons 'separator
                 (mapcar (lambda (need)
-                          (list :label (format "Install %s…" (lispm-desktop-needs-name need))
+                          (list :label (lispm-desktop-tr "Install %s…" (lispm-desktop-needs-name need))
                                 :action (lambda () (lispm-desktop-needs-ask (list need) name))))
                         missing))))))
 
 (defun lispm-desktop-app-ui--skin-menus (app window)
-  "Return the menus APP's skin adds, see :menus, acting in WINDOW."
+  "Return the menus APP's skin adds, see :menus, acting in WINDOW, their
+titles and items translated."
   (with-current-buffer (window-buffer window)
     (mapcar (pcase-lambda (`(,title . ,items))
-              (list (intern (format "lispm-desktop-app-ui-%s-%s" app title)) title
+              (list (intern (format "lispm-desktop-app-ui-%s-%s" app title)) (lispm-desktop-tr title)
                     (lambda () (lispm-desktop-app-ui--in-window
-                                window (with-selected-window window (funcall items))))))
+                                window (with-selected-window window (funcall items)) t))))
             (lispm-desktop-app-ui-get :menus))))
 
 (defun lispm-desktop-app-ui-menus (app)
@@ -584,18 +616,19 @@ installing what it uses beyond Emacs that is missing."
 its own and Help, each acting in its window.
 This is the :menus of an application the App Store installed."
   (let ((window (lispm-desktop-app-ui-window app)))
-    `((,(intern (format "lispm-desktop-app-ui-%s-file" app)) "File"
+    `((,(intern (format "lispm-desktop-app-ui-%s-file" app)) ,(lispm-desktop-tr "File")
        ,(lambda () (lispm-desktop-app-ui--file-items app window)))
       ,@(when (window-live-p window)
           (append (lispm-desktop-app-ui--mode-menus app window)
                   (lispm-desktop-app-ui--skin-menus app window)))
-      (,(intern (format "lispm-desktop-app-ui-%s-help" app)) "Help"
+      (,(intern (format "lispm-desktop-app-ui-%s-help" app)) ,(lispm-desktop-tr "Help")
        ,(lambda () (lispm-desktop-app-ui--help-items app))))))
 
 (defun lispm-desktop-app-ui-about (app)
   "Say what application APP is, in an alert, as Mac OS 9's About boxes."
-  (lispm-desktop-popup-alert 'note (lispm-desktop-app-ui-name app) '(("OK" ok default))
-                             (lispm-desktop-app-ui--app-property app :description)))
+  (lispm-desktop-popup-alert 'note (lispm-desktop-app-ui-name app) `((,(lispm-desktop-tr "OK") ok default))
+                             (when-let* ((description (lispm-desktop-app-ui--app-property app :description)))
+                               (lispm-desktop-tr description))))
 
 ;;;; The window of keys
 
@@ -613,8 +646,10 @@ This is the :menus of an application the App Store installed."
 
 (defun lispm-desktop-app-ui-key-list ()
   "Return the keys of the current buffer's application: a list of (KEYS
-. WHAT), KEYS as its key caps read, from :keys or its commands."
-  (or (lispm-desktop-app-ui-get :keys)
+. WHAT), KEYS as its key caps read, from :keys, both translated (KEYS
+may say a word, as \"any key\"), or its commands."
+  (or (mapcar (pcase-lambda (`(,keys . ,what)) (cons (lispm-desktop-tr keys) (lispm-desktop-tr what)))
+              (lispm-desktop-app-ui-get :keys))
       (mapcar (pcase-lambda (`(,command . ,keys))
                 (cons (mapconcat #'lispm-desktop-app-ui-key-name
                                  (seq-take (seq-uniq (cons (car keys)
@@ -652,19 +687,22 @@ caps and what they do, the caps right-aligned in a column of their own."
   "Show the keys of application APP in a window of their own: each key cap
 and what it does, as found out from its keymap."
   (interactive (list (lispm-desktop-apps-frontmost)))
-  (let* ((window (or (lispm-desktop-app-ui-window app) (user-error "%s is not open" app)))
+  (let* ((window (or (lispm-desktop-app-ui-window app)
+                     (user-error (lispm-desktop-tr "%s is not open") app)))
          (keys (with-current-buffer (window-buffer window) (lispm-desktop-app-ui-key-list)))
          (kind (intern (format "%s-keys" app)))
-         (name (format "%s Keys" (lispm-desktop-app-ui-name app)))
-         (buffer (get-buffer-create (format " *%s*" name))))
+         (name (lispm-desktop-tr "%s Keys" (lispm-desktop-app-ui-name app)))
+         (buffer (get-buffer-create (format " *%s Keys*" (or (lispm-desktop-app-ui--app-property app :name)
+                                                               (capitalize (symbol-name app)))))))
     (with-current-buffer buffer
       (lispm-desktop-app-ui-keys-mode)
-      (setq-local lispm-desktop-platinum-title name)
+      (setq-local lispm-desktop-platinum-title
+                  (lambda () (lispm-desktop-tr "%s Keys" (lispm-desktop-app-ui-name app))))
       (let ((inhibit-read-only t))
         (erase-buffer)
         (if keys
             (lispm-desktop-app-ui--insert-keys keys)
-          (insert "\n  " (lispm-desktop-app-ui-name app) " is used with the mouse.\n")))
+          (insert "\n  " (lispm-desktop-tr "%s is used with the mouse." (lispm-desktop-app-ui-name app)) "\n")))
       (goto-char (point-min)))
     (unless (assq kind lispm-desktop-app-window-kinds)
       (lispm-desktop-app-window-define kind :app app :name name :close #'lispm-desktop-app-window-close-box))
@@ -686,7 +724,8 @@ window is not shown yet, as when a game asks before its first board."
   (let ((frame (selected-frame)))
     (with-selected-frame (if (frame-visible-p frame) frame (lispm-desktop-apps-screen))
       (lispm-desktop-popup-alert 'caution (lispm-desktop-app-ui--question prompt)
-                                 '(("Yes" t default ?y ?Y) ("No" nil cancel ?n ?N))))))
+                                 `((,(lispm-desktop-tr "Yes") t default ?y ?Y)
+                                   (,(lispm-desktop-tr "No") nil cancel ?n ?N))))))
 
 (defun lispm-desktop-app-ui--asking (ask prompt &rest arguments)
   "Ask PROMPT in an alert when an application's window asks it, else as ASK
@@ -755,20 +794,22 @@ This is one of `lispm-desktop-app-board-resized-functions'."
     (keymap-set map "<mouse-1>" run)
     (propertize (lispm-desktop-platinum-push-button label) 'keymap map 'mouse-face nil
                 'help-echo (let ((keys (where-is-internal command nil t)))
-                             (if keys (format "%s (%s)" label (key-description keys)) label)))))
+                             (if keys (lispm-desktop-tr "%s (%s)" label (key-description keys)) label)))))
 
 (defun lispm-desktop-app-ui--page (text buttons)
-  "Return the page saying TEXT over BUTTONS, centred in the window."
+  "Return the page saying TEXT over BUTTONS, centred in the window; TEXT
+and the buttons' labels are in English, translated here, TEXT's lines
+broken where it says."
   (let ((centre (lambda (string)
                   (concat (propertize " " 'display
                                       `(space :align-to (- center (0.5 . (,(string-pixel-width string))))))
                           string "\n"))))
     (concat (propertize " " 'display '(space :height (60))) "\n"
             (mapconcat (lambda (line) (funcall centre (propertize line 'face 'lispm-desktop-platinum-list)))
-                       (split-string text "\n") "")
+                       (split-string (lispm-desktop-tr text) "\n") "")
             (propertize " " 'display '(space :height (16))) "\n"
             (funcall centre (mapconcat (pcase-lambda (`(,label ,command))
-                                         (lispm-desktop-app-ui--page-button label command))
+                                         (lispm-desktop-app-ui--page-button (lispm-desktop-tr label) command))
                                        buttons
                                        (propertize " " 'display '(space :width (12))))))))
 
@@ -853,7 +894,9 @@ installed application's window shows."
   "Give the current buffer its application's interface."
   (when (bound-and-true-p display-line-numbers-mode)
     (display-line-numbers-mode -1))
-  (setq-local lispm-desktop-platinum-title (or (lispm-desktop-app-ui-get :title) (lispm-desktop-app-ui-name))
+  (setq-local lispm-desktop-platinum-title (let ((title (lispm-desktop-app-ui-get :title)))
+                                             (lambda ()
+                                               (if title (lispm-desktop-tr title) (lispm-desktop-app-ui-name))))
               lispm-desktop-platinum-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
                                                              lispm-desktop-app-ui--app :icon)))
                                             (lispm-desktop-platinum-icon icon))
@@ -867,7 +910,9 @@ installed application's window shows."
   (cond ((lispm-desktop-app-ui-get :prose)
          (visual-line-mode 1)
          (face-remap-add-relative 'default 'variable-pitch)
-         (setq-local line-spacing 0.3))
+         ;; Lines of Chinese and Japanese break between characters.
+         (setq-local line-spacing 0.3
+                     word-wrap-by-category t))
         (t
          (visual-line-mode -1)
          (setq-local truncate-lines t)))
@@ -931,6 +976,14 @@ This is one of `after-change-major-mode-hook'."
   (dolist (window (get-buffer-window-list nil 'never t))
     (when (lispm-desktop-app-ui-app window)
       (lispm-desktop-app-ui-dress window))))
+
+(defun lispm-desktop-app-ui--refresh-pages ()
+  "Show the pages of the applications' buffers again, in the language now
+spoken.  This is one of `lispm-desktop-language-changed-hook'."
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when lispm-desktop-app-ui-mode
+        (lispm-desktop-app-ui--refresh-page)))))
 
 ;;;; What an application needs
 ;;
@@ -1054,6 +1107,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   (add-hook 'after-change-major-mode-hook #'lispm-desktop-app-ui--mode-changed 90)
   (add-hook 'lispm-desktop-app-board-resized-functions #'lispm-desktop-app-ui--fit-board)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-app-ui--scroll-bar)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-ui--refresh-pages)
   (advice-add 'y-or-n-p :around #'lispm-desktop-app-ui--asking)
   (advice-add 'yes-or-no-p :around #'lispm-desktop-app-ui--asking))
 

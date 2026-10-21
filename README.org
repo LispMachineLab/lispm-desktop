@@ -141,7 +141,8 @@ any look.
   the Appearance control panel's did, each group of settings framed in a group box.  Appearance chooses the look (Mac OS 9, Windows 3.2,
   OS/2 2.0) and the colour theme (Dracula, Platinum, Windows 3.2, OS/2 2.0, or any other
   installed); Desktop the desktop's colour, its picture and how the picture covers
-  it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
+  it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Language the
+  language LispM speaks (see [[*Languages][Languages]]); Internet the
   browser's home page and search address, its history and its bookmarks; Network the proxy every
   connection goes through (see [[*A proxy][A proxy]]); Sandbox how strictly the commands agents
   run are confined (see [[*The sandbox][The sandbox]]); Startup whether LispM opens at login and
@@ -593,6 +594,27 @@ An existing configuration can use lispm-desktop as a library instead:
 LispM Agent and LispM Browser are found as at the first start: on ~load-path~, else beside the
 desktop's checkout, else installed with package-vc.
 
+* Languages
+
+LispM speaks English (US), English (UK), German, French, Japanese, and Chinese, Simplified and
+Traditional.  By default it speaks the computer's language: the first of macOS's preferred
+languages it knows, or, elsewhere, of =LANGUAGE=, =LC_ALL=, =LC_MESSAGES= and =LANG=; else
+American English.  The first start asks for it before the other questions, and the next pages
+speak it; the Language control panel changes it later, at once: menus, windows, panels, alerts
+and the Guide.  Documents, web pages, and what programs and agents say keep their own language.
+In your personal.el:
+
+#+begin_src emacs-lisp
+(setopt lispm-desktop-language 'ja)   ; or en-US, en-GB, de, fr, zh-Hans, zh-Hant; nil: the computer's
+#+end_src
+
+The code writes its words in English, each through ~lispm-desktop-tr~ (or ~-tr-n~ for a count,
+~-tr-in~ for a meaning in a context, ~-tr-noop~ for words kept in a list until shown), and the
+catalogs of =i18n/= translate them, one per language.  The tests check that every catalog but
+the English ones translates every message, keeping its =%s= arguments, and holds none the code
+no longer gives; =make i18n= lists what each lacks.  The English catalogs hold only what their
+spelling changes: the code spells as Britain does, its words as Mac OS 9 had them.
+
 * A proxy
 
 The Network control panel sends every connection LispM makes through one proxy, HTTP or SOCKS5,
@@ -701,7 +723,8 @@ running in Eat until it is ready.
 
 * Tests
 
-=make test= runs the ERT tests in batch; =make compile= byte-compiles every module against the
+=make test= runs the ERT tests in batch, in the code's own English; =make i18n= lists the messages
+each catalog of =i18n/= lacks; =make compile= byte-compiles every module against the
 installed packages, to check for warnings, and leaves no =.elc= files behind.  Both need
 LispM Browser: a checkout beside this one, or another named by =LISPM_BROWSER= (its =lisp/=).
 =make native-test= runs the terminals' module's own tests, which need Cargo but no Emacs.

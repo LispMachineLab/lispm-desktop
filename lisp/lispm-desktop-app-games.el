@@ -51,6 +51,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-board)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-i18n)
 
 ;; The games' own variables and functions, read once a game runs.
 (defvar gamegrid-display-table)
@@ -144,7 +145,7 @@ pure ones the games name.")
 
 (defun lispm-desktop-app-games--toggle-label (paused)
   "Return the label of a button pausing a game, or resuming it when PAUSED."
-  (if paused "Resume" "Pause"))
+  (if paused (lispm-desktop-tr "Resume") (lispm-desktop-tr "Pause")))
 
 ;;;; gamegrid: Tetris, Snake and Pong
 ;;
@@ -218,8 +219,8 @@ gamegrid shows its scores file in a window of its own, and selects it."
 score, or nil while it is played."
   (when over
     (if lispm-desktop-app-games--best
-        (format "Game Over — best %s" (lispm-desktop-app-ui--number lispm-desktop-app-games--best))
-      "Game Over")))
+        (lispm-desktop-tr "Game Over — best %s" (lispm-desktop-app-ui--number lispm-desktop-app-games--best))
+      (lispm-desktop-tr "Game Over"))))
 
 (defun lispm-desktop-app-games--gamegrid-setup ()
   "Leave room above a gamegrid board, and forget the best score of the game
@@ -241,15 +242,17 @@ before, as a new game starts."
                       (6 :shape block :color ,(lispm-desktop-app-games-color 'red))
                       (7 :shape well)
                       (8 ,@lispm-desktop-app-games--wall)))
-  :status (lambda () (list (format "Score %s" (lispm-desktop-app-ui--number tetris-score))
-                           (format "Rows %d" tetris-n-rows)
-                           (format "Shapes %d" tetris-n-shapes)))
-  :buttons `(("New Game" tetris-start-game)
+  :status (lambda () (list (lispm-desktop-tr "Score %s" (lispm-desktop-app-ui--number tetris-score))
+                           (lispm-desktop-tr "Rows %d" tetris-n-rows)
+                           (lispm-desktop-tr "Shapes %d" tetris-n-shapes)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") tetris-start-game)
              (,(lambda () (lispm-desktop-app-games--toggle-label tetris-paused)) tetris-pause-game
               ,(lambda () (eq (current-local-map) tetris-mode-map))))
   :label (lambda () (lispm-desktop-app-games--over-label (not (eq (current-local-map) tetris-mode-map))))
-  :keys '(("←  →" . "Move") ("↑" . "Rotate") ("↓" . "Move down") ("Space" . "Drop")
-          ("p" . "Pause or resume") ("n" . "New game") ("q" . "End the game")))
+  :keys `(("←  →" . ,(lispm-desktop-tr-noop "Move")) ("↑" . ,(lispm-desktop-tr-noop "Rotate"))
+          ("↓" . ,(lispm-desktop-tr-noop "Move down")) ("Space" . ,(lispm-desktop-tr-noop "Drop"))
+          ("p" . ,(lispm-desktop-tr-noop "Pause or resume")) ("n" . ,(lispm-desktop-tr-noop "New game"))
+          ("q" . ,(lispm-desktop-tr-noop "End the game"))))
 
 (lispm-desktop-app-ui-define 'snake-mode
   :gamegrid `(:rows ,(lambda () (if (boundp 'snake-buffer-height) snake-buffer-height 22))
@@ -258,14 +261,16 @@ before, as a new game starts."
                       (1 :shape block :color ,(lispm-desktop-app-games-color 'green))
                       (2 :shape ball :color ,(lispm-desktop-app-games-color 'red))
                       (3 ,@lispm-desktop-app-games--wall)))
-  :status (lambda () (list (format "Score %s" (lispm-desktop-app-ui--number snake-score))
-                           (format "Length %d" snake-length)))
-  :buttons `(("New Game" snake-start-game)
+  :status (lambda () (list (lispm-desktop-tr "Score %s" (lispm-desktop-app-ui--number snake-score))
+                           (lispm-desktop-tr "Length %d" snake-length)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") snake-start-game)
              (,(lambda () (lispm-desktop-app-games--toggle-label snake-paused)) snake-pause-game
               ,(lambda () (eq (current-local-map) snake-mode-map))))
   :label (lambda () (lispm-desktop-app-games--over-label (not (eq (current-local-map) snake-mode-map))))
-  :keys '(("C-f  →" . "Right") ("C-b  ←" . "Left") ("C-p  ↑" . "Up") ("C-n  ↓" . "Down")
-          ("p" . "Pause or resume") ("n" . "New game") ("q" . "End the game")))
+  :keys `(("C-f  →" . ,(lispm-desktop-tr-noop "Right")) ("C-b  ←" . ,(lispm-desktop-tr-noop "Left"))
+          ("C-p  ↑" . ,(lispm-desktop-tr-noop "Up")) ("C-n  ↓" . ,(lispm-desktop-tr-noop "Down"))
+          ("p" . ,(lispm-desktop-tr-noop "Pause or resume")) ("n" . ,(lispm-desktop-tr-noop "New game"))
+          ("q" . ,(lispm-desktop-tr-noop "End the game"))))
 
 (defun lispm-desktop-app-games--pong-paused-p ()
   "Return non-nil while Pong is paused: its pause key then resumes."
@@ -278,12 +283,15 @@ before, as a new game starts."
                       (1 :shape block :color ,(lispm-desktop-app-games-color 'blue))
                       (2 :shape ball :color ,(lispm-desktop-app-games-color 'orange))
                       (3 ,@lispm-desktop-app-games--wall)))
-  :status (lambda () (list (format "Left %d" pong-score-player1) (format "Right %d" pong-score-player2)))
+  :status (lambda () (list (lispm-desktop-tr "Left %d" pong-score-player1)
+                           (lispm-desktop-tr "Right %d" pong-score-player2)))
   :buttons `((,(lambda () (lispm-desktop-app-games--toggle-label (lispm-desktop-app-games--pong-paused-p)))
               ,(lambda () (interactive)
                  (call-interactively (if (lispm-desktop-app-games--pong-paused-p) 'pong-resume 'pong-pause)))))
-  :keys '(("C-p  ↑" . "Left bat up") ("C-n  ↓" . "Left bat down") ("8" . "Right bat up")
-          ("2" . "Right bat down") ("p" . "Pause or resume") ("q" . "Quit")))
+  :keys `(("C-p  ↑" . ,(lispm-desktop-tr-noop "Left bat up"))
+          ("C-n  ↓" . ,(lispm-desktop-tr-noop "Left bat down"))
+          ("8" . ,(lispm-desktop-tr-noop "Right bat up")) ("2" . ,(lispm-desktop-tr-noop "Right bat down"))
+          ("p" . ,(lispm-desktop-tr-noop "Pause or resume")) ("q" . ,(lispm-desktop-tr-noop "Quit"))))
 
 ;;;; 5x5
 
@@ -320,12 +328,15 @@ found presses it."
            :cursor ,(lambda () (cons 5x5-y-pos 5x5-x-pos))
            :click lispm-desktop-app-games--5x5-click
            :size 56)
-  :status (lambda () (list (format "Filled %d of %d" (5x5-grid-value 5x5-grid) (* 5x5-grid-size 5x5-grid-size))
-                           (format "Moves %d" 5x5-moves)))
-  :buttons '(("New Game" 5x5-new-game) ("Shuffle" 5x5-randomize) ("Hint" 5x5-solve-suggest))
-  :label (lambda () (when (lispm-desktop-app-games--5x5-solved-p) "Solved!"))
-  :keys '(("Space  Return" . "Flip the square and those beside it") ("C-f C-b C-n C-p" . "Move")
-          ("n" . "New game") ("r" . "Shuffle") ("s" . "Show a solution")))
+  :status (lambda () (list (lispm-desktop-tr "Filled %d of %d" (5x5-grid-value 5x5-grid)
+                                             (* 5x5-grid-size 5x5-grid-size))
+                           (lispm-desktop-tr "Moves %d" 5x5-moves)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") 5x5-new-game) (,(lispm-desktop-tr-noop "Shuffle") 5x5-randomize)
+             (,(lispm-desktop-tr-noop "Hint") 5x5-solve-suggest))
+  :label (lambda () (when (lispm-desktop-app-games--5x5-solved-p) (lispm-desktop-tr "Solved!")))
+  :keys `(("Space  Return" . ,(lispm-desktop-tr-noop "Flip the square and those beside it"))
+          ("C-f C-b C-n C-p" . ,(lispm-desktop-tr-noop "Move")) ("n" . ,(lispm-desktop-tr-noop "New game"))
+          ("r" . ,(lispm-desktop-tr-noop "Shuffle")) ("s" . ,(lispm-desktop-tr-noop "Show a solution"))))
 
 ;;;; Gomoku
 
@@ -373,15 +384,19 @@ would take the window's size, and a new window has none yet."
            :click lispm-desktop-app-games--gomoku-click
            :ground "#dcb468"
            :size 30)
-  :status (lambda () (list (cond (gomoku-emacs-is-computing "Thinking…")
-                                 (gomoku-game-in-progress "Your move")
-                                 (t "Game over"))
-                           (format "Won %d · Lost %d · Drawn %d" gomoku-number-of-human-wins
-                                   gomoku-number-of-emacs-wins gomoku-number-of-draws)))
-  :buttons '(("New Game" lispm-desktop-app-games-gomoku) ("Take Back" gomoku-human-takes-back)
-             ("Resign" gomoku-human-resigns))
-  :keys '(("Space  Return" . "Put a stone here") ("C-f C-b C-n C-p" . "Move")
-          ("y u b n" . "Move diagonally") ("C-c C-b" . "Take back your move") ("C-c C-r" . "Resign")))
+  :status (lambda () (list (cond (gomoku-emacs-is-computing (lispm-desktop-tr "Thinking…"))
+                                 (gomoku-game-in-progress (lispm-desktop-tr "Your move"))
+                                 (t (lispm-desktop-tr "Game over")))
+                           (lispm-desktop-tr "Won %d · Lost %d · Drawn %d" gomoku-number-of-human-wins
+                                             gomoku-number-of-emacs-wins gomoku-number-of-draws)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") lispm-desktop-app-games-gomoku)
+             (,(lispm-desktop-tr-noop "Take Back") gomoku-human-takes-back)
+             (,(lispm-desktop-tr-noop "Resign") gomoku-human-resigns))
+  :keys `(("Space  Return" . ,(lispm-desktop-tr-noop "Put a stone here"))
+          ("C-f C-b C-n C-p" . ,(lispm-desktop-tr-noop "Move"))
+          ("y u b n" . ,(lispm-desktop-tr-noop "Move diagonally"))
+          ("C-c C-b" . ,(lispm-desktop-tr-noop "Take back your move"))
+          ("C-c C-r" . ,(lispm-desktop-tr-noop "Resign"))))
 
 ;;;; Solitaire
 
@@ -452,12 +467,13 @@ to the hole clicked."
            :cursor ,(lambda () (lispm-desktop-app-games--solitaire-cell (point)))
            :click lispm-desktop-app-games--solitaire-click
            :size 48)
-  :status (lambda () (list (format "%d pegs left" solitaire-stones)))
-  :buttons '(("New Game" solitaire) ("Undo" solitaire-undo))
-  :label (lambda () (when (= solitaire-stones 1) "You won!"))
-  :keys '(("C-f C-b C-n C-p" . "Go to another hole")
-          ("S-→  S-←  S-↑  S-↓" . "Jump the peg that way") ("Return" . "Jump, then the way")
-          ("Space" . "Count the moves left") ("C-/" . "Undo")))
+  :status (lambda () (list (lispm-desktop-tr-n "%d peg left" "%d pegs left" solitaire-stones)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") solitaire) (,(lispm-desktop-tr-noop "Undo") solitaire-undo))
+  :label (lambda () (when (= solitaire-stones 1) (lispm-desktop-tr "You won!")))
+  :keys `(("C-f C-b C-n C-p" . ,(lispm-desktop-tr-noop "Go to another hole"))
+          ("S-→  S-←  S-↑  S-↓" . ,(lispm-desktop-tr-noop "Jump the peg that way"))
+          ("Return" . ,(lispm-desktop-tr-noop "Jump, then the way"))
+          ("Space" . ,(lispm-desktop-tr-noop "Count the moves left")) ("C-/" . ,(lispm-desktop-tr-noop "Undo"))))
 
 ;;;; Blackbox
 
@@ -518,13 +534,14 @@ nil before a shot, or what came out."
            :cursor (lambda () (cons (1+ bb-y) (1+ bb-x)))
            :click lispm-desktop-app-games--blackbox-click
            :size 40)
-  :status (lambda () (list (format "%d balls hidden" (length bb-board))
-                           (format "%d guessed" (length bb-balls-placed))
-                           (format "Score %d" bb-score)))
-  :buttons `(("New Game" blackbox)
-             ("Done" bb-done ,(lambda () (= (length bb-balls-placed) (length bb-board)))))
-  :keys '(("Space" . "Shoot a ray from the edge, or guess a ball inside")
-          ("C-f C-b C-n C-p" . "Move") ("Return" . "Done: show the balls")))
+  :status (lambda () (list (lispm-desktop-tr-n "%d ball hidden" "%d balls hidden" (length bb-board))
+                           (lispm-desktop-tr-n "%d guessed" "%d guessed" (length bb-balls-placed))
+                           (lispm-desktop-tr "Score %d" bb-score)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") blackbox)
+             (,(lispm-desktop-tr-noop "Done") bb-done ,(lambda () (= (length bb-balls-placed) (length bb-board)))))
+  :keys `(("Space" . ,(lispm-desktop-tr-noop "Shoot a ray from the edge, or guess a ball inside"))
+          ("C-f C-b C-n C-p" . ,(lispm-desktop-tr-noop "Move"))
+          ("Return" . ,(lispm-desktop-tr-noop "Done: show the balls"))))
 
 ;;;; Mpuz
 
@@ -567,7 +584,7 @@ propose it."
      (let ((letter (string-to-char text)))
        (lispm-desktop-popup-menu
         (mapcar (lambda (digit)
-                  (list :label (format "%s is %d" text digit)
+                  (list :label (lispm-desktop-tr "%s is %d" text digit)
                         :action (lambda () (mpuz-try-proposal letter (+ ?0 digit)))))
                 (number-sequence 0 9)))))))
 
@@ -577,12 +594,14 @@ propose it."
            :click lispm-desktop-app-games--mpuz-click
            :rules (1 3)
            :size 44)
-  :status (lambda () (list (format "Errors %d" mpuz-nb-errors)
-                           (format "Games won %d" mpuz-nb-completed-games)))
-  :buttons '(("New Game" mpuz-start-new-game) ("Show Solution" mpuz-show-solution))
-  :label (lambda () "Click a letter to say its digit")
-  :keys '(("A … J, then 0 … 9" . "Say which digit a letter stands for")
-          ("C-g" . "Give up the game")))
+  :status (lambda () (list (lispm-desktop-tr "Errors %d" mpuz-nb-errors)
+                           (lispm-desktop-tr "Games won %d" mpuz-nb-completed-games)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") mpuz-start-new-game)
+             (,(lispm-desktop-tr-noop "Show Solution") mpuz-show-solution))
+  :label (lambda () (lispm-desktop-tr "Click a letter to say its digit"))
+  :keys `((,(lispm-desktop-tr-noop "A … J, then 0 … 9")
+           . ,(lispm-desktop-tr-noop "Say which digit a letter stands for"))
+          ("C-g" . ,(lispm-desktop-tr-noop "Give up the game"))))
 
 ;;;; Bubbles
 
@@ -640,11 +659,11 @@ This runs after `bubbles--compute-offsets'."
            :tiles lispm-desktop-app-games--bubbles-tile
            :click lispm-desktop-app-games--bubbles-click
            :size 32)
-  :status (lambda () (list (format "Score %s" (lispm-desktop-app-ui--number bubbles--score))
-                           (format "This group %d" bubbles--neighborhood-score)))
-  :buttons '(("New Game" bubbles) ("Undo" bubbles-undo))
-  :keys '(("Space  Return" . "Pop the group the cursor is on") ("C-f C-b n p" . "Move")
-          ("u" . "Undo")))
+  :status (lambda () (list (lispm-desktop-tr "Score %s" (lispm-desktop-app-ui--number bubbles--score))
+                           (lispm-desktop-tr "This group %d" bubbles--neighborhood-score)))
+  :buttons `((,(lispm-desktop-tr-noop "New Game") bubbles) (,(lispm-desktop-tr-noop "Undo") bubbles-undo))
+  :keys `(("Space  Return" . ,(lispm-desktop-tr-noop "Pop the group the cursor is on"))
+          ("C-f C-b n p" . ,(lispm-desktop-tr-noop "Move")) ("u" . ,(lispm-desktop-tr-noop "Undo"))))
 
 ;;;; Life
 
@@ -652,7 +671,7 @@ This runs after `bubbles--compute-offsets'."
   "The timer giving Life its next generation, while it runs.")
 
 (defvar-local lispm-desktop-app-games--life-end nil
-  "Why Life stopped by itself, or nil.")
+  "Why Life stopped by itself, in English, translated where shown, or nil.")
 
 (defconst lispm-desktop-app-games-life-period 0.25
   "Seconds between Life's generations.")
@@ -669,7 +688,7 @@ as does Life's window closing."
         (condition-case nil
             (catch 'life-exit (life--tick))
           (quit (lispm-desktop-app-games-life-stop)
-                (setq lispm-desktop-app-games--life-end "All life has perished"))))
+                (setq lispm-desktop-app-games--life-end (lispm-desktop-tr-noop "All life has perished")))))
       (when-let* ((window (get-buffer-window nil t)))
         (set-window-start window start))
       (lispm-desktop-app-board-refresh)
@@ -727,14 +746,19 @@ holding Emacs as `life' does until a key is pressed."
   :board `(:cells lispm-desktop-app-games--life-cells
            :tiles ((t :shape block :color ,(lispm-desktop-app-games-color 'green)))
            :size 10)
-  :status (lambda () (list (format "Generation %s" life-generation-string)
-                           (format "%d alive" (how-many "@" (point-min) (point-max)))))
-  :buttons `((,(lambda () (if lispm-desktop-app-games--life-timer "Stop" "Go"))
+  :status (lambda () (let ((alive (how-many "@" (point-min) (point-max))))
+                       (list (lispm-desktop-tr "Generation %s" life-generation-string)
+                             (lispm-desktop-tr-n "%d alive" "%d alive" alive))))
+  :buttons `((,(lambda () (if lispm-desktop-app-games--life-timer
+                              (lispm-desktop-tr "Stop")
+                            (lispm-desktop-tr-in "run the game" "Go")))
               lispm-desktop-app-games-life-toggle)
-             ("Next" lispm-desktop-app-games-life-next)
-             ("New Pattern" lispm-desktop-app-games-life))
-  :label (lambda () lispm-desktop-app-games--life-end)
-  :keys '(("Space" . "Stop, or go on") ("n" . "Next generation") ("r" . "A new pattern")))
+             (,(lispm-desktop-tr-noop "Next") lispm-desktop-app-games-life-next)
+             (,(lispm-desktop-tr-noop "New Pattern") lispm-desktop-app-games-life))
+  :label (lambda () (when lispm-desktop-app-games--life-end
+                      (lispm-desktop-tr lispm-desktop-app-games--life-end)))
+  :keys `(("Space" . ,(lispm-desktop-tr-noop "Stop, or go on")) ("n" . ,(lispm-desktop-tr-noop "Next generation"))
+          ("r" . ,(lispm-desktop-tr-noop "A new pattern"))))
 
 (defvar-keymap lispm-desktop-app-games-life-map
   :doc "Keys of Life in its window."
@@ -785,11 +809,11 @@ as raised bars.  Hanoi holds Emacs until it is done, or a key is pressed."
 
 (lispm-desktop-app-ui-define 'hanoi
   :run #'lispm-desktop-app-games-hanoi
-  :buttons '(("Start Again" lispm-desktop-app-games-hanoi))
-  :label (lambda () "Any key stops it")
+  :buttons `((,(lispm-desktop-tr-noop "Start Again") lispm-desktop-app-games-hanoi))
+  :label (lambda () (lispm-desktop-tr "Any key stops it"))
   :fit nil
   :cursor nil
-  :keys '(("any key" . "Stop")))
+  :keys `((,(lispm-desktop-tr-noop "any key") . ,(lispm-desktop-tr-noop "Stop"))))
 
 ;;;; Dunnet and Doctor
 
@@ -803,18 +827,20 @@ as raised bars.  Hanoi holds Emacs until it is done, or a key is pressed."
 
 (lispm-desktop-app-ui-define 'dun-mode
   :prose t
-  :buttons `(("Look" ,(lispm-desktop-app-games--dunnet-say "look"))
-             ("Inventory" ,(lispm-desktop-app-games--dunnet-say "inventory"))
-             ("Score" ,(lispm-desktop-app-games--dunnet-say "score"))
-             ("Help" ,(lispm-desktop-app-games--dunnet-say "help")))
-  :label (lambda () "Type what to do, then Return")
-  :keys '(("Return" . "Do what is typed: look, take the shovel, go east")))
+  ;; The labels are translated; the words said to Dunnet are its own.
+  :buttons `((,(lispm-desktop-tr-noop "Look" "game command") ,(lispm-desktop-app-games--dunnet-say "look"))
+             (,(lispm-desktop-tr-noop "Inventory") ,(lispm-desktop-app-games--dunnet-say "inventory"))
+             (,(lispm-desktop-tr-noop "Score") ,(lispm-desktop-app-games--dunnet-say "score"))
+             (,(lispm-desktop-tr-noop "Help") ,(lispm-desktop-app-games--dunnet-say "help")))
+  :label (lambda () (lispm-desktop-tr "Type what to do, then Return"))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Do what is typed: look, take the shovel, go east"))))
 
 (lispm-desktop-app-ui-define 'doctor-mode
   :prose t
-  :buttons '(("New Session" doctor))
-  :label (lambda () "Return twice to say it")
-  :keys '(("Return Return" . "Say what is typed") ("C-j" . "Say it at once")))
+  :buttons `((,(lispm-desktop-tr-noop "New Session") doctor))
+  :label (lambda () (lispm-desktop-tr "Return twice to say it"))
+  :keys `(("Return Return" . ,(lispm-desktop-tr-noop "Say what is typed"))
+          ("C-j" . ,(lispm-desktop-tr-noop "Say it at once"))))
 
 ;;;; Set up
 

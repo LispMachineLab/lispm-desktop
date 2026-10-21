@@ -68,6 +68,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-editor-float "lispm-desktop-editor" ())
 (declare-function lispm-desktop-editor-full-screen "lispm-desktop-editor" ())
@@ -100,15 +101,17 @@ takes every window out."
 
 (defun lispm-desktop-coherence-unsupported (&optional screen)
   "Return why SCREEN's windows cannot go out on the computer's screen, as a
-string, or nil when they can.  SCREEN defaults to the selected one; the
-display it is on decides: macOS's window server shows a child frame made
-a frame of its own where it was, others are not known to."
+string in the language LispM speaks, or nil when they can.  SCREEN
+defaults to the selected one; the display it is on decides: macOS's
+window server shows a child frame made a frame of its own where it was,
+others are not known to."
   (let ((screen (or screen (lispm-desktop-apps-screen))))
-    (cond (noninteractive "Emacs runs without a display")
-          ((not (display-graphic-p screen)) "the desktop is on a text terminal")
+    (cond (noninteractive (lispm-desktop-tr "Emacs runs without a display"))
+          ((not (display-graphic-p screen)) (lispm-desktop-tr "the desktop is on a text terminal"))
           ((and (eq (framep screen) 'x) (bound-and-true-p exwm-wm-mode))
-           "Emacs manages this display's windows itself")
-          ((not (eq (framep screen) 'ns)) "windows go out on the screen only on macOS for now"))))
+           (lispm-desktop-tr "Emacs manages this display's windows itself"))
+          ((not (eq (framep screen) 'ns))
+           (lispm-desktop-tr "windows go out on the screen only on macOS for now")))))
 
 (defun lispm-desktop-coherence-available-p (&optional screen)
   "Return non-nil when SCREEN's windows can go out on the computer's screen."
@@ -399,7 +402,7 @@ The full-screen editor and browser float first, and go full screen again
 when the desktop shows; so does the window in front keep the keyboard."
   (interactive)
   (when-let* ((why (lispm-desktop-coherence-unsupported)))
-    (user-error "The desktop cannot hide: %s" why))
+    (user-error (lispm-desktop-tr "The desktop cannot hide: %s") why))
   (let ((screen (lispm-desktop-apps-screen))
         (selected (selected-frame)))
     ;; macOS minimizes no window full screen: the desktop leaves full

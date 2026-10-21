@@ -64,6 +64,7 @@
 (require 'subr-x)
 (require 'ansi-color)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-term-module-init-channel "lispm-desktop-term-module" (process))
 (declare-function lispm-desktop-term-module-close-channel "lispm-desktop-term-module" ())
@@ -216,7 +217,7 @@ a library that did not load before."
             (module-load file)
           (error
            (setq lispm-desktop-term--load-failure (cons file error))
-           (message "lispm-desktop-term does not load, so terminals run in Eat: %s"
+           (message (lispm-desktop-tr "lispm-desktop-term does not load, so terminals run in Eat: %s")
                     (error-message-string error))))
         (featurep 'lispm-desktop-term-module))))
 
@@ -225,12 +226,12 @@ a library that did not load before."
 CALLBACK.  Its output is in the *lispm-desktop-term build* buffer."
   (interactive)
   (unless (executable-find "cargo")
-    (user-error "Building lispm-desktop-term needs Rust's Cargo"))
+    (user-error (lispm-desktop-tr "Building lispm-desktop-term needs Rust's Cargo")))
   (unless (process-live-p lispm-desktop-term--building)
     (let ((default-directory (file-name-as-directory lispm-desktop-term-source-directory))
           (buffer (get-buffer-create "*lispm-desktop-term build*")))
       (with-current-buffer buffer (erase-buffer))
-      (message "Building lispm-desktop-term…")
+      (message (lispm-desktop-tr "Building lispm-desktop-term…"))
       (setq lispm-desktop-term--building
             (make-process
              :name "lispm-desktop-term build" :buffer buffer :noquery t
@@ -243,11 +244,12 @@ CALLBACK.  Its output is in the *lispm-desktop-term build* buffer."
                        ;; Cargo leaves a library it found current untouched.
                        (set-file-times (lispm-desktop-term--built-file))
                        (if (featurep 'lispm-desktop-term-module)
-                           (message "lispm-desktop-term is rebuilt: restart Emacs to use it")
+                           (message (lispm-desktop-tr "lispm-desktop-term is rebuilt: restart Emacs to use it"))
                          (lispm-desktop-term-load)
-                         (message "lispm-desktop-term is built"))
+                         (message (lispm-desktop-tr "lispm-desktop-term is built")))
                        (when callback (funcall callback)))
-                   (message "lispm-desktop-term could not be built: see *lispm-desktop-term build*")))))))))
+                   (message (lispm-desktop-tr "lispm-desktop-term could not be built: see %s")
+                            "*lispm-desktop-term build*")))))))))
 
 (defun lispm-desktop-term-ready-p ()
   "Return non-nil when terminals run in lispm-desktop-term: it is enabled, the
@@ -351,10 +353,10 @@ anything, is in the *lispm-desktop-term download* buffer.  Where Cargo is,
   (interactive)
   (let ((file (lispm-desktop-term--prebuilt-file)))
     (unless file
-      (user-error "No lispm-desktop-term is published for %s: build it with Rust's Cargo"
+      (user-error (lispm-desktop-tr "No lispm-desktop-term is published for %s: build it with Rust's Cargo")
                   system-configuration))
     (unless (executable-find "curl")
-      (user-error "Downloading lispm-desktop-term needs curl"))
+      (user-error (lispm-desktop-tr "Downloading lispm-desktop-term needs curl")))
     (unless (process-live-p lispm-desktop-term--downloading)
       (let* ((name (file-name-nondirectory file))
              (url (format "%s/term-module-%s/" (string-trim-right lispm-desktop-term-prebuilt-url "/+")
@@ -364,7 +366,7 @@ anything, is in the *lispm-desktop-term download* buffer.  Where Cargo is,
              (sums (expand-file-name "SHA256SUMS" directory))
              (buffer (get-buffer-create "*lispm-desktop-term download*")))
         (with-current-buffer buffer (erase-buffer))
-        (message "Downloading lispm-desktop-term…")
+        (message (lispm-desktop-tr "Downloading lispm-desktop-term…"))
         (setq lispm-desktop-term--downloading
               (make-process
                :name "lispm-desktop-term download" :buffer buffer :noquery t
@@ -386,11 +388,12 @@ anything, is in the *lispm-desktop-term download* buffer.  Where Cargo is,
                                   nil)))))
                      (delete-directory directory t)
                      (cond ((not installed)
-                            (message "lispm-desktop-term could not be downloaded: see *lispm-desktop-term download*"))
+                            (message (lispm-desktop-tr "lispm-desktop-term could not be downloaded: see %s")
+                                     "*lispm-desktop-term download*"))
                            ((featurep 'lispm-desktop-term-module)
-                            (message "lispm-desktop-term is downloaded: restart Emacs to use it"))
+                            (message (lispm-desktop-tr "lispm-desktop-term is downloaded: restart Emacs to use it")))
                            ((lispm-desktop-term-load)
-                            (message "lispm-desktop-term is downloaded")))
+                            (message (lispm-desktop-tr "lispm-desktop-term is downloaded"))))
                      (when (and installed callback)
                        (funcall callback)))))))))))
 
@@ -517,12 +520,16 @@ The record's message, if any, is the label's `help-echo'."
     (propertize
      (pcase state
        ('blocked (pcase (plist-get record :kind)
-                   ('permission "needs approval")
-                   ('question "has a question")
-                   ('auth "needs sign-in")
-                   (_ "blocked")))
-       ('error "failed")
-       ('working (if (and progress (not brief)) (format "working %d%%" progress) "working"))
+                   ('permission (lispm-desktop-tr "needs approval"))
+                   ('question (lispm-desktop-tr "has a question"))
+                   ('auth (lispm-desktop-tr "needs sign-in"))
+                   (_ (lispm-desktop-tr "blocked"))))
+       ('error (lispm-desktop-tr "failed"))
+       ('working (if (and progress (not brief))
+                     (lispm-desktop-tr "working %d%%" progress)
+                   (lispm-desktop-tr "working")))
+       ('done (lispm-desktop-tr "done"))
+       ('idle (lispm-desktop-tr "idle"))
        (_ (symbol-name state)))
      'face (pcase state
              ('blocked 'warning)
@@ -711,8 +718,9 @@ exits, clipboard."
          (let ((inhibit-read-only t))
            (save-excursion
              (goto-char (point-max))
-             (insert (propertize (format "\n[Process exited%s]"
-                                         (if (= code 0) "" (format " with code %d" code)))
+             (insert (propertize (concat "\n" (if (= code 0)
+                                                 (lispm-desktop-tr "[Process exited]")
+                                               (lispm-desktop-tr "[Process exited with code %d]" code)))
                                  'face 'shadow))))
          (run-hook-with-args 'lispm-desktop-term-exit-functions buffer code))))))
 
@@ -1118,7 +1126,7 @@ A buffer of that name still running is returned as it is."
   (let ((buffer (get-buffer-create (format "*%s*" name))))
     (unless (lispm-desktop-term-live-p buffer)
       (unless (lispm-desktop-term-ready-p)
-        (error "lispm-desktop-term is neither built nor downloaded; see `lispm-desktop-term-download'"))
+        (error (lispm-desktop-tr "lispm-desktop-term is neither built nor downloaded; see `lispm-desktop-term-download'")))
       (with-current-buffer buffer
         (lispm-desktop-term-mode)
         (let* ((directory (expand-file-name (or directory default-directory)))

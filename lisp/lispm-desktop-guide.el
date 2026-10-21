@@ -70,6 +70,7 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
 (declare-function lispm-desktop-strip-edges "lispm-desktop-strip" ())
@@ -104,87 +105,87 @@ whenever asked."
   :group 'lispm-desktop)
 
 (defvar lispm-desktop-guide-steps
-  '((welcome
-     :title "Welcome to LispM"
+  `((welcome
+     :title ,(lispm-desktop-tr-noop "Welcome to LispM")
      :icon "guide-32"
-     :text "LispM is a desktop for coding agents, made of Emacs.  This guide shows it to you a part at a time, and circles each part in red as it speaks of it."
-     :keys (("n, RET" "the next step")
-            ("p, DEL" "the step before")
-            ("q" "puts the guide away")
-            ("C-c ?" "brings it back, from anywhere")))
+     :text ,(lispm-desktop-tr-noop "LispM is a desktop for coding agents, made of Emacs.  This guide shows it to you a part at a time, and circles each part in red as it speaks of it.")
+     :keys (("n, RET" ,(lispm-desktop-tr-noop "the next step"))
+            ("p, DEL" ,(lispm-desktop-tr-noop "the step before"))
+            ("q" ,(lispm-desktop-tr-noop "puts the guide away"))
+            ("C-c ?" ,(lispm-desktop-tr-noop "brings it back, from anywhere"))))
     (lambda-menu
-     :title "The λ menu"
+     :title ,(lispm-desktop-tr-noop "The λ menu")
      :icon lambda
      :mark (menu . lispm-desktop-lambda)
-     :text "LispM's own menu, at the left end of the menu bar, as the Apple menu was: a new agent session, a shell, the App Store and the control panels."
-     :keys (("C-c m" "opens the menu bar from the keyboard; C-f and C-b go to the menu beside"))
+     :text ,(lispm-desktop-tr-noop "LispM's own menu, at the left end of the menu bar, as the Apple menu was: a new agent session, a shell, the App Store and the control panels.")
+     :keys (("C-c m" ,(lispm-desktop-tr-noop "opens the menu bar from the keyboard; C-f and C-b go to the menu beside")))
      :show lispm-desktop-guide--show-lambda-menu)
     (application
-     :title "The application in front"
+     :title ,(lispm-desktop-tr-noop "The application in front")
      :icon "applications-32"
      :mark (menu . lispm-desktop-application)
-     :text "The menus after the λ are those of the application in front, this guide's now: File and Go.  The Application menu, at the right end, names it and lists the others, to bring one forward."
-     :keys (("C-c o" "brings the next application forward"))
+     :text ,(lispm-desktop-tr-noop "The menus after the λ are those of the application in front, this guide's now: File and Go.  The Application menu, at the right end, names it and lists the others, to bring one forward.")
+     :keys (("C-c o" ,(lispm-desktop-tr-noop "brings the next application forward")))
      :show lispm-desktop-guide--show-application-menu)
     (desktop
-     :title "The desktop's icons"
+     :title ,(lispm-desktop-tr-noop "The desktop's icons")
      :icon "hard-disk-32"
      :mark (icon . home)
-     :text "They stand down the right edge.  A click selects one, a double click opens it, and one dragged stays where it is dropped.  Home is your home folder, in a Finder window."
-     :keys (("C-n, C-p" "select the next icon or the one before, while the desktop has the keyboard")
-            ("RET" "opens the icon selected"))
+     :text ,(lispm-desktop-tr-noop "They stand down the right edge.  A click selects one, a double click opens it, and one dragged stays where it is dropped.  Home is your home folder, in a Finder window.")
+     :keys (("C-n, C-p" ,(lispm-desktop-tr-noop "select the next icon or the one before, while the desktop has the keyboard"))
+            ("RET" ,(lispm-desktop-tr-noop "opens the icon selected")))
      :show lispm-desktop-guide--show-home)
     (editor
      :title "Emacs"
      :icon emacs
      :mark (icon . editor)
-     :text "Where the work is done: a workspace for each project, with its files, its terminals and its agents, and a sidebar listing them.  It fills the screen, or floats over the desktop as Show Me opens it; its zoom box switches."
-     :keys (("C-c a l" "starts a LispM agent in the project")
-            ("C-c a a" "shows the agents")
-            ("C-c t" "opens a terminal"))
+     :text ,(lispm-desktop-tr-noop "Where the work is done: a workspace for each project, with its files, its terminals and its agents, and a sidebar listing them.  It fills the screen, or floats over the desktop as Show Me opens it; its zoom box switches.")
+     :keys (("C-c a l" ,(lispm-desktop-tr-noop "starts a LispM agent in the project"))
+            ("C-c a a" ,(lispm-desktop-tr-noop "shows the agents"))
+            ("C-c t" ,(lispm-desktop-tr-noop "opens a terminal")))
      :show lispm-desktop-guide--show-editor)
     (browser
-     :title "The browser"
+     :title ,(lispm-desktop-tr-noop "The browser")
      :icon "netscape"
      :mark (icon . browser)
      :when lispm-desktop-guide--browser-p
-     :text "The web, dressed as Netscape Communicator: tabs, bookmarks and history, and pages followed from the keyboard."
-     :keys (("M-l" "goes to the location field")
-            ("M-t" "opens a new tab")
-            ("f" "labels a page's links, to follow the one typed"))
+     :text ,(lispm-desktop-tr-noop "The web, dressed as Netscape Communicator: tabs, bookmarks and history, and pages followed from the keyboard.")
+     :keys (("M-l" ,(lispm-desktop-tr-noop "goes to the location field"))
+            ("M-t" ,(lispm-desktop-tr-noop "opens a new tab"))
+            ("f" ,(lispm-desktop-tr-noop "labels a page's links, to follow the one typed")))
      :show lispm-desktop-guide--show-browser)
     (store
-     :title "The App Store"
+     :title ,(lispm-desktop-tr-noop "The App Store")
      :icon "app-store-32"
      :mark (icon . store)
      :when lispm-desktop-guide--store-p
-     :text "Applications and extensions to install: games, news, music and more agents.  The applications installed are in the Applications folder."
+     :text ,(lispm-desktop-tr-noop "Applications and extensions to install: games, news, music and more agents.  The applications installed are in the Applications folder.")
      :show lispm-desktop-guide--show-store)
     (strip
-     :title "The Control Strip"
+     :title ,(lispm-desktop-tr-noop "The Control Strip")
      :icon "control-panels-32"
      :mark (area . lispm-desktop-strip-edges)
      :when lispm-desktop-guide--strip-p
-     :text "Settings at hand, in the corner: the appearance, the desktop's picture, the keyboard and the Internet.  The Control Panels icon holds every setting."
-     :keys (("C-c b" "goes to the strip: C-f and C-b to a module, RET opens it")
-            ("C-c B" "hides the strip, or shows it again"))
+     :text ,(lispm-desktop-tr-noop "Settings at hand, in the corner: the appearance, the desktop's picture, the keyboard and the Internet.  The Control Panels icon holds every setting.")
+     :keys (("C-c b" ,(lispm-desktop-tr-noop "goes to the strip: C-f and C-b to a module, RET opens it"))
+            ("C-c B" ,(lispm-desktop-tr-noop "hides the strip, or shows it again")))
      :show lispm-desktop-guide--show-strip)
     (windows
-     :title "Windows"
+     :title ,(lispm-desktop-tr-noop "Windows")
      :icon "document-32"
      :mark (area . lispm-desktop-guide--edges)
-     :text "This window is like every other: its title bar drags it, the box at the left closes it, the one at the right rolls it up into its title bar, and the corner at the bottom right sizes it.  A zoom box, where there is one, fills the screen with the window."
-     :keys (("C-c h" "hides the desktop in the Dock, its windows out on your screen"
+     :text ,(lispm-desktop-tr-noop "This window is like every other: its title bar drags it, the box at the left closes it, the one at the right rolls it up into its title bar, and the corner at the bottom right sizes it.  A zoom box, where there is one, fills the screen with the window.")
+     :keys (("C-c h" ,(lispm-desktop-tr-noop "hides the desktop in the Dock, its windows out on your screen")
              lispm-desktop-guide--coherence-p))
      :show lispm-desktop-guide-roll)
     (keys
-     :title "Emacs, as ever"
+     :title ,(lispm-desktop-tr-noop "Emacs, as ever")
      :icon "keyboard-32"
-     :text "Emacs's own keys work everywhere, as they always did.  This guide is an application of its own: it waits in the Applications folder, the λ menu and the desktop's Help menu whenever you want it again."
-     :keys (("C-x C-f" "opens a file")
-            ("C-x b" "switches to a buffer")
-            ("M-x" "runs any command")
-            ("C-g" "cancels"))))
+     :text ,(lispm-desktop-tr-noop "Emacs's own keys work everywhere, as they always did.  This guide is an application of its own: it waits in the Applications folder, the λ menu and the desktop's Help menu whenever you want it again.")
+     :keys (("C-x C-f" ,(lispm-desktop-tr-noop "opens a file"))
+            ("C-x b" ,(lispm-desktop-tr-noop "switches to a buffer"))
+            ("M-x" ,(lispm-desktop-tr-noop "runs any command"))
+            ("C-g" ,(lispm-desktop-tr-noop "cancels")))))
   "The guide's steps, in order: (KEY . PROPERTIES).
 :title names a step, :text says what it shows, and :icon is its large
 icon, as `lispm-desktop-platinum-icon-file' takes it.  :mark is what the
@@ -197,7 +198,10 @@ separated, TEXT what they do; a third element, a function, shows the
 keys only while it returns non-nil.  :show is the function Show Me calls
 to do it, as the user would; it returns a function putting back what it
 opened, called as the guide leaves the step, or nil.  :when, a
-function, decides whether the step is shown at all.")
+function, decides whether the step is shown at all.
+The words, :title, :text and each key's TEXT, are in English, translated
+where shown; :text names a menu, an icon or a button in the words it
+reads, so that their translations match.")
 
 (defconst lispm-desktop-guide-buffer-name " *LispM Guide*"
   "Name of the buffer the guide's window shows.")
@@ -321,14 +325,21 @@ the desktop, as an alert stands."
       "")))
 
 (defun lispm-desktop-guide--key-caps (keys)
-  "Return KEYS, key sequences separated by commas, drawn as key caps."
-  (mapconcat (lambda (sequence)
-               (mapconcat (lambda (key)
-                            (lispm-desktop-platinum-bevel-button key nil 18 'lispm-desktop-platinum-small))
-                          (split-string sequence " " t)
-                          (propertize " " 'display '(space :width (3)))))
-             (split-string keys ", *" t)
-             (propertize " or " 'face '(shadow lispm-desktop-platinum-small))))
+  "Return KEYS, key sequences separated by commas, drawn as key caps, the
+words between the sequences dimmed."
+  (let* ((caps (mapcar (lambda (sequence)
+                         (mapconcat (lambda (key)
+                                      (lispm-desktop-platinum-bevel-button key nil 18 'lispm-desktop-platinum-small))
+                                    (split-string sequence " " t)
+                                    (propertize " " 'display '(space :width (3)))))
+                       (split-string keys ", *" t)))
+         (text (seq-reduce (lambda (text cap) (lispm-desktop-tr "%s or %s" text cap))
+                           (cdr caps) (or (car caps) ""))))
+    ;; The words are what shows no key cap.
+    (dotimes (i (length text))
+      (unless (get-text-property i 'display text)
+        (put-text-property i (1+ i) 'face '(shadow lispm-desktop-platinum-small) text)))
+    text))
 
 (defconst lispm-desktop-guide--margin 20
   "Pixels between the guide's text and its window's left side.")
@@ -342,30 +353,33 @@ the desktop, as an alert stands."
 step, and Show Me, when STEP shows something; at the right Back, but on
 the FIRST step, and Next, or Done on the LAST, which Return presses."
   (unless last
-    (lispm-desktop-platinum-insert-push-button "Skip" #'lispm-desktop-guide-skip
-                                               :help "Leave the guide; C-c ? starts it over")
+    (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Skip") #'lispm-desktop-guide-skip
+                                               :help (lispm-desktop-tr "Leave the guide; C-c ? starts it over"))
     (insert (propertize " " 'display '(space :width (6)))))
   (when (plist-get (cdr step) :show)
-    (lispm-desktop-platinum-insert-push-button "Show Me" #'lispm-desktop-guide-show-me
-                                               :help "Do what this step shows"))
-  (let* ((forward (if last "Done" "Next"))
+    (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Show Me") #'lispm-desktop-guide-show-me
+                                               :help (lispm-desktop-tr "Do what this step shows")))
+  (let* ((back (lispm-desktop-tr "Back"))
+         (forward (if last (lispm-desktop-tr "Done") (lispm-desktop-tr "Next")))
          ;; The buttons' images: room for a focus ring about Back, for
          ;; the default ring about Next, see `lispm-desktop-platinum-push-button'.
-         (width (+ (lispm-desktop-platinum-push-button-width "Back") 4
+         (width (+ (lispm-desktop-platinum-push-button-width back) 4
                    6
                    (lispm-desktop-platinum-push-button-width forward) 10)))
     (insert (propertize " " 'display `(space :align-to (- right (,(+ width 14))))))
-    (lispm-desktop-platinum-insert-push-button "Back" #'lispm-desktop-guide-previous
-                                               :help "The step before" :disabled first)
+    (lispm-desktop-platinum-insert-push-button back #'lispm-desktop-guide-previous
+                                               :help (lispm-desktop-tr "The step before") :disabled first)
     (insert (propertize " " 'display '(space :width (6))))
     (lispm-desktop-platinum-insert-push-button forward #'lispm-desktop-guide-next :default t
-                                               :help (if last "Put the guide away" "The next step"))
+                                               :help (if last
+                                                         (lispm-desktop-tr "Put the guide away")
+                                                       (lispm-desktop-tr "The next step")))
     (insert "\n")))
 
 (defun lispm-desktop-guide--insert-step (step first last &optional lift)
-  "Insert STEP in the current buffer: its icon and title, what it says,
-its keys, and the buttons, Back but on the FIRST step, Done on the LAST,
-LIFT pixels lower than right under the keys."
+  "Insert STEP in the current buffer, in the language LispM speaks: its
+icon and title, what it says, its keys, and the buttons, Back but on the
+FIRST step, Done on the LAST, LIFT pixels lower than right under the keys."
   (let* ((properties (cdr step))
          (keys (lispm-desktop-guide--keys step))
          (indent `(space :width (,lispm-desktop-guide--margin)))
@@ -375,18 +389,20 @@ LIFT pixels lower than right under the keys."
     (insert (lispm-desktop-guide--gap 14))
     (insert (propertize (concat (lispm-desktop-guide--icon (plist-get properties :icon))
                                 (propertize " " 'display '(space :width (10)))
-                                (propertize (plist-get properties :title)
+                                (propertize (lispm-desktop-tr (plist-get properties :title))
                                             'face '(:inherit lispm-desktop-platinum-title :height 1.25)))
                         'line-prefix indent)
             "\n")
     (insert (lispm-desktop-guide--gap 8))
-    (insert (propertize (plist-get properties :text) 'line-prefix indent 'wrap-prefix indent) "\n")
+    (insert (propertize (lispm-desktop-tr (plist-get properties :text)) 'line-prefix indent 'wrap-prefix indent)
+            "\n")
     (when keys
       (insert (lispm-desktop-guide--gap 10))
       (seq-mapn (lambda (entry cap)
                   (insert (propertize (concat cap
                                               (propertize " " 'display `(space :align-to (,column)))
-                                              (propertize (nth 1 entry) 'face 'lispm-desktop-platinum-small))
+                                              (propertize (lispm-desktop-tr (nth 1 entry))
+                                                          'face 'lispm-desktop-platinum-small))
                                       'line-prefix indent
                                       'wrap-prefix `(space :align-to (,column)))
                           "\n"))
@@ -418,7 +434,7 @@ window's bottom, as Apple Guide kept its own."
           (lispm-desktop-guide--insert-step step first last spare))
         (goto-char (point-min))
         (setq lispm-desktop-platinum-focus nil
-              lispm-desktop-platinum-info (format "Step %d of %d" (1+ index) (length steps)))
+              lispm-desktop-platinum-info (lispm-desktop-tr "Step %d of %d" (1+ index) (length steps)))
         (lispm-desktop-platinum-show-focus)
         (force-mode-line-update)))))
 
@@ -650,12 +666,14 @@ collapse box does."
 (define-derived-mode lispm-desktop-guide-mode lispm-desktop-app-window-mode "Guide"
   "Major mode of the guide's window: a step of the guide, its buttons under it.
 \\{lispm-desktop-guide-mode-map}"
-  (setq-local lispm-desktop-platinum-title "LispM Guide"
+  (setq-local lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "LispM Guide"))
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "guide")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box)
               truncate-lines nil
               word-wrap t
+              ;; Chinese and Japanese, which have no spaces, wrap too.
+              word-wrap-by-category t
               right-margin-width 2)
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list-body)
   (add-hook 'window-size-change-functions #'lispm-desktop-guide--render nil t)
@@ -679,7 +697,7 @@ playing and take the coach mark away."
   ;; An application's window: selected, it brings the guide in front, its
   ;; menus in the menu bar.  It hides from the full-screen editor and
   ;; browser, as every floating window does.
-  :name "LispM Guide" :size lispm-desktop-guide-size
+  :name (lispm-desktop-tr-noop "LispM Guide") :size lispm-desktop-guide-size
   :geometry #'lispm-desktop-guide--geometry :buffer #'lispm-desktop-guide--buffer
   :roll 'chrome :on-close #'lispm-desktop-guide--closed)
 
@@ -696,7 +714,7 @@ its own, as the first time it shows.  The guide shows over the desktop:
 a full-screen editor or browser in front gives way to it."
   (interactive "P")
   (unless (display-graphic-p)
-    (user-error "The guide is drawn on a graphical display only"))
+    (user-error (lispm-desktop-tr "The guide is drawn on a graphical display only")))
   (when again
     (setq lispm-desktop-guide--index 0))
   (when play
@@ -748,12 +766,19 @@ Strip.  This is one of `lispm-desktop-platinum-frame-moved-functions'."
   (when (lispm-desktop-guide--frame)
     (lispm-desktop-guide--render)))
 
+(defun lispm-desktop-guide--language-changed ()
+  "Make the guide's window as tall as its steps are in the language now
+spoken, and draw it again.  This is one of
+`lispm-desktop-language-changed-hook'."
+  (when-let* ((frame (lispm-desktop-guide--frame)))
+    (lispm-desktop-guide--fit frame)))
+
 ;;;; The application
 
 (defun lispm-desktop-guide--file-items ()
   "Return the items of the guide's File menu."
-  '((:label "Close Guide" :action lispm-desktop-guide-close :key "q")
-    (:label "Skip Guide" :action lispm-desktop-guide-skip)))
+  `((:label ,(lispm-desktop-tr "Close Guide") :action lispm-desktop-guide-close :key "q")
+    (:label ,(lispm-desktop-tr "Skip Guide") :action lispm-desktop-guide-skip)))
 
 (defun lispm-desktop-guide--go-items ()
   "Return the items of the guide's Go menu: back, on and Show Me, then
@@ -761,27 +786,28 @@ every step, the one the guide is on checked, as Apple Guide listed its
 topics."
   (let* ((steps (lispm-desktop-guide--steps))
          (index (seq-position steps (lispm-desktop-guide--step))))
-    `((:label "Previous Step" :action lispm-desktop-guide-previous :key "p" :enabled ,(> index 0))
-      (:label "Next Step" :action lispm-desktop-guide-next :key "n"
+    `((:label ,(lispm-desktop-tr "Previous Step") :action lispm-desktop-guide-previous :key "p"
+              :enabled ,(> index 0))
+      (:label ,(lispm-desktop-tr "Next Step") :action lispm-desktop-guide-next :key "n"
               :enabled ,(< index (1- (length steps))))
-      (:label "Show Me" :action lispm-desktop-guide-show-me :key "s"
+      (:label ,(lispm-desktop-tr "Show Me") :action lispm-desktop-guide-show-me :key "s"
               :enabled ,(and (plist-get (cdr (lispm-desktop-guide--step)) :show) t))
       separator
       ,@(seq-map-indexed (lambda (step i)
-                           (list :label (plist-get (cdr step) :title)
+                           (list :label (lispm-desktop-tr (plist-get (cdr step) :title))
                                  :action (lambda () (lispm-desktop-guide--go i))
                                  :checked (= i index)))
                          steps))))
 
 (defun lispm-desktop-guide-menus ()
   "Return the guide's menus, for the menu bar while it is in front."
-  '((lispm-desktop-guide-file "File" lispm-desktop-guide--file-items)
-    (lispm-desktop-guide-go "Go" lispm-desktop-guide--go-items)))
+  `((lispm-desktop-guide-file ,(lispm-desktop-tr "File") lispm-desktop-guide--file-items)
+    (lispm-desktop-guide-go ,(lispm-desktop-tr "Go") lispm-desktop-guide--go-items)))
 
 (defun lispm-desktop-guide--define-app ()
   "Make the guide an application built in: in the Applications folder, the
 λ menu's Applications and, while it is open, the Application menu."
-  (lispm-desktop-define-app 'guide :name "LispM Guide" :icon "guide" :folder "guide-32"
+  (lispm-desktop-define-app 'guide :name (lispm-desktop-tr-noop "LispM Guide") :icon "guide" :folder "guide-32"
                             :menus #'lispm-desktop-guide-menus
                             :activate #'lispm-desktop-guide
                             :visible #'lispm-desktop-guide-open-p))
@@ -792,8 +818,7 @@ topics."
   "Say how to start, where no guide can be shown."
   (message "%s"
            (substitute-command-keys
-            (concat "LispM is ready.  \\`C-c a l' starts an agent in this project, "
-                    "\\`C-c a a' shows the agents, \\`C-c a s' resumes a session."))))
+            (lispm-desktop-tr "LispM is ready.  \\`C-c a l' starts an agent in this project, \\`C-c a a' shows the agents, \\`C-c a s' resumes a session."))))
 
 (defun lispm-desktop-guide-first-time ()
   "Show the guide unless it has shown itself before, see
@@ -811,12 +836,13 @@ neither."
 
 (defun lispm-desktop-guide-help-items ()
   "Return the items of the desktop's Help menu: the guide."
-  '((:label "LispM Guide" :action lispm-desktop-guide :key "C-c ?")))
+  `((:label ,(lispm-desktop-tr "LispM Guide") :action lispm-desktop-guide :key "C-c ?")))
 
 (defun lispm-desktop-setup-guide ()
   "Make the guide an application built in, offer it in the desktop's Help
 menu and with C-c ?, keep it over the other windows and its coach mark
-on what moves, and show it the first time LispM starts."
+on what moves, draw it again in a new language, and show it the first
+time LispM starts."
   (lispm-desktop-guide--define-app)
   (setq lispm-desktop-help-items-function #'lispm-desktop-guide-help-items)
   (keymap-global-set "C-c ?" #'lispm-desktop-guide)
@@ -824,6 +850,7 @@ on what moves, and show it the first time LispM starts."
   (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-guide--keep-above 90)
   (add-hook 'lispm-desktop-platinum-frame-moved-functions #'lispm-desktop-guide--moved 90)
   (add-hook 'enable-theme-functions #'lispm-desktop-guide--refresh 95)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-guide--language-changed)
   (add-hook 'window-setup-hook #'lispm-desktop-guide-first-time 96))
 
 (provide 'lispm-desktop-guide)

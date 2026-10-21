@@ -35,6 +35,7 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-titlebar)
 (require 'lispm-desktop-platinum-coach)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
@@ -184,11 +185,12 @@ bottom line, which the menu's outline then draws, as on Mac OS 9."
 (defun lispm-desktop-platinum-lambda-items ()
   "Return the items of the λ menu, as `lispm-desktop-popup-menu' takes them.
 See `lispm-desktop-platinum-lambda-items-function'."
-  `((:label "About LispM" :action lispm-desktop-platinum-about)
+  `((:label ,(lispm-desktop-tr "About LispM") :action lispm-desktop-platinum-about)
     separator
     ,@(and lispm-desktop-platinum-lambda-items-function
            (funcall lispm-desktop-platinum-lambda-items-function))
-    (:label "Customize lispm-desktop…" :action ,(lambda () (customize-group 'lispm-desktop)))))
+    (:label ,(lispm-desktop-tr "Customize lispm-desktop…")
+            :action ,(lambda () (customize-group 'lispm-desktop)))))
 
 (defun lispm-desktop-platinum-lambda-menu ()
   "Pop up the λ menu, LispM's counterpart of the Apple menu."
@@ -200,8 +202,8 @@ See `lispm-desktop-platinum-lambda-items-function'."
   "Tell which LispM and lispm-desktop this is, as About This Computer did."
   (interactive)
   (lispm-desktop-popup-alert
-   'note "LispM, a Lisp Machine for agents, inside Emacs."
-   '(("OK" ok default))
+   'note (lispm-desktop-tr "LispM, a Lisp Machine for agents, inside Emacs.")
+   `((,(lispm-desktop-tr "OK") ok default))
    (format "lispm-desktop, Emacs %s.  github.com/LispMachineLab/lispm-desktop" emacs-version)))
 
 (defvar lispm-desktop-platinum-menus-function nil
@@ -271,8 +273,8 @@ current one checked."
                       :checked (= index current)))
               tabs)
            separator
-           (:label "New Workspace" :action tab-bar-new-tab)
-           (:label "Close Workspace" :action tab-bar-close-tab :enabled ,(and (cdr tabs) t))))
+           (:label ,(lispm-desktop-tr "New Workspace") :action tab-bar-new-tab)
+           (:label ,(lispm-desktop-tr "Close Workspace") :action tab-bar-close-tab :enabled ,(and (cdr tabs) t))))
        (- (frame-pixel-width) 4) (lispm-desktop-platinum--menu-y) 'right))))
 
 (defvar tabspaces-default-tab)
@@ -293,7 +295,7 @@ project's folder for a project's.  Clicked, it lists every workspace."
                          (t (lispm-desktop-platinum-folder-icon
                              (car (rassoc name (bound-and-true-p tabspaces-project-tab-map))))))
                    " " (or (cdr application) name))
-           #'lispm-desktop-platinum-workspace-menu "Workspaces"
+           #'lispm-desktop-platinum-workspace-menu (lispm-desktop-tr "Workspaces")
            (eq lispm-desktop-platinum--open-menu 'lispm-desktop-application) 'right))))
 
 (defun lispm-desktop-platinum--menu-bar-menus ()

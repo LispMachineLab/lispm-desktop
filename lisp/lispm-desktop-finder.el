@@ -53,6 +53,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-surface)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
@@ -98,10 +99,12 @@
   "Folders that are no directory on disk, shown as the Finder shows one, as
 Mac OS 9's Control Panels folder was: (KEY . PROPERTIES).  KEY, a symbol,
 stands for the folder where a directory's name would.  :title names the
-folder, :icon gives its small icon as `lispm-desktop-platinum-icon-file' takes
-it, and :items is a function returning its items, each (NAME ICON ACTION):
-ICON its large icon, ACTION a function opening it.  Nothing is made, renamed
-or thrown away in such a folder.")
+folder, in English, translated where shown, see
+`lispm-desktop-finder--title'; :icon gives its small icon as
+`lispm-desktop-platinum-icon-file' takes it, and :items is a function
+returning its items, each (NAME ICON ACTION): NAME as shown, in the
+language LispM speaks, ICON its large icon, ACTION a function opening it.
+Nothing is made, renamed or thrown away in such a folder.")
 
 (defun lispm-desktop-finder--folder (directory)
   "Return the properties of DIRECTORY when it is a virtual folder.
@@ -215,7 +218,7 @@ and dimmed at the top, where there is no folder to go to."
       (lispm-desktop-platinum-header-button label 'disabled)
     (propertize (lispm-desktop-platinum-header-button
                  label (and (lispm-desktop-platinum-pressed-p lispm-desktop-finder--up-target) 'pressed))
-                'help-echo "Go to the enclosing folder (Delete)"
+                'help-echo (lispm-desktop-tr "Go to the enclosing folder (Delete)")
                 'lispm-desktop-platinum-target lispm-desktop-finder--up-target
                 'keymap lispm-desktop-finder--up-button-map)))
 
@@ -225,14 +228,16 @@ the disk."
   (let ((count (length lispm-desktop-finder--items))
         (available (and (stringp lispm-desktop-finder--directory)
                         (nth 2 (ignore-errors (file-system-info lispm-desktop-finder--directory))))))
-    (concat (format "%d item%s" count (if (= count 1) "" "s"))
-            (when available
-              (format ", %s available" (file-size-human-readable available 'si " " "B"))))))
+    (if available
+        (lispm-desktop-tr-n "%d item, %s available" "%d items, %s available" count
+                            count (file-size-human-readable available 'si " " "B"))
+      (lispm-desktop-tr-n "%d item" "%d items" count))))
 
 (defun lispm-desktop-finder--title (directory)
-  "Return the window's title for DIRECTORY: the folder's name."
+  "Return the window's title for DIRECTORY: the folder's name, a folder of
+`lispm-desktop-finder-folders' in the language LispM speaks."
   (if-let* ((folder (lispm-desktop-finder--folder directory)))
-      (plist-get folder :title)
+      (lispm-desktop-tr (plist-get folder :title))
     (let ((name (file-name-nondirectory (directory-file-name directory))))
       (if (string-empty-p name) directory name))))
 
@@ -404,18 +409,19 @@ item of a folder of `lispm-desktop-finder-folders' by its own action."
 (defun lispm-desktop-finder--real-only ()
   "Refuse to change the folder shown unless it is a directory on disk."
   (unless (lispm-desktop-finder-real-p)
-    (user-error "Nothing can be made, renamed or thrown away in “%s”"
+    (user-error (lispm-desktop-tr "Nothing can be made, renamed or thrown away in “%s”")
                 (lispm-desktop-finder--in (lispm-desktop-finder--title lispm-desktop-finder--directory)))))
 
 (defun lispm-desktop-finder-new-folder (name)
   "Make a folder called NAME in the folder shown, and select it."
   (interactive (progn (lispm-desktop-finder--real-only)
-                      (list (read-string "Name of the new folder: " "untitled folder"))))
+                      (list (read-string (lispm-desktop-tr "Name of the new folder: ")
+                                         (lispm-desktop-tr "untitled folder")))))
   (lispm-desktop-finder--real-only)
   (lispm-desktop-finder--in
     (let ((path (expand-file-name name lispm-desktop-finder--directory)))
       (when (file-exists-p path)
-        (user-error "There is already an item called “%s” here" name))
+        (user-error (lispm-desktop-tr "There is already an item called “%s” here") name))
       (make-directory path)
       (lispm-desktop-finder--go lispm-desktop-finder--directory nil name))))
 
@@ -435,16 +441,17 @@ after it is selected."
               (move-file-to-trash (expand-file-name name lispm-desktop-finder--directory))
               (lispm-desktop-check-trash)
               (lispm-desktop-finder--go lispm-desktop-finder--directory nil next)
-              (message "“%s” was moved to the Trash" name))
+              (message (lispm-desktop-tr "“%s” was moved to the Trash") name))
           (error
-           (lispm-desktop-popup-alert 'stop (format "“%s” could not be moved to the Trash." name)
-                                      '(("OK" ok default))
+           (lispm-desktop-popup-alert 'stop (lispm-desktop-tr "“%s” could not be moved to the Trash." name)
+                                      `((,(lispm-desktop-tr "OK") ok default))
                                       (error-message-string err))))))))
 
 (defun lispm-desktop-finder-rename (name)
   "Rename the selected item to NAME."
   (interactive (progn (lispm-desktop-finder--real-only)
-                      (list (read-string "Rename to: " (lispm-desktop-finder--in lispm-desktop-finder--selected)))))
+                      (list (read-string (lispm-desktop-tr "Rename to: ")
+                                         (lispm-desktop-finder--in lispm-desktop-finder--selected)))))
   (lispm-desktop-finder--real-only)
   (lispm-desktop-finder--in
     (when lispm-desktop-finder--selected
@@ -535,13 +542,13 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
          (real (lispm-desktop-finder-real-p))
          (file (and selected real t)))
     (lispm-desktop-popup-menu
-     `((:label "Open" :action lispm-desktop-finder-open :enabled ,(and selected t))
+     `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-finder-open :enabled ,(and selected t))
        separator
-       (:label "New Folder…" :action lispm-desktop-finder-new-folder :enabled ,real)
-       (:label "Rename…" :action lispm-desktop-finder-rename :enabled ,file)
-       (:label "Move to Trash" :action lispm-desktop-finder-move-to-trash :key "M-DEL"
+       (:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder :enabled ,real)
+       (:label ,(lispm-desktop-tr "Rename…") :action lispm-desktop-finder-rename :enabled ,file)
+       (:label ,(lispm-desktop-tr "Move to Trash") :action lispm-desktop-finder-move-to-trash :key "M-DEL"
                :enabled ,file)
-       (:label "Copy Path" :enabled ,file
+       (:label ,(lispm-desktop-tr "Copy Path") :enabled ,file
                :action ,(lambda ()
                           (lispm-desktop-finder--in
                             (kill-new (expand-file-name lispm-desktop-finder--selected
@@ -629,7 +636,7 @@ its having had the keyboard."
 (defun lispm-desktop-finder-open-directory (directory)
   "Show DIRECTORY in the Finder window over the desktop, the desktop in front.
 DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
-  (interactive "DFolder: ")
+  (interactive (list (read-directory-name (lispm-desktop-tr "Folder: ") nil default-directory 'lambda)))
   (lispm-desktop-app-window-ensure 'finder)
   (lispm-desktop-finder--go directory (lispm-desktop-finder--in (and lispm-desktop-finder--directory t)))
   (lispm-desktop-app-window-present 'finder)
@@ -688,19 +695,20 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
 (defun lispm-desktop-finder--go-items ()
   "Return the items of the desktop's Go menu, moving the Finder window."
   (let ((open (lispm-desktop-finder-shown-p)))
-    `((:label "Back" :action lispm-desktop-finder-back
+    `((:label ,(lispm-desktop-tr "Back") :action lispm-desktop-finder-back
               :enabled ,(and open (lispm-desktop-finder--in lispm-desktop-finder--back) t))
-      (:label "Forward" :action lispm-desktop-finder-forward
+      (:label ,(lispm-desktop-tr "Forward") :action lispm-desktop-finder-forward
               :enabled ,(and open (lispm-desktop-finder--in lispm-desktop-finder--forward) t))
-      (:label "Enclosing Folder" :action lispm-desktop-finder-up :enabled ,(and open t))
+      (:label ,(lispm-desktop-tr "Enclosing Folder") :action lispm-desktop-finder-up :enabled ,(and open t))
       separator
-      (:label "Home" :action lispm-desktop-finder-home))))
+      (:label ,(lispm-desktop-tr "Home") :action lispm-desktop-finder-home))))
 
 (defun lispm-desktop-setup-finder ()
   "Note when the desktop's Finder window has the keyboard, and draw it
-again in another look."
+again in another look, or another language."
   (add-hook 'window-selection-change-functions #'lispm-desktop-finder--note-selected)
-  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-finder--render))
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-finder--render)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-finder--render))
 
 (provide 'lispm-desktop-finder)
 ;;; lispm-desktop-finder.el ends here

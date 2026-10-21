@@ -59,6 +59,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop--set-up)
 
@@ -84,8 +85,9 @@ See `lispm-desktop-look-define'.")
   "Define the look NAME, the forms of one system's interface.
 PROPERTIES is a plist:
 
-  :title            its name as Control Panels shows it
-  :description      a line on what it is
+  :title            its name as Control Panels shows it, a proper name
+  :description      a line on what it is, in English, translated where
+                    shown
   :theme            the colour theme in that system's own colours
   :icons            directories of icons/ to look for icons in before
                     icons/os9, as their names
@@ -127,7 +129,8 @@ is FROM's own, or none was chosen yet."
          new)))
 
 (defun lispm-desktop-look-redraw ()
-  "Draw the whole chrome again, in the look now chosen.
+  "Draw the whole chrome again, in the look now chosen and the language
+now spoken: this is also one of `lispm-desktop-language-changed-hook'.
 Every part of it redraws when a theme is enabled, so the hooks run then
 run now, for the theme in use."
   (run-hook-with-args 'enable-theme-functions (car custom-enabled-themes))
@@ -157,11 +160,11 @@ watcher."
   "Draw the chrome in LOOK now and at every later start.
 LOOK is a name of `lispm-desktop-looks'; interactively, it is asked for."
   (interactive (list (intern (completing-read
-                              "Look: " (mapcar (lambda (look) (symbol-name (car look)))
-                                               lispm-desktop-looks)
+                              (lispm-desktop-tr "Look: ")
+                              (mapcar (lambda (look) (symbol-name (car look))) lispm-desktop-looks)
                               nil t))))
   (unless (assq look lispm-desktop-looks)
-    (user-error "No look named %s" look))
+    (user-error (lispm-desktop-tr "No look named %s") look))
   (let ((from lispm-desktop-look))
     ;; Drawn here, not by the watcher a second time.
     (let ((lispm-desktop--set-up nil))
@@ -170,8 +173,10 @@ LOOK is a name of `lispm-desktop-looks'; interactively, it is asked for."
       (lispm-desktop-look-apply from))))
 
 (defun lispm-desktop-setup-look ()
-  "Follow `lispm-desktop-look' as it is set, once Emacs is set up."
-  (add-variable-watcher 'lispm-desktop-look #'lispm-desktop-look--changed))
+  "Follow `lispm-desktop-look' as it is set, once Emacs is set up, and
+draw the chrome again in a new language as it is chosen."
+  (add-variable-watcher 'lispm-desktop-look #'lispm-desktop-look--changed)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-look-redraw))
 
 ;;;; Parts shared by looks
 

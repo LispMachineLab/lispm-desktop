@@ -37,6 +37,8 @@
 (require 'lispm-desktop-platinum-draw)
 (require 'lispm-desktop-modal)
 
+(declare-function lispm-desktop-platinum-fit "lispm-desktop-platinum-titlebar" (string width))
+
 
 ;;;; Header strips, header buttons and group boxes
 
@@ -995,16 +997,40 @@ them left out: the narrowest the row fits in."
     (apply #'+ lispm-desktop-platinum--tabs-lead
            (mapcar (lambda (label) (+ (lispm-desktop-platinum--tab-width label face) 2)) labels))))
 
+(defun lispm-desktop-platinum--fit-tabs (labels width face)
+  "Return LABELS shortened so that a row of tabs reading them in FACE fits
+WIDTH pixels: the widest cut, an ellipsis ending them, no narrower than
+the widest the row allows, the others whole.  As they are where the row
+fits, or where no tab could be narrower than 48 pixels."
+  (let* ((padding (* 2 lispm-desktop-platinum-tab-padding))
+         (widths (mapcar (lambda (label) (lispm-desktop-platinum--tab-width label face)) labels))
+         (room (- width lispm-desktop-platinum--tabs-lead (* 2 (length labels))))
+         (cap (apply #'max 0 widths)))
+    (while (and (> (apply #'+ (mapcar (lambda (w) (min w cap)) widths)) room)
+                (> cap 48))
+      (setq cap (1- cap)))
+    (if (= cap (apply #'max 0 widths))
+        labels
+      (seq-mapn (lambda (label w)
+                  (if (<= w cap)
+                      label
+                    (lispm-desktop-platinum-fit (propertize label 'face face) (- cap padding))))
+                labels widths))))
+
 (defun lispm-desktop-platinum-tabs (tabs width &optional face)
   "Return a row of TABS standing on their pane's edge, WIDTH pixels wide.
 Each tab is (LABEL FRONT . PROPERTIES): LABEL shown as Emacs would show
 it in FACE, by default the system font's; FRONT non-nil for the tab in
 front; PROPERTIES, text properties the tab's string carries, such as its
 keymap and help.  The row opens with a short run of the pane's edge and
-runs it on to WIDTH, as Mac OS 9 drew a tab control along its pane."
+runs it on to WIDTH, as Mac OS 9 drew a tab control along its pane.  A
+row too wide for WIDTH, as in a longer language, cuts its widest labels
+short, see `lispm-desktop-platinum--fit-tabs'."
   (let* ((face (or face 'lispm-desktop-platinum-title))
          (lead lispm-desktop-platinum--tabs-lead)
          (used lead)
+         (tabs (seq-mapn (lambda (tab label) (cons label (cdr tab)))
+                         tabs (lispm-desktop-platinum--fit-tabs (mapcar #'car tabs) width face)))
          (parts
           (mapcar (pcase-lambda (`(,label ,front . ,properties))
                     (let ((tab-width (lispm-desktop-platinum--tab-width label face)))

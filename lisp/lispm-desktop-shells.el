@@ -32,6 +32,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-sidebar)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
 (declare-function lispm-desktop-term-ready-p "lispm-desktop-term" ())
@@ -75,11 +76,12 @@ The shell is the user's, run as an independent process in a terminal, see
     (erase-buffer)
     (lispm-desktop-sidebar-set-toolbar
      'shells #'lispm-desktop-shell-list-refresh
-     '(("New Shell" lispm-desktop-shell-new "New shell at the main window's project root")))
-    (setq lispm-desktop-platinum-info (lispm-desktop-sidebar-count (length shells) "shell"))
-    (lispm-desktop-sidebar-insert-columns "Name" "Directory")
+     `((,(lispm-desktop-tr-noop "New Shell") lispm-desktop-shell-new
+        ,(lispm-desktop-tr-noop "New shell at the main window's project root"))))
+    (setq lispm-desktop-platinum-info (lispm-desktop-tr-n "%d shell" "%d shells" (length shells)))
+    (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Directory"))
     (if (null shells)
-        (lispm-desktop-sidebar-insert-empty "No running shells")
+        (lispm-desktop-sidebar-insert-empty (lispm-desktop-tr "No running shells"))
       (dolist (buffer shells)
         (let ((directory (buffer-local-value 'default-directory buffer)))
           (lispm-desktop-sidebar-insert-entry
@@ -87,7 +89,7 @@ The shell is the user's, run as an independent process in a terminal, see
            (string-trim (buffer-name buffer) "\\*" "\\*")
            (file-name-nondirectory (directory-file-name directory))
            (apply-partially #'lispm-desktop-sidebar-show-in-main buffer)
-           (format "Show this shell, in %s" (abbreviate-file-name directory))))))))
+           (lispm-desktop-tr "Show this shell, in %s" (abbreviate-file-name directory))))))))
 
 (defun lispm-desktop-shell-list-refresh (&rest _)
   "Re-render the shell sidebar when it exists."
@@ -110,8 +112,8 @@ The shell is the user's, run as an independent process in a terminal, see
   (lispm-desktop-sidebar-setup-buffer))
 
 (lispm-desktop-sidebar-define-view
- 'shells :title "Shells" :icon "computer" :command 'lispm-desktop-sidebar-shells
- :help "Shells"
+ 'shells :title (lispm-desktop-tr-noop "Shells") :icon "computer" :command 'lispm-desktop-sidebar-shells
+ :help (lispm-desktop-tr-noop "Shells")
  :buffer lispm-desktop-shell-list-buffer-name
  :mode #'lispm-desktop-shell-list-mode
  :render #'lispm-desktop-shell-list--render)

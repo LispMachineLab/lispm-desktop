@@ -49,6 +49,7 @@
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-editor)
+(require 'lispm-desktop-i18n)
 
 (declare-function tabspaces-switch-or-create-workspace "tabspaces" (&optional workspace))
 (declare-function tabspaces-close-workspace "tabspaces" ())
@@ -263,19 +264,21 @@ LAYOUT is a value of `lispm-desktop-workspaces--layout'."
           image))))
 
 (defconst lispm-desktop-workspaces--actions
-  '(("Open Project…" project-switch-project)
-    ("New Workspace…" tabspaces-switch-or-create-workspace)
-    ("Close Workspace" tabspaces-close-workspace))
-  "The panel's buttons: (LABEL COMMAND), as the Project menu held them.")
+  `((,(lispm-desktop-tr-noop "Open Project…") project-switch-project)
+    (,(lispm-desktop-tr-noop "New Workspace…") tabspaces-switch-or-create-workspace)
+    (,(lispm-desktop-tr-noop "Close Workspace") tabspaces-close-workspace))
+  "The panel's buttons: (LABEL COMMAND), as the Project menu held them.
+LABEL is in English, translated where shown.")
 
 (defun lispm-desktop-workspaces--column-left (column)
   "Return the pixel left of the panel's thumbnail COLUMN."
   (+ lispm-desktop-workspaces-gap (* column (+ lispm-desktop-workspaces-thumbnail-width 8 lispm-desktop-workspaces-gap))))
 
 (defun lispm-desktop-workspaces--label (name current selected)
-  "Return the label under workspace NAME's thumbnail.
-The workspace in front is checked; the one SELECTED is inverted."
-  (propertize (concat " " (if current "✓ " "") name " ")
+  "Return the label under workspace NAME's thumbnail, see
+`lispm-desktop-editor-workspace-title'.  The workspace in front is
+checked; the one SELECTED is inverted."
+  (propertize (concat " " (if current "✓ " "") (lispm-desktop-editor-workspace-title name) " ")
               'face (if selected 'lispm-desktop-label-selected 'lispm-desktop-label)))
 
 (defun lispm-desktop-workspaces--text (names layouts current selected width)
@@ -284,7 +287,8 @@ and the buttons.  LAYOUTS are their layouts, CURRENT the name of the one
 in front, SELECTED the index chosen, WIDTH the panel's in pixels."
   (let ((rows (seq-partition (seq-map-indexed #'cons names) lispm-desktop-workspaces-columns)))
     (concat
-     (lispm-desktop-platinum-draw-title-bar width t (lispm-desktop-platinum-icon 'emacs) "Workspaces" nil
+     (lispm-desktop-platinum-draw-title-bar width t (lispm-desktop-platinum-icon 'emacs)
+                                             (lispm-desktop-tr "Workspaces") nil
                                              '(off off off))
      "\n"
      (propertize " " 'display `(space :height (,lispm-desktop-workspaces-gap))) "\n"
@@ -328,13 +332,14 @@ in front, SELECTED the index chosen, WIDTH the panel's in pixels."
 (defun lispm-desktop-workspaces--buttons ()
   "Return the panel's row of push buttons."
   (mapconcat (pcase-lambda (`(,label ,command))
-               (propertize (lispm-desktop-platinum-push-button label)
+               (propertize (lispm-desktop-platinum-push-button (lispm-desktop-tr label))
                            'lispm-desktop-workspace-action command 'pointer 'hand))
              lispm-desktop-workspaces--actions (propertize " " 'display '(space :width (6)))))
 
 (defun lispm-desktop-workspaces--hint ()
   "Return the line telling the panel's keys."
-  (propertize "⇥ next   ⏎ open   1–9 choose   esc keep" 'face 'lispm-desktop-platinum-toolbar-label))
+  (propertize (lispm-desktop-tr "⇥ next   ⏎ open   1–9 choose   esc keep")
+              'face 'lispm-desktop-platinum-toolbar-label))
 
 (defun lispm-desktop-workspaces--width (columns)
   "Return the panel's width in pixels for COLUMNS of thumbnails: wide
@@ -448,7 +453,8 @@ X, Y of the screen frame, or stands over its upper middle."
 (defun lispm-desktop-workspaces--open (step &optional x y)
   "Choose a workspace from the panel, STEP from the one in front, and go."
   (if (not (lispm-desktop-popup-available-p))
-      (lispm-desktop-workspaces-select (completing-read "Workspace: " (lispm-desktop-editor-workspaces) nil t))
+      (lispm-desktop-workspaces-select (completing-read (lispm-desktop-tr "Workspace: ")
+                                                        (lispm-desktop-editor-workspaces) nil t))
     (pcase (lispm-desktop-workspaces-choose step x y)
       (`(workspace . ,name) (lispm-desktop-workspaces-select name))
       (`(action . ,command)
