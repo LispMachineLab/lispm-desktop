@@ -805,7 +805,6 @@
   ("srt cannot deny %s: write a domain as example.com, *.example.com or example.com:443" . "srt 無法拒絕 %s：網域請寫成 example.com、*.example.com 或 example.com:443")
   ("srt cannot allow %s: write a domain as example.com, *.example.com or example.com:443" . "srt 無法允許 %s：網域請寫成 example.com、*.example.com 或 example.com:443")
   ("Domains sandboxed commands may reach (separated by commas): " . "沙盒中的指令可連線的網域（以逗號分隔）：")
-  ("%s." . "%s。")
   ("Not readable" . "不可讀取")
   ("Change the files and directories commands may not read" . "更改指令不可讀取的檔案和目錄")
   ("Readable after all" . "例外可讀取")

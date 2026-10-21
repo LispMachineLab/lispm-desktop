@@ -805,7 +805,6 @@
   ("srt cannot deny %s: write a domain as example.com, *.example.com or example.com:443" . "srtは%sを拒否できません：ドメインはexample.com、*.example.com、example.com:443の形式で入力してください")
   ("srt cannot allow %s: write a domain as example.com, *.example.com or example.com:443" . "srtは%sを許可できません：ドメインはexample.com、*.example.com、example.com:443の形式で入力してください")
   ("Domains sandboxed commands may reach (separated by commas): " . "サンドボックス内のコマンドが接続できるドメイン（カンマ区切り）：")
-  ("%s." . "%s。")
   ("Not readable" . "読み取り不可")
   ("Change the files and directories commands may not read" . "コマンドが読み取れないファイルとディレクトリを変更")
   ("Readable after all" . "例外的に読み取り可")

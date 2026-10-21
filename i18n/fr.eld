@@ -805,7 +805,6 @@
   ("srt cannot deny %s: write a domain as example.com, *.example.com or example.com:443" . "srt ne peut pas refuser %s : écrivez un domaine sous la forme example.com, *.example.com ou example.com:443")
   ("srt cannot allow %s: write a domain as example.com, *.example.com or example.com:443" . "srt ne peut pas autoriser %s : écrivez un domaine sous la forme example.com, *.example.com ou example.com:443")
   ("Domains sandboxed commands may reach (separated by commas): " . "Domaines que les commandes du bac à sable peuvent atteindre (séparés par des virgules) : ")
-  ("%s." . "%s.")
   ("Not readable" . "Non lisibles")
   ("Change the files and directories commands may not read" . "Modifier les fichiers et répertoires que les commandes ne peuvent pas lire")
   ("Readable after all" . "Lisibles malgré tout")
