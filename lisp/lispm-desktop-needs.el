@@ -37,6 +37,9 @@
 ;;
 ;; :for       what it is needed for, said wherever it is missing
 ;; :brew      the Homebrew formula installing it; :cask, the cask
+;; :head      t to install the formula's HEAD, built from its latest
+;;            sources, where its release is too old, as TDLib's is for
+;;            Telega
 ;; :xcode     t for a program of Apple's command line tools, as git or
 ;;            swift: their names on PATH are Apple's stand-ins until the
 ;;            tools are installed, by Apple's own window
@@ -153,6 +156,7 @@ in its terminal, Apple's command line tools in Apple's window.")
             (not (string-empty-p name))
             (stringp (plist-get properties :for))
             (seq-every-p string-or-nil '(:brew :cask :more :file :bundle))
+            (memq (plist-get properties :head) '(nil t))
             (funcall strings :instead)
             (seq-every-p (lambda (key)
                            (let ((symbols (plist-get properties key)))
@@ -289,7 +293,7 @@ macOS and Linux, Apple's command line tools only on macOS."
 (defun lispm-desktop-needs-install-command (need)
   "Return the command installing NEED, as a shell would read it, or nil."
   (pcase (lispm-desktop-needs-provider need)
-    (`(brew ,formula) (format "brew install %s" formula))
+    (`(brew ,formula) (format "brew install %s%s" (if (lispm-desktop-needs-get need :head) "--HEAD " "") formula))
     (`(cask ,cask) (format "brew install --cask %s" cask))
     ('(xcode) "xcode-select --install")))
 
@@ -551,7 +555,9 @@ went well, as nothing is left to read."
   (let ((brew (lispm-desktop-needs-brew)))
     (cond
      (brew
-      (pcase-let* ((`(,provider ,name) (lispm-desktop-needs-provider (lispm-desktop-needs--job-need job)))
+      (pcase-let* ((need (lispm-desktop-needs--job-need job))
+                   (`(,provider ,name) (lispm-desktop-needs-provider need))
+                   (head (and (eq provider 'brew) (lispm-desktop-needs-get need :head)))
                    (process-environment (append '("HOMEBREW_NO_AUTO_UPDATE=1" "HOMEBREW_NO_ENV_HINTS=1"
                                                   "NONINTERACTIVE=1")
                                                 process-environment))
@@ -560,11 +566,13 @@ went well, as nothing is left to read."
         (setf (lispm-desktop-needs--job-state job) 'installing
               (lispm-desktop-needs--job-since job) (float-time)
               (lispm-desktop-needs--job-note job) "Installing with Homebrew…")
-        (lispm-desktop-needs--log (format "\n$ brew install %s%s\n" (if (eq provider 'cask) "--cask " "") name))
+        (lispm-desktop-needs--log (format "\n$ brew install %s%s%s\n" (if (eq provider 'cask) "--cask " "")
+                                          (if head "--HEAD " "") name))
         (setq lispm-desktop-needs--process
               (make-process
                :name "lispm-desktop-needs" :noquery t :connection-type 'pipe
-               :command (list brew "install" (if (eq provider 'cask) "--cask" "--formula") name)
+               :command `(,brew "install" ,(if (eq provider 'cask) "--cask" "--formula") ,@(and head '("--HEAD"))
+                                ,name)
                :filter (lambda (_process output)
                          (lispm-desktop-needs--log output)
                          (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))

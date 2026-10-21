@@ -5046,7 +5046,9 @@ sources change, whatever their times."
           (should-not (lispm-desktop-term--plan)))
         (let ((system-configuration "aarch64-unknown-linux-gnu"))
           (should-not (lispm-desktop-term--plan)))
-        (cl-letf (((symbol-function 'executable-find) #'ignore))
+        (cl-letf (((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'always)
+                  ((symbol-function 'lispm-desktop-app-ui-needs) #'ignore)
+                  ((symbol-function 'executable-find) #'ignore))
           (should-not (lispm-desktop-term--plan)))
         (let ((prebuilt (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file) 120)))
           (should (string-prefix-p (expand-file-name "prebuilt/" root) prebuilt))
@@ -7646,6 +7648,16 @@ telega-server runs in Docker."
                  (lispm-desktop-app-telega-tdlib-prefixes (list prefix)))
             (should (eq (lispm-desktop-app-telega-missing) 'tdlib))
             (should (string-search lispm-desktop-app-telega-tdlib-command (lispm-desktop-app-telega--page-text)))
+            (should (equal (car (car (lispm-desktop-app-telega--page-buttons))) "Copy Command"))
+            ;; As the catalog declares TDLib, the Installer installs it.
+            (cl-letf (((symbol-function 'lispm-desktop-app-ui-needs)
+                       (lambda (_app) '((library "TDLib" :for "Telegram" :brew "tdlib" :head t
+                                                 :file "include/td/telegram/td_json_client.h")
+                                        (program "cc" :for "building telega-server" :xcode t))))
+                      ((symbol-function 'lispm-desktop-needs--brew-prefix) (lambda () root)))
+              (should (equal (lispm-desktop-app-telega--page-buttons)
+                             '(("Install TDLib…" lispm-desktop-app-telega-install)
+                               ("Check Again" lispm-desktop-app-telega-check-again)))))
             (make-directory (expand-file-name "include/td/telegram" prefix) t)
             (write-region "" nil (expand-file-name "include/td/telegram/td_json_client.h" prefix))
             (make-directory (file-name-directory version-file) t)
@@ -7706,6 +7718,8 @@ not taken."
   (should-not (lispm-desktop-needs-valid-p '("mpv" :for "playing")))
   (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :instead "afplay")))
   (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :commands ("play"))))
+  (should (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head t)))
+  (should-not (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head "yes")))
   (should-not (lispm-desktop-store--item-valid-p
                '(emms :kind app :name "EMMS" :command emms :needs (("mpv"))))))
 
@@ -7742,7 +7756,9 @@ though its name on PATH is found: it is Apple's, offering the tools."
     (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
     (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
   (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
-                 "xcode-select --install")))
+                 "xcode-select --install"))
+  (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
+                 "brew install --HEAD tdlib")))
 
 (ert-deftest lispm-desktop-test-store-needs-from-the-catalog ()
   "An installed app needs what its catalog declares now, though it was

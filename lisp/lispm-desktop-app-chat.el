@@ -170,11 +170,7 @@ list is left alone."
         (goto-char (or at (point-min)))
         (pcase-dolist (`(,window . ,lines) starts)
           (set-window-start window (save-excursion (goto-char (point-min)) (forward-line lines) (point)) t)
-          (set-window-point window (point)))
-        ;; Its page, while it has nothing to show, is looked at after each
-        ;; command; conversations also come between commands.
-        (when (bound-and-true-p lispm-desktop-app-ui-mode)
-          (lispm-desktop-app-ui--refresh-page))))))
+          (set-window-point window (point)))))))
 
 (defun lispm-desktop-app-chat-refresh-all ()
   "Draw again the lists of conversations shown, where they changed."

@@ -32,10 +32,12 @@
 ;;   setting up Telega talks to Telegram through telega-server, a program
 ;;              it builds once from TDLib, Telegram's library, of version
 ;;              1.8.66 or later; until it is built the window says what is
-;;              missing and how to get it: TDLib, with Homebrew's command
-;;              to copy, the C compiler, then a button building
-;;              telega-server; then it signs in, asking your phone number
-;;              and the code Telegram sends
+;;              missing, TDLib or a C compiler, and installs it in the
+;;              Installer, as the App Store's catalog declares them its
+;;              needs (lispm-desktop-needs.el), or copies the command
+;;              installing it; then a button builds telega-server, and it
+;;              signs in, asking your phone number and the code Telegram
+;;              sends
 ;;   buttons    Search…, New Chat… and Join by Link… over the list; Back,
 ;;              Attach… and Mark Read over a chat
 ;;   status     Telega's connection and the chats with messages unread, on
@@ -49,6 +51,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-needs)
 
 ;; Telega's own variables and functions, read once it runs.
 (defvar telega-directory)
@@ -117,7 +120,10 @@ say it, or nil when they do not."
            (version (and prefix (lispm-desktop-app-telega-tdlib-version prefix))))
       (cond ((null prefix) 'tdlib)
             ((and version (version< version telega-tdlib-min-version)) 'old-tdlib)
-            ((not (and (executable-find "cc") (or (executable-find "gmake") (executable-find "make"))))
+            ((not (and (executable-find "cc") (or (executable-find "gmake") (executable-find "make"))
+                       ;; macOS's cc and make are Apple's stand-ins until
+                       ;; its command line tools are installed.
+                       (or (not (eq system-type 'darwin)) (lispm-desktop-needs-command-line-tools-p))))
              'compiler)
             (t 'server)))))
 
@@ -166,6 +172,28 @@ not built, the page saying what it needs."
   (kill-new command)
   (message "Copied: %s" command))
 
+(defun lispm-desktop-app-telega--needs ()
+  "Return what Telega's catalog declares it needs and is missing here, of
+what its page says it lacks, and the Installer can install."
+  (let ((lacks (pcase (lispm-desktop-app-telega-missing)
+                 ('tdlib 'library)
+                 ('compiler 'program))))
+    (seq-filter (lambda (need)
+                  (and (eq (lispm-desktop-needs-kind need) lacks) (lispm-desktop-needs-installable-p need)))
+                (lispm-desktop-needs-missing (lispm-desktop-app-ui-needs 'telega)))))
+
+(defun lispm-desktop-app-telega-install ()
+  "Install what Telega lacks, TDLib or a C compiler, in the Installer,
+once asked; then look again."
+  (interactive)
+  (let ((buffer (current-buffer)))
+    (lispm-desktop-needs-ask (or (lispm-desktop-app-telega--needs) (user-error "Nothing to install here"))
+                             "Telega"
+                             (lambda (_installed)
+                               (when (buffer-live-p buffer)
+                                 (with-current-buffer buffer
+                                   (lispm-desktop-app-ui--refresh-page)))))))
+
 (defun lispm-desktop-app-telega-copy-command ()
   "Copy the command installing what Telega lacks, to paste in Terminal."
   (interactive)
@@ -191,8 +219,8 @@ not built, the page saying what it needs."
   (pcase (lispm-desktop-app-telega-missing)
     ('tdlib
      (format (concat "Telega talks to Telegram through TDLib, Telegram's library,\n"
-                     "of version %s or later.  Install it with Homebrew, in Terminal:\n\n%s\n\n"
-                     "It is built from its sources, which takes a while.\nThen check again.")
+                     "of version %s or later, which Homebrew installs:\n\n%s\n\n"
+                     "It builds it from its latest sources, which takes a while.")
              telega-tdlib-min-version lispm-desktop-app-telega-tdlib-command))
     ('old-tdlib
      (let ((prefix (lispm-desktop-app-telega--tdlib-prefix)))
@@ -202,8 +230,7 @@ not built, the page saying what it needs."
                lispm-desktop-app-telega-tdlib-upgrade-command)))
     ('compiler
      (format (concat "Telega builds telega-server, its program talking to Telegram,\n"
-                     "with a C compiler, which Apple's Command Line Tools install:\n\n%s\n\n"
-                     "Then check again.")
+                     "with a C compiler, which Apple's command line tools install:\n\n%s")
              lispm-desktop-app-telega-compiler-command))
     (_
      (concat "TDLib is installed.  Telega now builds telega-server,\n"
@@ -213,10 +240,14 @@ not built, the page saying what it needs."
 (defun lispm-desktop-app-telega--page-buttons ()
   "Return the buttons of Telega's page: copying the command it needs, and
 looking again; or building telega-server."
-  (if (eq (lispm-desktop-app-telega-missing) 'server)
-      '(("Build telega-server" lispm-desktop-app-telega-build))
-    '(("Copy Command" lispm-desktop-app-telega-copy-command)
-      ("Check Again" lispm-desktop-app-telega-check-again))))
+  (cond ((eq (lispm-desktop-app-telega-missing) 'server)
+         '(("Build telega-server" lispm-desktop-app-telega-build)))
+        ((lispm-desktop-app-telega--needs)
+         `((,(format "Install %s…" (lispm-desktop-needs-name (car (lispm-desktop-app-telega--needs))))
+            lispm-desktop-app-telega-install)
+           ("Check Again" lispm-desktop-app-telega-check-again)))
+        (t '(("Copy Command" lispm-desktop-app-telega-copy-command)
+             ("Check Again" lispm-desktop-app-telega-check-again)))))
 
 (define-derived-mode lispm-desktop-app-telega-setup-mode special-mode "Telega"
   "Telega's window while telega-server is not built.")
