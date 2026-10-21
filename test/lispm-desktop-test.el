@@ -3989,6 +3989,30 @@ from the edge."
                      nil)
                     'cancel))))))
 
+(ert-deftest lispm-desktop-test-alert-widens-for-long-words ()
+  "An alert whose buttons' words are too long for Mac OS 9's width, as in
+German, is just wide enough for the button standing apart to keep clear
+of Cancel; one whose words fit keeps the width."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+    (cl-letf (((symbol-function 'lispm-desktop-platinum-push-button-width)
+               (lambda (label) (+ 24 (* 6 (length label))))))
+      (should-not (plist-get (lispm-desktop-popup--alert-layout
+                              "Uninstall?" nil '(("Uninstall All" all nil) ("Cancel" cancel cancel)
+                                                 ("Uninstall" item default)))
+                             :width))
+      (let* ((layout (lispm-desktop-popup--alert-layout
+                      "„Test“ deinstallieren?" nil
+                      '(("Alles deinstallieren" all nil) ("Abbrechen" cancel cancel)
+                        ("Deinstallieren" item default))))
+             (w (plist-get layout :width))
+             (buttons (plist-get layout :buttons)))
+        (should (> w lispm-desktop-popup-alert-width))
+        (pcase-let ((`(,_ ,_ ,_ ,apart ,_ ,apart-width) (nth 0 buttons))
+                    (`(,_ ,_ ,_ ,cancel ,_ ,_) (nth 1 buttons))
+                    (`(,_ ,_ ,_ ,default ,_ ,default-width) (nth 2 buttons)))
+          (should (= (- cancel (+ apart apart-width)) (* 2 lispm-desktop-popup-button-gap)))
+          (should (= (+ default default-width 3) (- w 12))))))))
+
 ;;;; lispm-desktop-modal
 
 (ert-deftest lispm-desktop-test-modal-key-roles ()
