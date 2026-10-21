@@ -577,11 +577,22 @@ while it is being installed, or why it cannot be, with Try Again; until srt runs
 should be confined fail rather than run outside it.  Allowed Domains are the domains commands may
 reach at Low, besides package registries and code hosts, and at Middle, alone: =example.com=,
 =*.example.com= for its subdomains, or =example.com:443=.  The panel shows with LispM Agent 0.3.0
-or later.  personal.el can set both:
+or later.
+
+With LispM Agent 0.4.0 there is a fifth level, Custom, of rules of your own; while it is chosen,
+the panel shows them under Custom Rules.  Start from Low, Middle or High copies a level's rules
+(asking first when that replaces rules you set); each list, what commands may not read, may read
+after all, may write, may not write, the domains they may reach and those refused, and the Unix
+sockets they may connect to, has a Change… button; check boxes let them serve on local ports, use
+pseudo-terminals and, on macOS, send Apple Events, which opens applications outside the sandbox.
+Customize… edits the same rules in Customize.  Until you change one, Custom has Middle's rules.
+personal.el can set all of it:
 
 #+begin_src emacs-lisp
-(setq lispm-sandbox-level 'middle                 ; none, low, middle or high
-      lispm-sandbox-allowed-domains '("api.example.com" "*.example.org"))
+(setq lispm-sandbox-level 'middle                 ; none, low, middle, high or custom
+      lispm-sandbox-allowed-domains '("api.example.com" "*.example.org")
+      lispm-sandbox-custom '(:deny-read ("~/.ssh") :allow-write (".")
+                             :allowed-domains ("github.com") :local-binding t))
 #+end_src
 
 * Startup
