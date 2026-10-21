@@ -51,13 +51,16 @@ has not been made yet: the first start asks for it and saves the answer."
                  (const :tag "Ask at the next start" nil)))
 
 (defcustom lispm-desktop-theme nil
-  "The colour theme: `dracula', `platinum' (Mac OS 9's Platinum greys), or
-any other theme installed; the chrome takes its colours from whichever.  nil
+  "The colour theme: `dracula', `platinum' (Mac OS 9's Platinum greys),
+`win3' (Windows 3.2's scheme), `os2' (OS/2 2.0's), or any other theme
+installed; the chrome takes its colours from whichever.  nil
 means the choice has not been made yet: the first start asks for it.  Change
 it from the λ menu, with `lispm-desktop-set-theme', or by setting it in your
 personal.el: once Emacs is set up, a new value is loaded at once."
   :type '(choice (const :tag "Dracula" dracula)
                  (const :tag "Platinum" platinum)
+                 (const :tag "Windows 3.2" win3)
+                 (const :tag "OS/2 2.0" os2)
                  (symbol :tag "Another installed theme")
                  (const :tag "Ask at the next start" nil)))
 
@@ -141,9 +144,10 @@ third of a second on the desktop."
 
 (defun lispm-desktop-set-theme (theme)
   "Switch to colour THEME now and at every later start."
-  (interactive (list (intern (completing-read "Theme: " '("dracula" "platinum") nil t))))
-  (lispm-desktop-load-theme theme)
-  (customize-save-variable 'lispm-desktop-theme theme))
+  (interactive (list (intern (completing-read "Theme: " '("dracula" "platinum" "win3" "os2") nil t))))
+  ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
+  (customize-save-variable 'lispm-desktop-theme theme)
+  (lispm-desktop-load-theme theme))
 
 (defcustom lispm-desktop-user-file (locate-user-emacs-file "personal.el")
   "The user's own configuration, loaded after lispm-desktop is set up."

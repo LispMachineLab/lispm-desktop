@@ -73,7 +73,7 @@ the window that had the keyboard gets it back once the walk is over.")
 row of pixels a string: black (#) softened in greys (5, A, D) into the
 bar's lit edges (W).  The right corner is its mirror.")
 
-(cl-defun lispm-desktop-platinum-draw-menu-title (palette width &key label highlighted corner marked)
+(cl-defgeneric lispm-desktop-platinum-draw-menu-title (palette width &key label highlighted corner marked)
   "Return an SVG of a stretch of the menu bar WIDTH pixels wide, in PALETTE.
 The bar is `lispm-desktop-platinum-menu-bar-height' tall: a lit top line,
 platinum, a shaded line and a black line along its bottom.  LABEL, a

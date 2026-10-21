@@ -172,7 +172,7 @@ That is the text property `lispm-desktop-platinum-target'."
   "Return non-nil while TARGET is held down in the window being drawn."
   (equal (window-parameter (selected-window) 'lispm-desktop-platinum-pressed) target))
 
-(defun lispm-desktop-platinum--box-button (string kind command help)
+(defun lispm-desktop-platinum-box-button (string kind command help)
   "Return STRING as title bar box KIND, which runs COMMAND with its window.
 HELP describes it.  It is pressed rather than clicked, see
 `lispm-desktop-platinum-press'."
@@ -202,7 +202,7 @@ press does nothing and the release selects the window."
     (when (and frame (lispm-desktop-platinum--movable-p frame) (window-at-side-p window 'top))
       (lispm-desktop-platinum-drag-outline frame 'move))))
 
-(defvar lispm-desktop-platinum--title-map
+(defvar lispm-desktop-platinum-title-map
   (let ((map (make-sparse-keymap)))
     (keymap-set map "<tab-line> <down-mouse-1>" #'lispm-desktop-platinum--title-press)
     (keymap-set map "<tab-line> <mouse-1>"
@@ -219,7 +219,7 @@ press does nothing and the release selects the window."
 behaved: a click brings the window forward, a double click rolls it up,
 a drag moves the window, and a Command click (Meta) pops up its buffers.")
 
-(defconst lispm-desktop-platinum--title-help
+(defconst lispm-desktop-platinum-title-help
   (format "Drag onto another window to swap them; double-click to roll up; %s-click, or \
 C-c u, for the window's buffers"
           (if (eq system-type 'darwin) "⌘" "M"))
@@ -308,7 +308,7 @@ standing a corner's square in from the frame's side keeps Mac OS 9's."
                             lispm-desktop-platinum-box-margin)))
       (cons (margin 'left) (margin 'right)))))
 
-(defun lispm-desktop-platinum--window-box-margins (window)
+(defun lispm-desktop-platinum-window-box-margins (window)
   "Return how far in from the ends of WINDOW's title bar its boxes stand,
 see `lispm-desktop-platinum--box-margins': Mac OS 9's unless the window
 system resizes WINDOW's frame from its corners.  A floating window's
@@ -323,15 +323,15 @@ frame has two of them at its title bar's ends, and, rolled up, all four."
            top))
       (cons margin margin))))
 
-(defun lispm-desktop-platinum-title-layout (width title-width &optional controls margins)
+(cl-defgeneric lispm-desktop-platinum-title-layout (width title-width &optional controls margins)
   "Return how a title bar WIDTH pixels wide lays out a title TITLE-WIDTH wide.
-CONTROLS, as `lispm-desktop-platinum--window-controls' returns them,
+CONTROLS, as `lispm-desktop-platinum-window-controls' returns them,
 says which boxes the bar holds, by default all three.  MARGINS,
 \(LEFT . RIGHT) pixels, stands the boxes nearest the bar's ends that far
 in, by default Mac OS 9's `lispm-desktop-platinum-box-margin'; an end
 without boxes keeps Mac OS 9's.  A window's bar stands its boxes clear
 of the corners its frame is resized from, see
-`lispm-desktop-platinum--window-box-margins'.  The value is a plist: the
+`lispm-desktop-platinum-window-box-margins'.  The value is a plist: the
 title stretch, between the boxes, runs
 from :start to :end; the title, as wide as :title, starts at :label-x;
 :ridges lists the \(FROM . TO) columns of the ridges either side;
@@ -365,7 +365,7 @@ as the sidebar, or chrome, such as the browser's address window."
   (or (window-parameter window 'window-side)
       (window-parameter window 'lispm-desktop-chrome)))
 
-(defun lispm-desktop-platinum--window-controls (window)
+(defun lispm-desktop-platinum-window-controls (window)
   "Return the title bar boxes of WINDOW as (CLOSE ZOOM COLLAPSE).
 Each is `on' or nil, a box the window lacks being left out, as Mac OS 9
 left it out.  A side window or chrome closes but neither zooms nor
@@ -397,7 +397,7 @@ collapses; a window collapses only when another shares its column."
          (icon (lispm-desktop-platinum--buffer-icon buffer))
          (title (lispm-desktop-platinum-buffer-title buffer))
          (modified (and (buffer-file-name buffer) (buffer-modified-p buffer)))
-         (controls (lispm-desktop-platinum--window-controls window))
+         (controls (lispm-desktop-platinum-window-controls window))
          ;; What its program says it is doing, as a terminal's does.
          (status (run-hook-with-args-until-success 'lispm-desktop-platinum-buffer-status-functions
                                                    buffer))
@@ -406,7 +406,7 @@ collapses; a window collapses only when another shares its column."
          (framed (lispm-desktop-platinum--framed-p (window-frame window)))
          (edges (cons (not (and framed (window-at-side-p window 'left)))
                       (not (and framed (window-at-side-p window 'right)))))
-         (margins (lispm-desktop-platinum--window-box-margins window))
+         (margins (lispm-desktop-platinum-window-box-margins window))
          (key (list lispm-desktop-platinum-generation width active icon title modified controls
                     pressed status edges margins))
          (cached (window-parameter window 'lispm-desktop-platinum-title-bar)))
@@ -417,12 +417,12 @@ collapses; a window collapses only when another shares its column."
         (set-window-parameter window 'lispm-desktop-platinum-title-bar (cons key bar))
         bar))))
 
-(defun lispm-desktop-platinum-draw-title-bar (width active icon title modified controls
+(cl-defgeneric lispm-desktop-platinum-draw-title-bar (width active icon title modified controls
                                                      &optional pressed status edges margins)
   "Return a title bar WIDTH pixels wide for ICON and TITLE.
 ACTIVE draws the ridges and boxes; an inactive bar lies flat, its title
 greyed.  MODIFIED marks the close box; CONTROLS is a value of
-`lispm-desktop-platinum--window-controls'; PRESSED names the box held
+`lispm-desktop-platinum-window-controls'; PRESSED names the box held
 down, if any; STATUS, a coloured label, follows the title.  EDGES,
 \(LEAD . TRAIL), says whether the bar lights its left end and shades its
 right, by default both.  MARGINS stands the boxes in from the bar's
@@ -448,12 +448,12 @@ title too."
                   (propertize (apply #'lispm-desktop-platinum--title-part (- to from) :active active
                                      :label label :label-x (- (plist-get layout :label-x) from)
                                      options)
-                              'keymap lispm-desktop-platinum--title-map
-                              'help-echo lispm-desktop-platinum--title-help))))
+                              'keymap lispm-desktop-platinum-title-map
+                              'help-echo lispm-desktop-platinum-title-help))))
     (if (not active)
         (funcall title-part 0 width)
       (cl-flet ((box (kind command help)
-                  (lispm-desktop-platinum--box-button
+                  (lispm-desktop-platinum-box-button
                    (propertize " " 'display (lispm-desktop-platinum--box kind (and (eq kind 'close) modified)
                                                                         (eq pressed kind)))
                    kind command help))
@@ -690,8 +690,8 @@ the title's left under the title bar."
                   (- (window-pixel-width window) (window-right-divider-width window)
                      (window-scroll-bar-width window))
                   (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)
-                  (lispm-desktop-platinum--window-controls window)
-                  (lispm-desktop-platinum--window-box-margins window)))
+                  (lispm-desktop-platinum-window-controls window)
+                  (lispm-desktop-platinum-window-box-margins window)))
          (edges (window-pixel-edges window)))
     (cons (+ (nth 0 edges) (plist-get layout :label-x))
           (+ (nth 1 edges) (window-tab-line-height window)))))

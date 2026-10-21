@@ -120,7 +120,7 @@ for none: an application's window says only what it has to say.")
 its top and left (w), crossed by three diagonal ridges, each a lit line
 beside a shaded one (h), softened at their lower ends (i).")
 
-(defun lispm-desktop-platinum-draw-grow-box (palette height)
+(cl-defgeneric lispm-desktop-platinum-draw-grow-box (palette height)
   "Return an SVG of the grow box, the ridged square in a window's corner.
 It is sixteen pixels square, outlined along its top and left, in
 PALETTE's greys, centred in HEIGHT pixels."

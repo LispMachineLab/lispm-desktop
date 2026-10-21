@@ -51,9 +51,11 @@
 
 (defun lispm-desktop-platinum-icon-file (name)
   "Return the file of icon NAME: a file of icons/os9 without its extension,
-`lambda' for LispM's rainbow λ, `emacs' for the icon Emacs ships with,
-read from this Emacs's own data directory, or an absolute file name, as
-of an application's icon installed from the App Store."
+or of the look's own icons, which take their place where the look draws
+one (see `lispm-desktop-look-define'); `lambda' for LispM's rainbow λ,
+`emacs' for the icon Emacs ships with, read from this Emacs's own data
+directory, or an absolute file name, as of an application's icon
+installed from the App Store."
   (pcase name
     ((pred (lambda (name) (and (stringp name) (file-name-absolute-p name)))) name)
     ('lambda (expand-file-name "icons/lispm-lambda.png" lispm-desktop-directory))
@@ -62,7 +64,13 @@ of an application's icon installed from the App Store."
               (if (file-readable-p file)
                   file
                 (lispm-desktop-platinum-icon-file "document"))))
-    (_ (expand-file-name (format "icons/os9/%s.svg" name) lispm-desktop-directory))))
+    (_ (let ((icons (expand-file-name "icons" lispm-desktop-directory))
+             (file (format "%s.svg" name)))
+         (or (seq-some (lambda (directory)
+                         (let ((file (expand-file-name file (expand-file-name directory icons))))
+                           (and (file-readable-p file) file)))
+                       (lispm-desktop-look-get :icons))
+             (expand-file-name file (expand-file-name "os9" icons)))))))
 
 (defun lispm-desktop-platinum-icon (name)
   "Return the Finder icon NAME as a string one icon wide.

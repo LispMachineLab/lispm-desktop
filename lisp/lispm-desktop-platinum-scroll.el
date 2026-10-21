@@ -69,8 +69,19 @@ See `lispm-desktop-platinum-scroll-sync'."
 The arrow boxes and the line closing the bar take the rest."
   (- height (* 2 lispm-desktop-platinum-scroll-arrow) 1))
 
-(defun lispm-desktop-platinum-scroll-thumb (height start end min max)
+(cl-defgeneric lispm-desktop-platinum-scroll-layout (height)
+  "Return where the parts of a scroll bar HEIGHT pixels tall lie, a plist:
+the track from :track, :track-length pixels long, and the arrow boxes
+from :up and :down, each :arrow pixels tall.  Mac OS 9 put the arrows
+together at the bar's bottom, under the track."
+  (let ((track (lispm-desktop-platinum--scroll-track height)))
+    (list :track 0 :track-length track
+          :up track :down (+ track lispm-desktop-platinum-scroll-arrow)
+          :arrow lispm-desktop-platinum-scroll-arrow)))
+
+(cl-defgeneric lispm-desktop-platinum-scroll-thumb (height start end min max)
   "Return the thumb of a scroll bar HEIGHT pixels tall, as (TOP . LENGTH).
+TOP is counted from the bar's top, see `lispm-desktop-platinum-scroll-layout'.
 The window shows from START to END of a buffer spanning MIN to MAX.  The
 value is nil when everything shows, or when the track is too short."
   (let* ((track (lispm-desktop-platinum--scroll-track height))
@@ -100,7 +111,7 @@ flat, its arrow grey."
       (lispm-desktop-platinum-svg-row svg (- 7 i) (+ 8 i) (+ top (if up (+ 4 i) (- 7 i)))
                                    (if enabled (plist-get palette :outline) (funcall grey #x88))))))
 
-(defun lispm-desktop-platinum-draw-scroll-bar (palette height thumb active)
+(cl-defgeneric lispm-desktop-platinum-draw-scroll-bar (palette height thumb active)
   "Return an SVG of a scroll bar HEIGHT pixels tall in PALETTE.
 It is `lispm-desktop-platinum-scroll-width' wide, outlined down both
 sides: a track recessed under a lip along its top and left, the thumb in
@@ -348,13 +359,15 @@ As Mac OS 9's arrows and track did, holding repeats after a pause."
 (defun lispm-desktop-platinum--scroll-drag (window frame grab thumb)
   "Drag WINDOW's thumb, held GRAB pixels from its top, until the button rises.
 THUMB is its (TOP . LENGTH) when the drag began; FRAME holds the bar."
-  (let* ((track (lispm-desktop-platinum--scroll-track (frame-pixel-height frame)))
+  (let* ((layout (lispm-desktop-platinum-scroll-layout (frame-pixel-height frame)))
+         (from (plist-get layout :track))
+         (track (plist-get layout :track-length))
          (length (cdr thumb)))
     (track-mouse
       (while (mouse-movement-p (let ((echo-keystrokes 0)) (read-event)))
-        (let* ((top (max 0 (min (- track length)
-                                (- (lispm-desktop-platinum--scroll-mouse-y frame) grab))))
-               (fraction (/ (float top) (max 1 (- track length)))))
+        (let* ((top (max from (min (+ from (- track length))
+                                   (- (lispm-desktop-platinum--scroll-mouse-y frame) grab))))
+               (fraction (/ (float (- top from)) (max 1 (- track length)))))
           (lispm-desktop-platinum--scroll-in
            window
            (lambda ()
@@ -366,7 +379,8 @@ THUMB is its (TOP . LENGTH) when the drag began; FRAME holds the bar."
 
 (defun lispm-desktop-platinum-scroll-press (event)
   "Act on a press in a scroll bar, as Mac OS 9's scroll bars did.
-The arrows, together at the bar's bottom, scroll a line and the track
+The arrows, where `lispm-desktop-platinum-scroll-layout' puts them,
+together at the bar's bottom in Mac OS 9's, scroll a line and the track
 above or below the thumb a page, over and over while held; the thumb
 drags the window's text along."
   (interactive "e")
@@ -375,11 +389,12 @@ drags the window's text along."
          (window (frame-parameter frame 'lispm-desktop-platinum-scroll-target))
          (thumb (frame-parameter frame 'lispm-desktop-platinum-scroll-thumb))
          (y (cdr (posn-x-y position)))
-         (track (lispm-desktop-platinum--scroll-track (frame-pixel-height frame))))
+         (layout (lispm-desktop-platinum-scroll-layout (frame-pixel-height frame)))
+         (arrow (plist-get layout :arrow)))
     (when (window-live-p window)
-      (cond ((>= y (+ track lispm-desktop-platinum-scroll-arrow))
+      (cond ((<= (plist-get layout :down) y (+ (plist-get layout :down) arrow -1))
              (lispm-desktop-platinum--scroll-repeat window (lambda () (scroll-up 1))))
-            ((>= y track)
+            ((<= (plist-get layout :up) y (+ (plist-get layout :up) arrow -1))
              (lispm-desktop-platinum--scroll-repeat window (lambda () (scroll-down 1))))
             ((null thumb))
             ((< y (car thumb)) (lispm-desktop-platinum--scroll-repeat window #'scroll-down))
