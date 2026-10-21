@@ -306,7 +306,7 @@ the browser: nothing needs to be known about Emacs to use it.  On macOS 11 or la
 silicon or Intel, open Terminal and paste:
 
 #+begin_src sh
-curl -fsSL https://lispmachinelab.github.io/install.sh | sh
+curl -fsSL https://lispm.ai/install.sh | sh
 #+end_src
 
 That runs [[file:install.sh][install.sh]].  It installs Apple's command line tools when they
