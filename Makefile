@@ -3,12 +3,14 @@ EMACS ?= emacs
 # this one by default, as lispm-desktop-deps.el looks for it.
 LISPM_BROWSER ?= ../lispm-browser/lisp
 
-.PHONY: test compile i18n native native-test
+.PHONY: test compile i18n native native-test pin
 
 # Tests stub a few primitives; the code they test runs uncompiled, so the
 # native compiler need not build trampolines for them, which takes seconds.
+# The terminals' tests use the module `make native' built, if any.
 test:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
+	  --eval "(setq lispm-desktop-term-module-source 'build)" \
 	  -L lisp -L $(LISPM_BROWSER) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code
@@ -25,11 +27,18 @@ compile:
 	status=$$?; rm -f lisp/*.elc $(LISPM_BROWSER)/*.elc; exit $$status
 
 # lispm-desktop-term's module: terminals emulated off Emacs's thread, in Rust.
-# lispm-desktop builds it itself at the first start where Cargo is, and again
-# at a start that finds its sources changed.
+# lispm-desktop downloads it, checked, unless lispm-desktop-term-module-source
+# is `build': then it builds it itself at the first start, and again at a
+# start that finds its sources changed.
 native:
 	cd native/lispm-desktop-term && cargo build --release
 
 # The module's own tests, which need no Emacs.
 native-test:
 	cd native/lispm-desktop-term && cargo test --locked
+
+# The SHA-256 of the modules the terminal module workflow published for the
+# sources, written into lisp/lispm-desktop-term-sums.eld: a release of LispM
+# pins its own sources, so its downloads are checked against them.
+pin:
+	EMACS=$(EMACS) python3 scripts/pin-term-module.py

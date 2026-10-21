@@ -50,7 +50,7 @@ or see LispM Agent's [[https://github.com/LispMachineLab/lispm-agent#backends][B
 Optional, used when present:
 
 - ~claude~ and ~codex~ on ~PATH~ (Hermes once the App Store has added it);
-- Rust's ~cargo~, to build the terminal module; without it a prebuilt, checksummed one is downloaded;
+- Rust's ~cargo~, only to build the terminal module yourself (see below); by default it is downloaded;
 - Swift, on macOS 15.4+, for the browser's Chrome extensions;
 - an Emacs built with xwidgets, for the browser;
 - the Maple Mono NF CN font, which keeps terminal columns aligned with CJK;
@@ -83,7 +83,8 @@ Optional, used when present:
   bars (=C-c a n= goes to the next one waiting).
 - *Terminals that never stall Emacs*: each emulated on a thread of its own by a Rust module
   built on [[https://github.com/alacritty/alacritty][Alacritty]]'s terminal (=native/lispm-desktop-term=); Emacs redraws only those on
-  screen.  Eat stands in until the module is built or downloaded.
+  screen.  The module is downloaded as built for this computer and kept only when its SHA-256 is
+  the one this repository pins; Eat stands in until it is there.
 - *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, Startup
   and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
@@ -269,9 +270,23 @@ share one configuration and its state files; the one that quits last keeps its o
 =make test= runs the ERT tests, among them that every catalog of =i18n/= translates every message
 the code gives (=make i18n= lists what each lacks), and =make compile= checks for byte-compiler
 warnings; both need
-LispM Browser, beside this checkout or named by =LISPM_BROWSER= (its =lisp/=).  =make native=
-builds the terminal module and =make native-test= runs its tests.  The =terminal module= workflow
-publishes prebuilt modules as the releases =term-module-VERSION=.
+LispM Browser, beside this checkout or named by =LISPM_BROWSER= (its =lisp/=).
+
+The terminal module is downloaded, never built, unless you ask for it:
+
+#+begin_src emacs-lisp
+(setopt lispm-desktop-term-module-source 'build)   ; build it with cargo, at every change of its sources
+#+end_src
+
+=make native= builds it and =make native-test= runs its tests.  The =terminal module= workflow
+publishes prebuilt modules as the releases =term-module-VERSION=, VERSION a digest of
+=native/lispm-desktop-term='s sources.  LispM keeps a download only when its SHA-256 is the one
+=lisp/lispm-desktop-term-sums.eld= pins: the pins travel in this repository's signed history, not
+beside the binaries, so a library changed on a release is refused whatever its =SHA256SUMS= says.
+After the sources change and the workflow has published their module, =make pin= writes the
+pins (=scripts/pin-term-module.py= downloads and checks each library); a release commits them,
+at the latest in its "Version X.Y.Z" pull request.  Until then main's sources are not pinned,
+the module last downloaded keeps working, and only ~build~ gets one for them.
 
 * License
 

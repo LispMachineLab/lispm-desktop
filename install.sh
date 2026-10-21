@@ -278,11 +278,10 @@ install_packages() {
   fi
 }
 
-# Build the native modules where their compilers are: the browser's,
-# for Chrome extensions, with the command line tools' Swift; the
-# terminals', with Rust's Cargo, which LispM can also do later.  Without
-# Cargo, the terminals' module is downloaded as built for this Mac by
-# lispm-desktop's workflow, its checksum checked, as LispM does itself.
+# The native modules: the browser's, for Chrome extensions, built where
+# the command line tools' Swift is; the terminals', downloaded as built for
+# this Mac by lispm-desktop's workflow and kept only when its SHA-256 is
+# the one the release pins, as LispM does itself.  Nobody has to build it.
 build_modules() {
   webext=$LISPM_HOME/lispm-browser/native/lispm-browser-webext
   version=$(sw_vers -productVersion)
@@ -292,16 +291,10 @@ build_modules() {
     (cd "$webext" && swift build -c release --product lispm_browser_webext >"$LISPM_HOME/webext.log" 2>&1) ||
       note "It did not build (see $LISPM_HOME/webext.log); LispM tries again when you add an extension."
   fi
-  if command -v cargo >/dev/null 2>&1; then
-    say "Building LispM's terminals"
-    make -C "$DESKTOP" native >"$LISPM_HOME/terminal.log" 2>&1 ||
-      note "They did not build (see $LISPM_HOME/terminal.log); LispM tries again at its next start."
-  else
-    say "Fetching LispM's terminals"
-    "$APP/Contents/MacOS/Emacs" -Q --batch -L "$DESKTOP/lisp" -l lispm-desktop-term \
-      -f lispm-desktop-term-batch-download >"$LISPM_HOME/terminal.log" 2>&1 ||
-      note "They could not be fetched (see $LISPM_HOME/terminal.log); LispM tries again at its next start."
-  fi
+  say "Fetching LispM's terminals"
+  "$APP/Contents/MacOS/Emacs" -Q --batch -L "$DESKTOP/lisp" -l lispm-desktop-term \
+    -f lispm-desktop-term-batch-download >"$LISPM_HOME/terminal.log" 2>&1 ||
+    note "They could not be fetched (see $LISPM_HOME/terminal.log); LispM tries again at its next start."
 }
 
 cleanup() {
