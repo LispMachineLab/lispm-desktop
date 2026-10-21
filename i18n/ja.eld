@@ -1201,4 +1201,5 @@
   ("Workspace: " . "ワークスペース：")
   ("Installing the icon font…" . "アイコンフォントをインストール中…")
   ("The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again" . "アイコンフォントをインストールできませんでした（%s）。M-x lispm-desktop-install-fontsで再試行できます")
-  ("LispM's agents are not set up: %s" . "LispMのエージェントは設定されていません：%s")))
+  ("LispM's agents are not set up: %s" . "LispMのエージェントは設定されていません：%s")
+  ("lispm-kernel could not be turned on: %s" . "lispm-kernel をオンにできませんでした：%s")))

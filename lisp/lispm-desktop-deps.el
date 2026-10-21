@@ -23,14 +23,17 @@
 
 ;;; Commentary:
 
-;; LispM Desktop runs two other LispM projects, each a repository of its
-;; own: lispm-agent, LispM's agents, and lispm-browser, its browser.  Each
-;; is found where it already is, else in a checkout beside the desktop's,
-;; else its latest release is installed from its repository with package-vc:
+;; LispM Desktop runs other LispM projects, each a repository of its own:
+;; lispm-agent, LispM's agents, lispm-browser, its browser, and, once
+;; `lispm-desktop-kernel' asks for it, lispm-kernel, its runtime for
+;; background work.  Each is found where it already is, else in a checkout
+;; beside the desktop's, else its latest release is installed from its
+;; repository with package-vc:
 ;;
 ;;   on `load-path'        a copy the user's own init file put there
 ;;   ../lispm-agent/lisp   a checkout beside this one, as a developer
-;;   ../lispm-browser/lisp   keeps the three
+;;   ../lispm-browser/lisp   keeps them
+;;   ../lispm-kernel/lisp
 ;;   package-vc            the first start of everyone else, once
 ;;
 ;; The packages their main files require are installed as package.el
@@ -44,7 +47,8 @@
 
 (defconst lispm-desktop-deps
   '((lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent")
-    (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"))
+    (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser")
+    (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"))
   "The LispM projects the desktop runs: (FEATURE :url URL :checkout NAME).
 FEATURE is the project's main file, in lisp/ of its repository at URL;
 NAME is the directory of a checkout of it beside the desktop's.")

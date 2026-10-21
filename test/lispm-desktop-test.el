@@ -1120,6 +1120,80 @@ release from its repository, lisp/ holding its sources."
                                                  :lisp-dir "lisp")
                                   :last-release)))))))
 
+(ert-deftest lispm-desktop-test-deps-kernel ()
+  "lispm-kernel is got as the other projects are: from a checkout beside the
+desktop's, ../lispm-kernel, else its latest release with package-vc."
+  (let ((installed nil)
+        (load-path '("/elsewhere")))
+    (cl-letf (((symbol-function 'locate-library) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
+                 (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
+        (lispm-desktop-deps-ensure 'lispm-kernel)
+        (should (equal load-path '("/beside/lispm-kernel/lisp" "/elsewhere")))
+        (should-not installed))
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout) #'ignore))
+        (lispm-desktop-deps-ensure 'lispm-kernel))
+      (should (equal installed '(((lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel"
+                                                :lisp-dir "lisp")
+                                  :last-release)))))))
+
+(defvar lispm-kernel-desktop-mode)
+
+(ert-deftest lispm-desktop-test-kernel ()
+  "lispm-kernel is not even loaded until `lispm-desktop-kernel' asks for it;
+then its Lisp is got and its mode turned on, at setup or as soon as the
+option is set, and off again when it is set to nil.  A batch Emacs gets
+the Lisp only, and what goes wrong is said and leaves the desktop as it
+was."
+  (let ((lispm-desktop-kernel nil)
+        (lispm-kernel-desktop-mode nil)
+        (provided (featurep 'lispm-kernel-desktop))
+        (noninteractive nil)
+        (inhibit-message t)
+        (ensured 0)
+        (failure nil)
+        (messages nil))
+    ;; The kernel's Lisp, as `require' finds it once it is got.
+    (provide 'lispm-kernel-desktop)
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-deps-ensure)
+                   (lambda (feature)
+                     (should (eq feature 'lispm-kernel))
+                     (when failure (error "%s" failure))
+                     (setq ensured (1+ ensured))))
+                  ((symbol-function 'lispm-kernel-desktop-mode)
+                   (lambda (&optional arg)
+                     (setq lispm-kernel-desktop-mode (> (prefix-numeric-value arg) 0))))
+                  ((symbol-function 'message)
+                   (lambda (format &rest args) (push (apply #'format format args) messages))))
+          (lispm-desktop-setup-kernel)
+          (should (= ensured 0))
+          (should-not lispm-kernel-desktop-mode)
+          (setq lispm-desktop-kernel t)
+          (should (= ensured 1))
+          (should lispm-kernel-desktop-mode)
+          (setq lispm-desktop-kernel nil)
+          (should-not lispm-kernel-desktop-mode)
+          (let ((noninteractive t))
+            (lispm-desktop-kernel-apply t))
+          (should (= ensured 2))
+          (should-not lispm-kernel-desktop-mode)
+          ;; Offline, at the start that would install it.
+          (setq failure "offline")
+          (lispm-desktop-kernel-apply t)
+          (should (string-match-p "offline" (car messages)))
+          (should-not lispm-kernel-desktop-mode)
+          (setq failure nil)
+          (let ((lispm-desktop-kernel t))
+            (lispm-desktop-setup-kernel)
+            (should (= ensured 3))
+            (should lispm-kernel-desktop-mode)))
+      (remove-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed)
+      (unless provided
+        (setq features (delq 'lispm-kernel-desktop features))))))
+
 (ert-deftest lispm-desktop-test-directory ()
   "`lispm-desktop-directory' is the checkout, holding the agents' icons."
   (should (file-exists-p (expand-file-name "lisp/lispm-desktop.el" lispm-desktop-directory)))

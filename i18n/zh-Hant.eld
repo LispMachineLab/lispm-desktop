@@ -1201,4 +1201,5 @@
   ("Workspace: " . "工作區：")
   ("Installing the icon font…" . "正在安裝圖像字體…")
   ("The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again" . "無法安裝圖像字體（%s）；M-x lispm-desktop-install-fonts 可再試一次")
-  ("LispM's agents are not set up: %s" . "LispM 的代理尚未設定：%s")))
+  ("LispM's agents are not set up: %s" . "LispM 的代理尚未設定：%s")
+  ("lispm-kernel could not be turned on: %s" . "無法開啟 lispm-kernel：%s")))
