@@ -6580,14 +6580,60 @@ crossed from corner to corner; for a group partly on, crossed by a bar."
       (should (equal (at 'mixed 4 3) "#DDDDDD"))
       (should (equal (at 'off 10 6) "#888888")))))
 
+(defun lispm-desktop-test--runs (svg y width)
+  "Return row Y of SVG, WIDTH pixels long, as runs: (COLOR . COUNT)s."
+  (let ((runs nil))
+    (dotimes (x width)
+      (let ((color (lispm-desktop-test--pixel svg x y)))
+        (if (and runs (equal color (caar runs)))
+            (setcdr (car runs) (1+ (cdar runs)))
+          (push (cons color 1) runs))))
+    (nreverse runs)))
+
+(ert-deftest lispm-desktop-test-platinum-progress-bar ()
+  "A progress bar is Mac OS 9's, as its startup screen drew it half full,
+pixel for pixel: etched, outlined, a tube of the variation colour closed
+by a black line, then a groove."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (svg (lispm-desktop-platinum-draw-progress-bar palette 162 0.5)))
+    (should (equal (lispm-desktop-test--size svg) '(162 . 14)))
+    (should (equal (lispm-desktop-test--runs svg 0 162) '(("#AAAAAA" . 161) (nil . 1))))
+    (should (equal (lispm-desktop-test--runs svg 13 162) '((nil . 1) ("#FFFFFF" . 161))))
+    (should (equal (lispm-desktop-test--runs svg 2 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 2) ("#333399" . 77) ("#000000" . 1)
+                     ("#555555" . 1) ("#888888" . 76) ("#BBBBBB" . 1) ("#000000" . 1) ("#FFFFFF" . 1))))
+    (should (equal (lispm-desktop-test--runs svg 3 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 1) ("#9999FF" . 1) ("#6666CC" . 76)
+                     ("#000055" . 1) ("#000000" . 1) ("#555555" . 1) ("#888888" . 1) ("#BBBBBB" . 75)
+                     ("#DDDDDD" . 1) ("#000000" . 1) ("#FFFFFF" . 1))))
+    (should (equal (lispm-desktop-test--runs svg 6 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 1) ("#EEEEEE" . 75) ("#CCCCFF" . 1)
+                     ("#333399" . 1) ("#000055" . 1) ("#000000" . 1) ("#555555" . 1) ("#888888" . 1)
+                     ("#BBBBBB" . 75) ("#DDDDDD" . 1) ("#000000" . 1) ("#FFFFFF" . 1))))
+    (should (equal (lispm-desktop-test--runs svg 11 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 1) ("#333399" . 1) ("#000055" . 77)
+                     ("#000000" . 1) ("#555555" . 1) ("#888888" . 1) ("#DDDDDD" . 76) ("#000000" . 1)
+                     ("#FFFFFF" . 1))))
+    ;; Empty, the groove runs from the outline; full, the tube does.
+    (let ((empty (lispm-desktop-platinum-draw-progress-bar palette 100 0))
+          (full (lispm-desktop-platinum-draw-progress-bar palette 100 1)))
+      (should (equal (lispm-desktop-test--pixel empty 2 5) "#555555"))
+      (should (equal (lispm-desktop-test--pixel empty 97 5) "#DDDDDD"))
+      (should (equal (lispm-desktop-test--pixel full 2 5) "#6666CC"))
+      (should (equal (lispm-desktop-test--pixel full 97 5) "#000055")))))
+
 (defmacro lispm-desktop-test--with-store (&rest body)
   "Run BODY with an App Store of its own: no catalog, nothing installed,
-its clones in a temporary directory, Customize only setting what it saves."
+its clones in a temporary directory, Customize only setting what it saves.
+Packages are installed in this Emacs, unless BODY binds
+`lispm-desktop-store-install-in-background'."
   (declare (indent 0))
   `(let* ((lispm-desktop-store-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-store" t)))
           (lispm-desktop-store-catalogs nil)
           (lispm-desktop-store--catalogs nil)
           (lispm-desktop-store-installed nil)
+          (lispm-desktop-store-install-in-background nil)
+          (lispm-desktop-store--jobs nil)
           (lispm-desktop-store--checking nil)
           (lispm-desktop-store--checked t)
           (lispm-desktop-apps lispm-desktop-apps)
@@ -6598,6 +6644,12 @@ its clones in a temporary directory, Customize only setting what it saves."
                 (lambda (variable value &rest _) (set variable value))))
        (unwind-protect
            (progn ,@body)
+         (when (timerp lispm-desktop-store--redraw-timer)
+           (cancel-timer lispm-desktop-store--redraw-timer)
+           (setq lispm-desktop-store--redraw-timer nil))
+         (dolist (job lispm-desktop-store--jobs)
+           (when (buffer-live-p (lispm-desktop-store-job-log job))
+             (kill-buffer (lispm-desktop-store-job-log job))))
          (when (get-buffer lispm-desktop-store-buffer-name)
            (kill-buffer lispm-desktop-store-buffer-name))
          (delete-directory lispm-desktop-store-directory t)))))
@@ -6664,21 +6716,33 @@ newest commit after, in the background; then the list shows what it holds."
 
 (ert-deftest lispm-desktop-test-store-loads-with-the-watch ()
   "The App Store's window has the watch on the pointer while the App Store
-checks its catalogs and while it installs, and not after."
+checks its catalogs, and while this Emacs installs or updates, waiting;
+not while an install runs in the background, its progress bar showing,
+nor after."
   (lispm-desktop-test--with-store
     (let ((lispm-desktop-loading--loadings nil)
           (lispm-desktop-loading--shown nil)
           (during nil))
-      (cl-flet ((note (&rest _) (push (mapcar #'car lispm-desktop-loading--loadings) during)))
+      (cl-flet ((note (&rest _) (push (mapcar #'car lispm-desktop-loading--loadings) during) "1.0")
+                (job (action) (lispm-desktop-store--make-job
+                               :id 'pkg :action action
+                               :item '(pkg :kind app :name "Pkg" :command ignore :package pkg))))
         (cl-letf (((symbol-function 'lispm-desktop-loading--module-p) #'ignore)
                   ((symbol-function 'lispm-desktop-store--refresh-archives)
                    (lambda (then) (note) (funcall then)))
-                  ((symbol-function 'lispm-desktop-store--register) #'note)
                   ((symbol-function 'lispm-desktop-store--checked-updates) #'ignore)
-                  ((symbol-function 'lispm-desktop-store--render) #'ignore))
+                  ((symbol-function 'lispm-desktop-store--render) #'ignore)
+                  ((symbol-function 'lispm-desktop-store--install-package) #'note)
+                  ((symbol-function 'package-upgrade) #'note)
+                  ((symbol-function 'lispm-desktop-store--installed-as) #'ignore)
+                  ((symbol-function 'lispm-desktop-store--updated-as) #'ignore)
+                  ((symbol-function 'lispm-desktop-store--background-p) (lambda () t))
+                  ((symbol-function 'lispm-desktop-store--spawn) #'note))
           (lispm-desktop-store-check-for-updates)
-          (lispm-desktop-store--install-1 '(calculator :kind app :name "Calculator" :command calc))))
-      (should (equal during (make-list 2 (list lispm-desktop-store-buffer-name))))
+          (lispm-desktop-store--install-here (job 'install) nil)
+          (lispm-desktop-store--update-here (job 'update))
+          (lispm-desktop-store--start (job 'install))))
+      (should (equal (reverse during) (append (make-list 3 (list lispm-desktop-store-buffer-name)) '(nil))))
       (should-not lispm-desktop-loading--loadings))))
 
 (ert-deftest lispm-desktop-test-store-git-ignores-callers-repository ()
@@ -6899,7 +6963,8 @@ it."
 
 (ert-deftest lispm-desktop-test-store-extension-that-cannot-load ()
   "An extension whose feature cannot be loaded is not kept as installed,
-and the package installed for it is deleted again."
+and the package installed for it is deleted again; its install failed,
+saying why, and its button tries again."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--store-catalog
      "https://example.org/store"
@@ -6910,9 +6975,16 @@ and the package installed for it is deleted again."
                 ((symbol-function 'package-installed-p) (lambda (name &rest _) (memq name packages)))
                 ((symbol-function 'package-vc-install) (lambda (spec _rev) (push (car spec) packages)))
                 ((symbol-function 'lispm-desktop-store--delete-package) (lambda (package) (push package deleted))))
-        (should-error (lispm-desktop-store-install 'ext) :type 'user-error)
+        (lispm-desktop-store-install 'ext)
         (should-not lispm-desktop-store-installed)
-        (should (equal deleted '((lispm-desktop-test-no-such-feature :url "u" :rev "r"))))))))
+        (should (equal deleted '((lispm-desktop-test-no-such-feature :url "u" :rev "r"))))
+        (let ((job (lispm-desktop-store--job 'ext)))
+          (should (eq (lispm-desktop-store-job-state job) 'failed))
+          (should (string-prefix-p "It cannot be loaded" (lispm-desktop-store-job-error job))))
+        (should (equal (lispm-desktop-store--action 'ext (cdr (assq 'ext (lispm-desktop-store-items))))
+                       '("Try Again" . install)))
+        (should (string-prefix-p "It could not be installed: It cannot be loaded"
+                                 (lispm-desktop-store--failure 'ext)))))))
 
 (ert-deftest lispm-desktop-test-store-space-on-the-disclosure ()
   "Space on the disclosure of the item's information shows or hides it,
@@ -7030,6 +7102,317 @@ ready."
                                        '((ext :kind extension :name "Ext" :feature ext
                                               :package ext :requires (elfeed))))
     (should-error (lispm-desktop-store-install 'ext) :type 'user-error)))
+
+;;;;; Installing in the background
+
+(require 'package-vc)
+
+(defmacro lispm-desktop-test--with-packages (&rest body)
+  "Run BODY installing packages in the background into a temporary
+`package-user-dir' of its own, holding none, from no archive."
+  (declare (indent 0))
+  `(let* ((package-user-dir (file-name-as-directory (make-temp-file "lispm-desktop-test-elpa" t)))
+          (package-directory-list nil)
+          (package-archives nil)
+          (package-check-signature nil)
+          (package-alist nil)
+          (package-activated-list nil)
+          (package-selected-packages nil)
+          (package-vc-selected-packages nil)
+          (package-vc-register-as-project nil)
+          (package-quickstart nil)
+          (load-path load-path)
+          (lispm-desktop-store-install-in-background t))
+     (unwind-protect
+         (progn ,@body)
+       (when (featurep 'lispm-desktop-test-pkg)
+         (unload-feature 'lispm-desktop-test-pkg t))
+       (fmakunbound 'lispm-desktop-test-pkg-open)
+       (delete-directory package-user-dir t))))
+
+(defun lispm-desktop-test--package-repository (directory version)
+  "Commit in DIRECTORY, a git repository made the first time, the package
+lispm-desktop-test-pkg at VERSION, its command returning VERSION; return
+the commit."
+  (unless (file-directory-p (expand-file-name ".git" directory))
+    (lispm-desktop-test--git directory "init" "--quiet"))
+  (with-temp-file (expand-file-name "lispm-desktop-test-pkg.el" directory)
+    (insert ";;; lispm-desktop-test-pkg.el --- A package to install  -*- lexical-binding: t; -*-\n"
+            ";; Version: " version "\n;;; Code:\n"
+            ";;;###autoload\n(defun lispm-desktop-test-pkg-open ()\n  \"Return the version.\"\n"
+            "  (interactive)\n  " (prin1-to-string version) ")\n"
+            "(provide 'lispm-desktop-test-pkg)\n;;; lispm-desktop-test-pkg.el ends here\n"))
+  (lispm-desktop-test--git directory "add" "lispm-desktop-test-pkg.el")
+  (lispm-desktop-test--git directory "commit" "--quiet" "-m" version)
+  (lispm-desktop-test--git directory "rev-parse" "HEAD"))
+
+(defun lispm-desktop-test--store-wait ()
+  "Wait until no job of the App Store waits or runs."
+  (with-timeout (60 (error "The App Store's jobs did not end"))
+    (while (seq-some (lambda (job) (memq (lispm-desktop-store-job-state job) '(waiting running)))
+                     lispm-desktop-store--jobs)
+      (accept-process-output nil 0.02))))
+
+(defun lispm-desktop-test--pkg-catalog (url rev)
+  "List in the test catalog the application Pkg, its package from the git
+repository at URL, pinned to REV."
+  (setq lispm-desktop-store-catalogs nil)
+  (lispm-desktop-test--store-catalog
+   "https://example.org/store"
+   `((pkg :kind app :name "Pkg" :command lispm-desktop-test-pkg-open
+          :package (lispm-desktop-test-pkg :url ,url :rev ,rev)))))
+
+(ert-deftest lispm-desktop-test-store-installs-in-the-background ()
+  "A package is installed in an Emacs of its own while this one goes on:
+the item's button gives way to its progress, which goes through the
+stages and only forward; once done, its package is active here, chosen
+as package.el keeps those installed, and the application one of the
+desktop's.  Removed, its package is gone, and getting it again would
+install it again."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (url (concat "file://" source))
+             (rev (lispm-desktop-test--package-repository source "1.0"))
+             (seen nil))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
+                      ((symbol-function 'lispm-desktop-store--redraw-soon)
+                       (lambda ()
+                         (let ((job (lispm-desktop-store--job 'pkg)))
+                           (push (cons (lispm-desktop-store-job-stage job) (lispm-desktop-store-job-fraction job))
+                                 seen)))))
+              (lispm-desktop-test--pkg-catalog url rev)
+              (lispm-desktop-store-install 'pkg)
+              (should (lispm-desktop-store--busy-p 'pkg))
+              (should (equal (lispm-desktop-store--action 'pkg (cdr (assq 'pkg (lispm-desktop-store-items))))
+                             '("Stop" . stop)))
+              (should (plist-get (lispm-desktop-store--tile (assq 'pkg (lispm-desktop-store-items))) :progress))
+              (should-not lispm-desktop-store-installed)
+              (lispm-desktop-test--store-wait)
+              (should-not (lispm-desktop-store--job 'pkg))
+              (let ((stages (mapcar #'car (reverse seen)))
+                    (fractions (mapcar #'cdr (reverse seen))))
+                (should (memq 'download stages))
+                (should (memq 'build stages))
+                (should (equal fractions (sort (copy-sequence fractions) #'<=))))
+              (let ((installed (cdr (assq 'pkg lispm-desktop-store-installed))))
+                (should (equal (plist-get installed :installed) rev))
+                (should (plist-get installed :owned)))
+              (should (file-exists-p (expand-file-name "lispm-desktop-test-pkg/lispm-desktop-test-pkg.elc"
+                                                       package-user-dir)))
+              (should (assq 'lispm-desktop-test-pkg package-alist))
+              (should (memq 'lispm-desktop-test-pkg package-selected-packages))
+              (should (equal (assq 'lispm-desktop-test-pkg package-vc-selected-packages)
+                             `(lispm-desktop-test-pkg :url ,url)))
+              (should (equal (lispm-desktop-test-pkg-open) "1.0"))
+              (should (assq 'pkg lispm-desktop-apps))
+              ;; Removed, it is gone: getting it again installs it again.
+              (lispm-desktop-store-remove 'pkg)
+              (should-not (file-exists-p (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
+              (should-not (lispm-desktop-store--package-present (cdr (assq 'pkg (lispm-desktop-store-items))))))
+          (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-updates-in-the-background ()
+  "An update is made in an Emacs of its own too; once done, the package's
+code loaded here is loaded anew."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (url (concat "file://" source))
+             (old (lispm-desktop-test--package-repository source "1.0")))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+              (lispm-desktop-test--pkg-catalog url old)
+              (lispm-desktop-store-install 'pkg)
+              (lispm-desktop-test--store-wait)
+              (require 'lispm-desktop-test-pkg)
+              (should (equal (lispm-desktop-test-pkg-open) "1.0"))
+              (let ((new (lispm-desktop-test--package-repository source "2.0")))
+                (lispm-desktop-test--pkg-catalog url new)
+                (should (lispm-desktop-store-update-available-p 'pkg))
+                (lispm-desktop-store-update 'pkg)
+                (should (eq (lispm-desktop-store-job-action (lispm-desktop-store--job 'pkg)) 'update))
+                (lispm-desktop-test--store-wait)
+                (should-not (lispm-desktop-store--job 'pkg))
+                (should (equal (plist-get (cdr (assq 'pkg lispm-desktop-store-installed)) :installed) new))
+                (should-not (lispm-desktop-store-update-available-p 'pkg))
+                (should (equal (package-desc-version (cadr (assq 'lispm-desktop-test-pkg package-alist)))
+                               '(2 0)))
+                (should (= (length (cdr (assq 'lispm-desktop-test-pkg package-alist))) 1))
+                (should (equal (lispm-desktop-test-pkg-open) "2.0"))))
+          (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-failed-install-undone ()
+  "An install that fails in the background leaves nothing installed: what
+its Emacs put in the packages' directory is gone, the item says why and
+offers to try again, its log is kept, and what was asked for with it is
+not installed."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let ((missing (concat "file://" (expand-file-name "lispm-desktop-test-nowhere" temporary-file-directory))))
+        (lispm-desktop-test--store-catalog
+         "https://example.org/store"
+         `((broken :kind app :name "Broken" :command ignore
+                   :package (lispm-desktop-test-broken :url ,missing :rev "0123456789abcdef"))
+           (needy :kind app :name "Needy" :command ignore :requires (broken)
+                  :package (lispm-desktop-test-needy :url ,missing :rev "0123456789abcdef"))))
+        (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+          (lispm-desktop-store-install 'needy)
+          (should (equal (mapcar #'lispm-desktop-store-job-id lispm-desktop-store--jobs) '(broken needy)))
+          (lispm-desktop-test--store-wait))
+        (let ((job (lispm-desktop-store--job 'broken)))
+          (should (eq (lispm-desktop-store-job-state job) 'failed))
+          (should (string-match-p "clone" (lispm-desktop-store-job-error job)))
+          (should (buffer-live-p (lispm-desktop-store-job-log job))))
+        (should-not (lispm-desktop-store--job 'needy))
+        (should-not lispm-desktop-store-installed)
+        (should-not (directory-files package-user-dir nil "lispm-desktop-test"))
+        (should (equal (lispm-desktop-store--action 'broken (cdr (assq 'broken (lispm-desktop-store-items))))
+                       '("Try Again" . install)))
+        (should (equal (plist-get (lispm-desktop-store--tile (assq 'broken (lispm-desktop-store-items))) :subtitle)
+                       "Could not install"))))))
+
+(ert-deftest lispm-desktop-test-store-stop ()
+  "An install stopped in the background is undone: nothing of it stays."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (rev (lispm-desktop-test--package-repository source "1.0")))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+              (lispm-desktop-test--pkg-catalog (concat "file://" source) rev)
+              (lispm-desktop-store-install 'pkg)
+              (lispm-desktop-store-stop 'pkg)
+              (lispm-desktop-test--store-wait)
+              (with-timeout (10 (error "The stopped job stayed"))
+                (while (lispm-desktop-store--job 'pkg)
+                  (accept-process-output nil 0.02)))
+              (should-not lispm-desktop-store-installed)
+              (should-not (file-exists-p (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
+              (should (equal (lispm-desktop-store--action 'pkg (cdr (assq 'pkg (lispm-desktop-store-items))))
+                             '("Get" . install))))
+          (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-progress-shown ()
+  "What the installing Emacs says moves the item's progress, only forward,
+whatever lines its output is cut in; the tile, the information, the
+placard and the button say it, and a click on the progress bar selects
+the item; one that failed says why."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((pkg :kind app :name "Pkg" :command ignore :package (p :url "u" :rev "r"))))
+    (let* ((item (assq 'pkg (lispm-desktop-store-items)))
+           (job (lispm-desktop-store--make-job :id 'pkg :item item :action 'install :group (list 'install)
+                                               :state 'running :stage 'preparing :process t
+                                               :log (generate-new-buffer " *lispm-desktop-test log*")))
+           (redrawn 0))
+      (cl-letf (((symbol-function 'lispm-desktop-store--redraw-soon) (lambda () (cl-incf redrawn))))
+        (push job lispm-desktop-store--jobs)
+        (lispm-desktop-store--heard job "Cloning into it...\nLISPM-STORE (stage download)\nLISPM-STORE (progr")
+        (should (eq (lispm-desktop-store-job-stage job) 'download))
+        (should (< (abs (- (lispm-desktop-store-job-fraction job) 0.1)) 1e-9))
+        (lispm-desktop-store--heard job "ess 0.5)\n")
+        (should (< (abs (- (lispm-desktop-store-job-fraction job) 0.35)) 1e-9))
+        (lispm-desktop-store--heard job "LISPM-STORE (stage archives)\n")
+        (should (< (abs (- (lispm-desktop-store-job-fraction job) 0.35)) 1e-9))
+        (should (= redrawn 3))
+        (should (equal (with-current-buffer (lispm-desktop-store-job-log job) (buffer-string))
+                       "Cloning into it...\n"))
+        (let ((tile (lispm-desktop-store--tile item)))
+          (should (= (plist-get tile :progress) 0.35))
+          (should (equal (plist-get tile :subtitle) "Reading the archives…")))
+        (should (equal (cadr (assoc "Status:" (lispm-desktop-store--fields 'pkg)))
+                       "Installing: reading the archives, 35%"))
+        (should (equal (lispm-desktop-store--placard) "Installing “Pkg”… 35%"))
+        (should (equal (lispm-desktop-store--action 'pkg (cdr item)) '("Stop" . stop)))
+        (pcase-let* ((`(,gx ,_ ,tw) (lispm-desktop-store--grid 640))
+                     (`(,px ,py ,_) (lispm-desktop-store--progress-box gx tw)))
+          (should (equal (lispm-desktop-store--hit 640 0 (+ px 2) (+ py 2) '((all "All" 1)) (list item))
+                         '(item . pkg))))
+        (lispm-desktop-store--fail job "git clone failed: nope.")
+        (should-not (plist-get (lispm-desktop-store--tile item) :progress))
+        (should (equal (plist-get (lispm-desktop-store--tile item) :subtitle) "Could not install"))
+        (should (equal (lispm-desktop-store--failure 'pkg) "It could not be installed: git clone failed: nope.  "))
+        (should (equal (cadr (assoc "Status:" (lispm-desktop-store--fields 'pkg))) "Could not be installed"))))))
+
+(ert-deftest lispm-desktop-test-store-wrap-cuts-long-words ()
+  "The information's text is broken between words, and a word too long
+for a line, as a file name an error names, after its slashes."
+  (let* ((text "It failed: /private/tmp/claude/scratchpad/elpa/yeetube is in the way")
+         (width (string-pixel-width "/private/tmp/claude/"))
+         (lines (lispm-desktop-store--wrap text width 'default)))
+    (should (seq-every-p (lambda (line) (<= (string-pixel-width line) width)) lines))
+    (should (member "/private/tmp/claude/" lines))
+    (should (equal (string-replace " " "" (string-join lines ""))
+                   (string-replace " " "" text)))))
+
+(ert-deftest lispm-desktop-test-store-installer-upgrade-keeps-the-old ()
+  "An update from the package archives installs the newest package beside
+the one installed and deletes that one only then: one that fails leaves
+it as it was."
+  (let* ((old (package-desc-create :name 'emms :version '(1)))
+         (new (package-desc-create :name 'emms :version '(2)))
+         (package-alist (list (list 'emms old)))
+         (package-archive-contents (list (list 'emms new)))
+         (calls nil))
+    (cl-letf (((symbol-function 'package-install) (lambda (desc &rest _) (push (list 'install desc) calls)))
+              ((symbol-function 'package-delete) (lambda (desc &rest _) (push (list 'delete desc) calls))))
+      (should (equal (lispm-desktop-store-installer--upgrade 'emms) "2"))
+      (should (equal (nreverse calls) (list (list 'install new) (list 'delete old)))))
+    (setq calls nil)
+    (cl-letf (((symbol-function 'package-install) (lambda (&rest _) (error "No network")))
+              ((symbol-function 'package-delete) (lambda (desc &rest _) (push (list 'delete desc) calls))))
+      (should-error (lispm-desktop-store-installer--upgrade 'emms))
+      (should-not calls))))
+
+(ert-deftest lispm-desktop-test-store-update-tasks ()
+  "In the background, a package from git is updated to the commit its
+catalog pins, from the one installed; one from the package archives to
+their newest."
+  (lispm-desktop-test--with-store
+    (let ((lispm-desktop-store-install-in-background t)
+          (tasks nil))
+      (setq lispm-desktop-store-installed
+            '((elfeed :kind app :name "Elfeed" :command elfeed :installed "old"
+                      :package (elfeed :url "u" :rev "old"))
+              (emms :kind app :name "EMMS" :command emms :package emms :installed "1")))
+      (cl-letf (((symbol-function 'lispm-desktop-store--spawn) (lambda (_job task) (push task tasks))))
+        (lispm-desktop-store--queue
+         (list '(elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "new")))
+         'update)
+        (setq lispm-desktop-store--jobs nil)
+        (lispm-desktop-store--queue (list '(emms :kind app :name "EMMS" :command emms :package emms)) 'update))
+      (should (equal (nreverse tasks) '((update elfeed "new" "old") (upgrade emms)))))))
+
+(ert-deftest lispm-desktop-test-store-stoppable ()
+  "A job waiting can be stopped, an install in the background all along,
+an update only until it builds; one in this Emacs cannot."
+  (cl-flet ((job (&rest args) (apply #'lispm-desktop-store--make-job :id 'x :item '(x) args)))
+    (should (lispm-desktop-store--stoppable-p (job :action 'install)))
+    (should (lispm-desktop-store--stoppable-p (job :action 'install :state 'running :stage 'build :process t)))
+    (should (lispm-desktop-store--stoppable-p (job :action 'update :state 'running :stage 'download :process t)))
+    (should-not (lispm-desktop-store--stoppable-p (job :action 'update :state 'running :stage 'build :process t)))
+    (should-not (lispm-desktop-store--stoppable-p (job :action 'install :state 'running :stage 'build)))
+    (should-not (lispm-desktop-store--stoppable-p (job :action 'install :state 'failed)))))
+
+(ert-deftest lispm-desktop-test-store-job-program ()
+  "The Emacs installing in the background gets this one's settings for
+packages, those that read back alone, and runs the installer on its task."
+  (let ((package-user-dir "/tmp/elpa/")
+        (package-archives '(("gnu" . "https://elpa.gnu.org/packages/")))
+        (exec-path (list "/opt/bin" (current-buffer))))
+    (let ((program (lispm-desktop-store--job-program '(install (p :url "u" :rev "r")))))
+      (should (member '(setq package-user-dir '"/tmp/elpa/") program))
+      (should (member '(setq package-archives '(("gnu" . "https://elpa.gnu.org/packages/"))) program))
+      (should-not (seq-find (lambda (form) (equal (car-safe (cdr-safe form)) 'exec-path)) program))
+      (should (equal (car (last program))
+                     '(lispm-desktop-store-installer-run '(install (p :url "u" :rev "r"))))))))
 
 (ert-deftest lispm-desktop-test-store-categories ()
   "The categories down the left are All, those holding an item, in their
@@ -7778,6 +8161,278 @@ category and its description, from which the interface tells a game."
       (should (equal (plist-get app :description) "Calc."))
       (should (equal (mapcar #'cadr (funcall (plist-get app :menus))) '("File" "Help"))))
     (should-not (lispm-desktop-app-ui-game-p 'calc))))
+
+(ert-deftest lispm-desktop-test-app-ui-own-menu-in-its-window ()
+  "A skin's own menu lists its items as they stand in the application's
+window, whichever buffer is current as the menu drops."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (lispm-desktop-apps (list (list 'test :name "Test"))))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode
+      :menu (cons "Thing" (lambda () (list (list :label (buffer-name) :action #'ignore)))))
+    (save-window-excursion
+      (with-temp-buffer
+        (lispm-desktop-test-app-mode)
+        (switch-to-buffer (current-buffer))
+        (let* ((name (buffer-name))
+               (menu (car (lispm-desktop-app-ui--mode-menus 'test (selected-window)))))
+          (should (equal (nth 1 menu) "Thing"))
+          (with-temp-buffer
+            (should (equal (plist-get (car (funcall (nth 2 menu))) :label) name))))))))
+
+;;;; Yeetube
+
+(defvar yeetube-items)
+(defvar yeetube--buffer-name)
+
+(ert-deftest lispm-desktop-test-app-yeetube-described ()
+  "Yeetube opens on its own command, titled by its name, without a strip
+of buttons, YouTube's masthead taking the header line, and every function
+its skin names is one."
+  (let ((skin (alist-get 'yeetube-mode lispm-desktop-app-ui-skins)))
+    (should (eq (plist-get skin :app) 'yeetube))
+    (should (equal (plist-get skin :title) "Yeetube"))
+    (should (eq (plist-get (lispm-desktop-app-ui--app-skin 'yeetube) :run) #'lispm-desktop-app-yeetube))
+    (should (plist-member skin :buttons))
+    (should-not (plist-get skin :buttons))
+    (should (fboundp (plist-get skin :setup)))
+    (should (fboundp (cdr (plist-get skin :menu))))
+    (pcase-dolist (`(,function ,question ,button ,style) lispm-desktop-app-yeetube-questions)
+      (should (symbolp function))
+      (should (string-suffix-p ":" question))
+      (should (stringp button))
+      (should (memq style '(nil search))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-page-words ()
+  "Titles are broken as YouTube breaks them: at spaces, else between
+characters, at most so many lines, the last cut with an ellipsis; counts
+are written short, and the line under a title says views and age."
+  (let ((measure (lambda (text) (* 10 (length text)))))
+    (should (equal (lispm-desktop-app-yeetube-page-wrap "one two three" 80 2 measure) '("one two" "three")))
+    (should (equal (lispm-desktop-app-yeetube-page-wrap "one two three four five" 80 2 measure)
+                   '("one two" "three f…")))
+    (should (equal (lispm-desktop-app-yeetube-page-wrap "abcdefghij" 40 2 measure) '("abcd" "efg…")))
+    (should (equal (lispm-desktop-app-yeetube-page-wrap "" 40 2 measure) nil)))
+  (should (equal (lispm-desktop-app-yeetube-page-views "96,521 views") "96K views"))
+  (should (equal (lispm-desktop-app-yeetube-page-views "1,234 views") "1.2K views"))
+  (should (equal (lispm-desktop-app-yeetube-page-views "1,234,567 views") "1.2M views"))
+  (should (equal (lispm-desktop-app-yeetube-page-views "950 views") "950 views"))
+  (should (equal (lispm-desktop-app-yeetube-page-views "No views") "No views"))
+  (should (equal (lispm-desktop-app-yeetube-page-meta '(:views "96,521 views" :date "5 years ago" :type video))
+                 "96K views • 5 years ago"))
+  (should (equal (lispm-desktop-app-yeetube-page-meta '(:type playlist)) "Playlist")))
+
+(ert-deftest lispm-desktop-test-app-yeetube-page-colours ()
+  "The page takes YouTube's dark theme under a dark desktop theme, else its
+light theme."
+  (cl-letf (((symbol-function 'lispm-desktop-platinum-color) (lambda (_) "#1e1e1e")))
+    (should (eq (lispm-desktop-app-yeetube-page-colors) lispm-desktop-app-yeetube-page-dark)))
+  (cl-letf (((symbol-function 'lispm-desktop-platinum-color) (lambda (_) "#ffffff")))
+    (should (eq (lispm-desktop-app-yeetube-page-colors) lispm-desktop-app-yeetube-page-light))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-page-drawings ()
+  "A result is drawn as wide as asked, its title and channel written; the
+masthead has its search box and button in its width, and the back arrow
+while a video plays."
+  (cl-letf (((symbol-function 'lispm-desktop-app-yeetube-page-thumbnail) #'ignore))
+    (let ((svg (lispm-desktop-app-yeetube-page-result
+                '(:id "a1" :title "Learn Emacs Lisp" :views "31,014 views" :date "2y ago"
+                  :channel "Gavin" :duration "30:22" :type video)
+                800 t)))
+      (should (= (dom-attr svg 'width) 800))
+      (should (string-search "Learn Emacs Lisp" (dom-texts svg)))
+      (should (string-search "31K views" (dom-texts svg)))
+      (should (string-search "30:22" (dom-texts svg)))))
+  (let ((layout (lispm-desktop-app-yeetube-page-masthead-layout 860 nil)))
+    (should-not (assq 'back layout))
+    (pcase-let ((`(,x ,_ ,w ,_) (alist-get 'input layout))
+                (`(,bx ,_ ,bw ,_) (alist-get 'button layout)))
+      (should (= bx (+ x w)))
+      (should (<= (+ bx bw) 860))))
+  (should (assq 'back (lispm-desktop-app-yeetube-page-masthead-layout 860 t))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-player ()
+  "YouTube's player plays inside a page of its own, served on this machine
+for an id alone, as YouTube wants to know the page it is in; it is 16 by
+9, leaving room under it."
+  (let ((page (lispm-desktop-app-yeetube-page-player-html '(:id "a1_B-2" :type video))))
+    (should (string-search "https://www.youtube.com/embed/a1_B-2?" page))
+    (should (string-search "referrerpolicy=\"strict-origin-when-cross-origin\"" page)))
+  (should (string-search "videoseries?list=PL1"
+                         (lispm-desktop-app-yeetube-page-embed-url '(:id "PL1" :type playlist))))
+  (pcase-let ((`(,status ,body ,type) (lispm-desktop-app-yeetube-serve "GET" "/watch/a1_B-2" nil "")))
+    (should (equal status "200 OK"))
+    (should (string-prefix-p "text/html" type))
+    (should (string-search "embed/a1_B-2" body)))
+  (should (string-search "videoseries?list=PL1"
+                         (nth 1 (lispm-desktop-app-yeetube-serve "GET" "/playlist/PL1" nil ""))))
+  (dolist (path '("/watch/<script>" "/watch/a1/../x" "/other/a1" "/watch/"))
+    (should (equal (lispm-desktop-app-yeetube-serve "GET" path nil "") '("404 Not Found"))))
+  (should (equal (lispm-desktop-app-yeetube-serve "POST" "/watch/a1" nil "") '("404 Not Found")))
+  (should (equal (lispm-desktop-app-yeetube-page-player-size 832 1000) '(800 . 450)))
+  (pcase-let ((`(,w . ,h) (lispm-desktop-app-yeetube-page-player-size 832 300)))
+    (should (= h 198))
+    (should (= w (round (/ 198 0.5625))))))
+
+(ert-deftest lispm-desktop-test-local-http-content-type ()
+  "A local server's answer is JSON unless its handler names its type."
+  (let ((sent nil))
+    (cl-letf (((symbol-function 'process-send-string) (lambda (_ string) (push string sent)))
+              ((symbol-function 'process-send-eof) #'ignore))
+      (lispm-desktop-local-http--reply 'connection '("200 OK" "{}"))
+      (lispm-desktop-local-http--reply 'connection '("200 OK" "<p>" "text/html; charset=utf-8")))
+    (should (string-search "Content-Type: application/json\r\n" (nth 1 sent)))
+    (should (string-search "Content-Type: text/html; charset=utf-8\r\n" (nth 0 sent)))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-addresses ()
+  "Yeetube's addresses are read for what they search and how they sort,
+and every way Yeetube plays a video plays it on the watch page, the
+video or playlist the address names."
+  (should (equal (lispm-desktop-app-yeetube-words "https://youtube.com/search?q=emacs%20org%20mode&sp=CAISAhAB")
+                 "emacs org mode"))
+  (should (equal (lispm-desktop-app-yeetube-words
+                  (concat "https://youtube.com/search?q=" (url-hexify-string "λ calculus")))
+                 "λ calculus"))
+  (should (equal (lispm-desktop-app-yeetube-words "https://youtube.com/@SystemCrafters/search?query=org") "org"))
+  (should-not (lispm-desktop-app-yeetube-words "https://youtube.com/@SystemCrafters/videos"))
+  (should-not (lispm-desktop-app-yeetube-words nil))
+  (dlet ((yeetube-filter-code-alist '(("Relevance" . "EgIQAQ%253D%253D") ("Date" . "CAISAhAB"))))
+    (should (equal (lispm-desktop-app-yeetube-filter "https://youtube.com/search?q=x&sp=CAISAhAB") "Date"))
+    (should (equal (lispm-desktop-app-yeetube-filter "https://youtube.com/search?q=x&sp=EgIQAQ%253D%253D")
+                   "Relevance")))
+  (let ((watched nil) (mpv nil))
+    (with-temp-buffer
+      (let ((yeetube--buffer-name (buffer-name)))
+        (cl-letf (((symbol-function 'lispm-desktop-app-yeetube-watch) (lambda (item) (push item watched)))
+                  ((symbol-function 'yeetube--find-item) #'ignore)
+                  ((symbol-function 'yeetube-mpv-play) (lambda (url &optional _) (push url mpv))))
+          (lispm-desktop-app-yeetube-watch-url "https://youtube.com/watch?v=a1" "One")
+          (lispm-desktop-app-yeetube-watch-url "https://youtube.com/playlist?list=PL1")
+          (lispm-desktop-app-yeetube-watch-url "https://youtube.com/playlist?list=nil"))))
+    (should (equal (reverse watched) '((:id "a1" :title "One" :type video) (:id "PL1" :title "" :type playlist))))
+    (should (equal mpv '("https://youtube.com/playlist?list=nil")))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-window-keys ()
+  "In Yeetube's window, s and / search in the masthead's box, a second
+search while a question is open gives its field the keyboard rather than
+asking again, Return does what the row is for, q and Delete leave the
+watch page only, and a click on a row does what its button there is for."
+  (let ((map lispm-desktop-app-yeetube-window-mode-map)
+        (searched nil))
+    (should (eq (keymap-lookup map "<remap> <yeetube-search>") #'lispm-desktop-app-yeetube-search))
+    (should (eq (keymap-lookup map "/") #'lispm-desktop-app-yeetube-search))
+    (should (eq (keymap-lookup map "RET") #'lispm-desktop-app-yeetube-activate))
+    (should (eq (keymap-lookup lispm-desktop-app-yeetube-row-map "<mouse-1>") #'lispm-desktop-app-yeetube-click))
+    (with-temp-buffer
+      (should-not (keymap-lookup map "q"))
+      (setq-local lispm-desktop-app-yeetube--view 'watch)
+      (should (eq (keymap-lookup map "q") #'lispm-desktop-app-yeetube-back)))
+    (save-window-excursion
+      (delete-other-windows)
+      (let ((field (split-window)))
+        (cl-letf (((symbol-function 'active-minibuffer-window) (lambda () field))
+                  ((symbol-function 'yeetube-search) (lambda (_) (interactive (list "x")) (setq searched t))))
+          (lispm-desktop-app-yeetube-search)
+          (should (eq (selected-window) field))
+          (should-not searched)))))
+  (let ((hits '((share 790 52 70 36) (save 700 52 80 36))))
+    (should (eq (lispm-desktop-app-yeetube--hit hits 800 60) 'share))
+    (should (eq (lispm-desktop-app-yeetube--hit hits 701 87) 'save))
+    (should-not (lispm-desktop-app-yeetube--hit hits 10 10))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-asks-plainly-elsewhere ()
+  "A question Yeetube asks outside its window is asked as it would be, the
+asking function's value returned."
+  (should (equal (lispm-desktop-app-yeetube-ask "Search YouTube for:" "Search" (lambda () "emacs") 'search)
+                 "emacs")))
+
+(ert-deftest lispm-desktop-test-app-yeetube-results-in-their-window ()
+  "Results coming once another window is selected are shown in the window
+already showing Yeetube's list, point on the first of them."
+  (let ((yeetube--buffer-name " *lispm-desktop-test-yeetube*")
+        (shown-in nil))
+    (save-window-excursion
+      (delete-other-windows)
+      (let* ((list-window (selected-window))
+             (other (split-window))
+             (buffer (get-buffer-create yeetube--buffer-name)))
+        (unwind-protect
+            (progn
+              (set-window-buffer list-window buffer)
+              (select-window other)
+              (lispm-desktop-app-yeetube--render-in-place
+               (lambda (title)
+                 (setq shown-in (selected-window))
+                 (with-current-buffer buffer
+                   (let ((inhibit-read-only t))
+                     (erase-buffer)
+                     (insert "Title\n" (propertize (concat title "\n") 'tabulated-list-id "a1"))
+                     (goto-char (point-min)))))
+               "One")
+              (should (eq shown-in list-window))
+              (should (eq (selected-window) other))
+              (with-current-buffer buffer
+                (should (equal (tabulated-list-get-id) "a1"))
+                (should (equal (get-text-property (window-point list-window) 'tabulated-list-id) "a1"))))
+          (kill-buffer buffer))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-thumbnail-stand-ins ()
+  "Outside its window, a thumbnail's stand-in in Yeetube's table fits its
+column whole, to be found once the thumbnail comes, and shows as blank
+room of the thumbnail's size."
+  (dlet ((yeetube-display-thumbnails-p t)
+         (yeetube-thumbnail-size '(120 . 90)))
+    (let ((format (lispm-desktop-app-yeetube--whole-stand-ins (vector (list "Thumbnail" 17 nil) (list "Title" 30 t)))))
+      (should (= (nth 1 (aref format 0)) lispm-desktop-app-yeetube--stand-in-width))
+      (should (= (nth 1 (aref format 1)) 30)))
+    (let ((row (lispm-desktop-app-yeetube--blank-stand-in (list "a1" (vector "[[abcdefghijk.jpg]]" "Title")))))
+      (should (equal (get-text-property 0 'display (aref (cadr row) 0)) '(space :width (120) :height (90))))
+      (should (equal (substring-no-properties (aref (cadr row) 0)) "[[abcdefghijk.jpg]]")))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-saved ()
+  "Whether videos were saved is read from Yeetube's file, again only once
+the file changed."
+  (let* ((user-emacs-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-yeetube" t)))
+         (file (expand-file-name "yeetube" user-emacs-directory))
+         (lispm-desktop-app-yeetube--saved nil))
+    (unwind-protect
+        (progn
+          (should-not (lispm-desktop-app-yeetube--saved-p))
+          (with-temp-file file (insert "nil"))
+          (should-not (lispm-desktop-app-yeetube--saved-p))
+          (with-temp-file file (insert "((\"One\" . \"https://youtube.com/watch?v=a1\"))"))
+          (set-file-times file (time-add nil 10))
+          (should (lispm-desktop-app-yeetube--saved-p)))
+      (delete-directory user-emacs-directory t))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-sheet-line ()
+  "The line of Yeetube's dialog asks its question, then holds Cancel and
+the button answering it, each clickable."
+  (skip-unless (image-type-available-p 'svg))
+  (let* ((line (lispm-desktop-app-yeetube-sheet-line "Save the video to watch later as:" "Save"))
+         (commands (delq nil (mapcar (lambda (index)
+                                       (when-let* ((map (get-text-property index 'keymap line)))
+                                         (keymap-lookup map "<mouse-1>")))
+                                     (number-sequence 0 (1- (length line)))))))
+    (should (string-search "Save the video to watch later as:" line))
+    (should (equal (seq-uniq commands)
+                   '(lispm-desktop-app-yeetube-sheet-cancel lispm-desktop-app-yeetube-sheet-answer)))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-pages ()
+  "Yeetube's buffer shows its home page before a search, a row for each
+video found after, with Yeetube's id, so its own commands act on it."
+  (skip-unless (image-type-available-p 'svg))
+  (cl-letf (((symbol-function 'lispm-desktop-app-yeetube-page-thumbnail) #'ignore))
+    (with-temp-buffer
+      (setq-local lispm-desktop-app-yeetube--view 'home)
+      (dlet ((yeetube-items nil))
+        (lispm-desktop-app-yeetube-render))
+      (should (eq (plist-get (lispm-desktop-app-yeetube--row (point-min)) :kind) 'message))
+      (setq-local lispm-desktop-app-yeetube--view 'results)
+      (dlet ((yeetube-items '((:id "a1" :title "One" :type video) (:id "b2" :title "Two" :type video))))
+        (lispm-desktop-app-yeetube-render))
+      (should (eq (plist-get (lispm-desktop-app-yeetube--row (point-min)) :kind) 'chips))
+      (should (equal (tabulated-list-get-id) "a1"))
+      (should (lispm-desktop-app-yeetube--position "b2")))))
 
 (ert-deftest lispm-desktop-test-platinum-info-placards ()
   "A window's bottom shows each string its info returns on a placard of its

@@ -50,8 +50,9 @@
 AUTHORIZE is called with a request's headers, an alist of downcased names
 to values, and must return non-nil to admit it.  HANDLER is called with
 the method, the path, the headers and the decoded body, and returns
-\(STATUS BODY): an HTTP status such as \"200 OK\" and a unibyte JSON body,
-or nil for none.  The port is `(process-contact SERVER :service)'."
+\(STATUS BODY TYPE): an HTTP status such as \"200 OK\", a unibyte body, or
+nil for none, and the body's content type, JSON when left out.  The port
+is `(process-contact SERVER :service)'."
   (make-network-process
    :name name
    :server t
@@ -94,12 +95,12 @@ or nil for none.  The port is `(process-contact SERVER :service)'."
       (lispm-desktop-local-http--reply connection '("431 Request Header Fields Too Large"))))))
 
 (defun lispm-desktop-local-http--reply (connection response)
-  "Send CONNECTION the (STATUS BODY) RESPONSE and close it."
-  (pcase-let ((`(,status ,body) response))
+  "Send CONNECTION the (STATUS BODY TYPE) RESPONSE and close it."
+  (pcase-let ((`(,status ,body ,type) response))
     (process-send-string
      connection
      (concat "HTTP/1.1 " status "\r\n"
-             (if body "Content-Type: application/json\r\n" "")
+             (if body (format "Content-Type: %s\r\n" (or type "application/json")) "")
              (format "Content-Length: %d\r\nConnection: close\r\n\r\n" (length body))
              body))
     (process-send-eof connection)))
