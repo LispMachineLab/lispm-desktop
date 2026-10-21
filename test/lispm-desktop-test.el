@@ -7002,13 +7002,93 @@ and function its buttons and page name is one."
     (should (eq (plist-get skin :app) 'yeetube))
     (should (equal (plist-get skin :title) "Yeetube"))
     (should (eq (plist-get (lispm-desktop-app-ui--app-skin 'yeetube) :run) #'lispm-desktop-app-yeetube))
-    (should (equal (mapcar #'car (plist-get skin :buttons))
-                   '("Search…" "Play" "Download" "Save…" "More Results")))
-    (dolist (button (plist-get skin :buttons))
-      (when-let* ((enabled (nth 2 button)))
-        (should (fboundp enabled))))
+    (should (fboundp (plist-get skin :buttons)))
     (should (fboundp (nth 2 (plist-get skin :empty))))
-    (should (fboundp (cdr (plist-get skin :menu))))))
+    (should (fboundp (cdr (plist-get skin :menu))))
+    (pcase-dolist (`(,function ,question ,button) lispm-desktop-app-yeetube-questions)
+      (should (symbolp function))
+      (should (string-suffix-p ":" question))
+      (should (stringp button)))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-strip ()
+  "Until something is searched, Yeetube's strip holds Search, and Play
+Saved once a video is saved, rather than buttons that could do nothing;
+then the list's buttons, each command or function it names defined."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'lispm-desktop-app-yeetube--saved-p) #'ignore))
+      (should (equal (lispm-desktop-app-yeetube--buttons) '(("Search…" lispm-desktop-app-yeetube-search)))))
+    (cl-letf (((symbol-function 'lispm-desktop-app-yeetube--saved-p) #'always))
+      (should (equal (mapcar #'car (lispm-desktop-app-yeetube--buttons)) '("Search…" "Play Saved…"))))
+    (setq-local yeetube--current-url "https://youtube.com/search?q=emacs")
+    (let ((buttons (lispm-desktop-app-yeetube--buttons)))
+      (should (equal (mapcar #'car buttons) '("Search…" "Play" "Download" "Save…" "More Results")))
+      (should (eq (nth 1 (car buttons)) 'lispm-desktop-app-yeetube-search))
+      (dolist (button buttons)
+        (when-let* ((enabled (nth 2 button)))
+          (should (fboundp enabled)))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-window-keys ()
+  "In Yeetube's window, s and Search ask in the window's sheet, a second
+Search while a question is open gives its field the keyboard rather than
+asking again, and a video double-clicked plays."
+  (let ((map lispm-desktop-app-yeetube-window-mode-map)
+        (searched nil))
+    (should (eq (keymap-lookup map "<remap> <yeetube-search>") #'lispm-desktop-app-yeetube-search))
+    (should (eq (keymap-lookup map "<double-mouse-1>") #'lispm-desktop-app-yeetube-play-clicked))
+    (save-window-excursion
+      (delete-other-windows)
+      (let ((field (split-window)))
+        (cl-letf (((symbol-function 'active-minibuffer-window) (lambda () field))
+                  ((symbol-function 'yeetube-search) (lambda (_) (interactive (list "x")) (setq searched t))))
+          (lispm-desktop-app-yeetube-search)
+          (should (eq (selected-window) field))
+          (should-not searched))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-asks-plainly-elsewhere ()
+  "A question Yeetube asks outside its window is asked as it would be, the
+asking function's value returned."
+  (should (equal (lispm-desktop-app-yeetube-ask "Search YouTube for:" "Search" (lambda () "emacs")) "emacs")))
+
+(ert-deftest lispm-desktop-test-app-yeetube-thumbnail-stand-ins ()
+  "A thumbnail's stand-in fits its column whole, to be found once the
+thumbnail comes, and shows as blank room of the thumbnail's size."
+  (dlet ((yeetube-display-thumbnails-p t)
+         (yeetube-thumbnail-size '(120 . 90)))
+    (let ((format (lispm-desktop-app-yeetube--whole-stand-ins (vector (list "Thumbnail" 17 nil) (list "Title" 30 t)))))
+      (should (= (nth 1 (aref format 0)) lispm-desktop-app-yeetube--stand-in-width))
+      (should (= (nth 1 (aref format 1)) 30)))
+    (let ((row (lispm-desktop-app-yeetube--blank-stand-in (list "a1" (vector "[[abcdefghijk.jpg]]" "Title")))))
+      (should (equal (get-text-property 0 'display (aref (cadr row) 0)) '(space :width (120) :height (90))))
+      (should (equal (substring-no-properties (aref (cadr row) 0)) "[[abcdefghijk.jpg]]")))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-saved ()
+  "Whether videos were saved is read from Yeetube's file, again only once
+the file changed."
+  (let* ((user-emacs-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-yeetube" t)))
+         (file (expand-file-name "yeetube" user-emacs-directory))
+         (lispm-desktop-app-yeetube--saved nil))
+    (unwind-protect
+        (progn
+          (should-not (lispm-desktop-app-yeetube--saved-p))
+          (with-temp-file file (insert "nil"))
+          (should-not (lispm-desktop-app-yeetube--saved-p))
+          (with-temp-file file (insert "((\"One\" . \"https://youtube.com/watch?v=a1\"))"))
+          (set-file-times file (time-add nil 10))
+          (should (lispm-desktop-app-yeetube--saved-p)))
+      (delete-directory user-emacs-directory t))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-sheet-line ()
+  "The line of Yeetube's sheet asks its question, then holds Cancel and the
+button answering it, each clickable."
+  (skip-unless (image-type-available-p 'svg))
+  (let* ((line (lispm-desktop-app-yeetube-sheet-line "Search YouTube for:" "Search"))
+         (commands (delq nil (mapcar (lambda (index)
+                                       (when-let* ((map (get-text-property index 'keymap line)))
+                                         (keymap-lookup map "<mouse-1>")))
+                                     (number-sequence 0 (1- (length line)))))))
+    (should (string-search "Search YouTube for:" line))
+    (should (equal (seq-uniq commands)
+                   '(lispm-desktop-app-yeetube-sheet-cancel lispm-desktop-app-yeetube-sheet-answer)))))
 
 (ert-deftest lispm-desktop-test-app-yeetube-page-until-searched ()
   "Yeetube's page shows until something is searched, offering to search,
