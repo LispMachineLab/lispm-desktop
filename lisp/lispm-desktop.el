@@ -46,6 +46,8 @@
 ;;   Startup        LispM opened at login, and startup items opened once
 ;;                  it has started: applications, documents, programs
 ;;                  run as services, commands; in Control Panels
+;;   Sandbox        the commands and MCP servers agents start confined by
+;;                  srt, at None, Low, Middle or High; in Control Panels
 ;;   guide          a tour of all this, as Apple Guide gave one, the
 ;;                  first time LispM starts and from the Help menu (C-c ?)
 ;;

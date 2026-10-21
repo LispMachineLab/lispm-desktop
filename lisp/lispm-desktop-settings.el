@@ -38,6 +38,9 @@
 ;;               and its bookmarks
 ;;   Network     the proxy every connection LispM makes goes through, see
 ;;               lispm-desktop-proxy.el
+;;   Sandbox     how strictly agents' shell commands and MCP servers are
+;;               confined, and the domains they may reach, see LispM
+;;               Agent's lispm-sandbox.el; shown once it is loaded
 ;;   Startup     whether the computer opens LispM at login, and the
 ;;               startup items LispM opens once started, see
 ;;               lispm-desktop-startup.el
@@ -78,6 +81,15 @@
 (declare-function lispm-desktop-browser-edit-bookmarks "lispm-desktop-browser-places" ())
 (declare-function lispm-browser-available-p "lispm-browser" ())
 (declare-function lispm-browser-proxy-followed-p "lispm-browser-proxy" ())
+(defvar lispm-sandbox-level)
+(defvar lispm-sandbox-levels)
+(defvar lispm-sandbox-allowed-domains)
+(defvar lispm-sandbox-srt-program)
+(defvar lispm-sandbox-srt-version)
+(declare-function lispm-sandbox-set-level "lispm-sandbox" (level &optional save))
+(declare-function lispm-sandbox-level-name "lispm-sandbox" (level))
+(declare-function lispm-sandbox-srt-status "lispm-sandbox" ())
+(declare-function lispm-sandbox-install "lispm-sandbox" ())
 
 (defconst lispm-desktop-settings-buffer-name " *Control Panels*"
   "Name of the control panel's window's buffer.")
@@ -88,6 +100,7 @@
     (keyboard "Keyboard" lispm-desktop-settings--keyboard "keyboard-32")
     (browser "Internet" lispm-desktop-settings--browser "globe-32" lispm-desktop-settings--browser-p)
     (network "Network" lispm-desktop-settings--network "network-32")
+    (sandbox "Sandbox" lispm-desktop-settings--sandbox "sandbox-32" lispm-desktop-settings--sandbox-p)
     (startup "Startup" lispm-desktop-settings--startup "startup-32")
     (update "Software Update" lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
@@ -101,6 +114,11 @@ the panel shows.")
 (defun lispm-desktop-settings--browser-p ()
   "Return non-nil when the browser can run, and so has settings."
   (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
+
+(defun lispm-desktop-settings--sandbox-p ()
+  "Return non-nil when LispM's agents can run in a sandbox, and so it has
+settings: LispM Agent 0.3.0 or later is loaded."
+  (and (featurep 'lispm-sandbox) (fboundp 'lispm-sandbox-set-level)))
 
 (defun lispm-desktop-settings--panels ()
   "Return the panels that show here."
@@ -279,6 +297,40 @@ line, and its bottom edge closes it, a gap after it."
 (defun lispm-desktop-settings--note (text)
   "Insert TEXT, a remark about the settings above, dimmed."
   (insert lispm-desktop-settings--indent (propertize text 'face 'shadow) "\n"))
+
+(defun lispm-desktop-settings--text-width (indent)
+  "Return the pixels a line of the pane has for text after INDENT pixels,
+inside its group box."
+  (let ((window (get-buffer-window (current-buffer) t)))
+    (- (if window (window-body-width window t) 500)
+       indent (* 4 lispm-desktop-settings--group-margin))))
+
+(defun lispm-desktop-settings--wrap (text width)
+  "Return TEXT broken between words into lines at most WIDTH pixels wide
+when dimmed; a word wider than that stands alone, cut short."
+  (let ((lines nil) (line nil)
+        (fit (lambda (word)
+               (let ((wide (lispm-desktop-platinum-content-width word 'shadow)))
+                 (if (<= wide width)
+                     word
+                   (lispm-desktop-settings--truncate
+                    word (max 2 (1- (/ (* (length word) width) wide)))))))))
+    (dolist (word (split-string text "[ \t\n]+" t))
+      (let ((longer (if line (concat line " " word) word)))
+        (if (and line (<= (lispm-desktop-platinum-content-width longer 'shadow) width))
+            (setq line longer)
+          (when line (push line lines))
+          (setq line (funcall fit word)))))
+    (nreverse (if line (cons line lines) lines))))
+
+(defun lispm-desktop-settings--paragraph (text &optional indent)
+  "Insert TEXT, a remark about the settings above, dimmed and wrapped to
+the pane.  INDENT, a string, comes before each line instead of the
+indent of a row of settings."
+  (let ((indent (or indent lispm-desktop-settings--indent)))
+    (dolist (line (lispm-desktop-settings--wrap
+                   text (lispm-desktop-settings--text-width (string-pixel-width indent))))
+      (insert indent (propertize line 'face 'shadow) "\n"))))
 
 (defun lispm-desktop-settings--save (variable value)
   "Set VARIABLE to VALUE now and for every later start."
@@ -485,6 +537,84 @@ and the hosts reached directly."
   (insert "\n\n")
   (lispm-desktop-settings--note "Hosts reached directly, not through the proxy, and their")
   (lispm-desktop-settings--note "subdomains; this computer's own addresses always are."))
+
+(defun lispm-desktop-settings--sandbox-level (level)
+  "Run agents' shell commands and MCP servers at sandbox LEVEL, now and at
+every later start."
+  (lispm-sandbox-set-level level t))
+
+(defun lispm-desktop-settings--sandbox-domain-p (domain)
+  "Return non-nil when srt can let commands reach DOMAIN: a name such as
+example.com, *.example.com for its subdomains, or example.com:443."
+  (or (equal domain "localhost")
+      (string-match-p "\\`\\(?:\\*\\.\\)?[[:alnum:]-]+\\(?:\\.[[:alnum:]-]+\\)+\\(?::[0-9]+\\)?\\'"
+                      domain)))
+
+(defun lispm-desktop-settings--sandbox-domains ()
+  "Ask for the domains sandboxed commands may reach at Low and Middle, and
+keep them."
+  (let* ((domains (split-string (read-string "Domains sandboxed commands may reach (separated by commas): "
+                                             (string-join lispm-sandbox-allowed-domains ", "))
+                                "[, ]+" t))
+         (wrong (seq-remove #'lispm-desktop-settings--sandbox-domain-p domains)))
+    (when wrong
+      (user-error "srt cannot allow %s: write a domain as example.com, *.example.com or example.com:443"
+                  (string-join wrong ", ")))
+    (lispm-desktop-settings--save 'lispm-sandbox-allowed-domains domains)))
+
+(defun lispm-desktop-settings--sandbox-srt (status)
+  "Return what the Sandbox panel says of srt, the program confining
+commands, given its STATUS (see `lispm-sandbox-srt-status'): sentences."
+  (cons (pcase status
+          ('ready (if lispm-sandbox-srt-program
+                      (format "srt, Anthropic's sandbox runtime, runs from %s."
+                              (abbreviate-file-name lispm-sandbox-srt-program))
+                    (format "srt %s, Anthropic's sandbox runtime, is installed." lispm-sandbox-srt-version)))
+          ('installing (format "Installing srt %s, Anthropic's sandbox runtime, with npm…"
+                               lispm-sandbox-srt-version))
+          (`(failed . ,why) (format "Sandbox unavailable: %s."
+                                    (lispm-desktop-settings--truncate (string-trim why "[ \t\n]+" "[ \t\n.]+")
+                                                                      240)))
+          (_ "Low, Middle or High installs srt, Anthropic's sandbox runtime, with npm first."))
+        (unless (or (eq status 'ready) (eq lispm-sandbox-level 'none))
+          (list "Until it runs, agents' commands fail rather than run unconfined."))))
+
+(defun lispm-desktop-settings--sandbox ()
+  "Insert the Sandbox panel: how strictly agents' shell commands and MCP
+servers are confined, whether srt is there to confine them, and the
+domains they may reach.  LispM Agent's lispm-sandbox.el does the rest."
+  (lispm-desktop-settings--heading "Sandbox Level")
+  (lispm-desktop-settings--note "How far agents' shell commands and MCP servers are confined:")
+  (let ((under-label (concat lispm-desktop-settings--indent
+                             (propertize " " 'display '(space :width (16))) " ")))
+    (pcase-dolist (`(,level . ,description) lispm-sandbox-levels)
+      (lispm-desktop-settings--radio (lispm-sandbox-level-name level) (eq lispm-sandbox-level level)
+                                     (lambda () (lispm-desktop-settings--sandbox-level level)))
+      (lispm-desktop-settings--paragraph
+       (concat (upcase (substring description 0 1)) (substring description 1) ".")
+       under-label)))
+  (insert "\n")
+  (when (fboundp 'lispm-sandbox-srt-status)
+    (let ((status (lispm-sandbox-srt-status)))
+      (mapc #'lispm-desktop-settings--paragraph (lispm-desktop-settings--sandbox-srt status))
+      (when (and (eq (car-safe status) 'failed) (not lispm-sandbox-srt-program))
+        (insert lispm-desktop-settings--indent)
+        (lispm-desktop-settings--button "Try Again" #'lispm-sandbox-install "Install srt again")
+        (insert "\n"))
+      (insert "\n")))
+  (lispm-desktop-settings--paragraph
+   "Running commands take a new level's network rules at once, its file rules when they start again.")
+  (lispm-desktop-settings--heading "Allowed Domains")
+  (lispm-desktop-settings--note
+   (if lispm-sandbox-allowed-domains
+       (lispm-desktop-settings--truncate (string-join lispm-sandbox-allowed-domains ", ") 58)
+     "None."))
+  (insert lispm-desktop-settings--indent)
+  (lispm-desktop-settings--button "Change…" #'lispm-desktop-settings--sandbox-domains
+                                  "Change the domains sandboxed commands may reach")
+  (insert "\n\n")
+  (lispm-desktop-settings--paragraph
+   "Low reaches them besides package registries and code hosts, Middle them alone; High reaches no network."))
 
 (defun lispm-desktop-settings--startup-read-item ()
   "Ask what LispM is to open at startup; return it as a startup item, see
@@ -913,12 +1043,15 @@ checked."
 (defun lispm-desktop-setup-settings ()
   "Make Control Panels an application: its folder holds a panel each, and
 its window follows the application in front and shows the theme's colours
-when they change."
+when they change, and what is chosen elsewhere: the sandbox level chosen
+with /sandbox in a chat, for one."
   (setf (alist-get 'control-panels lispm-desktop-finder-folders)
         '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95)
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render)
-  (add-hook 'lispm-desktop-startup-changed-hook #'lispm-desktop-settings--render))
+  (add-hook 'lispm-desktop-startup-changed-hook #'lispm-desktop-settings--render)
+  ;; LispM Agent's, which may be loaded later, or never.
+  (add-hook 'lispm-sandbox-change-hook #'lispm-desktop-settings--render))
 
 (provide 'lispm-desktop-settings)
 ;;; lispm-desktop-settings.el ends here

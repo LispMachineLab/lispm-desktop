@@ -4328,6 +4328,175 @@ when none is given; with one, the choice is saved."
           (funcall press "HTTP")
           (should (equal (car saved) '(lispm-desktop-proxy-type . http))))))))
 
+;; LispM Agent's sandbox, which the tests do not load.
+(defvar lispm-sandbox-level)
+(defvar lispm-sandbox-levels)
+(defvar lispm-sandbox-allowed-domains)
+(defvar lispm-sandbox-srt-program)
+(defvar lispm-sandbox-srt-version)
+(defvar lispm-sandbox-change-hook)
+
+(defmacro lispm-desktop-test--with-sandbox (&rest body)
+  "Run BODY with a stand-in for LispM Agent's sandbox, at level none.
+BODY can set `status', what `lispm-sandbox-srt-status' answers, nil
+at first; `chosen' lists the levels set, with whether they were saved,
+the last first.  Installing srt makes the status `installing'."
+  (declare (indent 0))
+  `(let ((lispm-sandbox-levels '((none . "no sandbox")
+                                 (low . "reads all but secrets; reaches package registries")
+                                 (middle . "reaches only allowed domains")
+                                 (high . "reads only the project; no network")))
+         (lispm-sandbox-level 'none)
+         (lispm-sandbox-allowed-domains nil)
+         (lispm-sandbox-srt-program nil)
+         (lispm-sandbox-srt-version "0.0.81")
+         (lispm-sandbox-change-hook nil)
+         (status nil)
+         (chosen nil))
+     (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
+               ((symbol-function 'lispm-sandbox-level-name) (lambda (level) (capitalize (symbol-name level))))
+               ((symbol-function 'lispm-sandbox-srt-status) (lambda () status))
+               ((symbol-function 'lispm-sandbox-install) (lambda () (setq status 'installing)))
+               ((symbol-function 'lispm-sandbox-set-level)
+                (lambda (level &optional save)
+                  (push (list level save) chosen)
+                  (setq lispm-sandbox-level level)
+                  (run-hooks 'lispm-sandbox-change-hook))))
+       ,@body)))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-with-lispm-agent ()
+  "The Sandbox panel shows, after Network, once LispM Agent's sandbox is
+loaded, and not before."
+  (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore))
+    (should-not (assq 'sandbox (lispm-desktop-settings--panels))))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always))
+    (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
+      (should (equal (cadr (memq 'network keys)) 'sandbox))))
+  (should (file-readable-p (lispm-desktop-platinum-icon-file "sandbox-32"))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-srt ()
+  "The Sandbox panel says whether srt is installed, being installed, or why
+it cannot be had, and that commands fail meanwhile at a level other than
+None."
+  (lispm-desktop-test--with-sandbox
+    (should (equal (lispm-desktop-settings--sandbox-srt 'ready)
+                   '("srt 0.0.81, Anthropic's sandbox runtime, is installed.")))
+    (should (equal (lispm-desktop-settings--sandbox-srt nil)
+                   '("Low, Middle or High installs srt, Anthropic's sandbox runtime, with npm first.")))
+    (setq lispm-sandbox-level 'middle)
+    (should (equal (lispm-desktop-settings--sandbox-srt 'installing)
+                   '("Installing srt 0.0.81, Anthropic's sandbox runtime, with npm…"
+                     "Until it runs, agents' commands fail rather than run unconfined.")))
+    (should (equal (car (lispm-desktop-settings--sandbox-srt
+                         '(failed . "srt could not be installed: npm error network unreachable.\n")))
+                   "Sandbox unavailable: srt could not be installed: npm error network unreachable."))
+    (let ((lispm-sandbox-srt-program "/opt/srt/bin/srt"))
+      (should (equal (lispm-desktop-settings--sandbox-srt 'ready)
+                     '("srt, Anthropic's sandbox runtime, runs from /opt/srt/bin/srt."))))))
+
+(ert-deftest lispm-desktop-test-settings-wrap ()
+  "A remark wraps between words to the pane; a word wider than the pane is
+cut short, an ellipsis ending it."
+  (let ((width (lispm-desktop-platinum-content-width "aaaa bbbb" 'shadow)))
+    (should (equal (lispm-desktop-settings--wrap "aaaa bbbb cccc  dd\n" width) '("aaaa bbbb" "cccc dd")))
+    (pcase-let ((`(,first ,long ,last) (lispm-desktop-settings--wrap
+                                        (concat "aaaa " (make-string 40 ?x) " dd") width)))
+      (should (equal (list first last) '("aaaa" "dd")))
+      (should (string-suffix-p "…" long))
+      (should (<= (lispm-desktop-platinum-content-width long 'shadow) width)))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-domains ()
+  "The domains sandboxed commands may reach are kept as typed, separated by
+commas; one srt cannot allow is refused, and nothing is kept."
+  (lispm-desktop-test--with-sandbox
+    (let ((saved nil)
+          (answer nil))
+      (cl-letf (((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (push (cons variable value) saved)))
+                ((symbol-function 'read-string) (lambda (&rest _) answer)))
+        (setq answer "example.com, *.example.org api.example.net:443,localhost")
+        (lispm-desktop-settings--sandbox-domains)
+        (should (equal (car saved) '(lispm-sandbox-allowed-domains
+                                     "example.com" "*.example.org" "api.example.net:443" "localhost")))
+        (dolist (wrong '("*" "*.com" "https://example.com" "example.com/path" "example"))
+          (setq saved nil answer (concat "example.com, " wrong))
+          (should-error (lispm-desktop-settings--sandbox-domains) :type 'user-error)
+          (should-not saved))
+        (setq answer "")
+        (lispm-desktop-settings--sandbox-domains)
+        (should (equal (car saved) '(lispm-sandbox-allowed-domains)))))))
+
+(defun lispm-desktop-test--settings-button (label)
+  "Return the first button of the current panel whose label holds LABEL."
+  (let ((button (next-button (point-min))))
+    (while (and button (not (string-search label (or (get-text-property (button-start button)
+                                                                         'lispm-desktop-platinum-label)
+                                                      (button-label button)))))
+      (setq button (next-button (button-end button))))
+    button))
+
+(defun lispm-desktop-test--settings-text ()
+  "Return the current panel's text, and the labels its images draw: the
+group boxes' titles and the push buttons'."
+  (concat (buffer-string) " "
+          (mapconcat #'identity
+                     (delq nil (mapcar (lambda (position)
+                                         (get-text-property position 'lispm-desktop-platinum-label))
+                                       (number-sequence (point-min) (1- (point-max)))))
+                     " ")))
+
+(defun lispm-desktop-test--radio-on-p (label)
+  "Return non-nil when the radio button LABEL of the current panel is on."
+  (equal (get-text-property (button-start (lispm-desktop-test--settings-button label))
+                            'lispm-desktop-platinum-plain)
+         (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t nil nil))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-panel ()
+  "The Sandbox panel offers the four levels with what each allows; choosing
+one sets it for later starts too.  A level chosen elsewhere, srt's
+installation and the domains show as they change."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-sandbox
+    (let ((lispm-desktop-finder-folders nil)
+          (enable-theme-functions nil)
+          (lispm-desktop-update-changed-hook nil)
+          (lispm-desktop-startup-changed-hook nil))
+      (lispm-desktop-setup-settings)
+      (with-current-buffer (lispm-desktop-settings--buffer)
+        (lispm-desktop-settings-select 'sandbox)
+        (should (equal lispm-desktop-platinum-title "Sandbox"))
+        (dolist (text '("Sandbox Level" "No sandbox." "Reads all but secrets; reaches package registries."
+                        "Reaches only allowed domains." "Reads only the project; no network."
+                        "Low, Middle or High installs srt" "Allowed Domains" "None." "Change…"))
+          (should (string-search text (lispm-desktop-test--settings-text))))
+        (dolist (level '("None" "Low" "Middle" "High"))
+          (should (lispm-desktop-test--settings-button level)))
+        (should (lispm-desktop-test--radio-on-p "None"))
+        (button-activate (lispm-desktop-test--settings-button "High"))
+        (should (equal chosen '((high t))))
+        (should (lispm-desktop-test--radio-on-p "High"))
+        (should-not (lispm-desktop-test--radio-on-p "None"))
+        (should (string-search "fail rather than run unconfined" (buffer-string)))
+        ;; /sandbox in a chat, then srt failing and installed again.
+        (setq lispm-sandbox-level 'low)
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should (lispm-desktop-test--radio-on-p "Low"))
+        (should-not (lispm-desktop-test--radio-on-p "High"))
+        (setq status '(failed . "srt could not be installed: it needs npm"))
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should (string-search "Sandbox unavailable: srt could not be installed: it needs npm."
+                               (buffer-string)))
+        (button-activate (lispm-desktop-test--settings-button "Try Again"))
+        (should (string-search "Installing srt 0.0.81" (buffer-string)))
+        (setq status 'ready)
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should-not (string-search "fail rather than run unconfined" (buffer-string)))
+        (should-not (lispm-desktop-test--settings-button "Try Again"))
+        (setq lispm-sandbox-allowed-domains '("example.com" "*.example.org"))
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should (string-search "example.com, *.example.org" (buffer-string)))))))
+
 (ert-deftest lispm-desktop-test-control-panels-folder ()
   "The Control Panels folder is a Finder folder of a panel each: opening an
 item opens its panel, and nothing is made, renamed or thrown away there."
