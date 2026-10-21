@@ -460,12 +460,10 @@ above the bottom: (X . Y), kept within the bounds."
           (insert (lispm-desktop-strip--line))))
       (set-window-start window 1)
       (set-window-hscroll window 0))
-    ;; Only a new colour is set: NS Emacs clears a frame whenever its
-    ;; background is set, to the same colour too, and a strip cleared
-    ;; just before an update of the screen shows as an empty bar.
-    (let ((color (lispm-desktop-platinum-color :strip)))
-      (unless (equal (frame-parameter lispm-desktop-strip--frame 'background-color) color)
-        (set-frame-parameter lispm-desktop-strip--frame 'background-color color)))
+    ;; Only a new colour: a strip cleared just before an update of the
+    ;; screen shows as an empty bar.
+    (lispm-desktop-platinum-set-background lispm-desktop-strip--frame
+                                           (lispm-desktop-platinum-color :strip))
     (lispm-desktop-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
                                lispm-desktop-platinum-strip-height)
     (lispm-desktop-strip--place)))
