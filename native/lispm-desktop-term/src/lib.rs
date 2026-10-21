@@ -20,10 +20,12 @@
 // Emacs whether shown or not.
 //
 // In the Mac build the module also draws the desktop's watch on the
-// pointer (cursor.rs), which Emacs cannot: LispM loads it anyway, and it
-// can reach AppKit.
+// pointer (cursor.rs) and makes the windows of a look of glass
+// see-through (glass.rs), which Emacs cannot: LispM loads it anyway, and
+// it can reach AppKit.
 
 mod cursor;
+mod glass;
 mod pty;
 mod status;
 

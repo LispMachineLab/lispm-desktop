@@ -3,7 +3,7 @@ name = "lispm-desktop-term"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-description = "Terminals for lispm-desktop: emulated off Emacs's thread, drawn only when shown; and its watch pointer on macOS"
+description = "Terminals for lispm-desktop: emulated off Emacs's thread, drawn only when shown; and its watch pointer and glass windows on macOS"
 
 [lib]
 crate-type = ["cdylib"]
@@ -20,7 +20,8 @@ emacs = { version = "0.23.0", features = ["emacs-28"] }
 opt-level = 3
 lto = "thin"
 
-# AppKit and the run loop, for the watch on the pointer (src/cursor.rs).
+# AppKit and the run loop, for the watch on the pointer (src/cursor.rs) and
+# the glass windows (src/glass.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = "0.3"
 objc2 = "0.6"
