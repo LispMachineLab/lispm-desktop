@@ -4437,6 +4437,38 @@ typed still goes in beside the region, and other keys keep their ways."
         (use-global-map global)
         (kill-buffer buffer)))))
 
+(ert-deftest lispm-desktop-test-browser-address-selection-stays-in-field ()
+  "The address field selects only its own text: a triple click, which
+selects the whole line, selects the address, not the toolbar's Bookmarks
+button and Location label before it, and \\`C-a' goes to the address's
+start."
+  (let ((transient-mark-mode t)
+        (buffer (lispm-desktop-browser--address-buffer)))
+    (cl-letf (((symbol-function 'lispm-browser-shown-buffer) #'ignore)
+              ((symbol-function 'lispm-desktop-browser--bookmarks-button) (lambda () "Bookmarks"))
+              ((symbol-function 'lispm-desktop-platinum-icon) (lambda (_) "*")))
+      (unwind-protect
+          (save-window-excursion
+            (switch-to-buffer buffer)
+            (lispm-desktop-browser--render-address "https://example.com/")
+            (let ((start (marker-position lispm-desktop-browser--address-start)))
+              ;; What a triple click leaves, the line from its start.
+              (push-mark (point-min) t t)
+              (goto-char (point-max))
+              (run-hooks 'post-command-hook)
+              (should (equal (list (region-beginning) (region-end)) (list start (point-max))))
+              (should (equal (buffer-substring-no-properties (region-beginning) (region-end))
+                             "https://example.com/"))
+              (deactivate-mark)
+              (execute-kbd-macro (kbd "C-a"))
+              (should (= (point) start))
+              ;; Within the field, point and the mark stay where they are.
+              (push-mark (1+ start) t t)
+              (goto-char (+ start 5))
+              (run-hooks 'post-command-hook)
+              (should (equal (list (mark) (point)) (list (1+ start) (+ start 5))))))
+        (kill-buffer buffer)))))
+
 (ert-deftest lispm-desktop-test-throbber-turns-while-loading ()
   "The throbber turns while the shown page loads and rests once it is done."
   (let ((lispm-desktop-browser--throbber-frame nil)
@@ -4989,6 +5021,26 @@ brought back in, the frame is a child of the screen again where it is."
         (should-not (lispm-desktop-apps-out-p 'window))
         (should-not (lispm-desktop-apps-out-p 'outer))
         (should (equal (frame-parameter 'window 'minibuffer) '(mini screen))))))
+
+(ert-deftest lispm-desktop-test-coherence-quiet-mouse-selection ()
+  "Text selected with the mouse in a window out says \"Mark set\" only in
+*Messages*, not over the top of the screen; elsewhere it says it as
+usual, and a message already inhibited stays so."
+  (let ((out nil)
+        (said nil))
+    (cl-letf (((symbol-function 'lispm-desktop-apps-out-p) (lambda (frame) (and (memq frame out) 'screen))))
+      (cl-flet ((select ()
+                  (lispm-desktop-coherence--quiet-selection
+                   (lambda (_) (push inhibit-message said))
+                   `(double-mouse-1 (,(selected-window) 12 (0 . 0) 0)))))
+        (let ((inhibit-message nil))
+          (setq out (list (selected-frame)))
+          (select)
+          (setq out nil)
+          (select))
+        (let ((inhibit-message t))
+          (select))
+        (should (equal said '(t nil t)))))))
 
 (ert-deftest lispm-desktop-test-coherence-screen-of-a-window-out ()
   "The screen is the desktop's frame, also while a window out is selected."
