@@ -862,6 +862,19 @@ others, moving, selecting, killing, do as they always do."
     (let ((delete-selection-mode t))
       (delete-selection-pre-hook))))
 
+(defun lispm-desktop-browser--keep-in-field ()
+  "Keep point and the mark in the address field, off the toolbar before it,
+from the address buffer's `post-command-hook'.  The Bookmarks button, the
+page's icon and the Location label are text of the buffer, which a triple
+click, selecting the whole line, a drag or \\`C-a' would otherwise select
+or reach; a Mac OS 9 edit field selects only its own text, and a triple
+click all of it."
+  (when-let* ((start lispm-desktop-browser--address-start))
+    (when (< (point) start)
+      (goto-char start))
+    (when (and (mark t) (< (mark t) start))
+      (set-marker (mark-marker) start))))
+
 (defconst lispm-desktop-browser-keys
   '(("C-l" . lispm-desktop-browser-focus-address)
     ("M-l" . lispm-desktop-browser-focus-address)
@@ -942,6 +955,7 @@ toolbar.
   (display-line-numbers-mode -1)
   (visual-line-mode -1)
   (add-hook 'pre-command-hook #'lispm-desktop-browser--replace-marked-address nil t)
+  (add-hook 'post-command-hook #'lispm-desktop-browser--keep-in-field nil t)
   (add-hook 'after-change-functions #'lispm-desktop-browser--note-address-edit nil t)
   (add-hook 'window-selection-change-functions #'lispm-desktop-browser--field-focus nil t))
 
