@@ -77,6 +77,7 @@
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
+(require 'lispm-desktop-frame)
 (require 'lispm-desktop-term)
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-look)

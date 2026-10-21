@@ -78,7 +78,7 @@ Groups without running terminals and idle for
         (cons (cons (plist-get group :key)
                     (not (lispm-desktop-agent-list--folded-p group (float-time))))
               (assoc-delete-all (plist-get group :key) lispm-desktop-agent-list--folds)))
-  (lispm-desktop-agent-list-refresh))
+  (lispm-desktop-agent-list--redraw))
 
 (defun lispm-desktop-agent-list--toggle-expanded (directory)
   "List every session of DIRECTORY's group, or only a preview again."
@@ -86,7 +86,7 @@ Groups without running terminals and idle for
         (if (member directory lispm-desktop-agent-list--expanded)
             (delete directory lispm-desktop-agent-list--expanded)
           (cons directory lispm-desktop-agent-list--expanded)))
-  (lispm-desktop-agent-list-refresh))
+  (lispm-desktop-agent-list--redraw))
 
 (defun lispm-desktop-agent-list--running-label (buffer)
   "Return the label of running agent terminal BUFFER in the sidebar: what
@@ -189,14 +189,28 @@ Finder list; its sessions are rows one level in, newest first."
   (interactive)
   (with-current-buffer lispm-desktop-agent-list-buffer-name
     (setq lispm-desktop-agent-list--show-archived (not lispm-desktop-agent-list--show-archived)))
-  (lispm-desktop-agent-list-refresh))
+  (lispm-desktop-agent-list--redraw))
+
+(defun lispm-desktop-agent-list--info (sessions running reading)
+  "Return the count on the sidebar's bottom edge: SESSIONS listed, RUNNING
+terminals, and, when READING, that sessions are still being read."
+  (seq-reduce (lambda (shown detail) (lispm-desktop-tr "%s, %s" shown detail))
+              (delq nil (list (when (> running 0)
+                                (lispm-desktop-tr-n "%d running" "%d running" running))
+                              (when reading (lispm-desktop-tr "still reading…"))))
+              (lispm-desktop-tr-n "%d session" "%d sessions" sessions)))
 
 (defun lispm-desktop-agent-list--render ()
   "Render the agent sidebar, grouped by working directory, into this buffer.
-Archived sessions are left out unless `lispm-desktop-agent-list--show-archived'."
+Archived sessions are left out unless `lispm-desktop-agent-list--show-archived'.
+The sessions are those known now, see `lispm-desktop-agent-sessions-snapshot':
+while a session reader has none yet, the window's bottom edge says the
+sessions are still being read."
   (let* ((inhibit-read-only t)
          (now (float-time))
-         (all (lispm-desktop-agent-sessions-list))
+         (snapshot (lispm-desktop-agent-sessions-snapshot))
+         (all (car snapshot))
+         (reading (cdr snapshot))
          ;; Terminals claim their sessions first, so a session a new
          ;; terminal just claimed already counts as running below.
          (_ (lispm-desktop-agent-refresh-buffer-titles all))
@@ -226,33 +240,39 @@ Archived sessions are left out unless `lispm-desktop-agent-list--show-archived'.
              (lispm-desktop-tr "Show archived sessions"))
           ,lispm-desktop-agent-list--show-archived))))
     (setq lispm-desktop-platinum-info
-          (let ((counted (lispm-desktop-tr-n "%d session" "%d sessions" (length sessions))))
-            (if running
-                (lispm-desktop-tr "%s, %s" counted
-                                  (lispm-desktop-tr-n "%d running" "%d running" (length running)))
-              counted)))
+          (lispm-desktop-agent-list--info (length sessions) (length running) reading))
     (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
     (dolist (group (lispm-desktop-agent-group-by-directory sessions running))
       (lispm-desktop-agent-list--insert-project group now running-ids))))
 
-(defun lispm-desktop-agent-list-refresh ()
-  "Re-render the agent sidebar, keeping point on the same line."
-  (interactive)
+(defun lispm-desktop-agent-list--redraw ()
+  "Re-render the agent sidebar, keeping point on the same line, with the
+sessions as they are known: session readers are not asked to read anew,
+see `lispm-desktop-agent-reread-sessions-hook'."
   (lispm-desktop-sidebar-refresh-list 'agents))
 
+(defun lispm-desktop-agent-list-refresh ()
+  "Read the sessions anew and re-render the agent sidebar, keeping point
+on the same line.  Session readers read anew first, see
+`lispm-desktop-agent-reread-sessions-hook'."
+  (interactive)
+  (run-hooks 'lispm-desktop-agent-reread-sessions-hook)
+  (lispm-desktop-agent-list--redraw))
+
 (defvar lispm-desktop-agent-list--refresh-timer nil
-  "The idle timer of a pending sidebar refresh, or nil.")
+  "The idle timer of a pending sidebar re-render, or nil.")
 
 (defun lispm-desktop-agent-list--refresh-when-idle ()
-  "Refresh the agent sidebar once Emacs is idle, unless that is pending.
-Reading transcripts can take seconds the first time, so the refresh never
-runs inside the code that asked for it."
+  "Re-render the agent sidebar once Emacs is idle, unless that is pending.
+Reading transcripts can take seconds the first time, so the re-render
+never runs inside the code that asked for it.  Session readers are not
+asked to read anew, see `lispm-desktop-agent-list--redraw'."
   (unless lispm-desktop-agent-list--refresh-timer
     (setq lispm-desktop-agent-list--refresh-timer
           (run-with-idle-timer
            0.2 nil (lambda ()
                      (setq lispm-desktop-agent-list--refresh-timer nil)
-                     (lispm-desktop-agent-list-refresh))))))
+                     (lispm-desktop-agent-list--redraw))))))
 
 (defun lispm-desktop-agent-list-refresh-on-exit (&optional terminal &rest _)
   "Refresh the agent sidebar once Emacs is idle after an agent exits.
@@ -368,15 +388,18 @@ Each agent adds the key starting it, see `lispm-desktop-agent-define'.
 (keymap-set lispm-desktop-agent-map "a" #'lispm-desktop-sidebar-agents)
 
 (defun lispm-desktop-agent-list--agents-changed ()
-  "Show the agents anew once Emacs is idle, where the sidebar lists them.
-This is on `lispm-desktop-agents-changed-hook'."
+  "Show the agents anew once Emacs is idle, where the sidebar lists them,
+shown or not.  This is on `lispm-desktop-agents-changed-hook' and
+`lispm-desktop-agent-sessions-arrived-hook'."
   (when (get-buffer lispm-desktop-agent-list-buffer-name)
     (lispm-desktop-agent-list--refresh-when-idle)))
 
 (defun lispm-desktop-setup-agent-list ()
-  "Keep the agents sidebar current: as agents and sessions change, and as
-agent terminals exit or say what they are doing."
+  "Keep the agents sidebar current: as agents and sessions change, as
+session readers get newer sessions, and as agent terminals exit or say
+what they are doing."
   (add-hook 'lispm-desktop-agents-changed-hook #'lispm-desktop-agent-list--agents-changed)
+  (add-hook 'lispm-desktop-agent-sessions-arrived-hook #'lispm-desktop-agent-list--agents-changed)
   (add-hook 'lispm-desktop-agent-sessions-changed-hook #'lispm-desktop-agent-list-refresh)
   (add-hook 'eat-exit-hook #'lispm-desktop-agent-list-refresh-on-exit)
   (add-hook 'lispm-desktop-term-exit-functions #'lispm-desktop-agent-list-refresh-on-exit)
