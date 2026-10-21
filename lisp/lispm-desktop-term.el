@@ -36,8 +36,9 @@
 ;;
 ;;   program --PTY--> module thread: decode, keep the screen
 ;;              shown and changed? --channel--> `lispm-desktop-term--wake'
-;;   scheduler `lispm-desktop-term--tick': the selected terminal first, each frame
-;;              within `lispm-desktop-term-frame-budget', giving way to the keyboard
+;;   frame clock, client `terminals', `lispm-desktop-term--draw': the selected
+;;              terminal first, each frame within `lispm-desktop-frame-budget',
+;;              giving way to the keyboard, see lispm-desktop-frame.el
 ;;   buffer: the screen's lines, faces from the cells' colours
 ;;
 ;; The buffer holds the screen only; the history stays in the module,
@@ -64,6 +65,7 @@
 (require 'subr-x)
 (require 'ansi-color)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-frame)
 
 (declare-function lispm-desktop-term-module-init-channel "lispm-desktop-term-module" (process))
 (declare-function lispm-desktop-term-module-close-channel "lispm-desktop-term-module" ())
@@ -110,16 +112,6 @@ The modules of the sources whose version is VERSION, see
 liblispm_desktop_term-TARGET.dylib or .so for each Rust TARGET, and
 SHA256SUMS, their checksums as sha256sum writes them."
   :type 'string
-  :group 'lispm-desktop-term)
-
-(defcustom lispm-desktop-term-frame-budget 0.008
-  "Seconds of one frame that drawing terminals may take before it gives way."
-  :type 'number
-  :group 'lispm-desktop-term)
-
-(defcustom lispm-desktop-term-frame-interval 0.016
-  "Seconds between two frames of terminal drawing, at the least."
-  :type 'number
   :group 'lispm-desktop-term)
 
 (defconst lispm-desktop-term-source-directory
@@ -720,21 +712,17 @@ exits, clipboard."
 ;;
 ;; The module wakes Emacs through a pipe with the ids of terminals that
 ;; have something new: output for the shown ones, happenings for any.
-;; Waking only marks them; a frame then draws them, the selected window's
-;; terminal first, until the frame's budget is spent or a key is waiting,
-;; and leaves the rest to the next frame.
+;; Waking only marks them and asks the frame clock for a frame, see
+;; lispm-desktop-frame.el; the frame then draws them, the selected
+;; window's terminal first, until the frame's budget is spent or a key is
+;; waiting, and leaves the rest to the next frame.  Terminals are the
+;; clock's client `terminals', at depth 0.
 
 (defvar lispm-desktop-term--channel nil
   "The pipe process the module wakes Emacs through.")
 
 (defvar lispm-desktop-term--pending nil
   "Ids of terminals woken and not yet drawn.")
-
-(defvar lispm-desktop-term--timer nil
-  "Timer of the next frame, while one is due.")
-
-(defvar lispm-desktop-term--last-frame 0
-  "When the last frame was drawn, a `float-time'.")
 
 (defun lispm-desktop-term--channel ()
   "Return the pipe the module wakes Emacs through, made when missing."
@@ -760,31 +748,27 @@ A module built before it could close its channel is left as it is."
   (lispm-desktop-term--schedule))
 
 (defun lispm-desktop-term--schedule ()
-  "Schedule the next frame, no sooner than a frame interval after the last.
-The interval is `lispm-desktop-term-frame-interval'."
-  (unless lispm-desktop-term--timer
-    (setq lispm-desktop-term--timer
-          (run-with-timer (max 0 (- (+ lispm-desktop-term--last-frame lispm-desktop-term-frame-interval)
-                                    (float-time)))
-                          nil #'lispm-desktop-term--tick))))
+  "Ask the frame clock for a frame drawing the woken terminals.
+It comes no sooner than `lispm-desktop-frame-interval' after the last."
+  (lispm-desktop-frame-request 'terminals))
 
 (defun lispm-desktop-term--order (ids)
   "Return IDS in the order they are drawn: the selected window's first."
   (let ((selected (buffer-local-value 'lispm-desktop-term--id (window-buffer (selected-window)))))
     (if (memq selected ids) (cons selected (delq selected ids)) ids)))
 
-(defun lispm-desktop-term--tick ()
-  "Draw a frame: the woken terminals, within `lispm-desktop-term-frame-budget',
-giving way as soon as a key is waiting."
-  (setq lispm-desktop-term--timer nil
-        lispm-desktop-term--last-frame (float-time))
+(defun lispm-desktop-term--draw (deadline)
+  "Draw the woken terminals until DEADLINE, a `float-time', giving way as
+soon as a key is waiting; return non-nil when some are left for the next
+frame.  The selected window's terminal comes first, and one terminal
+shown is drawn whatever is waiting.  This is the frame clock's client
+`terminals', see `lispm-desktop-frame-add-client'."
   (let ((ids (lispm-desktop-term--order (reverse lispm-desktop-term--pending)))
-        (start (float-time))
         (drawn 0))
     (setq lispm-desktop-term--pending nil)
     (while ids
       (if (and (> drawn 0)
-               (or (> (- (float-time) start) lispm-desktop-term-frame-budget) (input-pending-p)))
+               (or (> (float-time) deadline) (input-pending-p)))
           (setq lispm-desktop-term--pending (append ids lispm-desktop-term--pending)
                 ids nil)
         (let ((buffer (gethash (pop ids) lispm-desktop-term--buffers)))
@@ -795,8 +779,9 @@ giving way as soon as a key is waiting."
                 (lispm-desktop-term--render))
               (setq drawn (1+ drawn)))
             (lispm-desktop-term--happen buffer)))))
-    (when lispm-desktop-term--pending
-      (lispm-desktop-term--schedule))))
+    (and lispm-desktop-term--pending t)))
+
+(lispm-desktop-frame-add-client 'terminals #'lispm-desktop-term--draw 0)
 
 ;;;; Showing and sizing
 

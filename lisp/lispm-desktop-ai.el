@@ -180,7 +180,8 @@ agent does.  The agents sidebar shows them anew once Emacs is idle.")
 
 (defvar lispm-desktop-agent-sessions-changed-hook nil
   "Hook run once a session was shown, renamed, archived or deleted.
-The agents sidebar shows it anew at once.")
+The agents sidebar reads the sessions anew and shows them at once, see
+`lispm-desktop-agent-reread-sessions-hook'.")
 
 (defun lispm-desktop-agent--changed ()
   "Forget what was worked out from the agents, and tell who shows them."
@@ -420,19 +421,116 @@ Codex writes forked threads to separate files that share the session id."
           (puthash key session latest))))
     (hash-table-values latest)))
 
+(defun lispm-desktop-agent--agent-sessions (props &optional reader)
+  "Return the sessions of the agent of PROPS, as its :sessions reads them,
+or as READER, its session reader, has them; READER may say `pending'
+instead, which is returned as it is.  An agent whose sessions cannot be
+read lists none, and says so."
+  (condition-case err
+      (let ((sessions (funcall (or reader (plist-get props :sessions)))))
+        (if (and reader (eq sessions 'pending))
+            'pending
+          (delq nil (copy-sequence sessions))))
+    (error (message "%s sessions unavailable: %s" (plist-get props :name)
+                    (error-message-string err))
+           nil)))
+
+(defun lispm-desktop-agent--sort-sessions (sessions)
+  "Return SESSIONS, the newest transcript of each id only, newest first."
+  (sort (lispm-desktop-agent--newest-per-id sessions)
+        (lambda (a b) (> (plist-get a :time) (plist-get b :time)))))
+
 (defun lispm-desktop-agent-sessions-list ()
   "Return every recorded session of the agents that can run here, newest
 first, see `lispm-desktop-agent-available'.  An agent whose sessions cannot
-be read lists none, and says so."
-  (sort (lispm-desktop-agent--newest-per-id
-         (mapcan (pcase-lambda (`(,_ . ,props))
-                   (condition-case err
-                       (delq nil (copy-sequence (funcall (plist-get props :sessions))))
-                     (error (message "%s sessions unavailable: %s" (plist-get props :name)
-                                     (error-message-string err))
-                            nil)))
-                 (lispm-desktop-agent-available)))
-        (lambda (a b) (> (plist-get a :time) (plist-get b :time)))))
+be read lists none, and says so.  Each agent's :sessions reads them as
+they are now; session readers are never asked, so the list is complete,
+see `lispm-desktop-agent-sessions-snapshot'."
+  (lispm-desktop-agent--sort-sessions
+   (mapcan (pcase-lambda (`(,_ . ,props)) (lispm-desktop-agent--agent-sessions props))
+           (lispm-desktop-agent-available))))
+
+;;;;; Session readers
+;;
+;; Reading every transcript can take seconds.  An agent may have a reader
+;; besides its :sessions that never waits, its sessions read in the
+;; background, off Emacs's thread: the agents sidebar draws what the
+;; readers have, and again as they get more; the session picker still
+;; reads every session as it is.
+
+(defvar lispm-desktop-agent--session-readers nil
+  "The agents' session readers, as (AGENT . READER).
+See `lispm-desktop-agent-add-session-reader'.")
+
+(defvar lispm-desktop-agent-reread-sessions-hook nil
+  "Hook run when the sessions must be read anew, before the agents sidebar
+draws them: by `lispm-desktop-agent-list-refresh', its Refresh button
+and \\`g', and once a session was shown, renamed, archived or deleted,
+see `lispm-desktop-agent-sessions-changed-hook'.  A session reader, see
+`lispm-desktop-agent-add-session-reader', forgets what it has and reads
+again.  The sidebar drawn again for anything else, an agent's status, an
+agent exiting, the agents changing, keeps what the readers have.")
+
+(defvar lispm-desktop-agent-sessions-arrived-hook nil
+  "Hook run when a session reader has newer sessions, see
+`lispm-desktop-agent-sessions-arrived'.  The agents sidebar shows them
+once Emacs is idle.")
+
+(defun lispm-desktop-agent-sessions-arrived ()
+  "Say that a session reader has newer sessions than the sidebar shows.
+A reader, see `lispm-desktop-agent-add-session-reader', calls this once
+what it read in the background is in: the agents sidebar draws the
+sessions again once Emacs is idle, shown or not, and no reader is asked
+to read anew.  This runs `lispm-desktop-agent-sessions-arrived-hook'."
+  (run-hooks 'lispm-desktop-agent-sessions-arrived-hook))
+
+(defun lispm-desktop-agent-add-session-reader (agent reader)
+  "Make READER the reader of AGENT's sessions for the agents sidebar.
+READER is called with no argument and returns at once, never waiting:
+AGENT's sessions as its :sessions returns them, see
+`lispm-desktop-agent-define', or the symbol `pending' while it has none
+to give yet, and the sidebar then says it is still reading.  A reader
+reading in the background calls `lispm-desktop-agent-sessions-arrived'
+when it has newer sessions, and reads anew on
+`lispm-desktop-agent-reread-sessions-hook'.
+
+Only the sidebar asks readers, see `lispm-desktop-agent-sessions-snapshot';
+`lispm-desktop-agent-sessions-list', which the session picker reads,
+always reads the sessions themselves.  AGENT has one reader at most:
+adding another replaces it.  The sidebar draws the sessions again once
+Emacs is idle.  Return AGENT."
+  (setf (alist-get agent lispm-desktop-agent--session-readers) reader)
+  (lispm-desktop-agent-sessions-arrived)
+  agent)
+
+(defun lispm-desktop-agent-remove-session-reader (agent)
+  "Remove the session reader of AGENT, see
+`lispm-desktop-agent-add-session-reader'.  The sidebar reads AGENT's
+sessions with its :sessions again, once Emacs is idle."
+  (when (assq agent lispm-desktop-agent--session-readers)
+    (setq lispm-desktop-agent--session-readers
+          (seq-remove (lambda (entry) (eq (car entry) agent))
+                      lispm-desktop-agent--session-readers))
+    (lispm-desktop-agent-sessions-arrived)))
+
+(defun lispm-desktop-agent-sessions-snapshot ()
+  "Return the sessions as they are known now, (SESSIONS . PENDING).
+SESSIONS are as `lispm-desktop-agent-sessions-list' returns them, but an
+agent with a session reader lists what its reader has, without waiting,
+see `lispm-desktop-agent-add-session-reader'; PENDING are the agents
+whose readers have nothing yet, in the order agents are offered.  Agents
+without a reader are read as they are now.  The agents sidebar draws
+this."
+  (let ((pending nil))
+    (cons (lispm-desktop-agent--sort-sessions
+           (mapcan (pcase-lambda (`(,agent . ,props))
+                     (let ((sessions (lispm-desktop-agent--agent-sessions
+                                      props (alist-get agent lispm-desktop-agent--session-readers))))
+                       (if (eq sessions 'pending)
+                           (progn (push agent pending) nil)
+                         sessions)))
+                   (lispm-desktop-agent-available)))
+          (nreverse pending))))
 
 ;;;; Presentation (pure)
 

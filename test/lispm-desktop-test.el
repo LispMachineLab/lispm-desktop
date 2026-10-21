@@ -183,6 +183,63 @@ sessions cannot be read lists none, and the others still list theirs."
       (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
                      '("b" "c" "a"))))))
 
+(ert-deftest lispm-desktop-test-session-readers-feed-the-sidebar-only ()
+  "The sidebar's sessions come from an agent's session reader where it has
+one, without waiting: an agent whose reader has nothing yet is pending,
+one whose reader fails lists none, and agents without a reader are read
+as they are.  The session list and the picker never ask a reader."
+  (let ((lispm-desktop-agent--session-readers nil)
+        (lispm-desktop-agent--candidates nil)
+        (lispm-desktop-agent-sessions-arrived-hook nil)
+        (arrived 0))
+    (add-hook 'lispm-desktop-agent-sessions-arrived-hook (lambda () (setq arrived (1+ arrived))))
+    (cl-flet ((session (agent id time title)
+                (list :agent agent :id id :time time :title title :cwd "/tmp/project/")))
+      (lispm-desktop-test--with-agents
+          `((lispm :name "LispM" :new ignore
+                   :sessions ,(lambda () (list (session 'lispm "l" 2.0 "L"))))
+            (codex :name "Codex" :new ignore
+                   :sessions ,(lambda () (list (session 'codex "c" 3.0 "C"))))
+            (claude :name "Claude Code" :new ignore
+                    :sessions ,(lambda () (list (session 'claude "a" 1.0 "A"))))
+            (hermes :name "Hermes" :new ignore
+                    :sessions ,(lambda () (list (session 'hermes "h" 5.0 "H")))))
+        (should (eq (lispm-desktop-agent-add-session-reader 'codex (lambda () 'pending)) 'codex))
+        (lispm-desktop-agent-add-session-reader
+         'claude (lambda () (list (session 'claude "a" 4.0 "A, read") nil)))
+        (lispm-desktop-agent-add-session-reader 'hermes (lambda () (error "No store")))
+        ;; Each change of readers draws the sidebar again.
+        (should (= arrived 3))
+        (let ((inhibit-message t))
+          (pcase-let ((`(,sessions . ,pending) (lispm-desktop-agent-sessions-snapshot)))
+            (should (equal (mapcar (lambda (s) (plist-get s :title)) sessions) '("A, read" "L")))
+            (should (equal pending '(codex)))))
+        ;; One reader per agent: a new one replaces the old.
+        (dolist (agent '(codex claude hermes))
+          (lispm-desktop-agent-add-session-reader agent (lambda () (error "A reader was asked"))))
+        (should (= (length lispm-desktop-agent--session-readers) 3))
+        (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
+                       '("h" "c" "l" "a")))
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (_prompt table &rest _) (car (all-completions "" table)))))
+          (should (equal (plist-get (lispm-desktop-agent--read-session "Agent session: ") :id) "h")))
+        (lispm-desktop-agent-remove-session-reader 'codex)
+        (lispm-desktop-agent-remove-session-reader 'claude)
+        (lispm-desktop-agent-remove-session-reader 'hermes)
+        (lispm-desktop-agent-remove-session-reader 'hermes)
+        (should-not lispm-desktop-agent--session-readers)
+        (should (= arrived 9))
+        (should (equal (lispm-desktop-agent-sessions-snapshot)
+                       (cons (lispm-desktop-agent-sessions-list) nil)))))))
+
+(ert-deftest lispm-desktop-test-agent-list-says-it-is-reading ()
+  "The agents sidebar's bottom edge counts the sessions and the terminals
+running, and says when sessions are still being read."
+  (should (equal (lispm-desktop-agent-list--info 1 0 nil) "1 session"))
+  (should (equal (lispm-desktop-agent-list--info 3 2 nil) "3 sessions, 2 running"))
+  (should (equal (lispm-desktop-agent-list--info 0 0 t) "0 sessions, still reading…"))
+  (should (equal (lispm-desktop-agent-list--info 4 1 t) "4 sessions, 1 running, still reading…")))
+
 (ert-deftest lispm-desktop-test-agent-terminals-know-their-agent ()
   "A terminal is an agent's when started for it, or named after it while
 that agent is defined; a shell is no agent's."
@@ -4998,6 +5055,203 @@ brought back in, the frame is a child of the screen again where it is."
             ((symbol-function 'frame-live-p) #'always))
     (should (eq (lispm-desktop-apps-screen) 'screen))))
 
+;;;; lispm-desktop-frame
+
+(defmacro lispm-desktop-test--with-frame-clock (&rest body)
+  "Run BODY with a frame clock of its own, no client added yet, and leave
+no timer of it behind."
+  (declare (indent 0))
+  `(let ((lispm-desktop-frame--clients nil)
+         (lispm-desktop-frame--due nil)
+         (lispm-desktop-frame--timer nil)
+         (lispm-desktop-frame--last 0)
+         (lispm-desktop-frame-last-error nil))
+     (unwind-protect (progn ,@body)
+       (when lispm-desktop-frame--timer
+         (cancel-timer lispm-desktop-frame--timer)))))
+
+(ert-deftest lispm-desktop-test-frame-clients-run-by-depth ()
+  "A frame calls its due clients by ascending depth, those of one depth in
+the order they were first added, each with the frame's deadline: its
+start plus the budget.  A client added again keeps its place; one not due
+is not called, and a name that is no client is never due."
+  (lispm-desktop-test--with-frame-clock
+    (let ((calls nil)
+          (lispm-desktop-frame-budget 0.25))
+      (cl-flet ((client (name) (lambda (deadline) (push (cons name deadline) calls) nil)))
+        (lispm-desktop-frame-add-client 'late (client 'late) 10)
+        (lispm-desktop-frame-add-client 'one (client 'one))
+        (lispm-desktop-frame-add-client 'two (client 'two))
+        (lispm-desktop-frame-add-client 'early (client 'early) -5)
+        (lispm-desktop-frame-add-client 'idle (client 'idle) 0)
+        (lispm-desktop-frame-add-client 'one (client 'one-again) 0)
+        (should (equal (mapcar #'car lispm-desktop-frame--clients) '(early one two idle late)))
+        (dolist (name '(late two one early))
+          (should (eq (lispm-desktop-frame-request name) name)))
+        (should-not (lispm-desktop-frame-request 'nobody))
+        (should-not (memq 'nobody lispm-desktop-frame--due))
+        (should (timerp lispm-desktop-frame--timer))
+        (cl-letf (((symbol-function 'input-pending-p) #'ignore))
+          (lispm-desktop-frame--tick))
+        (should (equal (mapcar #'car (reverse calls)) '(early one-again two late)))
+        (should (equal (delete-dups (mapcar #'cdr calls))
+                       (list (+ lispm-desktop-frame--last 0.25))))
+        (should-not lispm-desktop-frame--due)
+        (should-not lispm-desktop-frame--timer)))))
+
+(ert-deftest lispm-desktop-test-frame-interval ()
+  "A frame comes no sooner than the interval after the last, and one timer
+serves every client asking for it."
+  (lispm-desktop-test--with-frame-clock
+    (let ((delays nil)
+          (lispm-desktop-frame-interval 0.5))
+      (cl-letf (((symbol-function 'run-with-timer)
+                 (lambda (delay &rest _) (push delay delays) (timer-create)))
+                ((symbol-function 'input-pending-p) #'ignore))
+        (lispm-desktop-frame-add-client 'a #'ignore)
+        (lispm-desktop-frame-add-client 'b #'ignore)
+        (lispm-desktop-frame-request 'a)
+        (lispm-desktop-frame-request 'b)
+        (should (equal delays '(0)))
+        (lispm-desktop-frame--tick)
+        (lispm-desktop-frame-request 'a)
+        (should (= (length delays) 2))
+        (should (< 0.4 (car delays) 0.5001))))))
+
+(ert-deftest lispm-desktop-test-frame-gives-way-to-keys ()
+  "The first due client of a frame runs while a key is waiting, as it
+gives way itself; those after it wait, due, for a frame with no key
+waiting."
+  (lispm-desktop-test--with-frame-clock
+    (let ((calls nil)
+          (waiting t))
+      (lispm-desktop-frame-add-client 'first (lambda (_) (push 'first calls) nil))
+      (lispm-desktop-frame-add-client 'second (lambda (_) (push 'second calls) nil) 1)
+      (lispm-desktop-frame-add-client 'third (lambda (_) (push 'third calls) nil) 2)
+      (cl-letf (((symbol-function 'input-pending-p) (lambda (&rest _) waiting)))
+        (lispm-desktop-frame-request 'first)
+        (lispm-desktop-frame-request 'third)
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(first)))
+        (should (equal lispm-desktop-frame--due '(third)))
+        (should lispm-desktop-frame--timer)
+        ;; The first due client of this frame is the second.
+        (lispm-desktop-frame-request 'second)
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(second first)))
+        (should (equal lispm-desktop-frame--due '(third)))
+        (setq waiting nil)
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(third second first)))
+        (should-not lispm-desktop-frame--due)
+        (should-not lispm-desktop-frame--timer)))))
+
+(ert-deftest lispm-desktop-test-frame-keeps-its-budget ()
+  "Once a frame's deadline has passed, the clients after the first wait,
+due, for the next frame."
+  (lispm-desktop-test--with-frame-clock
+    (let ((calls nil)
+          (lispm-desktop-frame-budget 0.001))
+      (lispm-desktop-frame-add-client 'slow (lambda (deadline)
+                                             (push 'slow calls)
+                                             (while (<= (float-time) deadline))
+                                             nil))
+      (lispm-desktop-frame-add-client 'next (lambda (_) (push 'next calls) nil) 1)
+      (cl-letf (((symbol-function 'input-pending-p) #'ignore))
+        (lispm-desktop-frame-request 'slow)
+        (lispm-desktop-frame-request 'next)
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(slow)))
+        (should (equal lispm-desktop-frame--due '(next)))
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(next slow)))))))
+
+(ert-deftest lispm-desktop-test-frame-client-with-work-left ()
+  "A client returning non-nil has work left: it is due again and called in
+the next frame, until it returns nil."
+  (lispm-desktop-test--with-frame-clock
+    (let ((left 2)
+          (calls 0))
+      (lispm-desktop-frame-add-client 'work (lambda (_)
+                                             (setq calls (1+ calls))
+                                             (> (setq left (1- left)) 0)))
+      (lispm-desktop-frame-request 'work)
+      (cl-letf (((symbol-function 'input-pending-p) #'ignore))
+        (lispm-desktop-frame--tick)
+        (should (= calls 1))
+        (should (equal lispm-desktop-frame--due '(work)))
+        (should lispm-desktop-frame--timer)
+        (lispm-desktop-frame--tick)
+        (should (= calls 2))
+        (should-not lispm-desktop-frame--due)
+        (should-not lispm-desktop-frame--timer)
+        (lispm-desktop-frame--tick)
+        (should (= calls 2))))))
+
+(ert-deftest lispm-desktop-test-frame-client-errors-stay-its-own ()
+  "A client's error is reported and kept; the other clients of the frame
+still run, and the failing client is not due again for it."
+  (lispm-desktop-test--with-frame-clock
+    (let ((calls nil)
+          (messages nil))
+      (lispm-desktop-frame-add-client 'broken (lambda (_) (push 'broken calls) (error "Out of order")))
+      (lispm-desktop-frame-add-client 'fine (lambda (_) (push 'fine calls) nil) 1)
+      (cl-letf (((symbol-function 'input-pending-p) #'ignore)
+                ((symbol-function 'message)
+                 (lambda (&rest args) (push (apply #'format-message args) messages))))
+        (lispm-desktop-frame-request 'broken)
+        (lispm-desktop-frame-request 'fine)
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(fine broken)))
+        (should (equal lispm-desktop-frame-last-error '(broken error "Out of order")))
+        (should (string-match-p "broken.*Out of order" (car messages)))
+        (should-not lispm-desktop-frame--due)
+        (should-not lispm-desktop-frame--timer)
+        (lispm-desktop-frame--tick)
+        (should (equal calls '(fine broken)))))))
+
+(ert-deftest lispm-desktop-test-frame-remove-client ()
+  "A client removed is called no more and its request is forgotten; the
+timer goes with the last client due, and a client that removes itself
+while it runs stays removed."
+  (lispm-desktop-test--with-frame-clock
+    (let ((calls nil))
+      (lispm-desktop-frame-add-client 'a (lambda (_) (push 'a calls) nil))
+      (lispm-desktop-frame-add-client 'b (lambda (_) (push 'b calls) nil))
+      (lispm-desktop-frame-request 'a)
+      (lispm-desktop-frame-request 'b)
+      (let ((timer lispm-desktop-frame--timer))
+        (lispm-desktop-frame-remove-client 'a)
+        (should (eq lispm-desktop-frame--timer timer))
+        (should (memq timer timer-list))
+        (lispm-desktop-frame-remove-client 'b)
+        (should-not lispm-desktop-frame--timer)
+        (should-not (memq timer timer-list)))
+      (should-not lispm-desktop-frame--due)
+      (should-not lispm-desktop-frame--clients)
+      (should-not (lispm-desktop-frame-request 'a))
+      (should-not lispm-desktop-frame--timer)
+      (lispm-desktop-frame-add-client 'once (lambda (_)
+                                             (push 'once calls)
+                                             (lispm-desktop-frame-remove-client 'once)
+                                             t))
+      (lispm-desktop-frame-request 'once)
+      (cl-letf (((symbol-function 'input-pending-p) #'ignore))
+        (lispm-desktop-frame--tick))
+      (should (equal calls '(once)))
+      (should-not lispm-desktop-frame--due)
+      (should-not lispm-desktop-frame--timer))))
+
+(ert-deftest lispm-desktop-test-frame-clock-has-the-terminals ()
+  "Terminals are the clock's client `terminals', at depth 0, and their
+frame settings of before are the clock's."
+  (should (equal (assq 'terminals (default-value 'lispm-desktop-frame--clients))
+                 (list 'terminals #'lispm-desktop-term--draw 0)))
+  (let ((lispm-desktop-term-frame-budget 0.5)
+        (lispm-desktop-term-frame-interval 0.25))
+    (should (= lispm-desktop-frame-budget 0.5))
+    (should (= lispm-desktop-frame-interval 0.25))))
+
 ;;;; lispm-desktop-term
 
 (defmacro lispm-desktop-test--with-term (bindings &rest body)
@@ -5020,7 +5274,7 @@ not built."
     (while (and (null (buffer-local-value 'lispm-desktop-term--exit-code buffer))
                 (< (float-time) deadline))
       (accept-process-output nil 0.02)
-      (lispm-desktop-term--tick))))
+      (lispm-desktop-frame--tick))))
 
 (ert-deftest lispm-desktop-test-terminals-are-one-family ()
   "A terminal is a live buffer of Eat or of lispm-desktop-term; what is laid
@@ -5175,11 +5429,11 @@ ends a batch Emacs such as the one running these tests."
       ;; Once the program is reaped, the module hears of its exit.
       (while (and (zerop (signal-process pid 0)) (< (float-time) deadline))
         (accept-process-output nil 0.02)
-        (lispm-desktop-term--tick))
+        (lispm-desktop-frame--tick))
       (should-not (zerop (signal-process pid 0)))
       (dotimes (_ 10)
         (accept-process-output nil 0.02)
-        (lispm-desktop-term--tick)))))
+        (lispm-desktop-frame--tick)))))
 
 (ert-deftest lispm-desktop-test-term-channel-closes-and-reopens ()
   "The module stops writing to its channel before Emacs exits and closes
@@ -5195,11 +5449,68 @@ wakes Emacs instead."
       (lispm-desktop-test--term-wait term)
       (should (eql (buffer-local-value 'lispm-desktop-term--exit-code term) 4)))))
 
+(ert-deftest lispm-desktop-test-term-draws-selected-first ()
+  "The frame clock's client `terminals' draws the selected window's
+terminal first, then the others woken; with a key waiting or its deadline
+passed it draws one terminal and leaves the rest, due, to the next frame,
+and the clients after it wait too."
+  (lispm-desktop-test--with-frame-clock
+    (let ((lispm-desktop-term--buffers (make-hash-table))
+          (lispm-desktop-term--pending nil)
+          (buffers (mapcar (lambda (_) (generate-new-buffer " *lispm-desktop-test-term*")) '(1 2 3)))
+          (drawn nil)
+          (later 0)
+          (waiting nil))
+      (unwind-protect
+          (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) t))
+                    ((symbol-function 'lispm-desktop-term--render)
+                     (lambda (&rest _) (push lispm-desktop-term--id drawn)))
+                    ((symbol-function 'lispm-desktop-term--happen) #'ignore)
+                    ((symbol-function 'input-pending-p) (lambda (&rest _) waiting)))
+            (cl-loop for buffer in buffers for id from 1
+                     do (with-current-buffer buffer (setq lispm-desktop-term--id id))
+                     (puthash id buffer lispm-desktop-term--buffers))
+            (lispm-desktop-frame-add-client 'terminals #'lispm-desktop-term--draw 0)
+            (lispm-desktop-frame-add-client 'later (lambda (_) (setq later (1+ later)) nil) 10)
+            (save-window-excursion
+              (set-window-buffer (selected-window) (nth 2 buffers))
+              (lispm-desktop-term--wake nil "1\n2\n3\n")
+              (lispm-desktop-frame-request 'later)
+              (should (memq 'terminals lispm-desktop-frame--due))
+              (lispm-desktop-frame--tick)
+              (should (equal (reverse drawn) '(3 1 2)))
+              (should (= later 1))
+              (should-not lispm-desktop-frame--due)
+              ;; A key waiting: the selected terminal only, the rest next frame.
+              (setq drawn nil
+                    waiting t)
+              (lispm-desktop-term--wake nil "1\n2\n3\n")
+              (lispm-desktop-frame-request 'later)
+              (lispm-desktop-frame--tick)
+              (should (equal drawn '(3)))
+              (should (= later 1))
+              (should (equal (sort (copy-sequence lispm-desktop-term--pending) #'<) '(1 2)))
+              (should (equal (sort (copy-sequence lispm-desktop-frame--due) #'string<)
+                             '(later terminals)))
+              (setq waiting nil)
+              (lispm-desktop-frame--tick)
+              (should (equal (sort (copy-sequence drawn) #'<) '(1 2 3)))
+              (should (= later 2))
+              (should-not lispm-desktop-frame--due)
+              ;; Its deadline passed: one terminal still.
+              (setq drawn nil)
+              (lispm-desktop-term--wake nil "1\n2\n")
+              (should (lispm-desktop-term--draw (- (float-time) 1)))
+              (should (= (length drawn) 1))
+              (should (= (length lispm-desktop-term--pending) 1))))
+        (mapc #'kill-buffer buffers)))))
+
 (ert-deftest lispm-desktop-test-agent-list-follows-the-agents ()
   "The agents sidebar draws a session the user acted on at once, and what
 the agents changed themselves once Emacs is idle, and only when it is up."
   (dlet ((lispm-desktop-agents-changed-hook nil)
          (lispm-desktop-agent-sessions-changed-hook nil)
+         (lispm-desktop-agent-sessions-arrived-hook nil)
          (eat-exit-hook nil)
          (lispm-desktop-term-exit-functions nil)
          (lispm-desktop-term-status-functions nil))
@@ -5232,7 +5543,9 @@ Emacs is idle: reading transcripts must not stall the terminal scheduler."
     (cl-letf (((symbol-function 'run-with-idle-timer)
                (lambda (&rest _) (setq scheduled (1+ scheduled)) 'timer))
               ((symbol-function 'lispm-desktop-agent-list-refresh)
-               (lambda () (error "Refreshed synchronously"))))
+               (lambda () (error "Refreshed synchronously")))
+              ((symbol-function 'lispm-desktop-agent-list--redraw)
+               (lambda () (error "Drawn synchronously"))))
       (with-temp-buffer
         (lispm-desktop-agent-list-refresh-on-exit (current-buffer) 0)
         (should (= scheduled 0)))
@@ -5245,6 +5558,72 @@ Emacs is idle: reading transcripts must not stall the terminal scheduler."
               (should (= scheduled 1)))
           (kill-buffer))))))
 
+(ert-deftest lispm-desktop-test-agent-list-rereads-only-when-asked ()
+  "The agents sidebar has the sessions read anew only when the user
+refreshes it or acts on a session.  Sessions arriving from a reader, the
+agents changing, an agent's status or exit, a group folded, draw it again
+with what the readers have, those once Emacs is idle; arrivals are drawn
+whenever the sidebar is there, shown or not."
+  (dlet ((lispm-desktop-agents-changed-hook nil)
+         (lispm-desktop-agent-sessions-changed-hook nil)
+         (lispm-desktop-agent-sessions-arrived-hook nil)
+         (lispm-desktop-agent-reread-sessions-hook nil)
+         (eat-exit-hook nil)
+         (lispm-desktop-term-exit-functions nil)
+         (lispm-desktop-term-status-functions nil))
+    (let ((lispm-desktop-agent-list--refresh-timer nil)
+          (idle nil)
+          (events nil))
+      (cl-letf (((symbol-function 'run-with-idle-timer)
+                 (lambda (_seconds _repeat function) (push function idle) 'timer))
+                ((symbol-function 'lispm-desktop-sidebar-refresh-list)
+                 (lambda (view) (push (list 'draw view) events))))
+        (cl-flet ((when-idle ()
+                    (let ((functions (reverse idle)))
+                      (setq idle nil)
+                      (mapc #'funcall functions)))
+                  (happened ()
+                    (prog1 (reverse events) (setq events nil))))
+          (lispm-desktop-setup-agent-list)
+          (add-hook 'lispm-desktop-agent-reread-sessions-hook (lambda () (push 'reread events)))
+          ;; No sidebar, nothing to draw.
+          (lispm-desktop-agent-sessions-arrived)
+          (should-not idle)
+          (let ((sidebar (get-buffer-create lispm-desktop-agent-list-buffer-name))
+                (terminal (get-buffer-create "*codex:lispm-desktop-test*")))
+            (unwind-protect
+                (lispm-desktop-test--with-agents '((codex :name "Codex" :program "emacs"))
+                  (should-not (get-buffer-window sidebar 'visible))
+                  (lispm-desktop-agent-sessions-arrived)
+                  (lispm-desktop-agent-sessions-arrived)
+                  (should (= (length idle) 1))
+                  (should-not events)
+                  (when-idle)
+                  (should (equal (happened) '((draw agents))))
+                  (run-hooks 'lispm-desktop-agents-changed-hook)
+                  (when-idle)
+                  (should (equal (happened) '((draw agents))))
+                  (with-current-buffer terminal
+                    (setq major-mode 'lispm-desktop-term-mode
+                          lispm-desktop-term-status-records '((:state working))))
+                  (run-hook-with-args 'lispm-desktop-term-status-functions terminal)
+                  (when-idle)
+                  (should (equal (happened) '((draw agents))))
+                  (run-hook-with-args 'lispm-desktop-term-exit-functions terminal 0)
+                  (when-idle)
+                  (should (equal (happened) '((draw agents))))
+                  (with-current-buffer sidebar
+                    (lispm-desktop-agent-list--toggle-expanded "/tmp/project/"))
+                  (should (equal (happened) '((draw agents))))
+                  ;; Asked: read anew, then drawn, at once.
+                  (lispm-desktop-agent-list-refresh)
+                  (should (equal (happened) '(reread (draw agents))))
+                  (run-hooks 'lispm-desktop-agent-sessions-changed-hook)
+                  (should (equal (happened) '(reread (draw agents))))
+                  (should-not idle))
+              (kill-buffer sidebar)
+              (kill-buffer terminal))))))))
+
 ;;;;; Program status (OSC 7501)
 
 (defun lispm-desktop-test--term-until (buffer predicate &optional seconds)
@@ -5255,7 +5634,7 @@ SECONDS; return PREDICATE's value."
     (while (and (not (setq value (with-current-buffer buffer (funcall predicate))))
                 (< (float-time) deadline))
       (accept-process-output nil 0.02)
-      (lispm-desktop-term--tick))
+      (lispm-desktop-frame--tick))
     value))
 
 (ert-deftest lispm-desktop-test-term-program-status ()
