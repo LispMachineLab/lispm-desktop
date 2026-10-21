@@ -58,8 +58,9 @@ Optional, used when present:
 
 * What you get
 
-- *Looks and themes*: Mac OS 9's Platinum, Windows 3.2 or OS/2 2.0's Workplace Shell, in the
-  Dracula, Platinum, Windows 3.2 or OS/2 colour theme, or any theme installed.
+- *Looks and themes*: Mac OS 9's Platinum, Windows 3.2 or OS/2 2.0's Workplace Shell, or the
+  glowing Phosphor and Neon, whose windows are glass on macOS; in the Dracula, Platinum,
+  Windows 3.2, OS/2, Phosphor or Neon colour theme, or any theme installed.
 - *A desktop* with Mac OS 9's icons down its right edge (home disk, Emacs, browser,
   Applications, App Store, Control Panels, Trash), dragged with the mouse or selected with
   =C-n= =C-p= =C-f= =C-b=, over a colour or a picture of your own.
@@ -137,8 +138,8 @@ Control Panels keep their choices for the next start.  =personal.el=, next to =i
 ignored by git, is loaded after setup and can change anything:
 
 #+begin_src emacs-lisp
-(setq lispm-desktop-look 'platinum              ; platinum, win3 or os2
-      lispm-desktop-theme 'platinum             ; dracula, platinum, win3, os2 or any theme
+(setq lispm-desktop-look 'platinum              ; platinum, win3, os2, phosphor or neon
+      lispm-desktop-theme 'platinum             ; dracula, platinum, win3, os2, phosphor, neon or any theme
       lispm-desktop-color "#6666AA"             ; the desktop's colour
       lispm-desktop-picture "~/Pictures/desktop.jpg"
       lispm-desktop-picture-position 'fill)     ; fill, fit, center or tile

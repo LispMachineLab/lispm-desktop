@@ -10827,8 +10827,9 @@ items, each turned on or off by its check box, and adds and removes them."
       (disable-theme theme))))
 
 (ert-deftest lispm-desktop-test-looks-defined ()
-  "Mac OS 9, Windows 3.2 and OS/2 2.0 are looks, each with its own theme."
-  (dolist (look '(platinum win3 os2))
+  "Mac OS 9, Windows 3.2, OS/2 2.0, phosphor and neon are looks, each with
+its own theme."
+  (dolist (look '(platinum win3 os2 phosphor neon))
     (should (assq look lispm-desktop-looks))
     (should (lispm-desktop-look-title look))
     (let ((theme (lispm-desktop-look-get :theme look)))
@@ -10991,7 +10992,7 @@ centred along its bottom, under a caption."
 
 (ert-deftest lispm-desktop-test-look-menus-and-alerts-draw ()
   "Every look draws a menu and an alert at the size laid out for it."
-  (dolist (look '(platinum win3 os2))
+  (dolist (look '(platinum win3 os2 phosphor neon))
     (let* ((lispm-desktop-look look)
            (palette (lispm-desktop-test--theme-palette (lispm-desktop-look-get :theme look)))
            (items (list (list :label "Open" :action #'ignore) 'separator (list :label "Quit")))
@@ -11002,6 +11003,123 @@ centred along its bottom, under a caption."
       (should (equal (dom-attr menu 'height) (cdr (lispm-desktop-popup--rows items))))
       (should (equal (dom-attr alert 'height) (plist-get layout :height)))
       (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-desktop-popup-alert-width))))))
+
+;;;; The glowing looks
+
+(ert-deftest lispm-desktop-test-glow-looks ()
+  "Phosphor and neon are made of glass and bring desktop pictures of their
+own; their themes name the parts the glowing looks add, and neon names
+no yellow."
+  (should (= (lispm-desktop-look-get :glass 'phosphor) 4.0))
+  (should (= (lispm-desktop-look-get :glass 'neon) 1.9))
+  (should-not (lispm-desktop-look-get :glass 'platinum))
+  (dolist (look '(phosphor neon))
+    (should (file-readable-p (expand-file-name (lispm-desktop-look-get :picture look)
+                                               lispm-desktop-directory)))
+    (let ((palette (lispm-desktop-test--theme-palette look)))
+      (dolist (key '(:glow :hot :title-end :bar :bar-text :bar-line :track :pressed :danger))
+        (should (plist-get palette key)))))
+  (let ((neon (lispm-desktop-test--theme-palette 'neon)))
+    (should (equal (plist-get neon :glow) "#00F0FF"))
+    (should (equal (plist-get neon :title) "#FF2A6D"))
+    (should-not (seq-some (lambda (value) (equal value "#FCEE0A"))
+                          (seq-filter #'stringp neon)))))
+
+(ert-deftest lispm-desktop-test-glow-colours-fall-back ()
+  "A theme naming none of the glowing looks' own colours still draws them:
+lines in the accent, marks in the highlight, the menu bar on the desktop."
+  (let ((palette (lispm-desktop-test--dracula-palette)))
+    (should (equal (lispm-desktop-glow-color palette :glow) (plist-get palette :accent)))
+    (should (equal (lispm-desktop-glow-color palette :hot) (plist-get palette :highlight)))
+    (should (equal (lispm-desktop-glow-color palette :bar) (plist-get palette :desktop)))
+    (should (equal (lispm-desktop-glow-color palette :danger) (plist-get palette :highlight)))))
+
+(ert-deftest lispm-desktop-test-glow-title-layout ()
+  "Phosphor centres a title between the close box and the zoom and collapse
+boxes; neon puts it after the close box.  The boxes keep their targets."
+  (let ((lispm-desktop-look 'phosphor)
+        (b lispm-desktop-glow-box-width))
+    (let ((layout (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(0 . 0))))
+      (should (= (plist-get layout :start) b))
+      (should (= (plist-get layout :end) (- 300 b b)))
+      (should (= (plist-get layout :label-x) (+ b (/ (- 300 b b b 100) 2)))))
+    (let ((lispm-desktop-look 'neon))
+      (should (= (plist-get (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(0 . 0)) :label-x)
+                 (+ b 6))))
+    (dolist (look '(phosphor neon))
+      (let* ((lispm-desktop-look look)
+             (lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette look))
+             (bar (lispm-desktop-platinum-draw-title-bar 300 t nil "Notes" nil '(on on on)))
+             (targets (delete-dups (delq nil (mapcar (lambda (i) (get-text-property i 'lispm-desktop-platinum-target bar))
+                                                     (number-sequence 0 (1- (length bar))))))))
+        (should (equal targets '(close zoom collapse)))))))
+
+(ert-deftest lispm-desktop-test-glow-frame-is-glass ()
+  "A glowing window's frame is black, which glass makes clear, round the
+line it draws about the window, at the size laid out for it."
+  (dolist (look '(phosphor neon))
+    (let* ((lispm-desktop-look look)
+           (palette (lispm-desktop-test--theme-palette look))
+           (frame (lispm-desktop-platinum-draw-window-frame palette 120 80 :active t))
+           (grow (lispm-desktop-platinum-draw-grow-box palette 22)))
+      (should (equal (lispm-desktop-test--size frame) '(120 . 80)))
+      (should (equal (lispm-desktop-test--pixel frame 2 40) "#000000"))
+      (should (equal (lispm-desktop-test--pixel frame 60 40) "#000000"))
+      (should (equal (dom-attr grow 'width) 16)))))
+
+(ert-deftest lispm-desktop-test-glow-scroll-bars ()
+  "A glowing scroll bar puts its arrows at its two ends and sizes its thumb
+by the part of the buffer shown, twenty pixels at least."
+  (dolist (look '(phosphor neon))
+    (let* ((lispm-desktop-look look)
+           (layout (lispm-desktop-platinum-scroll-layout 200)))
+      (should (= (plist-get layout :up) 0))
+      (should (= (plist-get layout :down) (- 200 (plist-get layout :arrow))))
+      (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb 200 1 501 1 1001)))
+        (should (= top (plist-get layout :track)))
+        (should (= length (/ (plist-get layout :track-length) 2))))
+      (should (= (cdr (lispm-desktop-platinum-scroll-thumb 200 1 2 1 100001)) 20))
+      (should-not (lispm-desktop-platinum-scroll-thumb 200 1 1001 1 1001)))))
+
+(ert-deftest lispm-desktop-test-glass-chooses-frames ()
+  "Glass covers frames floating over the desktop, never the screen nor an
+outline; it follows the look and `lispm-desktop-glass'.  A frame's
+record is found from the address Emacs prints."
+  (let ((frame (selected-frame)))
+    (should (natnump (lispm-desktop-glass-address frame)))
+    (should (string-match-p (format "%x>\\'" (lispm-desktop-glass-address frame)) (format "%S" frame)))
+    (should-not (lispm-desktop-glass-frame-p frame))
+    (cl-letf (((symbol-function 'frame-parent) (lambda (&optional _) 'screen)))
+      (should (lispm-desktop-glass-frame-p frame))
+      (cl-letf* ((parameter (symbol-function 'frame-parameter))
+                 ((symbol-function 'frame-parameter)
+                  (lambda (f p) (if (eq p 'lispm-desktop-platinum-outline) t (funcall parameter f p)))))
+        (should-not (lispm-desktop-glass-frame-p frame)))))
+  (let ((lispm-desktop-look 'neon) (lispm-desktop-glass t))
+    (should (= (lispm-desktop-glass-gain) 1.9))
+    (let ((lispm-desktop-glass nil))
+      (should-not (lispm-desktop-glass-gain))))
+  (let ((lispm-desktop-look 'win3) (lispm-desktop-glass t))
+    (should-not (lispm-desktop-glass-gain)))
+  ;; Without macOS's module there is nothing to do, and nothing fails.
+  (cl-letf (((symbol-function 'lispm-desktop-glass--module-p) #'ignore))
+    (should-not (lispm-desktop-glass-update))))
+
+(ert-deftest lispm-desktop-test-look-picture ()
+  "A look's own picture fills the desktop while the user chose none; the
+user's own, as they placed it, comes first."
+  (let ((lispm-desktop-picture nil)
+        (lispm-desktop-picture-position 'tile))
+    (let ((lispm-desktop-look 'neon))
+      (pcase-let ((`(,file . ,position) (lispm-desktop--picture-in-use)))
+        (should (string-suffix-p "pictures/neon.jpg" file))
+        (should (eq position 'fill))))
+    (let ((lispm-desktop-look 'platinum))
+      (should-not (lispm-desktop--picture-in-use)))
+    (let ((lispm-desktop-look 'neon)
+          (lispm-desktop-picture (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory)))
+      (should (equal (lispm-desktop--picture-in-use)
+                     (cons (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory) 'tile))))))
 
 ;;;; The language LispM speaks
 

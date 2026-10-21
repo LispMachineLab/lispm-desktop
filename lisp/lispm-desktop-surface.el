@@ -55,6 +55,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
@@ -451,21 +452,40 @@ in the background; the desktop is drawn again from the copy once made."
                  (when (get-buffer lispm-desktop-buffer-name)
                    (lispm-desktop--render)))))))))
 
-(defun lispm-desktop--picture-file (width height)
+(defvar lispm-desktop--picture-position nil
+  "How the picture being drawn covers the desktop, while it is not placed
+by `lispm-desktop-picture-position', as a look's own picture is not.
+Bound rather than that setting, whose watcher draws the desktop again.")
+
+(defun lispm-desktop--picture-in-use ()
+  "Return the picture covering the desktop as (FILE . POSITION), or nil:
+`lispm-desktop-picture' as `lispm-desktop-picture-position' places it,
+else the look's own :picture filling the desktop, see
+`lispm-desktop-look-define'."
+  (cond ((and lispm-desktop-picture (file-readable-p (expand-file-name lispm-desktop-picture)))
+         (cons (expand-file-name lispm-desktop-picture) lispm-desktop-picture-position))
+        ((when-let* ((own (lispm-desktop-look-get :picture))
+                     (file (expand-file-name own lispm-desktop-directory))
+                     ((file-readable-p file)))
+           (cons file 'fill)))))
+
+(defun lispm-desktop--picture-file (width height &optional file)
   "Return the picture file to draw a WIDTH by HEIGHT desktop from: a copy of
-`lispm-desktop-picture' scaled to it, when made, else the picture itself.
-Only a picture filling the desktop or fitted to it is scaled, to the
-display's pixels; a copy too small is made again, larger."
-  (let* ((file (expand-file-name lispm-desktop-picture))
+picture FILE, by default `lispm-desktop-picture', scaled to it, when
+made, else the picture itself.  Only a picture filling the desktop or
+fitted to it is scaled, to the display's pixels; a copy too small is
+made again, larger."
+  (let* ((file (or file (expand-file-name lispm-desktop-picture)))
          (time (file-attribute-modification-time (file-attributes file))))
     (pcase-let* ((`(,picture-width . ,picture-height) (lispm-desktop--picture-size file))
                  (density (if (fboundp 'frame-scale-factor) (frame-scale-factor) 1))
-                 (factor (* density (funcall (if (eq lispm-desktop-picture-position 'fit) #'min #'max)
+                 (position (or lispm-desktop--picture-position lispm-desktop-picture-position))
+                 (factor (* density (funcall (if (eq position 'fit) #'min #'max)
                                              (/ width (float picture-width))
                                              (/ height (float picture-height)))))
                  (wanted-width (ceiling (* picture-width factor)))
                  (wanted-height (ceiling (* picture-height factor))))
-      (cond ((or (not (memq lispm-desktop-picture-position '(fill fit)))
+      (cond ((or (not (memq position '(fill fit)))
                  (>= factor 0.9))
              file)
             ((pcase lispm-desktop--scaled
@@ -482,7 +502,7 @@ folder, the desktop image's base."
   (when-let* ((file (or file (and lispm-desktop-picture (expand-file-name lispm-desktop-picture))))
               ((file-readable-p file)))
     (let ((href (lispm-desktop--escape (url-hexify-string (file-name-nondirectory file)))))
-      (pcase lispm-desktop-picture-position
+      (pcase (or lispm-desktop--picture-position lispm-desktop-picture-position)
         ('center
          (pcase-let ((`(,w . ,h) (lispm-desktop--picture-size file)))
            (format "<image href=\"%s\" xlink:href=\"%s\" x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\"/>"
@@ -712,9 +732,9 @@ Where images cannot be shown, its icons are listed by name."
               (height (1- (window-body-height window t))))
           (erase-buffer)
           (if (display-images-p)
-              (let* ((picture (and lispm-desktop-picture
-                                   (file-readable-p (expand-file-name lispm-desktop-picture))
-                                   (lispm-desktop--picture-file width height)))
+              (let* ((in-use (lispm-desktop--picture-in-use))
+                     (lispm-desktop--picture-position (cdr in-use))
+                     (picture (and in-use (lispm-desktop--picture-file width height (car in-use))))
                      (origin (window-inside-pixel-edges window))
                      (image (apply #'create-image (lispm-desktop--svg width height picture
                                                                       (cons (car origin) (cadr origin)))

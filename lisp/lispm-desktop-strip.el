@@ -140,7 +140,7 @@ Dragging its tab sets it, for the next start too."
                 (list :label (capitalize (symbol-name theme))
                       :checked (eq lispm-desktop-theme theme)
                       :action (lambda () (lispm-desktop-set-theme theme))))
-              (delete-dups (delq nil (list 'dracula 'platinum 'win3 'os2 lispm-desktop-theme))))
+              (delete-dups (delq nil (list 'dracula 'platinum 'win3 'os2 'phosphor 'neon lispm-desktop-theme))))
     (:label ,(lispm-desktop-tr "Other Theme…") :action lispm-desktop-settings--other-theme)
     separator
     ,(lispm-desktop-strip--panel-item 'themes)))

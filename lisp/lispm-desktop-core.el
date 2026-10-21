@@ -146,7 +146,7 @@ third of a second on the desktop."
 
 (defun lispm-desktop-set-theme (theme)
   "Switch to colour THEME now and at every later start."
-  (interactive (list (intern (completing-read (lispm-desktop-tr "Theme: ") '("dracula" "platinum" "win3" "os2") nil t))))
+  (interactive (list (intern (completing-read (lispm-desktop-tr "Theme: ") '("dracula" "platinum" "win3" "os2" "phosphor" "neon") nil t))))
   ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
   (customize-save-variable 'lispm-desktop-theme theme)
   (lispm-desktop-load-theme theme))

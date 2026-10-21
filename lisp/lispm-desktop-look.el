@@ -35,6 +35,10 @@
 ;;   os2        OS/2 2.0's Workplace Shell, lispm-desktop-os2.el: teal
 ;;              captions over pale yellow borders, the window's own icon
 ;;              as its system menu, pale grey menus
+;;   phosphor   green phosphor on black glass, lispm-desktop-glow.el:
+;;              scanned title bars, Lisp falling down the desktop
+;;   neon       neon over a city at night, lispm-desktop-glow.el: magenta
+;;              to violet title bars, cyan lines
 ;;
 ;; A look is defined with `lispm-desktop-look-define' and chosen with
 ;; `lispm-desktop-look', from Control Panels or `lispm-desktop-set-look'.
@@ -67,13 +71,15 @@
 
 (defcustom lispm-desktop-look 'platinum
   "The look the chrome is drawn in: `platinum' (Mac OS 9), `win3'
-\(Windows 3.2) or `os2' (OS/2 2.0's Workplace Shell).  See
+\(Windows 3.2), `os2' (OS/2 2.0's Workplace Shell), `phosphor' or `neon'.  See
 lispm-desktop-look.el.  Change it from Control Panels, with
 `lispm-desktop-set-look', or by setting it in your personal.el: once
 Emacs is set up, a new value is drawn at once."
   :type '(choice (const :tag "Mac OS 9" platinum)
                  (const :tag "Windows 3.2" win3)
                  (const :tag "OS/2 2.0" os2)
+                 (const :tag "Phosphor" phosphor)
+                 (const :tag "Neon" neon)
                  (symbol :tag "Another look"))
   :group 'lispm-desktop)
 
@@ -94,6 +100,14 @@ PROPERTIES is a plist:
   :system-families  font families for title bars and menus, the first
                     installed one winning
   :list-families    font families for lists and labels
+  :glass            the gain of the look's glass, when its windows let the
+                    desktop show through, see lispm-desktop-glass.el
+  :picture          the look's own desktop picture, a file under the
+                    package's directory, which `lispm-desktop-picture'
+                    replaces
+
+A look may hold properties of its own too, as the glowing looks'
+:title-style, see lispm-desktop-glow.el.
 
 Return NAME."
   (if-let* ((look (assq name lispm-desktop-looks)))
