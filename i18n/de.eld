@@ -1201,4 +1201,5 @@
   ("Workspace: " . "Arbeitsbereich: ")
   ("Installing the icon font…" . "Die Symbolschrift wird installiert …")
   ("The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again" . "Die Symbolschrift konnte nicht installiert werden (%s); M-x lispm-desktop-install-fonts versucht es erneut")
-  ("LispM's agents are not set up: %s" . "Die Agenten von LispM sind nicht eingerichtet: %s")))
+  ("LispM's agents are not set up: %s" . "Die Agenten von LispM sind nicht eingerichtet: %s")
+  ("lispm-kernel could not be turned on: %s" . "lispm-kernel konnte nicht eingeschaltet werden: %s")))

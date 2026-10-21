@@ -1201,4 +1201,5 @@
   ("Workspace: " . "Espace de travail : ")
   ("Installing the icon font…" . "Installation de la police d'icônes…")
   ("The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again" . "La police d'icônes n'a pas pu être installée (%s) ; M-x lispm-desktop-install-fonts réessaie")
-  ("LispM's agents are not set up: %s" . "Les agents de LispM ne sont pas configurés : %s")))
+  ("LispM's agents are not set up: %s" . "Les agents de LispM ne sont pas configurés : %s")
+  ("lispm-kernel could not be turned on: %s" . "Impossible d'activer lispm-kernel : %s")))

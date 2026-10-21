@@ -119,6 +119,7 @@
 (require 'lispm-desktop-lispm)
 (require 'lispm-desktop-agent-claude)
 (require 'lispm-desktop-agent-codex)
+(require 'lispm-desktop-kernel)
 
 (defvar nerd-icons-font-family)
 (declare-function nerd-icons-install-fonts "nerd-icons" (&optional pfx))
@@ -232,6 +233,8 @@ boxes.  A download that fails, as offline, is only reported."
             (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
           (lispm-desktop-setup-claude)
           (lispm-desktop-setup-codex)
+          ;; After the agents, whose sessions it reads; off unless asked for.
+          (lispm-desktop-setup-kernel)
           ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
           (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
           (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
