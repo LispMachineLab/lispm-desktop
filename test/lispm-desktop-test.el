@@ -6863,6 +6863,17 @@ its command runs again."
       (lispm-desktop-app-ui-run 'test (lambda () (interactive) (setq ran t)))
       (should ran))))
 
+(ert-deftest lispm-desktop-test-app-ui-keys-window ()
+  "An application's keys window lists each key cap and what it does, and
+has no bottom saying where point is in the list."
+  (with-temp-buffer
+    (lispm-desktop-app-ui-keys-mode)
+    (should-not mode-line-format)
+    (let ((inhibit-read-only t))
+      (lispm-desktop-app-ui--insert-keys '(("p" . "Pause or resume") ("←  →" . "Move"))))
+    (should (string-search "Pause or resume" (buffer-string)))
+    (should (= (count-lines (point-min) (point-max)) 3))))
+
 (ert-deftest lispm-desktop-test-app-ui-questions-in-alerts ()
   "A question asked in an application's window is asked in an alert,
 without its (y or n); asked elsewhere, as Emacs asks it."

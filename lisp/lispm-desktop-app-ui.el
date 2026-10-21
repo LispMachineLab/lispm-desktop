@@ -598,9 +598,11 @@ This is the :menus of an application the App Store installed."
               (lispm-desktop-app-ui-commands))))
 
 (define-derived-mode lispm-desktop-app-ui-keys-mode lispm-desktop-app-window-mode "Keys"
-  "Major mode of an application's keys window: each key and what it does."
+  "Major mode of an application's keys window: each key and what it does,
+the whole list in sight, without a bottom saying where in it point is."
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
-  (setq-local line-spacing 4))
+  (setq-local line-spacing 4
+              mode-line-format nil))
 
 (defun lispm-desktop-app-ui--insert-keys (keys)
   "Insert KEYS, a value of `lispm-desktop-app-ui-key-list', as rows of key
@@ -639,9 +641,9 @@ and what it does, as found out from its keymap."
       (goto-char (point-min)))
     (unless (assq kind lispm-desktop-app-window-kinds)
       (lispm-desktop-app-window-define kind :app app :name name :close #'lispm-desktop-app-window-close-box))
-    (lispm-desktop-app-window-show
-     kind :buffer buffer
-     :size (cons 340 (min 520 (+ 40 (* 26 (max 1 (length keys)))))))))
+    (let ((frame (lispm-desktop-app-window-show kind :buffer buffer :size '(340 . 200))))
+      (lispm-desktop-app-ui--fit-frame (frame-root-window frame) 16)
+      frame)))
 
 ;;;; Questions
 
@@ -674,25 +676,33 @@ does with ARGUMENTS.  This is the advice of `y-or-n-p' and `yes-or-no-p'."
 it shows: as :fit says, by default for a game, but for one read as prose."
   (lispm-desktop-app-ui-get :fit (and (lispm-desktop-app-ui-game-p) (not (lispm-desktop-app-ui-get :prose)))))
 
-(defun lispm-desktop-app-ui-fit (&optional window)
-  "Size WINDOW's floating window, by default the selected one's, to what
-WINDOW shows, with its strip and bottom, as Mac OS 9 sized a game's
-window to its board.  A window holding several, or rolled up, is left."
-  (let* ((window (or window (selected-window)))
-         (frame (window-frame window)))
-    (when (and (window-live-p window) (lispm-desktop-app-ui-app window)
+(defun lispm-desktop-app-ui--fit-frame (window &optional padding)
+  "Size WINDOW's floating window to what WINDOW shows, with its strip and
+bottom, PADDING pixels more each way.  A window holding several, or
+rolled up, is left."
+  (let ((frame (window-frame window))
+        (padding (or padding 0)))
+    (when (and (window-live-p window)
                (not (lispm-desktop-app-window-rolled-p frame))
                (null (cdr (window-list frame 'never))))
       (pcase-let ((`(,width . ,height) (window-text-pixel-size window nil nil 4000 4000 t))
                   (board (lispm-desktop-app-board-size (window-buffer window))))
         ;; A board is centred in its window, which the text's width counts.
-        (let ((width (+ (if board (car board) width)
+        (let ((width (+ (if board (car board) width) padding
                         (- (window-pixel-width window) (window-body-width window t))))
-              (height (+ height 2)))
+              (height (+ height 2 padding)))
           (unless (and (= width (frame-text-width frame)) (= height (frame-text-height frame)))
             (set-frame-size frame (max 200 width) (max 100 height) t)
             (lispm-desktop-platinum-frame-update frame)
             (lispm-desktop-apps-keep-on-desktop frame)))))))
+
+(defun lispm-desktop-app-ui-fit (&optional window)
+  "Size WINDOW's floating window, by default the selected one's, to what
+WINDOW shows, with its strip and bottom, as Mac OS 9 sized a game's
+window to its board; WINDOW is an application's."
+  (let ((window (or window (selected-window))))
+    (when (lispm-desktop-app-ui-app window)
+      (lispm-desktop-app-ui--fit-frame window))))
 
 (defun lispm-desktop-app-ui--fit-board (buffer)
   "Fit the windows showing BUFFER's board, drawn at another size, when
