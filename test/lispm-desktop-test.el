@@ -1509,7 +1509,7 @@ icon, Open first."
     (let ((shown nil)
           (key nil)
           (lispm-desktop-icon-places '((home :left 10 :top 10))))
-      (cl-letf (((symbol-function 'lispm-desktop-mouse-select)
+      (cl-letf (((symbol-function 'lispm-desktop--press-select)
                  (lambda (_) (with-current-buffer (lispm-desktop-buffer)
                                (setq lispm-desktop--selected key))))
                 ((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(0 . 0)))
@@ -1522,6 +1522,38 @@ icon, Open first."
         (should (equal (plist-get (car shown) :label) "Open"))
         (should (member "Desktop Picture…"
                         (mapcar (lambda (item) (and (consp item) (plist-get item :label))) shown)))))))
+
+;; A right press used to select the icon by way of the left press, which
+;; dragged it until the left button rose: the copy stuck to the pointer.
+(ert-deftest lispm-desktop-test-desktop-right-press-never-drags ()
+  "A right press on an icon selects it and pops up its menu at once, and
+never drags it; a double click's release opens the icon once, nor drags."
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+    (let ((selected nil)
+          (dragged nil)
+          (menus 0)
+          (opened 0)
+          (lispm-desktop--last-click nil)
+          (lispm-desktop-finder--had-focus t))
+      (cl-letf (((symbol-function 'select-window) #'ignore)
+                ((symbol-function 'lispm-desktop-apps-set-frontmost) #'ignore)
+                ((symbol-function 'lispm-desktop--item-at) (lambda (_) 'home))
+                ((symbol-function 'lispm-desktop--select) (lambda (key) (setq selected key)))
+                ((symbol-function 'lispm-desktop--drag) (lambda (&rest _) (setq dragged t)))
+                ((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(0 . 0)))
+                ((symbol-function 'lispm-desktop--menu) (lambda (&rest _) (setq menus (1+ menus))))
+                ((symbol-function 'lispm-desktop-open) (lambda () (setq opened (1+ opened)))))
+        (lispm-desktop-context-menu '(down-mouse-3 (nil 1 (40 . 16) 0)))
+        (should (eq selected 'home))
+        (should (= menus 1))
+        (should-not dragged)
+        (should-not lispm-desktop-finder--had-focus)
+        ;; The first click of a double click, then the second's release.
+        (setq lispm-desktop--last-click (list 'home (float-time) '(40 . 16)))
+        (lispm-desktop-mouse-open '(double-mouse-1 (nil 1 (40 . 16) 0)))
+        (should (= opened 1))
+        (should-not lispm-desktop--last-click)
+        (should-not dragged)))))
 
 (ert-deftest lispm-desktop-test-desktop-double-click-opens-not-drags ()
   "A double click opens the icon, even when its first click strayed a few
@@ -3063,6 +3095,19 @@ button rises, and grows no smaller than its least."
     (lispm-desktop-platinum-drag-outline 'window 'grow)
     (should (equal sizes (list (list 'window (car lispm-desktop-platinum-window-min-size)
                                      (cdr lispm-desktop-platinum-window-min-size)))))))
+
+(ert-deftest lispm-desktop-test-track-ends-on-any-button ()
+  "Any of the three buttons let go ends a drag, so that none sticks to the
+pointer once every button is up; another button pressed on the way, or
+the wheel, which X reports as buttons 4 and 5, does not end it."
+  (dolist (release '((drag-mouse-1 (nil) (nil)) (mouse-2 (nil)) (drag-mouse-3 (nil) (nil))))
+    (let ((script (list nil '(mouse-4 (nil)) '(down-mouse-3 (nil)) release)))
+      (cl-letf (((symbol-function 'read-event)
+                 (lambda (&rest _)
+                   (if script (pop script) (error "The drag never ended")))))
+        (should (equal (lispm-desktop-platinum-track #'ignore (lambda () '(10 . 10)) '(0 . 0))
+                       (cons release '(10 . 10))))
+        (should-not script)))))
 
 (ert-deftest lispm-desktop-test-scroll-bar-parts ()
   "A scroll bar is outlined down both sides, its track recessed, its thumb

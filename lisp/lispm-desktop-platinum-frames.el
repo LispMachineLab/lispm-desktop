@@ -1008,6 +1008,8 @@ by default where the mouse is when the drag begins.  The mouse is looked
 at every `lispm-desktop-platinum-drag-interval' seconds.
 Return (EVENT . DELTA): EVENT the button's release, or nil when Escape
 or C-g gave the drag up; DELTA the last move, or nil when it never moved.
+Mac OS 9's mouse had one button, so any of the three let go ends the
+drag: none leaves it following the mouse once every button is up.
 Other keys and the window system's own events change nothing."
   (let* ((pointer (or pointer #'mouse-absolute-pixel-position))
          (start (or start (funcall pointer) '(0 . 0)))
@@ -1022,7 +1024,7 @@ Other keys and the window system's own events change nothing."
             (cond ((memq event '(escape ?\e ?\C-g))
                    (setq done t event nil))
                   ((and event (not (mouse-movement-p event))
-                        (eq (event-basic-type event) 'mouse-1)
+                        (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3))
                         (seq-intersection (event-modifiers event) '(click drag)))
                    (setq done t)))
             (when-let* (((or (not done) event))
