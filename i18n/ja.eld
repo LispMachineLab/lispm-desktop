@@ -1159,6 +1159,8 @@
   ("lispm-desktop-term could not be downloaded: see %s" . "lispm-desktop-termをダウンロードできませんでした：%sを参照してください")
   ("lispm-desktop-term is downloaded: restart Emacs to use it" . "lispm-desktop-termをダウンロードしました：使用するにはEmacsを再起動してください")
   ("lispm-desktop-term is downloaded" . "lispm-desktop-termをダウンロードしました")
+  ("%s is not the library pinned for these sources: its SHA-256 differs, so it was refused" . "%sはこのソースに固定されたライブラリではありません：SHA-256が異なるため拒否されました")
+  ("No lispm-desktop-term is pinned for these sources (version %s), so terminals run in Eat" . "このソース（バージョン%s）に固定されたlispm-desktop-termがないため、ターミナルはEatで実行されます")
   ("needs approval" . "承認が必要")
   ("has a question" . "質問あり")
   ("needs sign-in" . "サインインが必要")

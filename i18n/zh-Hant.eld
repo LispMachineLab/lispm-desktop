@@ -1159,6 +1159,8 @@
   ("lispm-desktop-term could not be downloaded: see %s" . "無法下載 lispm-desktop-term：請參閱 %s")
   ("lispm-desktop-term is downloaded: restart Emacs to use it" . "lispm-desktop-term 已下載：請重新啟動 Emacs 以使用它")
   ("lispm-desktop-term is downloaded" . "lispm-desktop-term 已下載")
+  ("%s is not the library pinned for these sources: its SHA-256 differs, so it was refused" . "%s 不是為這些原始碼固定的函式庫：其 SHA-256 不同，因此已被拒絕")
+  ("No lispm-desktop-term is pinned for these sources (version %s), so terminals run in Eat" . "沒有為這些原始碼（版本 %s）固定的 lispm-desktop-term，因此終端機改在 Eat 中執行")
   ("needs approval" . "需要核准")
   ("has a question" . "有問題要問")
   ("needs sign-in" . "需要登入")

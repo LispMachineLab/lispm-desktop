@@ -1159,6 +1159,8 @@
   ("lispm-desktop-term could not be downloaded: see %s" . "lispm-desktop-term n'a pas pu être téléchargé : voir %s")
   ("lispm-desktop-term is downloaded: restart Emacs to use it" . "lispm-desktop-term est téléchargé : redémarrez Emacs pour l'utiliser")
   ("lispm-desktop-term is downloaded" . "lispm-desktop-term est téléchargé")
+  ("%s is not the library pinned for these sources: its SHA-256 differs, so it was refused" . "%s n'est pas la bibliothèque épinglée pour ces sources : son SHA-256 diffère, elle a donc été refusée")
+  ("No lispm-desktop-term is pinned for these sources (version %s), so terminals run in Eat" . "Aucun lispm-desktop-term n'est épinglé pour ces sources (version %s), les terminaux s'exécutent donc dans Eat")
   ("needs approval" . "attend une approbation")
   ("has a question" . "a une question")
   ("needs sign-in" . "doit se connecter")
