@@ -14,12 +14,12 @@
 //     a delay (`cursor-busy-delay'), as Emacs's own hourglass does
 //     elsewhere.  A run-loop observer tells when it leaves and comes back.
 //
-// A thread of this module turns the watch's hands.  While Emacs's thread
-// waits for events, the thread asks it to show the next frame; while
-// Emacs's thread is busy, the thread shows it itself.  Every -[NSCursor
-// set] of the process goes through `set_cursor' below, which serialises
-// them, and which shows the watch instead of whatever AppKit, Emacs or
-// WebKit sets while the watch is up.
+// A thread of this module turns the watch's hands, and asks the window
+// server where the pointer is: Emacs's thread never waits on either, but
+// only flips a flag and notes its own windows.  Every -[NSCursor set] of
+// the process goes through `set_cursor' below, which serialises them, and
+// which shows the watch instead of whatever AppKit, Emacs or WebKit sets
+// while the watch is up.
 
 // Off the Mac, only the tests use what follows.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -110,7 +110,7 @@ pub fn next_frame(showing: bool, frame: usize, frames: usize) -> usize {
 mod mac {
     use std::ffi::c_void;
     use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::{Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
     use std::time::{Duration, Instant};
 
     use dispatch2::DispatchQueue;
@@ -149,16 +149,17 @@ mod mac {
     static ORIGINAL_SET: OnceLock<Imp> = OnceLock::new();
     /// Held around every -[NSCursor set], from whichever thread.
     static SET_LOCK: Mutex<()> = Mutex::new(());
-    /// A frame is on its way to Emacs's thread.
-    static MAIN_TICK_PENDING: AtomicBool = AtomicBool::new(false);
-    /// What the module's thread knows of Emacs's windows: read on Emacs's
-    /// thread, for when that thread is busy.
+    /// Set, with `WAKE' notified, to have the module's thread look at once.
+    static WOKEN: Mutex<bool> = Mutex::new(false);
+    static WAKE: Condvar = Condvar::new();
+    /// Emacs's visible windows and whether it is active, as Emacs's thread
+    /// last noted them, for the module's thread.
     static WINDOWS: Mutex<Vec<NSInteger>> = Mutex::new(Vec::new());
     static ACTIVE: AtomicBool = AtomicBool::new(false);
-    /// Nanoseconds after `epoch' at which `WINDOWS' was last read.
-    static WINDOWS_READ: AtomicU64 = AtomicU64::new(0);
-    /// Frames the module's thread set itself, for `cursor-state'.
-    static THREAD_SETS: AtomicU64 = AtomicU64::new(0);
+    /// Nanoseconds after `epoch' at which `WINDOWS' was last noted.
+    static WINDOWS_NOTED: AtomicU64 = AtomicU64::new(0);
+    /// Frames shown so far, for `cursor-state'.
+    static TURNS: AtomicU64 = AtomicU64::new(0);
 
     fn epoch() -> Instant {
         static EPOCH: OnceLock<Instant> = OnceLock::new();
@@ -171,10 +172,17 @@ mod mac {
     }
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-        mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
+
+    /// Have the module's thread look at once.
+    fn wake() {
+        *lock(&WOKEN) = true;
+        WAKE.notify_one();
+    }
+
+    /// The type of -[NSCursor set].
+    type Set = unsafe extern "C-unwind" fn(*mut AnyObject, Sel);
 
     /// -[NSCursor set], for every cursor of the process: the watch's frame
     /// instead of any other while it is up, one set at a time.
@@ -182,8 +190,7 @@ mod mac {
         let Some(original) = ORIGINAL_SET.get() else {
             return;
         };
-        let original: unsafe extern "C-unwind" fn(*mut AnyObject, Sel) =
-            std::mem::transmute(*original);
+        let original = std::mem::transmute::<Imp, Set>(*original);
         let current = CURRENT.load(Ordering::Acquire);
         let shown = if SHOWING.load(Ordering::Acquire) && !current.is_null() {
             current
@@ -199,9 +206,9 @@ mod mac {
             let method = NSCursor::class()
                 .instance_method(sel!(set))
                 .expect("NSCursor has -set");
-            let ours: unsafe extern "C-unwind" fn(*mut AnyObject, Sel) = set_cursor;
+            let ours: Set = set_cursor;
             // SAFETY: `set_cursor' has -set's signature.
-            unsafe { method.set_implementation(std::mem::transmute::<_, Imp>(ours)) }
+            unsafe { method.set_implementation(std::mem::transmute::<Set, Imp>(ours)) }
         });
     }
 
@@ -226,28 +233,28 @@ mod mac {
             frames.len(),
         );
         FRAME.store(frame, Ordering::Release);
+        TURNS.fetch_add(1, Ordering::Relaxed);
         show(frames[frame] as *mut AnyObject);
     }
 
-    /// Take the watch down, on Emacs's thread: the arrow, until AppKit sets
-    /// the pointer of what is under it, its cursor rectangles being reset.
-    fn take_down(mtm: MainThreadMarker) {
+    /// Take the watch down: the arrow, until AppKit sets the pointer of
+    /// what is under it, Emacs's thread resetting its windows' cursor
+    /// rectangles once it is free.
+    fn take_down() {
         SHOWING.store(false, Ordering::Release);
         NSCursor::arrowCursor().set();
-        for window in application(mtm)
-            .iter()
-            .flat_map(|application| application.windows())
-        {
-            if let Some(view) = window.contentView() {
-                window.invalidateCursorRectsForView(&view);
+        DispatchQueue::main().exec_async(|| {
+            // SAFETY: the main queue runs on Emacs's thread.
+            let mtm = unsafe { MainThreadMarker::new_unchecked() };
+            for window in application(mtm)
+                .iter()
+                .flat_map(|application| application.windows())
+            {
+                if let Some(view) = window.contentView() {
+                    window.invalidateCursorRectsForView(&view);
+                }
             }
-        }
-    }
-
-    /// Take the watch down from the module's thread, Emacs's being busy.
-    fn take_down_here() {
-        SHOWING.store(false, Ordering::Release);
-        NSCursor::arrowCursor().set();
+        });
     }
 
     /// Emacs's application object, if there is one: a batch Emacs has none.
@@ -274,8 +281,9 @@ mod mac {
         }
     }
 
-    /// Read Emacs's windows and whether it is active, on Emacs's thread.
-    fn read_windows(mtm: MainThreadMarker) {
+    /// Note Emacs's visible windows and whether it is active, on Emacs's
+    /// thread: AppKit's own lists, no question to the window server.
+    fn note_windows(mtm: MainThreadMarker) {
         let Some(application) = application(mtm) else {
             return;
         };
@@ -287,7 +295,7 @@ mod mac {
             .collect();
         *lock(&WINDOWS) = numbers;
         ACTIVE.store(application.isActive(), Ordering::Release);
-        WINDOWS_READ.store(now(), Ordering::Release);
+        WINDOWS_NOTED.store(now(), Ordering::Release);
     }
 
     fn busy_for() -> Option<Duration> {
@@ -315,60 +323,36 @@ mod mac {
         }
     }
 
-    /// Put the watch up, turn it, or take it down, on Emacs's thread.
-    fn tick(mtm: MainThreadMarker) {
-        MAIN_TICK_PENDING.store(false, Ordering::Release);
-        read_windows(mtm);
-        let (over_emacs, active) = match application(mtm) {
-            Some(application) => (
-                application
-                    .windowWithWindowNumber(pointer_window())
-                    .is_some(),
-                application.isActive(),
-            ),
-            None => (false, false),
-        };
-        if wanted(&situation(
-            over_emacs || everywhere(),
-            active || everywhere(),
-        )) {
-            turn();
-        } else if SHOWING.load(Ordering::Acquire) {
-            take_down(mtm);
+    /// Put the watch up, turn it, or take it down, on the module's thread.
+    /// The window server is asked where the pointer is only when the watch
+    /// may be up.
+    fn tick() {
+        let busy = matches!((busy_for(), watched_delay()),
+                            (Some(busy_for), Some(delay)) if busy_for >= delay);
+        let showing = SHOWING.load(Ordering::Acquire);
+        if !(LOADING.load(Ordering::Acquire) || busy || showing) {
+            return;
         }
-    }
-
-    /// The same, from the module's thread while Emacs's thread is busy,
-    /// from what that thread last read of its windows.
-    fn tick_here() {
         let over_emacs = lock(&WINDOWS).contains(&pointer_window());
         if wanted(&situation(
             over_emacs || everywhere(),
             ACTIVE.load(Ordering::Acquire) || everywhere(),
         )) {
-            THREAD_SETS.fetch_add(1, Ordering::Relaxed);
             turn();
-        } else if SHOWING.load(Ordering::Acquire) {
-            take_down_here();
+        } else if showing {
+            take_down();
         }
     }
 
     fn run() {
         loop {
-            std::thread::sleep(Duration::from_millis(
-                INTERVAL.load(Ordering::Acquire).max(10),
-            ));
-            let watched = LOADING.load(Ordering::Acquire) || SHOWING.load(Ordering::Acquire);
-            if busy_for().is_some() {
-                if watched || watched_delay().is_some() {
-                    tick_here();
-                }
-            } else if watched && !MAIN_TICK_PENDING.swap(true, Ordering::AcqRel) {
-                DispatchQueue::main().exec_async(|| {
-                    // SAFETY: the main queue runs on Emacs's thread.
-                    tick(unsafe { MainThreadMarker::new_unchecked() })
-                });
-            }
+            let interval = Duration::from_millis(INTERVAL.load(Ordering::Acquire).max(10));
+            let (mut woken, _) = WAKE
+                .wait_timeout_while(lock(&WOKEN), interval, |woken| !*woken)
+                .unwrap_or_else(PoisonError::into_inner);
+            *woken = false;
+            drop(woken);
+            tick();
         }
     }
 
@@ -380,14 +364,14 @@ mod mac {
     ) {
         if activity == CFRunLoopActivity::AfterWaiting {
             BUSY_SINCE.store(now(), Ordering::Release);
-            if now().saturating_sub(WINDOWS_READ.load(Ordering::Acquire)) > 250_000_000 {
-                read_windows(MainThreadMarker::new_unchecked());
+            if now().saturating_sub(WINDOWS_NOTED.load(Ordering::Acquire)) > 100_000_000 {
+                note_windows(MainThreadMarker::new_unchecked());
             }
         } else if activity == CFRunLoopActivity::BeforeWaiting {
             BUSY_SINCE.store(0, Ordering::Release);
             // Done: the watch it brought goes at once.
             if SHOWING.load(Ordering::Acquire) && !LOADING.load(Ordering::Acquire) {
-                take_down(MainThreadMarker::new_unchecked());
+                wake();
             }
         }
     }
@@ -473,7 +457,8 @@ mod mac {
     fn loading(env: &Env, flag: Value) -> Result<()> {
         let mtm = main_thread(env)?;
         LOADING.store(flag.is_not_nil(), Ordering::Release);
-        tick(mtm);
+        note_windows(mtm);
+        wake();
         Ok(())
     }
 
@@ -506,14 +491,14 @@ mod mac {
         });
         let delay = seconds.map_or(0, |seconds| (seconds.max(0.0) * 1000.0) as u64 + 1);
         BUSY_DELAY.store(delay, Ordering::Release);
-        read_windows(mtm);
+        note_windows(mtm);
         Ok(())
     }
 
-    /// Return what the pointer shows, as (SHOWING FRAME LOADING THREAD-SETS
+    /// Return what the pointer shows, as (SHOWING FRAME LOADING TURNS
     /// IS-WATCH): whether the watch is up, the frame of it last shown,
-    /// whether a loading is in front, how many frames the module's thread
-    /// set itself, and whether AppKit's current cursor is a watch frame.
+    /// whether a loading is in front, how many frames were shown so far,
+    /// and whether AppKit's current cursor is a watch frame.
     #[defun(mod_in_name = false, name = "cursor-state")]
     fn state(env: &Env) -> Result<Value<'_>> {
         main_thread(env)?;
@@ -525,7 +510,7 @@ mod mac {
             SHOWING.load(Ordering::Acquire),
             FRAME.load(Ordering::Acquire) as i64,
             LOADING.load(Ordering::Acquire),
-            THREAD_SETS.load(Ordering::Relaxed) as i64,
+            TURNS.load(Ordering::Relaxed) as i64,
             is_watch,
         ))
     }
