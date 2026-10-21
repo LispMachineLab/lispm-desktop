@@ -123,8 +123,9 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   the Appearance control panel's did, each group of settings framed in a group box.  Appearance chooses the colour theme (Dracula, Platinum,
   or any other installed); Desktop the desktop's colour, its picture and how the picture covers
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
-  browser's home page and search address, its history and its bookmarks; Software Update keeps
-  LispM up to date (see [[*Updating][Updating]]).  Each choice takes effect at once where it can
+  browser's home page and search address, its history and its bookmarks; Network the proxy every
+  connection goes through (see [[*A proxy][A proxy]]); Software Update keeps LispM up to date (see
+  [[*Updating][Updating]]).  Each choice takes effect at once where it can
   and is kept for the next start.
 - *The App Store*, laid out as the Mac App Store in Mac OS 9's forms, installs what LispM runs
   beyond what it ships with: applications, Emacs packages each running in a window of its own on
@@ -525,6 +526,24 @@ An existing configuration can use lispm-desktop as a library instead:
 
 LispM Agent and LispM Browser are found as at the first start: on ~load-path~, else beside the
 desktop's checkout, else installed with package-vc.
+
+* A proxy
+
+The Network control panel sends every connection LispM makes through one proxy, HTTP or SOCKS5,
+at the address given as =host:port=; by default there is none, and Emacs connects as its
+environment says.  It takes effect at once: Emacs's own requests (url.el's, which package.el
+and EWW use: an HTTP proxy tunnels HTTPS with CONNECT, a SOCKS5 one carries TLS and looks the
+names up), the programs Emacs starts (git, curl, the agents, the terminals' shells, through
+=http_proxy=, =https_proxy=, =all_proxy= and =no_proxy=) and the browser's pages (handed to
+WebKit by LispM Browser).  This computer's own addresses, where LispM's servers and the models
+served locally listen, never go through it, nor do the hosts listed under Direct Connections.
+personal.el can set it too:
+
+#+begin_src emacs-lisp
+(setq lispm-desktop-proxy-type 'socks5            ; or 'http; nil for none
+      lispm-desktop-proxy-server "127.0.0.1:7890"
+      lispm-desktop-proxy-exceptions '("intranet.example"))
+#+end_src
 
 * Updating
 

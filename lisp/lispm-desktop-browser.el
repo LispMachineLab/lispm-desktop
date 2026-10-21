@@ -41,6 +41,7 @@
 (require 'lispm-browser-extensions)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
+(require 'lispm-desktop-proxy)
 
 ;;;; Browser
 ;;
@@ -78,6 +79,7 @@
 
 (declare-function lispm-desktop-show-desktop "lispm-desktop-coherence" (&optional screen))
 (declare-function xwidget-at "xwidget" (pos))
+(declare-function lispm-browser-set-proxy "lispm-browser-proxy" (url &optional exceptions))
 (declare-function xwidget-webkit-uri "xwidget" (xwidget))
 (declare-function xwidget-webkit-goto-uri "xwidget" (xwidget uri))
 (declare-function xwidget-webkit-browse-url "xwidget" (url &optional new-session))
@@ -1358,6 +1360,14 @@ This is `lispm-browser-raise-function' on the desktop."
 This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   (and (provided-mode-derived-p (buffer-local-value 'major-mode buffer) 'xwidget-webkit-mode) 'no))
 
+(defun lispm-desktop-browser--follow-proxy (url hosts)
+  "Send the browser's pages through the proxy at URL, HOSTS directly, as
+LispM's other connections go; directly when URL is nil.
+This is a `lispm-desktop-proxy-change-functions' function.  A browser
+older than its proxy is left as it is."
+  (when (require 'lispm-browser-proxy nil t)
+    (lispm-browser-set-proxy url hosts)))
+
 (defun lispm-desktop-setup-browser ()
   "Set lispm-browser up as the desktop's browser, drawn as Netscape's.
 Its pages take the desktop's keys, and \\`C-c x' prefixes its commands."
@@ -1376,6 +1386,9 @@ Its pages take the desktop's keys, and \\`C-c x' prefixes its commands."
   (setq lispm-browser-extensions-anchor-function #'lispm-desktop-browser--extension-anchor)
   (add-hook 'lispm-browser-extensions-changed-hook #'lispm-desktop-browser--redraw-extensions)
   (add-hook 'lispm-browser-quit-hook #'lispm-desktop-browser--quit)
+  ;; Its pages go through LispM's proxy, as its other connections do.
+  (add-hook 'lispm-desktop-proxy-change-functions #'lispm-desktop-browser--follow-proxy)
+  (lispm-desktop-browser--follow-proxy (lispm-desktop-proxy-url) (lispm-desktop-proxy-direct-hosts))
   ;; After the workspace's own functions, which run first.
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-browser--on-workspace-select 90)
   (with-eval-after-load 'xwidget

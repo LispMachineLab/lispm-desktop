@@ -58,6 +58,7 @@
 ;;; Code:
 
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-proxy)
 (require 'lispm-desktop-deps)
 ;; The browser is lispm-browser, which the desktop's browser files require.
 (lispm-desktop-deps-ensure 'lispm-browser)
@@ -163,6 +164,8 @@ boxes.  A download that fails, as offline, is only reported."
     ;; however that ends.
     (unwind-protect
         (progn
+          ;; First, so that whatever is fetched next goes through it.
+          (lispm-desktop-setup-proxy)
           (lispm-desktop-setup-common-packages)
           (lispm-desktop-setup-clipboard)
           (lispm-desktop-setup-keymapping)
