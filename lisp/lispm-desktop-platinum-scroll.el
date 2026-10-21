@@ -269,7 +269,7 @@ It takes no focus and hooks run for new frames do not see it."
       (unless (equal key (frame-parameter frame 'lispm-desktop-platinum-scroll-key))
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-key key)
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-thumb thumb)
-        (set-frame-parameter frame 'background-color (lispm-desktop-platinum-color :chrome))
+        (lispm-desktop-platinum-set-background frame (lispm-desktop-platinum-color :chrome))
         (let ((root (frame-root-window frame)))
           (with-current-buffer (window-buffer root)
             (let ((inhibit-read-only t))

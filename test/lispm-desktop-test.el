@@ -2572,6 +2572,53 @@ lines; an inactive one lies flat in a dark grey outline."
       (should (equal (at inactive 0 40) "#555555"))
       (should (equal (at inactive 2 40) "#DDDDDD")))))
 
+(ert-deftest lispm-desktop-test-window-frame-strips ()
+  "A window's frame is drawn in four strips round the window standing in
+it: the top and bottom ones across it, the left and right ones between
+them, beside the window.  Together they cover the frame but the window."
+  (pcase-let* ((strips (lispm-desktop-platinum--frame-strips 101 81))
+               (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
+               (`(,inset-x . ,inset-y) lispm-desktop-platinum-frame-inset))
+    (should (equal strips '((0 0 101 1) (0 1 6 73) (94 1 7 73) (0 74 101 7))))
+    (should (equal (list left top) (list inset-x inset-y)))
+    (should (= (apply #'+ (mapcar (lambda (strip) (* (nth 2 strip) (nth 3 strip))) strips))
+               (- (* 101 81) (* (- 101 left right) (- 81 top bottom)))))))
+
+(ert-deftest lispm-desktop-test-svg-part ()
+  "A part of an SVG is an SVG its own size, showing through its view box
+what the whole draws there, without the rectangles drawn elsewhere."
+  (let* ((svg (lispm-desktop-platinum-draw-window-frame (lispm-desktop-test--platinum-palette) 101 81
+                                                        :active t))
+         (part (lispm-desktop-platinum--svg-part svg 94 1 7 73)))
+    (should (equal (lispm-desktop-test--size part) '(7 . 73)))
+    (should (equal (dom-attr part 'viewBox) "94 1 7 73"))
+    (should (equal (dom-attr part 'xmlns) (dom-attr svg 'xmlns)))
+    (should (< (length (dom-children part)) (length (dom-children svg))))
+    (dolist (x (number-sequence 94 100))
+      (dolist (y (number-sequence 1 73))
+        (should (equal (lispm-desktop-test--pixel part x y) (lispm-desktop-test--pixel svg x y)))))))
+
+(ert-deftest lispm-desktop-test-window-frame-text ()
+  "A window's frame is drawn as its strips, each an image as large, on
+lines no taller than their images, with space for the window between the
+left and right strips."
+  (skip-unless (image-type-available-p 'svg))
+  (let* ((svg (lispm-desktop-platinum-draw-window-frame (lispm-desktop-test--platinum-palette) 101 81))
+         (text (lispm-desktop-platinum--frame-text svg 101 81))
+         (displays (seq-keep (lambda (i) (get-text-property i 'display text)) (number-sequence 0 (1- (length text))))))
+    (should (equal (split-string text "\n") '(" " "   " " " "")))
+    (dolist (i (seq-positions text ?\n))
+      (should (eq (get-text-property i 'line-height text) t)))
+    (should (equal (mapcar (lambda (display)
+                             (if (eq (car display) 'space)
+                                 (list (plist-get (cdr display) :width) (plist-get (cdr display) :height))
+                               (with-temp-buffer
+                                 (insert (image-property display :data))
+                                 (let ((part (libxml-parse-xml-region (point-min) (point-max))))
+                                   (list (dom-attr part 'width) (dom-attr part 'height))))))
+                           displays)
+                   '(("101" "1") ("6" "73") ((88) (73)) ("7" "73") ("101" "7"))))))
+
 (defmacro lispm-desktop-test--with-frames (frames &rest body)
   "Run BODY among fake frames: FRAMES evaluates to a list of
 \(NAME . PARAMETERS), symbols standing for frames, whose parameters the frame primitives read
@@ -2615,6 +2662,20 @@ raised, the latest first."
                  ((symbol-function 'lispm-desktop-platinum--frameable-p) #'ignore)
                  ((symbol-function 'lispm-desktop-platinum-frame-update) #'ignore))
          ,@body))))
+
+(ert-deftest lispm-desktop-test-set-background ()
+  "A frame's background is set only to a new colour: NS Emacs clears a frame
+whenever its background is set."
+  (lispm-desktop-test--with-frames '((frame (background-color . "#DDDDDD")))
+    (let ((sets 0))
+      (cl-letf* ((set (symbol-function 'set-frame-parameter))
+                 ((symbol-function 'set-frame-parameter)
+                  (lambda (frame name value) (cl-incf sets) (funcall set frame name value))))
+        (lispm-desktop-platinum-set-background 'frame "#DDDDDD")
+        (should (= sets 0))
+        (lispm-desktop-platinum-set-background 'frame "#CCCCCC")
+        (should (= sets 1))
+        (should (equal (frame-parameter 'frame 'background-color) "#CCCCCC"))))))
 
 (ert-deftest lispm-desktop-test-window-draws-its-own-frame ()
   "A floating window is framed unless it draws its own frame, as an

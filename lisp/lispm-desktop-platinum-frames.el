@@ -518,6 +518,73 @@ done resizing it from its edges, a step at a time."
                        (when (frame-live-p frame)
                          (run-hook-with-args 'lispm-desktop-platinum-frame-moved-functions frame))))))
 
+(defun lispm-desktop-platinum-set-background (frame color)
+  "Give FRAME the background COLOR, unless it has it already.
+NS Emacs clears a frame whenever its background is set, to the colour it
+has too, and a frame cleared just before the screen is updated shows
+blank until it is drawn again."
+  (unless (equal (frame-parameter frame 'background-color) color)
+    (set-frame-parameter frame 'background-color color)))
+
+(defun lispm-desktop-platinum--frame-strips (width height)
+  "Return the strips a window's frame WIDTH by HEIGHT pixels is drawn in,
+round the window standing in it, see `lispm-desktop-platinum-frame-margins':
+the top, left, right and bottom ones, each (X Y WIDTH HEIGHT) in pixels.
+The left and right strips run between the top and bottom ones."
+  (pcase-let ((`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins)))
+    (let ((middle (max 0 (- height top bottom))))
+      (list (list 0 0 width top)
+            (list 0 top left middle)
+            (list (- width right) top right middle)
+            (list 0 (- height bottom) width bottom)))))
+
+(defun lispm-desktop-platinum--svg-part (svg x y width height)
+  "Return the part of SVG WIDTH by HEIGHT pixels from X, Y: an SVG that
+size, showing what SVG draws there.  Rectangles wholly outside it are
+left out, which spares writing and reading them again."
+  (apply #'dom-node 'svg
+         `((width . ,width) (height . ,height)
+           (viewBox . ,(format "%d %d %d %d" x y width height))
+           ,@(seq-remove (lambda (attribute) (memq (car attribute) '(width height viewBox)))
+                         (dom-attributes svg)))
+         (seq-remove
+          (lambda (node)
+            (and (consp node) (eq (dom-tag node) 'rect)
+                 (let ((left (dom-attr node 'x)) (top (dom-attr node 'y))
+                       (across (dom-attr node 'width)) (down (dom-attr node 'height)))
+                   (and (numberp left) (numberp top) (numberp across) (numberp down)
+                        (or (>= left (+ x width)) (<= (+ left across) x)
+                            (>= top (+ y height)) (<= (+ top down) y))))))
+          (dom-children svg))))
+
+(defun lispm-desktop-platinum--frame-text (svg width height)
+  "Return the text drawing SVG, a window's frame WIDTH by HEIGHT pixels:
+each of its strips, see `lispm-desktop-platinum--frame-strips', an image
+of its own, the top and bottom ones on lines of their own, the left and
+right ones on a line with the window's place between them, left as space
+under the window.  Emacs converts every pixel of an image it shows, so
+one image of the whole frame took as long as the frame was large, a
+tenth of a second for a large window; its strips take a few milliseconds,
+however large the window."
+  (pcase-let ((`(,top ,left ,right ,bottom) (lispm-desktop-platinum--frame-strips width height))
+              ;; The line as tall as its images, the font's height aside.
+              (newline (propertize "\n" 'line-height t)))
+    (cl-flet ((strip (rectangle)
+                (propertize " " 'display
+                            (svg-image (apply #'lispm-desktop-platinum--svg-part svg rectangle)
+                                       :ascent 100 :scale 1)))
+              (shown-p (rectangle) (and (> (nth 2 rectangle) 0) (> (nth 3 rectangle) 0))))
+      (concat (when (shown-p top)
+                (concat (strip top) newline))
+              (when (shown-p left)
+                (concat (strip left)
+                        (propertize " " 'display
+                                    `(space :width (,(- width (nth 2 left) (nth 2 right)))
+                                            :height (,(nth 3 left)) :ascent 100))
+                        (strip right) newline))
+              (when (shown-p bottom)
+                (concat (strip bottom) newline))))))
+
 (defun lispm-desktop-platinum-frame-update (frame)
   "Bring the frame of floating window FRAME up to date: as large as FRAME
 and its margins, see `lispm-desktop-platinum-frame-margins', around FRAME
@@ -552,14 +619,16 @@ active while FRAME is selected."
         (set-frame-parameter outer 'lispm-desktop-platinum-font (frame-parameter outer 'font)))
       (unless (equal key (frame-parameter outer 'lispm-desktop-platinum-key))
         (set-frame-parameter outer 'lispm-desktop-platinum-key key)
-        (set-frame-parameter outer 'background-color (lispm-desktop-platinum-color :chrome))
-        (with-current-buffer (window-buffer (frame-root-window outer))
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize " " 'display
-                                (svg-image (lispm-desktop-platinum-draw-window-frame
-                                            lispm-desktop-platinum-current-palette width height :active active)
-                                           :ascent 100 :scale 1)))))))))
+        (lispm-desktop-platinum-set-background outer (lispm-desktop-platinum-color :chrome))
+        (let ((root (frame-root-window outer)))
+          (with-current-buffer (window-buffer root)
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+              (insert (lispm-desktop-platinum--frame-text
+                       (lispm-desktop-platinum-draw-window-frame
+                        lispm-desktop-platinum-current-palette width height :active active)
+                       width height))))
+          (set-window-start root 1))))))
 
 (defun lispm-desktop-platinum-frames-sync (&rest _)
   "Bring every floating window's frame up to date, and take away the frames
@@ -812,7 +881,7 @@ theme's background across the window dragged."
     ;; Kept as it came out, so a font that cannot be a pixel tall is not
     ;; set again at every line drawn.
     (set-frame-parameter frame 'lispm-desktop-platinum-thin-font (frame-parameter frame 'font))
-    (set-frame-parameter frame 'background-color (lispm-desktop-platinum-desktop-color))
+    (lispm-desktop-platinum-set-background frame (lispm-desktop-platinum-desktop-color))
     ;; Sized under the other font, it is sized again.
     (set-frame-parameter frame 'lispm-desktop-platinum-line nil)))
 
