@@ -4,7 +4,7 @@
 # Copyright (C) 2026  Ryan.K
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-#   curl -fsSL https://lispmachinelab.github.io/install.sh | sh
+#   curl -fsSL https://lispm.ai/install.sh | sh
 #
 # LispM.app is GNU Emacs, under LispM's name and icon, running LispM
 # Desktop: nothing needs to be known about Emacs to use it.  This script
