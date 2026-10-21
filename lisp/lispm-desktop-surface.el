@@ -70,6 +70,8 @@
 (declare-function lispm-desktop-finder-close "lispm-desktop-finder" ())
 (declare-function lispm-desktop-finder--buffer "lispm-desktop-finder" ())
 (declare-function lispm-desktop-finder-real-p "lispm-desktop-finder" ())
+(declare-function lispm-desktop-finder-trash-label "lispm-desktop-finder" ())
+(declare-function lispm-desktop-finder-trash-p "lispm-desktop-finder" ())
 (defvar lispm-desktop-finder--selected)
 (defvar lispm-desktop-finder--had-focus)
 (declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" ())
@@ -655,20 +657,18 @@ default 0, 0."
   (concat (format "<rect width=\"%d\" height=\"%d\" fill=\"%s\"/>" width height (lispm-desktop--color))
           (or (lispm-desktop--picture width height picture) "")))
 
-(defun lispm-desktop--copy-svgs (key)
-  "Return the dragged copy of icon KEY as two SVGs, (ICON . NAME): the icon
-alone, and its name as a selected icon shows it, inverted.  Mac OS 9's
-Drag Manager dragged an image of the two, translucent, without the
-desktop between them."
+(defun lispm-desktop--copy-svgs (icon label)
+  "Return the dragged copy of ICON over LABEL as two SVGs, (ICON . NAME):
+the icon alone, and its name as a selected icon shows it, inverted.  Mac
+OS 9's Drag Manager dragged an image of the two, translucent, without
+the desktop between them."
   (pcase-let* ((`(,family ,size ,ascent) (lispm-desktop--font))
-               (spec (alist-get key lispm-desktop-items))
-               (label (plist-get spec :label))
                (label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
                (label-height (+ size 4))
                (s lispm-desktop-icon-size))
     (cons
      (format "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">%s</svg>"
-             s s s s (lispm-desktop--nest (lispm-desktop--item-icon spec) nil 0 0))
+             s s s s (lispm-desktop--nest icon nil 0 0))
      (concat
       (format "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">"
               label-width label-height label-width label-height)
@@ -902,14 +902,15 @@ would land back on the icon's own cell."
 (defconst lispm-desktop-drag-opacity 0.5
   "How opaque the dragged copy of an icon is, as Mac OS 9's drag image was.")
 
-(defun lispm-desktop--copy-frames (key window)
-  "Return the dragged copy of icon KEY over the desktop in WINDOW, hidden:
-\(ICON . NAME), a borderless frame each, see `lispm-desktop--copy-svgs',
-translucent as a whole, as no part of a child frame can be clear.  Two
-frames hold no more than the icon and its name, so the copy paints no
-piece of the desktop over the icons and windows it passes."
+(defun lispm-desktop--copy-frames (icon label window)
+  "Return the dragged copy of ICON over LABEL, over the desktop in WINDOW,
+hidden: (ICON . NAME), a borderless frame each, see
+`lispm-desktop--copy-svgs', translucent as a whole, as no part of a child
+frame can be clear.  Two frames hold no more than the icon and its name,
+so the copy paints no piece of the desktop over the icons and windows it
+passes."
   (let ((parent (window-frame window))
-        (svgs (lispm-desktop--copy-svgs key)))
+        (svgs (lispm-desktop--copy-svgs icon label)))
     (cl-flet ((make (svg)
                 (let* ((frame (lispm-desktop-popup-make-frame parent))
                        (image (create-image svg 'svg t :scale 1 :ascent 100
@@ -923,13 +924,12 @@ piece of the desktop over the icons and windows it passes."
                   frame)))
       (cons (make (car svgs)) (make (cdr svgs))))))
 
-(defun lispm-desktop--copy-place (key x y)
-  "Return where the dragged copy of icon KEY stands with its cell's top left
-at X, Y: ((ICON-X . ICON-Y) (NAME-X . NAME-Y)), in the desktop's pixels.
-The icon is centred at the top of the cell, its name under it, as the
-icon itself is drawn, see `lispm-desktop--draw-icon'."
-  (let* ((label (plist-get (alist-get key lispm-desktop-items) :label))
-         (label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
+(defun lispm-desktop--copy-place (label x y)
+  "Return where the dragged copy of an icon named LABEL stands with its
+cell's top left at X, Y: ((ICON-X . ICON-Y) (NAME-X . NAME-Y)), in the
+desktop's pixels.  The icon is centred at the top of the cell, its name
+under it, as an icon itself is drawn, see `lispm-desktop--draw-icon'."
+  (let* ((label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
          (center (+ x (/ lispm-desktop-column 2))))
     (list (cons (- center (/ lispm-desktop-icon-size 2)) y)
           (cons (- center (/ label-width 2)) (+ y lispm-desktop-icon-size 4)))))
@@ -946,26 +946,31 @@ does not stand over SCREEN."
     (when parent
       (list left top (+ left (frame-pixel-width frame)) (+ top (frame-pixel-height frame))))))
 
+(defun lispm-desktop--window-at (x y screen)
+  "Return the floating window in front at X, Y of SCREEN's inside, a
+frame, or nil where the desktop shows."
+  (seq-find (lambda (frame)
+              (and (frame-parameter frame 'lispm-desktop-window)
+                   (frame-visible-p frame)
+                   (pcase (lispm-desktop--frame-box frame screen)
+                     (`(,left ,top ,right ,bottom)
+                      (and (<= left x right) (<= top y bottom))))))
+            (frame-list-z-order screen)))
+
 (defun lispm-desktop--color-under (x y screen)
   "Return the colour of what lies at X, Y of SCREEN's inside: the background
 of the floating window in front there, or else the desktop's colour."
-  (or (seq-some (lambda (frame)
-                  (and (frame-parameter frame 'lispm-desktop-window)
-                       (frame-visible-p frame)
-                       (pcase (lispm-desktop--frame-box frame screen)
-                         (`(,left ,top ,right ,bottom)
-                          (and (<= left x right) (<= top y bottom)
-                               (frame-parameter frame 'background-color))))))
-                (frame-list-z-order screen))
-      (lispm-desktop--color)))
+  (if-let* ((frame (lispm-desktop--window-at x y screen)))
+      (frame-parameter frame 'background-color)
+    (lispm-desktop--color)))
 
-(defun lispm-desktop--place-copy (frames key x y window)
-  "Put the copy's FRAMES, (ICON . NAME), with the cell of icon KEY at X, Y of
-the desktop in WINDOW, and show them.  What shows between the icon's
-lines, translucent as the rest, is the colour of what the icon passes
-over: the desktop's, or a floating window's."
+(defun lispm-desktop--place-copy (frames label x y window)
+  "Put the copy's FRAMES, (ICON . NAME), of an icon named LABEL, with its
+cell at X, Y of the desktop in WINDOW, and show them.  What shows
+between the icon's lines, translucent as the rest, is the colour of what
+the icon passes over: the desktop's, or a floating window's."
   (pcase-let* ((`(,left ,top . ,_) (window-inside-pixel-edges window))
-               (`((,icon-x . ,icon-y) (,name-x . ,name-y)) (lispm-desktop--copy-place key x y))
+               (`((,icon-x . ,icon-y) (,name-x . ,name-y)) (lispm-desktop--copy-place label x y))
                (half (/ lispm-desktop-icon-size 2))
                (under (lispm-desktop--color-under (+ left icon-x half) (+ top icon-y half)
                                                   (window-frame window))))
@@ -991,6 +996,8 @@ where it grabbed the icon.  Let go, the icon lands on the grid, see
 `lispm-desktop--drop'.  Escape or C-g gives up, and a press let go where
 it was only selects."
   (pcase-let* ((`(,cell-x ,cell-y) (lispm-desktop--cell-at key window))
+               (spec (alist-get key lispm-desktop-items))
+               (label (plist-get spec :label))
                (frames nil)
                (to nil)
                (result
@@ -1001,8 +1008,8 @@ it was only selects."
                                        (expt lispm-desktop-drag-threshold 2)))
                          (setq to (cons (+ cell-x (car delta)) (+ cell-y (cdr delta))))
                          (unless frames
-                           (setq frames (lispm-desktop--copy-frames key window)))
-                         (lispm-desktop--place-copy frames key (car to) (cdr to) window)))
+                           (setq frames (lispm-desktop--copy-frames (lispm-desktop--item-icon spec) label window)))
+                         (lispm-desktop--place-copy frames label (car to) (cdr to) window)))
                      (lambda () (lispm-desktop--pointer window))
                      press)
                   (when frames
@@ -1013,6 +1020,56 @@ it was only selects."
       (lispm-desktop--render window))
     ;; Dragged or not: a press let go where it was is a click.
     (and to t)))
+
+(defun lispm-desktop--trash-at-p (x y window)
+  "Return non-nil when the desktop's Trash shows at X, Y of the desktop in
+WINDOW, its text area: no floating window is in front of it there."
+  (and (eq (lispm-desktop--key-at x y) 'trash)
+       (pcase-let ((`(,left ,top . ,_) (window-inside-pixel-edges window)))
+         (not (lispm-desktop--window-at (+ left x) (+ top y) (window-frame window))))))
+
+(defun lispm-desktop-drag-to-trash (icon label)
+  "Drag a copy of ICON over LABEL, an item of a window over the desktop,
+while the mouse button is held, as Finder dragged one out of its window.
+Once the mouse has moved a few pixels, a translucent copy follows it, its
+icon under the pointer, and the desktop's Trash is drawn selected while
+the pointer is on it, as Mac OS 9's darkened under what was dragged
+there.  Return non-nil when the item was let go on the Trash; nil when it
+was let go elsewhere, given up with Escape or C-g, or not dragged: a
+press let go where it was is a click.  Without the desktop in sight,
+nothing is dragged."
+  (when-let* ((buffer (lispm-desktop-buffer))
+              (window (get-buffer-window buffer 'visible))
+              (press (lispm-desktop--pointer window)))
+    (let ((selected (buffer-local-value 'lispm-desktop--selected buffer))
+          (frames nil)
+          (moved nil)
+          (over nil))
+      (pcase-let ((`(,event . ,_)
+                   (unwind-protect
+                       (lispm-desktop-platinum-track
+                        (lambda (delta)
+                          (when (or moved (> (+ (expt (car delta) 2) (expt (cdr delta) 2))
+                                             (expt lispm-desktop-drag-threshold 2)))
+                            (setq moved t)
+                            (let* ((x (+ (car press) (car delta)))
+                                   (y (+ (cdr press) (cdr delta)))
+                                   (trash (lispm-desktop--trash-at-p x y window)))
+                              (unless frames
+                                (setq frames (lispm-desktop--copy-frames icon label window)))
+                              (lispm-desktop--place-copy frames label (- x (/ lispm-desktop-column 2))
+                                                         (- y (/ lispm-desktop-icon-size 2)) window)
+                              (unless (eq trash over)
+                                (setq over trash)
+                                (lispm-desktop--select (if trash 'trash selected))))))
+                        (lambda () (lispm-desktop--pointer window))
+                        press)
+                     (when frames
+                       (lispm-desktop-popup-dispose (car frames))
+                       (lispm-desktop-popup-dispose (cdr frames)))
+                     (when over
+                       (lispm-desktop--select selected)))))
+        (and event over t)))))
 
 (defun lispm-desktop-arrange-icons ()
   "Arrange the desktop's icons as they stood at first: down the column at
@@ -1304,10 +1361,9 @@ on the Finder window when it had the keyboard last, else on the desktop."
               :enabled ,(and (or in-finder selected) t))
       (:label "Close Window" :action lispm-desktop-finder-close :enabled ,(and finder t))
       separator
-      (:label "Move to Trash" :action lispm-desktop-finder-move-to-trash :key "M-DEL"
-              :enabled ,(and in-finder (lispm-desktop-finder-real-p)
-                             (with-current-buffer (lispm-desktop-finder--buffer) lispm-desktop-finder--selected)
-                             t))
+      (:label ,(if in-finder (lispm-desktop-finder-trash-label) "Move to Trash")
+              :action lispm-desktop-finder-move-to-trash :key "M-DEL"
+              :enabled ,(and in-finder (lispm-desktop-finder-trash-p)))
       separator
       ,@(mapcar (lambda (item)
                   (list :label (plist-get (cdr item) :label)

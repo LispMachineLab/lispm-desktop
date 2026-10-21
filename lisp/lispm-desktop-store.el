@@ -101,7 +101,7 @@
 ;; hidden.  The keyboard does all of it: C-f, C-b, C-n and C-p go from
 ;; icon to icon, M-n and M-p from category to category, RET or Space
 ;; press the selected item's button, / searches, i shows or hides the
-;; information, u updates, D removes, . stops an install, l shows the
+;; information, u updates, D uninstalls, . stops an install, l shows the
 ;; log of one that failed, g checks the catalogs, + installs from a git
 ;; URL, Tab goes to the push buttons and q closes.
 
@@ -123,11 +123,15 @@
 (require 'lispm-desktop-loading)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
+(declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
 (declare-function lispm-desktop--darken "lispm-desktop-surface" (svg))
 (declare-function project-remember-projects-under "project" (dir &optional recursive))
 (defvar package-vc-selected-packages)
 (defvar lispm-desktop-finder-folders)
+(defvar lispm-desktop-context-menu-function)
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
 
@@ -693,12 +697,20 @@ Saving it is not said in the echo area: the window shows it."
      'lispm-desktop-store-installed
      (append (assq-delete-all id (copy-alist lispm-desktop-store-installed))
              (list (cons id (append installed (lispm-desktop-store--plist-without
-                                               props :installed :owned))))))))
+                                               props :installed :owned))))))
+    (lispm-desktop-store--applications-changed)))
 
 (defun lispm-desktop-store--forget (id)
   "Forget that the item ID is installed."
   (customize-save-variable 'lispm-desktop-store-installed
-                           (assq-delete-all id (copy-alist lispm-desktop-store-installed))))
+                           (assq-delete-all id (copy-alist lispm-desktop-store-installed)))
+  (lispm-desktop-store--applications-changed))
+
+(defun lispm-desktop-store--applications-changed ()
+  "Show the applications installed as they are now in the Applications
+folder, when the Finder window shows it."
+  (when (fboundp 'lispm-desktop-finder-folder-changed)
+    (lispm-desktop-finder-folder-changed 'applications)))
 
 (defun lispm-desktop-store--package-present (props)
   "Return where the package of the item of PROPS is already: `built-in' for
@@ -1224,7 +1236,7 @@ One that other packages need stays, as said in the echo area."
                                (assq-delete-all name (copy-alist package-vc-selected-packages))))))
 
 (defun lispm-desktop-store--remove-detail (id props)
-  "Return what removing the item ID, of PROPS, does, in words."
+  "Return what uninstalling the item ID, of PROPS, does, in words."
   (let ((requirers (lispm-desktop-store--requirers id))
         (package (lispm-desktop-store--package-name (plist-get props :package))))
     (concat
@@ -1248,7 +1260,7 @@ what cannot be unloaded is said, and stays until Emacs restarts."
                       feature (error-message-string err))))))
 
 (defun lispm-desktop-store--remove-1 (id props)
-  "Remove the item ID, of PROPS, unasked, and forget it."
+  "Uninstall the item ID, of PROPS, unasked, and forget it."
   (pcase (plist-get props :kind)
     ('app (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs id))
           (lispm-desktop-store--unload (plist-get props :feature))
@@ -1260,18 +1272,139 @@ what cannot be unloaded is said, and stays until Emacs restarts."
       (lispm-desktop-store--delete-package (plist-get props :package))))
   (lispm-desktop-store--forget id))
 
-(defun lispm-desktop-store-remove (id)
-  "Remove the item ID the App Store installed, once confirmed."
-  (interactive (list (lispm-desktop-store--read-item "Remove: " #'lispm-desktop-store-installed-p)))
+;;;;; What an item leaves
+
+(defun lispm-desktop-store--same-need-p (need other)
+  "Return non-nil when NEED and OTHER are the same need."
+  (equal (lispm-desktop-needs-key need) (lispm-desktop-needs-key other)))
+
+(defun lispm-desktop-store--needs-leftovers (id)
+  "Return what the app ID needs that Homebrew installed and nothing else
+uses once it is uninstalled: no other application, installed or built
+in, and no command but the app's own, see `lispm-desktop-needs-guarded-p'."
+  (let* ((needs (lispm-desktop-store--needs id))
+         (own (mapcan (lambda (need) (copy-sequence (lispm-desktop-needs-get need :commands))) needs))
+         (others (append (mapcan (pcase-lambda (`(,app . ,_))
+                                   (unless (eq app id)
+                                     (copy-sequence (ignore-errors (lispm-desktop-app-ui-needs app)))))
+                                 lispm-desktop-apps)
+                         (mapcan (pcase-lambda (`(,other . ,_))
+                                   (unless (eq other id)
+                                     (copy-sequence (lispm-desktop-store--needs other))))
+                                 lispm-desktop-store-installed))))
+    (seq-uniq (seq-filter (lambda (need)
+                            (and (lispm-desktop-needs-brewed-p need)
+                                 (not (seq-find (lambda (other) (lispm-desktop-store--same-need-p need other))
+                                                others))
+                                 (not (lispm-desktop-needs-guarded-p need own))))
+                          needs)
+              #'lispm-desktop-store--same-need-p)))
+
+(defun lispm-desktop-store--package-leftovers (id props)
+  "Return the names of the packages the package of the item ID, of PROPS,
+brought along that nothing else needs once it is deleted, those needing
+another first: none chosen, as package.el keeps the packages installed
+by hand, none another item's, none outside `package-user-dir', and none
+that a package staying requires.  Only for a package the App Store
+installed, which it deletes."
+  (when-let* (((plist-get props :owned))
+              (name (lispm-desktop-store--package-name (plist-get props :package)))
+              ((assq name package-alist)))
+    (let ((wanted (append package-selected-packages
+                          (mapcar #'car (bound-and-true-p package-vc-selected-packages))
+                          (mapcan (pcase-lambda (`(,other . ,other-props))
+                                    (when-let* (((not (eq other id)))
+                                                (package (plist-get other-props :package)))
+                                      (list (lispm-desktop-store--package-name package))))
+                                  lispm-desktop-store-installed)))
+          (gone (list name))
+          (more t))
+      ;; A package goes once every package requiring it goes: the
+      ;; packages requiring it come before it in GONE, reversed.
+      (while more
+        (setq more nil)
+        (dolist (candidate (mapcan (lambda (package)
+                                     (when-let* ((desc (cadr (assq package package-alist))))
+                                       (mapcar #'car (package-desc-reqs desc))))
+                                   gone))
+          (when-let* (((not (memq candidate gone)))
+                      ((not (memq candidate wanted)))
+                      (desc (cadr (assq candidate package-alist)))
+                      ((file-in-directory-p (package-desc-dir desc) package-user-dir))
+                      ((seq-every-p (pcase-lambda (`(,other ,other-desc . ,_))
+                                      (or (memq other gone)
+                                          (not (assq candidate (package-desc-reqs other-desc)))))
+                                    package-alist)))
+            (push candidate gone)
+            (setq more t))))
+      (cdr (reverse gone)))))
+
+(defun lispm-desktop-store--and (words)
+  "Return WORDS, strings, as a sentence lists them."
+  (if (cdr words)
+      (concat (string-join (butlast words) ", ") " and " (car (last words)))
+    (car words)))
+
+(defun lispm-desktop-store--leftovers-text (needs packages)
+  "Return what the alert says of NEEDS and PACKAGES, which uninstalling an
+item leaves and nothing else uses."
+  (let ((them (if (cdr (append needs packages)) "them" "it")))
+    (format "It brought %s, which nothing else uses: Uninstall leaves %s, Uninstall All %s %s too."
+            (lispm-desktop-store--and
+             (delq nil (list (and needs (format "%s from Homebrew"
+                                                (lispm-desktop-store--and (mapcar #'lispm-desktop-needs-name needs))))
+                             (and packages (format "the package%s %s" (if (cdr packages) "s" "")
+                                                   (lispm-desktop-store--and (mapcar #'symbol-name packages)))))))
+            them
+            (cond ((null packages) "uninstalls")
+                  ((null needs) "deletes")
+                  (t "removes"))
+            them)))
+
+(defun lispm-desktop-store--confirm-uninstall (id props needs packages)
+  "Ask whether to uninstall the item ID, of PROPS, which leaves NEEDS and
+PACKAGES that nothing else uses.  Return nil to keep it, `item' to
+uninstall it alone, Uninstall, the default, or `all' for them too,
+Uninstall All: an alert with three buttons asks, as Mac OS 9's asked
+whether to save, Uninstall All standing apart at the left.  The alert
+is as wide as Mac OS 9's, so the buttons do not name what is left; its
+words do."
+  (let ((question (format "Uninstall “%s”?" (plist-get props :name)))
+        (detail (lispm-desktop-store--remove-detail id props)))
+    (if (not (or needs packages))
+        (and (lispm-desktop-store--confirm question detail nil "Uninstall") 'item)
+      (pcase (lispm-desktop-popup-alert
+              'caution question
+              '(("Uninstall All" all nil ?\M-a) ("Cancel" cancel cancel) ("Uninstall" item default))
+              (string-trim (concat detail "  " (lispm-desktop-store--leftovers-text needs packages))))
+        ((and choice (or 'item 'all)) choice)))))
+
+(defun lispm-desktop-store-uninstall (id)
+  "Uninstall the item ID the App Store installed, once confirmed.
+What it alone brought, programs Homebrew installed for it and packages
+its package brought along, are named in the alert: Uninstall, the
+default, leaves them; Uninstall All removes them too, the programs in
+the Installer.
+Return non-nil when it was uninstalled."
+  (interactive (list (lispm-desktop-store--read-item "Uninstall: " #'lispm-desktop-store-installed-p)))
   (let ((props (or (lispm-desktop-store--installed id)
                    (user-error "The App Store did not install %s" id))))
     (when (lispm-desktop-store--busy-p id)
       (user-error "%s is being updated; stop that first" (plist-get props :name)))
-    (when (lispm-desktop-store--confirm (format "Remove “%s”?" (plist-get props :name))
-                                        (lispm-desktop-store--remove-detail id props)
-                                        nil "Remove")
-      (lispm-desktop-store--remove-1 id props)
-      (lispm-desktop-store--render))))
+    (let* ((needs (and (eq (plist-get props :kind) 'app) (lispm-desktop-store--needs-leftovers id)))
+           (packages (lispm-desktop-store--package-leftovers id props))
+           (choice (lispm-desktop-store--confirm-uninstall id props needs packages)))
+      (when choice
+        (lispm-desktop-store--remove-1 id props)
+        (when (eq choice 'all)
+          (lispm-desktop-store--quietly
+            (mapc #'lispm-desktop-store--delete-package packages))
+          (when needs
+            (lispm-desktop-needs-uninstall needs (plist-get props :name))))
+        (lispm-desktop-store--render)
+        t))))
+
+(define-obsolete-function-alias 'lispm-desktop-store-remove #'lispm-desktop-store-uninstall "0.9.0")
 
 (defun lispm-desktop-store--changes (installed props)
   "Return what updating the item installed as INSTALLED to PROPS changes."
@@ -1599,7 +1732,8 @@ the desktop's, an extension loaded."
 (defun lispm-desktop-store--folder-items ()
   "Return the Applications folder's items: the App Store, the applications
 built in, see `lispm-desktop-apps-built-in', then those installed, see
-`lispm-desktop-finder-folders'."
+`lispm-desktop-finder-folders'.  Those installed are uninstalled when
+thrown away, from the folder's menu or onto the Trash."
   `(("App Store" "app-store-32" lispm-desktop-store-show)
     ,@(mapcar (pcase-lambda (`(,id . ,props))
                 (list (plist-get props :name) (plist-get props :folder)
@@ -1608,7 +1742,8 @@ built in, see `lispm-desktop-apps-built-in', then those installed, see
     ,@(mapcan (pcase-lambda (`(,id . ,props))
                 (when (eq (plist-get props :kind) 'app)
                   (list (list (plist-get props :name) (lispm-desktop-store--icon props t)
-                              (lambda () (lispm-desktop-apps-activate id))))))
+                              (lambda () (lispm-desktop-apps-activate id))
+                              (lambda () (lispm-desktop-store-uninstall id))))))
               lispm-desktop-store-installed)))
 
 (defun lispm-desktop-store-open-applications ()
@@ -1974,7 +2109,7 @@ shown match, and Check for Updates."
   "Insert the push buttons under the grid, flush with its right edge:
 Install from URL…, Show Log for an item that failed to install or
 update, Install Missing for an item whose needs the Installer installs,
-Copy Install Command for one whose program it does not, Remove, and the
+Copy Install Command for one whose program it does not, Uninstall…, and the
 selected item's button, Get, Open, Update, Stop or Try Again."
   (let* ((id lispm-desktop-store--selected)
          (props (and id (cdr (assq id (lispm-desktop-store-items)))))
@@ -1988,7 +2123,7 @@ selected item's button, Get, Open, Update, Stop or Try Again."
                              '(("Install Missing" lispm-desktop-store-install-missing nil)))
                             ((and props (lispm-desktop-store--install-commands props))
                              '(("Copy Install Command" lispm-desktop-store-copy-install-command nil))))
-                    ("Remove" lispm-desktop-store-remove-selected
+                    ("Uninstall…" lispm-desktop-store-uninstall-selected
                      ,(not (and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id)))))
                     (,(or (car action) "Get") lispm-desktop-store-act-selected
                      ,(not (cdr action)) t)))
@@ -2357,12 +2492,15 @@ installing or updating it."
       (lispm-desktop-store-update id)
     (user-error "Select an item first")))
 
-(defun lispm-desktop-store-remove-selected ()
-  "Remove the item selected."
+(defun lispm-desktop-store-uninstall-selected ()
+  "Uninstall the item selected."
   (interactive)
   (if-let* ((id (lispm-desktop-store--selected-id)))
-      (lispm-desktop-store-remove id)
+      (lispm-desktop-store-uninstall id)
     (user-error "Select an item first")))
+
+(define-obsolete-function-alias 'lispm-desktop-store-remove-selected
+  #'lispm-desktop-store-uninstall-selected "0.9.0")
 
 (defun lispm-desktop-store-stop-selected ()
   "Stop installing or updating the item selected, as Command-period
@@ -2469,11 +2607,46 @@ hides it, as Return does, rather than pressing the item's button."
   :parent button-map
   "SPC" #'push-button)
 
+(defun lispm-desktop-store--item-items ()
+  "Return the menu of the item selected: the File menu's items acting on
+it, its button's action first, then Uninstall…."
+  (seq-take-while (lambda (item) (not (eq item 'separator))) (lispm-desktop-store--file-items)))
+
+(defun lispm-desktop-store--grid-context-menu (event)
+  "Pop up the menu of the item right-clicked by EVENT, which it selects,
+as Mac OS 9's contextual menus came up on a Control click."
+  (interactive "e")
+  (pcase (lispm-desktop-store--grid-event event)
+    (`(,(or 'item 'button) . ,id)
+     (lispm-desktop-store--select id)
+     (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
+       (lispm-desktop-popup-menu (lispm-desktop-store--item-items) x y)))))
+
+(defun lispm-desktop-store--keyboard-menu ()
+  "Pop up the menu of the item selected, under its button, from the
+keyboard, see `lispm-desktop-context-menu-function'."
+  (lispm-desktop-store--in-window
+   (lambda ()
+     (let* ((ids (mapcar #'car (lispm-desktop-store--shown)))
+            (index (or (seq-position ids lispm-desktop-store--selected) (user-error "Select an item first"))))
+       (pcase-let* ((`(,gx ,columns ,tw) (lispm-desktop-store--grid (or lispm-desktop-store--width 640)))
+                    (line (text-property-any (point-min) (point-max) 'lispm-desktop-store-line (/ index columns)))
+                    (`(,x . ,y) (lispm-desktop-popup-frame-xy line))
+                    (`(,bx ,by ,_) (lispm-desktop-store--button-box
+                                    (+ gx (* (% index columns) tw)) tw
+                                    (car (lispm-desktop-store--action
+                                          lispm-desktop-store--selected
+                                          (cdr (assq lispm-desktop-store--selected (lispm-desktop-store-items))))))))
+         (lispm-desktop-popup-menu (lispm-desktop-store--item-items)
+                                   (+ x bx) (+ y by lispm-desktop-platinum-button-height)))))))
+
 (defvar-keymap lispm-desktop-store-grid-map
   :doc "Keymap of the App Store's grid, for the mouse."
   "<down-mouse-1>" #'lispm-desktop-store--grid-press
   "<mouse-1>" #'lispm-desktop-store--grid-click
-  "<double-mouse-1>" #'lispm-desktop-store--grid-double-click)
+  "<double-mouse-1>" #'lispm-desktop-store--grid-double-click
+  "<down-mouse-3>" #'lispm-desktop-store--grid-context-menu
+  "<mouse-3>" #'ignore)
 
 (defun lispm-desktop-store-close ()
   "Close the App Store's window."
@@ -2505,7 +2678,7 @@ hides it, as Return does, rather than pressing the item's button."
   "/" #'lispm-desktop-store-search
   "i" #'lispm-desktop-store-toggle-information
   "u" #'lispm-desktop-store-update-selected
-  "D" #'lispm-desktop-store-remove-selected
+  "D" #'lispm-desktop-store-uninstall-selected
   "." #'lispm-desktop-store-stop-selected
   "l" #'lispm-desktop-store-show-log-selected
   "w" #'lispm-desktop-store-copy-install-command
@@ -2520,6 +2693,7 @@ hides it, as Return does, rather than pressing the item's button."
 the selected item's information.
 \\{lispm-desktop-store-mode-map}"
   (setq-local line-spacing 0
+              lispm-desktop-context-menu-function #'lispm-desktop-store--keyboard-menu
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
               lispm-desktop-platinum-title "App Store"
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "app-store")
@@ -2554,7 +2728,7 @@ The catalogs are fetched the first time it opens after Emacs starts."
          (action (and props (lispm-desktop-store--action id props))))
     `((:label ,(or (car action) "Get") :action lispm-desktop-store-act-selected :key "RET"
               :enabled ,(and (cdr action) t))
-      (:label "Remove" :action lispm-desktop-store-remove-selected :key "D"
+      (:label "Uninstall…" :action lispm-desktop-store-uninstall-selected :key "D"
               :enabled ,(and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id))))
       (:label "Stop" :action lispm-desktop-store-stop-selected :key "."
               :enabled ,(and id (lispm-desktop-store--busy-p id)
@@ -2601,7 +2775,8 @@ the Finder, and the applications and extensions installed take part."
                             :activate #'lispm-desktop-store-show
                             :visible #'lispm-desktop-store-open-p)
   (setf (alist-get 'applications lispm-desktop-finder-folders)
-        '(:title "Applications" :icon "applications" :items lispm-desktop-store--folder-items))
+        '(:title "Applications" :icon "applications" :items lispm-desktop-store--folder-items
+          :trash "Uninstall…"))
   (lispm-desktop-store--register-installed)
   (add-hook 'lispm-desktop-update-check-hook #'lispm-desktop-store--check-along)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-store--render)) 95))

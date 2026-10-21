@@ -750,8 +750,10 @@ left at either end."
 (defun lispm-desktop-popup-frame-xy (position)
   "Return POSITION as (X . Y) in its frame: an event, a posn, or nil (the mouse)."
   (let ((posn (cond ((posnp position) position)
-                    ((eventp position) (event-start position))
+                    ;; A buffer position before an event: Emacs takes an
+                    ;; integer for a character typed, too.
                     ((integerp position) (posn-at-point position))
+                    ((eventp position) (event-start position))
                     (t nil))))
     (if-let* ((window (and posn (posn-window posn)))
               ((windowp window))
