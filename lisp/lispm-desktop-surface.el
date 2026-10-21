@@ -779,18 +779,24 @@ first click that moved a little was taken for a drag."
           (<= (+ (abs (- (car press) x)) (abs (- (cdr press) y)))
               lispm-desktop-double-click-fuzz)))))
 
+(defun lispm-desktop--press-select (event)
+  "Select the desktop icon mouse EVENT is over, or none on the desktop
+between them, and bring the desktop in front; return the icon's key."
+  (select-window (posn-window (event-start event)))
+  (setq lispm-desktop-finder--had-focus nil)
+  (lispm-desktop-apps-set-frontmost 'desktop)
+  (let ((key (lispm-desktop--item-at event)))
+    (lispm-desktop--select key)
+    key))
+
 (defun lispm-desktop-mouse-select (event)
   "Select the desktop icon pressed by EVENT, as Mac OS 9 did on the press,
 or none on the desktop between them, and drag the icon while the button
 is held, see `lispm-desktop--drag'.  A click on the desktop brings the
 desktop in front."
   (interactive "e")
-  (select-window (posn-window (event-start event)))
-  (setq lispm-desktop-finder--had-focus nil)
-  (lispm-desktop-apps-set-frontmost 'desktop)
-  (let ((key (lispm-desktop--item-at event))
+  (let ((key (lispm-desktop--press-select event))
         (press (posn-x-y (event-start event))))
-    (lispm-desktop--select key)
     (cond ((null key) (setq lispm-desktop--last-click nil))
           ((lispm-desktop--second-click-p key press)
            ;; The second click of a double click: open, never drag.
@@ -1070,9 +1076,11 @@ the icon selected, then Arrange Icons and the desktop picture, as Mac OS
      x y align)))
 
 (defun lispm-desktop-context-menu (event)
-  "Pop up the desktop's menu where EVENT right-clicked, of the icon there."
+  "Pop up the desktop's menu where EVENT right-clicked, of the icon there.
+The press selects the icon but never drags it: only the left button
+drags, and the drag would wait for that button to rise."
   (interactive "e")
-  (lispm-desktop-mouse-select event)
+  (lispm-desktop--press-select event)
   (let ((xy (lispm-desktop-popup-frame-xy event)))
     (lispm-desktop--menu (car xy) (cdr xy))))
 
@@ -1091,10 +1099,11 @@ desktop has the menu end at its right, so it stays on the desktop."
         (lispm-desktop--menu (+ (car body) left) (+ (cadr body) bottom))))))
 
 (defun lispm-desktop-mouse-open (event)
-  "Open the desktop icon double-clicked by EVENT."
+  "Open the desktop icon double-clicked by EVENT.
+EVENT is the second click's release: the button is up, so nothing drags."
   (interactive "e")
-  (lispm-desktop-mouse-select event)
-  (when (lispm-desktop--item-at event)
+  (when (lispm-desktop--press-select event)
+    (setq lispm-desktop--last-click nil)
     (lispm-desktop-open)))
 
 (defun lispm-desktop-deselect ()
