@@ -57,6 +57,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-surface)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-show-desktop "lispm-desktop-coherence" (&optional screen))
 (declare-function lispm-desktop-coherence-bring-in "lispm-desktop-coherence" (frame))
@@ -133,6 +134,13 @@ are no application's window, go with the editor."
     (when (lispm-desktop-editor--in-workspace-p frame)
       (alist-get 'name (tab-bar--current-tab nil frame)))))
 
+(defun lispm-desktop-editor-workspace-title (name)
+  "Return the title workspace NAME shows under: its name, the first
+workspace's, `tabspaces-default-tab', in the language LispM speaks."
+  (if (equal name (bound-and-true-p tabspaces-default-tab))
+      (lispm-desktop-tr name)
+    name))
+
 (defun lispm-desktop-editor--remember-workspace (from-tab _to-tab)
   "Remember FROM-TAB when the full screen editor's workspace is left.
 This is a `tab-bar-tab-post-select-functions' function."
@@ -151,7 +159,7 @@ This is a `tab-bar-tab-post-select-functions' function."
 (defun lispm-desktop-editor--title ()
   "Return the editor's title: Emacs, and the workspace in front."
   (if-let* ((workspace (lispm-desktop-editor--current-workspace)))
-      (format "Emacs — %s" workspace)
+      (format "Emacs — %s" (lispm-desktop-editor-workspace-title workspace))
     "Emacs"))
 
 (defvar-keymap lispm-desktop-editor-tab-map
@@ -171,12 +179,15 @@ This is a `tab-bar-tab-post-select-functions' function."
 
 (defun lispm-desktop-editor--tab (view selected)
   "Return the strip's tab for sidebar VIEW, in front when SELECTED, as
-`lispm-desktop-platinum-tabs' takes it."
+`lispm-desktop-platinum-tabs' takes it, its title and help in the language
+LispM speaks."
   (let ((spec (cdr view)))
-    (list (concat (lispm-desktop-platinum-icon (plist-get spec :icon)) " " (plist-get spec :title))
+    (list (concat (lispm-desktop-platinum-icon (plist-get spec :icon)) " "
+                  (lispm-desktop-tr (plist-get spec :title)))
           selected
           'lispm-desktop-editor-view (car view) 'keymap lispm-desktop-editor-tab-map
-          'help-echo (plist-get spec :help) 'pointer 'arrow)))
+          'help-echo (when-let* ((help (plist-get spec :help))) (lispm-desktop-tr help))
+          'pointer 'arrow)))
 
 (defvar-local lispm-desktop-editor--strip-width nil
   "The width in pixels the title strip's tabs were last drawn for.")
@@ -630,49 +641,50 @@ under it."
 (defun lispm-desktop-editor--file-items ()
   "Return the items of the editor's File menu."
   (let ((buffer (lispm-desktop-editor--in-editor (lambda () (window-buffer (selected-window))))))
-    (list (lispm-desktop-editor--item "New File…" #'find-file)
-          (lispm-desktop-editor--item "Open Project…" #'project-switch-project)
+    (list (lispm-desktop-editor--item (lispm-desktop-tr "New File…") #'find-file)
+          (lispm-desktop-editor--item (lispm-desktop-tr "Open Project…") #'project-switch-project)
           ;; What C-x C-r runs, so the menu shows that key.
-          (lispm-desktop-editor--item "Open Recent…" (cond ((fboundp 'consult-recent-file)
-                                                            #'consult-recent-file)
-                                                           ((fboundp 'recentf-open) #'recentf-open)
-                                                           (t #'find-file)))
+          (lispm-desktop-editor--item (lispm-desktop-tr "Open Recent…")
+                                      (cond ((fboundp 'consult-recent-file) #'consult-recent-file)
+                                            ((fboundp 'recentf-open) #'recentf-open)
+                                            (t #'find-file)))
           'separator
-          (lispm-desktop-editor--item "Save" #'save-buffer
+          (lispm-desktop-editor--item (lispm-desktop-tr "Save") #'save-buffer
                                       :enabled (and (buffer-file-name buffer) (buffer-modified-p buffer) t))
-          (lispm-desktop-editor--item "Save As…" #'write-file)
-          (lispm-desktop-editor--item "Revert" #'revert-buffer
+          (lispm-desktop-editor--item (lispm-desktop-tr "Save As…") #'write-file)
+          (lispm-desktop-editor--item (lispm-desktop-tr "Revert") #'revert-buffer
                                       :enabled (and (buffer-file-name buffer) t))
           'separator
-          (lispm-desktop-editor--item "Close Window" (lambda () (lispm-desktop-platinum-close-window (selected-window))))
-          (lispm-desktop-editor--item "Close Emacs" #'lispm-desktop-editor-close))))
+          (lispm-desktop-editor--item (lispm-desktop-tr "Close Window")
+                                      (lambda () (lispm-desktop-platinum-close-window (selected-window))))
+          (lispm-desktop-editor--item (lispm-desktop-tr "Close Emacs") #'lispm-desktop-editor-close))))
 
 (defun lispm-desktop-editor--edit-items ()
   "Return the items of the editor's Edit menu."
-  (list (lispm-desktop-editor--item "Undo" #'undo)
-        (lispm-desktop-editor--item "Redo" #'undo-redo)
+  (list (lispm-desktop-editor--item (lispm-desktop-tr "Undo") #'undo)
+        (lispm-desktop-editor--item (lispm-desktop-tr "Redo") #'undo-redo)
         'separator
-        (lispm-desktop-editor--item "Cut" #'kill-region)
-        (lispm-desktop-editor--item "Copy" #'lispm-desktop-copy-region)
-        (lispm-desktop-editor--item "Paste" #'lispm-desktop-paste)
-        (lispm-desktop-editor--item "Select All" #'mark-whole-buffer)
+        (lispm-desktop-editor--item (lispm-desktop-tr "Cut") #'kill-region)
+        (lispm-desktop-editor--item (lispm-desktop-tr "Copy") #'lispm-desktop-copy-region)
+        (lispm-desktop-editor--item (lispm-desktop-tr "Paste") #'lispm-desktop-paste)
+        (lispm-desktop-editor--item (lispm-desktop-tr "Select All") #'mark-whole-buffer)
         'separator
-        (lispm-desktop-editor--item "Find…" #'isearch-forward)
-        (lispm-desktop-editor--item "Replace…" #'query-replace)))
+        (lispm-desktop-editor--item (lispm-desktop-tr "Find…") #'isearch-forward)
+        (lispm-desktop-editor--item (lispm-desktop-tr "Replace…") #'query-replace)))
 
 (defun lispm-desktop-editor--view-items ()
   "Return the items of the editor's View menu: the sidebar's views, and
 the editor full screen or floating."
   (let ((shown (lispm-desktop-editor--in-editor #'lispm-desktop-sidebar-current-view)))
     `(,@(mapcar (lambda (view)
-                  (lispm-desktop-editor--item (plist-get (cdr view) :title)
+                  (lispm-desktop-editor--item (lispm-desktop-tr (plist-get (cdr view) :title))
                                               (lambda () (lispm-desktop-sidebar-select (car view)))
                                               :checked (eq (car view) shown)))
                 lispm-desktop-sidebar-views)
       separator
-      ,(lispm-desktop-editor--item "Full Screen" #'lispm-desktop-editor-full-screen
+      ,(lispm-desktop-editor--item (lispm-desktop-tr "Full Screen") #'lispm-desktop-editor-full-screen
                                    :checked (not (lispm-desktop-editor-floating-p)))
-      ,(lispm-desktop-editor--item "Floating Window" #'lispm-desktop-editor-float
+      ,(lispm-desktop-editor--item (lispm-desktop-tr "Floating Window") #'lispm-desktop-editor-float
                                    :checked (lispm-desktop-editor-floating-p)))))
 
 (defun lispm-desktop-editor--window-items ()
@@ -682,7 +694,7 @@ listed an application's windows."
   (lispm-desktop-editor--in-editor
    (lambda ()
      (let ((shown (window-buffer (selected-window))))
-       `(,(lispm-desktop-editor--item "Buffer Manager" #'lispm-desktop-buffer-manager)
+       `(,(lispm-desktop-editor--item (lispm-desktop-tr "Buffer Manager") #'lispm-desktop-buffer-manager)
          separator
          ,@(mapcar (lambda (buffer)
                      (lispm-desktop-editor--item (truncate-string-to-width
@@ -693,12 +705,12 @@ listed an application's windows."
 
 (defun lispm-desktop-editor-menus ()
   "Return the editor's menus, for the menu bar while it is in front."
-  '((lispm-desktop-editor-file "File" lispm-desktop-editor--file-items)
-    (lispm-desktop-editor-edit "Edit" lispm-desktop-editor--edit-items)
-    (lispm-desktop-editor-view "View" lispm-desktop-editor--view-items)
+  `((lispm-desktop-editor-file ,(lispm-desktop-tr "File") lispm-desktop-editor--file-items)
+    (lispm-desktop-editor-edit ,(lispm-desktop-tr "Edit") lispm-desktop-editor--edit-items)
+    (lispm-desktop-editor-view ,(lispm-desktop-tr "View") lispm-desktop-editor--view-items)
     ;; The workspaces show as thumbnails, see lispm-desktop-workspaces.el.
-    (lispm-desktop-editor-project "Project" lispm-desktop-workspaces-menu-panel)
-    (lispm-desktop-editor-window "Window" lispm-desktop-editor--window-items)))
+    (lispm-desktop-editor-project ,(lispm-desktop-tr "Project") lispm-desktop-workspaces-menu-panel)
+    (lispm-desktop-editor-window ,(lispm-desktop-tr "Window") lispm-desktop-editor--window-items)))
 
 ;;;; Setup
 
@@ -746,6 +758,7 @@ This is the editor's `lispm-desktop-empty-function'."
         initial-buffer-choice #'lispm-desktop-editor-splash-buffer
         tab-bar-new-tab-choice #'lispm-desktop-editor--new-workspace-buffer)
   (add-hook 'lispm-desktop-sidebar-change-hook #'lispm-desktop-editor--render-strip)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-editor--render-strip)
   (add-hook 'post-command-hook #'lispm-desktop-editor--keep-chrome)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-editor--remember-workspace)
   (add-hook 'tab-bar-tab-post-select-functions

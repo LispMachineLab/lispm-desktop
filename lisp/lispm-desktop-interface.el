@@ -34,6 +34,7 @@
 (require 'thingatpt)
 (require 'url-util)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop-platinum-mode-line-format)
 
@@ -393,8 +394,9 @@ function never sets, so re-running it is idempotent."
           dirvish-header-line-height 26
           dirvish-mode-line-height 26
           dirvish-side-width 32
-          dirvish-quick-access-entries `(("h" "~/" "Home")
-                                         ("d" "~/Downloads/" "Downloads")
+          ;; Named in the language LispM speaks as it is set up.
+          dirvish-quick-access-entries `(("h" "~/" ,(lispm-desktop-tr "Home"))
+                                         ("d" "~/Downloads/" ,(lispm-desktop-tr "Downloads"))
                                          ("e" ,user-emacs-directory "Emacs")))
     :hook ((dired-mode . lispm-desktop-dired-plain-lines)
            (dirvish-directory-view-mode . lispm-desktop-dired-plain-lines))

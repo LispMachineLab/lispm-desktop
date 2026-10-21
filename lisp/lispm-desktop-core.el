@@ -29,6 +29,8 @@
 
 ;;; Code:
 
+(require 'lispm-desktop-i18n)
+
 (defconst lispm-desktop-directory
   (file-name-directory
    (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
@@ -144,7 +146,7 @@ third of a second on the desktop."
 
 (defun lispm-desktop-set-theme (theme)
   "Switch to colour THEME now and at every later start."
-  (interactive (list (intern (completing-read "Theme: " '("dracula" "platinum" "win3" "os2") nil t))))
+  (interactive (list (intern (completing-read (lispm-desktop-tr "Theme: ") '("dracula" "platinum" "win3" "os2") nil t))))
   ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
   (customize-save-variable 'lispm-desktop-theme theme)
   (lispm-desktop-load-theme theme))
@@ -244,8 +246,8 @@ That is `lispm-desktop-copy-function', when the buffer sets it."
      (range
       (kill-new (filter-buffer-substring (car range) (cdr range)))
       (lispm-desktop-clear-selection)
-      (message "Copied"))
-     (t (user-error "No active region")))))
+      (message (lispm-desktop-tr "Copied")))
+     (t (user-error (lispm-desktop-tr "No active region"))))))
 
 (defconst lispm-desktop-clipboard-keys
   '(("M-c" . lispm-desktop-copy-region)
@@ -420,7 +422,7 @@ A buffer's `lispm-desktop-paste-function', when set, receives the text instead."
   (interactive)
   (let ((text (lispm-desktop-clipboard-text)))
     (unless text
-      (user-error "Clipboard is empty"))
+      (user-error (lispm-desktop-tr "Clipboard is empty")))
     (cond (lispm-desktop-paste-function (funcall lispm-desktop-paste-function text))
           ((lispm-desktop-eat-buffer-p)
            (eat-term-send-string-as-yank eat-terminal (list text)))

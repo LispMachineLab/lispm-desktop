@@ -49,6 +49,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-agent-mcp)
+(require 'lispm-desktop-i18n)
 ;; `parse-iso8601-time-string', for when a session began: not autoloaded.
 (require 'parse-time)
 
@@ -153,7 +154,7 @@ Forked threads share their session's id; the desktop keeps the newest."
 Codex places worktrees under ~/.codex/worktrees/ID/NAME, which does not name
 the main checkout, so the sidebar matches NAME against known projects."
   (when (string-match "/\\.codex/worktrees/[^/]+/\\([^/]+\\)" directory)
-    (list :name (match-string 1 directory) :label "⎇ codex worktree")))
+    (list :name (match-string 1 directory) :label (concat "⎇ " (lispm-desktop-tr "codex worktree")))))
 
 ;;;; Emacs's state, over MCP
 

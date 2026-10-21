@@ -53,6 +53,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-modal)
+(require 'lispm-desktop-i18n)
 
 
 ;;;; Popup frames
@@ -668,7 +669,7 @@ Submenus are followed down, their items' labels joined with \" › \"."
                            (push (cons (concat prefix (plist-get item :label)) item)
                                  choices))))))
       (collect items ""))
-    (let ((label (completing-read "Menu: " (reverse choices) nil t)))
+    (let ((label (completing-read (lispm-desktop-tr "Menu: ") (reverse choices) nil t)))
       (lispm-desktop-popup--run (cdr (assoc label choices))))))
 
 ;;;; Emacs's menus
@@ -806,7 +807,7 @@ key of the keyboard lispm-desktop is used from opens one."
   (interactive)
   (if lispm-desktop-context-menu-function
       (funcall lispm-desktop-context-menu-function)
-    (let* ((position (or (posn-at-point) (user-error "Point is not in sight")))
+    (let* ((position (or (posn-at-point) (user-error (lispm-desktop-tr "Point is not in sight"))))
            (local (and (lispm-desktop-popup--local-right-click-p position)
                        (key-binding [mouse-3] t nil position))))
       (if (commandp local)
@@ -918,16 +919,10 @@ command of the place clicked."
 
 (defun lispm-desktop-popup--wrap (text width face)
   "Return TEXT broken into lines no wider than WIDTH pixels in FACE.
-Lines break between words; a word wider than WIDTH stands alone."
-  (let ((lines nil) (line nil))
-    (dolist (word (split-string text "[ \t\n]+" t))
-      (let ((longer (if line (concat line " " word) word)))
-        (if (or (null line)
-                (<= (lispm-desktop-platinum-content-width longer face) width))
-            (setq line longer)
-          (push line lines)
-          (setq line word))))
-    (nreverse (if line (cons line lines) lines))))
+Lines break between words, or between the characters of Chinese and
+Japanese; a word wider than WIDTH stands alone."
+  (lispm-desktop-i18n-wrap
+   text (lambda (line) (<= (lispm-desktop-platinum-content-width line face) width))))
 
 (cl-defgeneric lispm-desktop-popup--alert-layout (message detail buttons)
   "Return where an alert of MESSAGE, DETAIL and BUTTONS draws its parts.

@@ -34,6 +34,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum-frames)
+(require 'lispm-desktop-i18n)
 
 (declare-function tabspaces--buffer-list "tabspaces" (&optional frame tabnum))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
@@ -117,7 +118,7 @@ BOX is :close, :zoom or :collapse; see `lispm-desktop-platinum-box-functions'."
 
 (defun lispm-desktop-platinum-buffer-title (buffer)
   "Return the title of BUFFER's window."
-  (or (buffer-local-value 'lispm-desktop-platinum-title buffer)
+  (or (lispm-desktop-platinum-title-text buffer)
       (run-hook-with-args-until-success 'lispm-desktop-platinum-buffer-title-functions buffer)
       (buffer-name buffer)))
 
@@ -219,11 +220,11 @@ press does nothing and the release selects the window."
 behaved: a click brings the window forward, a double click rolls it up,
 a drag moves the window, and a Command click (Meta) pops up its buffers.")
 
-(defconst lispm-desktop-platinum-title-help
-  (format "Drag onto another window to swap them; double-click to roll up; %s-click, or \
+(defun lispm-desktop-platinum-title-help ()
+  "Return the help shown over a title bar, in the language LispM speaks."
+  (lispm-desktop-tr "Drag onto another window to swap them; double-click to roll up; %s-click, or \
 C-c u, for the window's buffers"
-          (if (eq system-type 'darwin) "⌘" "M"))
-  "Help shown over a title bar.")
+                    (if (eq system-type 'darwin) "⌘" "M")))
 
 (defun lispm-desktop-platinum-drag-window (event)
   "Move the window whose title bar EVENT dragged to where it was dropped.
@@ -240,7 +241,7 @@ window that is not a session."
                  (funcall lispm-desktop-platinum-window-kind-function to))
           (progn (window-swap-states from to)
                  (select-window to))
-        (message "Sessions keep to the left, everything else to the right")))))
+        (message (lispm-desktop-tr "Sessions keep to the left, everything else to the right"))))))
 
 (defun lispm-desktop-platinum-fit (string width)
   "Return STRING shortened with an ellipsis to fit WIDTH pixels.
@@ -443,13 +444,14 @@ title too."
                (end (plist-get layout :end))
                (lead (if edges (car edges) t))
                (trail (if edges (cdr edges) t))
+               (title-help (lispm-desktop-platinum-title-help))
                (title-part
                 (lambda (from to &rest options)
                   (propertize (apply #'lispm-desktop-platinum--title-part (- to from) :active active
                                      :label label :label-x (- (plist-get layout :label-x) from)
                                      options)
                               'keymap lispm-desktop-platinum-title-map
-                              'help-echo lispm-desktop-platinum-title-help))))
+                              'help-echo title-help))))
     (if (not active)
         (funcall title-part 0 width)
       (cl-flet ((box (kind command help)
@@ -462,16 +464,17 @@ title too."
         (concat
          (when close
            (concat (plain lead-margin :lead lead)
-                   (box 'close #'lispm-desktop-platinum-close-window "Close this window")))
+                   (box 'close #'lispm-desktop-platinum-close-window (lispm-desktop-tr "Close this window"))))
          (funcall title-part start end :lead (and lead (not close))
                   :ridges (mapcar (pcase-lambda (`(,from . ,to)) (cons (- from start) (- to start)))
                                   (plist-get layout :ridges)))
          (when zoom
-           (box 'zoom #'lispm-desktop-platinum-zoom-window "Zoom this window"))
+           (box 'zoom #'lispm-desktop-platinum-zoom-window (lispm-desktop-tr "Zoom this window")))
          (when (and zoom collapse)
            (plain 3))
          (when collapse
-           (box 'collapse #'lispm-desktop-platinum-collapse-window "Collapse this window to its title bar"))
+           (box 'collapse #'lispm-desktop-platinum-collapse-window
+                (lispm-desktop-tr "Collapse this window to its title bar")))
          (plain trail-margin :trail trail))))))
 
 (defun lispm-desktop-platinum-title-bar ()
@@ -517,16 +520,18 @@ buffer whose process still runs asks before the process is stopped."
     (cond
      ((and (buffer-file-name buffer) (buffer-modified-p buffer))
       (pcase (lispm-desktop-popup-alert
-              'caution (format "Save changes to the document “%s” before closing?" name)
-              '(("Don’t Save" discard nil ?\M-d) ("Cancel" cancel cancel) ("Save" save default))
-              "If you don’t save, your changes will be lost.")
+              'caution (lispm-desktop-tr "Save changes to the document “%s” before closing?" name)
+              `((,(lispm-desktop-tr "Don’t Save") discard nil ?\M-d)
+                (,(lispm-desktop-tr "Cancel") cancel cancel)
+                (,(lispm-desktop-tr "Save") save default))
+              (lispm-desktop-tr "If you don’t save, your changes will be lost."))
         ('save (with-current-buffer buffer (save-buffer)) t)
         ('discard (with-current-buffer buffer (set-buffer-modified-p nil)) t)))
      ((and process (process-live-p process))
       (eq 'close (lispm-desktop-popup-alert
-                  'caution (format "Close “%s”?" name)
-                  '(("Cancel" cancel cancel) ("Close" close default))
-                  "What runs in it will be stopped.")))
+                  'caution (lispm-desktop-tr "Close “%s”?" name)
+                  `((,(lispm-desktop-tr "Cancel") cancel cancel) (,(lispm-desktop-tr "Close") close default))
+                  (lispm-desktop-tr "What runs in it will be stopped."))))
      (t t))))
 
 (defun lispm-desktop-platinum--yes-or-no (prompt &rest _)
@@ -534,17 +539,19 @@ buffer whose process still runs asks before the process is stopped."
   (eq 'yes (lispm-desktop-popup-alert
             'caution
             (replace-regexp-in-string "\\s-*([^()]*)\\s-*\\'" "" (string-trim prompt))
-            '(("No" no cancel ?n) ("Yes" yes default ?y)))))
+            `((,(lispm-desktop-tr "No") no cancel ?n) (,(lispm-desktop-tr "Yes") yes default ?y)))))
 
 (defun lispm-desktop-platinum-quoted-names (names)
-  "Return NAMES as a phrase: the first three quoted, then a count of the rest."
-  (let ((quoted (mapcar (lambda (name) (format "“%s”" (string-trim name "\\*" "\\*")))
+  "Return NAMES as a phrase: the first three quoted, then a count of the
+rest, in the language LispM speaks."
+  (let ((quoted (mapcar (lambda (name) (lispm-desktop-tr "“%s”" (string-trim name "\\*" "\\*")))
                         (seq-take names 3)))
+        (comma (lispm-desktop-tr-in "list" ", "))
         (rest (- (length names) 3)))
     (cond ((> rest 0)
-           (format "%s and %d other%s" (string-join quoted ", ") rest (if (= rest 1) "" "s")))
+           (lispm-desktop-tr-n "%s and %d other" "%s and %d others" rest (string-join quoted comma) rest))
           ((cdr quoted)
-           (concat (string-join (butlast quoted) ", ") " and " (car (last quoted))))
+           (lispm-desktop-tr "%s and %s" (string-join (butlast quoted) comma) (car (last quoted))))
           (t (car quoted)))))
 
 (defun lispm-desktop-platinum--running-programs ()
@@ -577,13 +584,16 @@ RESTART'ing, as Mac OS 9 asked; return nil if one was cancelled."
   (catch 'cancel
     (dolist (buffer documents)
       (pcase (lispm-desktop-popup-alert
-              'caution (format "Save changes to the document “%s” before %s?"
-                               (lispm-desktop-platinum-buffer-title buffer)
-                               (if restart "restarting" "quitting"))
+              'caution (if restart
+                           (lispm-desktop-tr "Save changes to the document “%s” before restarting?"
+                                             (lispm-desktop-platinum-buffer-title buffer))
+                         (lispm-desktop-tr "Save changes to the document “%s” before quitting?"
+                                           (lispm-desktop-platinum-buffer-title buffer)))
               ;; y and n answer as `save-some-buffers' takes them.
-              '(("Don’t Save" discard nil ?\M-d ?n) ("Cancel" cancel cancel)
-                ("Save" save default ?y))
-              "If you don’t save, your changes will be lost.")
+              `((,(lispm-desktop-tr "Don’t Save") discard nil ?\M-d ?n)
+                (,(lispm-desktop-tr "Cancel") cancel cancel)
+                (,(lispm-desktop-tr "Save") save default ?y))
+              (lispm-desktop-tr "If you don’t save, your changes will be lost."))
         ('save (with-current-buffer buffer (save-buffer)))
         ('cancel (throw 'cancel nil))))
     t))
@@ -598,7 +608,7 @@ Emacs again.  Where alerts cannot be drawn, QUIT asks."
       (funcall quit arg restart)
     (cl-letf (((symbol-function 'yes-or-no-p) #'lispm-desktop-platinum--yes-or-no)
               ((symbol-function 'y-or-n-p) #'lispm-desktop-platinum--yes-or-no))
-      (let* ((verb (if restart "Restart" "Quit"))
+      (let* ((verb (if restart (lispm-desktop-tr "Restart") (lispm-desktop-tr "Quit")))
              (documents (lispm-desktop-platinum--unsaved-documents))
              (programs (and confirm-kill-processes (lispm-desktop-platinum--running-programs))))
         (when (and (if arg
@@ -610,16 +620,23 @@ Emacs again.  Where alerts cannot be drawn, QUIT asks."
                           t)
                    (or (null programs)
                        (eq 'quit (lispm-desktop-popup-alert
-                                  'caution (format "%s Emacs while programs are running?" verb)
-                                  `(("Cancel" cancel cancel) (,verb quit default))
-                                  (format "%s stops %s." (if restart "Restarting" "Quitting")
-                                          (lispm-desktop-platinum-quoted-names programs)))))
+                                  'caution (if restart
+                                               (lispm-desktop-tr "Restart Emacs while programs are running?")
+                                             (lispm-desktop-tr "Quit Emacs while programs are running?"))
+                                  `((,(lispm-desktop-tr "Cancel") cancel cancel) (,verb quit default))
+                                  (if restart
+                                      (lispm-desktop-tr "Restarting stops %s."
+                                                        (lispm-desktop-platinum-quoted-names programs))
+                                    (lispm-desktop-tr "Quitting stops %s."
+                                                      (lispm-desktop-platinum-quoted-names programs))))))
                    (run-hook-with-args-until-failure 'kill-emacs-query-functions)
                    ;; As `save-buffers-kill-emacs', confirm only when nothing
                    ;; was asked already.
                    (or (null confirm-kill-emacs) documents programs
                        (funcall confirm-kill-emacs
-                                (format "Really %s Emacs? " (downcase verb)))))
+                                (if restart
+                                    (lispm-desktop-tr "Really restart Emacs? ")
+                                  (lispm-desktop-tr "Really quit Emacs? ")))))
           (kill-emacs nil restart))))))
 
 (defun lispm-desktop-platinum-zoom-window (window)

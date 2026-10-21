@@ -47,19 +47,22 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop-apps
-  '((desktop :name "Desktop" :icon "disk" :menus lispm-desktop-menus
+  `((desktop :name ,(lispm-desktop-tr-noop "Desktop") :icon "disk" :menus lispm-desktop-menus
              :activate lispm-desktop-activate)
     (editor :name "Emacs" :icon emacs :menus lispm-desktop-editor-menus
             :activate lispm-desktop-editor-activate)
-    (browser :name "Browser" :icon "netscape" :menus lispm-desktop-browser-menus
+    (browser :name ,(lispm-desktop-tr-noop "Browser") :icon "netscape" :menus lispm-desktop-browser-menus
              :activate lispm-desktop-browser-show :visible lispm-browser-available-p
              :running lispm-browser-tabs)
-    (settings :name "Control Panels" :icon "control-panels" :menus lispm-desktop-settings-menus
+    (settings :name ,(lispm-desktop-tr-noop "Control Panels") :icon "control-panels"
+              :menus lispm-desktop-settings-menus
               :activate lispm-desktop-settings-show :visible lispm-desktop-settings-open-p))
   "The applications, in the Application menu's order: (KEY . PROPERTIES).
 :name and :icon (see `lispm-desktop-platinum-icon-file') name an application,
+:name in English, translated where shown, see `lispm-desktop-apps-name';
 :menus is a function returning its menus as
 `lispm-desktop-platinum-menus-function' does, :activate brings it in front,
 :visible, when given, is a function deciding whether it can run here, and
@@ -378,10 +381,17 @@ has a page open, Control Panels while they are open."
   (let ((menus (plist-get (alist-get (lispm-desktop-apps-frontmost) lispm-desktop-apps) :menus)))
     (and (functionp menus) (funcall menus))))
 
+(defun lispm-desktop-apps-name (app)
+  "Return the name of APP, a key of `lispm-desktop-apps', in the language
+LispM speaks, or nil."
+  (when-let* ((name (plist-get (alist-get app lispm-desktop-apps) :name)))
+    (lispm-desktop-tr name)))
+
 (defun lispm-desktop-apps-application ()
   "Return the frontmost application as (ICON . NAME), for the Application menu."
-  (let ((spec (alist-get (lispm-desktop-apps-frontmost) lispm-desktop-apps)))
-    (cons (lispm-desktop-platinum-icon (plist-get spec :icon)) (plist-get spec :name))))
+  (let ((app (lispm-desktop-apps-frontmost)))
+    (cons (lispm-desktop-platinum-icon (plist-get (alist-get app lispm-desktop-apps) :icon))
+          (lispm-desktop-apps-name app))))
 
 (declare-function lispm-desktop-coherence-available-p "lispm-desktop-coherence" (&optional screen))
 
@@ -392,10 +402,12 @@ one checked, as Mac OS 9's listed the running applications."
   `(,@(when (and (fboundp 'lispm-desktop-coherence-available-p)
                  (lispm-desktop-coherence-available-p (lispm-desktop-apps-screen)))
         (if (lispm-desktop-apps-hidden-p)
-            '((:label "Show Desktop" :action lispm-desktop-show-desktop :key "C-c h") separator)
-          '((:label "Hide Desktop" :action lispm-desktop-hide-desktop :key "C-c h") separator)))
-    ,@(mapcar (pcase-lambda (`(,key . ,spec))
-                (list :label (plist-get spec :name)
+            `((:label ,(lispm-desktop-tr "Show Desktop") :action lispm-desktop-show-desktop :key "C-c h")
+              separator)
+          `((:label ,(lispm-desktop-tr "Hide Desktop") :action lispm-desktop-hide-desktop :key "C-c h")
+            separator)))
+    ,@(mapcar (pcase-lambda (`(,key . ,_))
+                (list :label (lispm-desktop-apps-name key)
                       :action (lambda () (lispm-desktop-apps-activate key))
                       :checked (eq key (lispm-desktop-apps-frontmost))))
               (lispm-desktop-apps--available))))
@@ -444,24 +456,25 @@ tools, as Mac OS 9's Apple menu listed applications and control panels.
 This is `lispm-desktop-platinum-lambda-items-function'."
   `(;; A new session of each agent that can run here, those built in first.
     ,@(mapcar (pcase-lambda (`(,_ . ,props))
-                (list :label (format "New %s Session" (plist-get props :name))
+                (list :label (lispm-desktop-tr "New %s Session" (plist-get props :name))
                       :action (plist-get props :command)))
               (and (fboundp 'lispm-desktop-agent-available) (lispm-desktop-agent-available)))
-    (:label "Resume Session…" :action lispm-desktop-agent-sessions)
-    (:label "Send Region to Agent" :action lispm-desktop-agent-send-region :enabled ,(use-region-p))
+    (:label ,(lispm-desktop-tr "Resume Session…") :action lispm-desktop-agent-sessions)
+    (:label ,(lispm-desktop-tr "Send Region to Agent") :action lispm-desktop-agent-send-region
+            :enabled ,(use-region-p))
     separator
-    (:label "New Shell" :action lispm-desktop-shell-new)
+    (:label ,(lispm-desktop-tr "New Shell") :action lispm-desktop-shell-new)
     ,@(when (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p))
-        '((:label "Browser" :action lispm-desktop-browser-show)))
-    (:label "Magit Status" :action magit-status)
+        `((:label ,(lispm-desktop-tr "Browser") :action lispm-desktop-browser-show)))
+    (:label ,(lispm-desktop-tr "Magit Status") :action magit-status)
     separator
     ,@(when (fboundp 'lispm-desktop-store-show)
         '((:label "App Store" :action lispm-desktop-store-show)))
     ,@(when (and (fboundp 'lispm-desktop-store-application-items)
                  (lispm-desktop-store-application-items))
-        '((:label "Applications" :submenu lispm-desktop-store-application-items)))
+        `((:label ,(lispm-desktop-tr "Applications") :submenu lispm-desktop-store-application-items)))
     ,@(when (fboundp 'lispm-desktop-settings-panel-items)
-        `((:label "Control Panels" :submenu lispm-desktop-settings-panel-items)))))
+        `((:label ,(lispm-desktop-tr "Control Panels") :submenu lispm-desktop-settings-panel-items)))))
 
 (defun lispm-desktop-setup-apps ()
   "Draw the menu bar and the Application menu from the application in front."

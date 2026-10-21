@@ -83,8 +83,10 @@ Optional, used when present:
 - *Terminals that never stall Emacs*: each emulated on a thread of its own by a Rust module
   built on [[https://github.com/alacritty/alacritty][Alacritty]]'s terminal (=native/lispm-desktop-term=); Emacs redraws only those on
   screen.  Eat stands in until the module is built or downloaded.
-- *Control Panels*: Appearance, Desktop, Keyboard, Internet, Network, Sandbox, Startup and
-  Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
+- *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, Startup
+  and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
+- *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
+  Traditional; the computer's by default, asked at the first start.
 - *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, ...) and
   extensions from [[https://github.com/LispMachineLab/lispm-store][lispm-store]], pinned to reviewed commits, installed in the background with the
   Homebrew programs they need.  Their windows get title bars, buttons, placards, menus and
@@ -149,6 +151,19 @@ To use LispM Desktop as a library in a configuration of your own:
 (require 'lispm-desktop)
 (lispm-desktop-setup)
 #+end_src
+
+** Languages
+
+The Language panel chooses the language LispM speaks, at once: menus, windows, panels, alerts
+and the Guide.  By default it is the computer's: the first of macOS's preferred languages LispM
+speaks, or of =LANGUAGE=, =LC_ALL=, =LC_MESSAGES= and =LANG=; else American English.
+
+#+begin_src emacs-lisp
+(setopt lispm-desktop-language 'ja)   ; en-US, en-GB, de, fr, ja, zh-Hans, zh-Hant; nil: the computer's
+#+end_src
+
+The code writes its words in English through ~lispm-desktop-tr~ and its kin (see
+=lisp/lispm-desktop-i18n.el=); =i18n/= holds a catalog per language.
 
 ** A proxy
 
@@ -233,7 +248,9 @@ share one configuration and its state files; the one that quits last keeps its o
 
 * Development
 
-=make test= runs the ERT tests and =make compile= checks for byte-compiler warnings; both need
+=make test= runs the ERT tests, among them that every catalog of =i18n/= translates every message
+the code gives (=make i18n= lists what each lacks), and =make compile= checks for byte-compiler
+warnings; both need
 LispM Browser, beside this checkout or named by =LISPM_BROWSER= (its =lisp/=).  =make native=
 builds the terminal module and =make native-test= runs its tests.  The =terminal module= workflow
 publishes prebuilt modules as the releases =term-module-VERSION=.

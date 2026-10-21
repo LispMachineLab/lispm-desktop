@@ -42,6 +42,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-proxy)
+(require 'lispm-desktop-i18n)
 
 ;;;; Browser
 ;;
@@ -153,27 +154,27 @@ an address is searched for, see `lispm-browser-input-url'."
 (defun lispm-desktop-browser--file-items ()
   "Return the items of the browser's File menu."
   (let ((page (and (lispm-desktop-browser--window) t)))
-    `((:label "New Tab" :action lispm-browser-new-tab)
-      (:label "Open Location…" :action lispm-desktop-browser-focus-address
+    `((:label ,(lispm-desktop-tr "New Tab") :action lispm-browser-new-tab)
+      (:label ,(lispm-desktop-tr "Open Location…") :action lispm-desktop-browser-focus-address
               :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-focus-address))
-      (:label "Close Tab" :action lispm-browser-close-shown-tab :enabled ,page)
+      (:label ,(lispm-desktop-tr "Close Tab") :action lispm-browser-close-shown-tab :enabled ,page)
       separator
-      (:label "Open in Default Browser" :action lispm-browser-open-external :enabled ,page)
+      (:label ,(lispm-desktop-tr "Open in Default Browser") :action lispm-browser-open-external :enabled ,page)
       separator
-      (:label "Quit Browser" :action lispm-browser-quit))))
+      (:label ,(lispm-desktop-tr "Quit Browser") :action lispm-browser-quit))))
 
 (defun lispm-desktop-browser--view-items ()
   "Return the items of the browser's View menu: full screen or floating,
 then reloading and stopping, as Netscape's View menu had them."
   (let ((nav lispm-desktop-browser--navigation))
-    `((:label "Full Screen" :action lispm-desktop-browser-full-screen
+    `((:label ,(lispm-desktop-tr "Full Screen") :action lispm-desktop-browser-full-screen
               :checked ,(not (lispm-desktop-browser-floating-p)))
-      (:label "Floating Window" :action lispm-desktop-browser-float
+      (:label ,(lispm-desktop-tr "Floating Window") :action lispm-desktop-browser-float
               :checked ,(lispm-desktop-browser-floating-p))
       separator
-      (:label "Reload" :action lispm-browser-reload :enabled ,(plist-get nav :page)
+      (:label ,(lispm-desktop-tr "Reload") :action lispm-browser-reload :enabled ,(plist-get nav :page)
               :key ,(lispm-desktop-browser--key 'lispm-browser-reload))
-      (:label "Stop Loading" :action lispm-browser-stop :enabled ,(plist-get nav :loading)
+      (:label ,(lispm-desktop-tr "Stop Loading") :action lispm-browser-stop :enabled ,(plist-get nav :loading)
               :key ,(lispm-desktop-browser--key 'lispm-browser-stop)))))
 
 (defun lispm-desktop-browser--session-items ()
@@ -200,11 +201,11 @@ WebKitGTK tells them; on macOS there are none."
 the shown tab's pages."
   (let* ((nav lispm-desktop-browser--navigation)
          (pages (lispm-desktop-browser--session-items)))
-    `((:label "Back" :action lispm-browser-back :enabled ,(plist-get nav :back)
+    `((:label ,(lispm-desktop-tr "Back") :action lispm-browser-back :enabled ,(plist-get nav :back)
               :key ,(lispm-desktop-browser--key 'lispm-browser-back))
-      (:label "Forward" :action lispm-browser-forward :enabled ,(plist-get nav :forward)
+      (:label ,(lispm-desktop-tr "Forward") :action lispm-browser-forward :enabled ,(plist-get nav :forward)
               :key ,(lispm-desktop-browser--key 'lispm-browser-forward))
-      (:label "Home" :action lispm-browser-home :enabled ,(plist-get nav :page))
+      (:label ,(lispm-desktop-tr-in "web page" "Home") :action lispm-browser-home :enabled ,(plist-get nav :page))
       ,@(when pages (cons 'separator pages)))))
 
 (defun lispm-desktop-browser--window-items ()
@@ -212,7 +213,7 @@ the shown tab's pages."
 the shown one checked, as Mac OS 9's Window menus listed an application's
 windows."
   (let ((shown (lispm-browser-shown-buffer)))
-    `((:label "History" :action lispm-desktop-browser-show-history
+    `((:label ,(lispm-desktop-tr "History") :action lispm-desktop-browser-show-history
               :checked ,(eq (lispm-desktop-browser--places-shown) 'history)
               :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-show-history))
       separator
@@ -225,14 +226,15 @@ windows."
 (defun lispm-desktop-browser-menus ()
   "Return the browser's menus, for the menu bar while it is in front.
 Extensions is among them where pages can run Chrome extensions."
-  `((lispm-desktop-browser-file "File" lispm-desktop-browser--file-items)
-    (lispm-desktop-browser-view "View" lispm-desktop-browser--view-items)
-    (lispm-desktop-browser-go "Go" lispm-desktop-browser--go-items)
-    (lispm-desktop-browser-bookmarks "Bookmarks" lispm-desktop-browser--bookmark-items)
+  `((lispm-desktop-browser-file ,(lispm-desktop-tr "File") lispm-desktop-browser--file-items)
+    (lispm-desktop-browser-view ,(lispm-desktop-tr "View") lispm-desktop-browser--view-items)
+    (lispm-desktop-browser-go ,(lispm-desktop-tr "Go") lispm-desktop-browser--go-items)
+    (lispm-desktop-browser-bookmarks ,(lispm-desktop-tr "Bookmarks") lispm-desktop-browser--bookmark-items)
     ,@(when (and (fboundp 'lispm-browser-extensions-supported-p)
                  (lispm-browser-extensions-supported-p))
-        '((lispm-desktop-browser-extensions-menu "Extensions" lispm-browser-extensions-menu-items)))
-    (lispm-desktop-browser-window "Window" lispm-desktop-browser--window-items)))
+        `((lispm-desktop-browser-extensions-menu ,(lispm-desktop-tr "Extensions")
+                                                 lispm-browser-extensions-menu-items)))
+    (lispm-desktop-browser-window ,(lispm-desktop-tr "Window") lispm-desktop-browser--window-items)))
 
 ;;;;; Drawing Netscape's chrome
 ;;
@@ -441,15 +443,23 @@ when SECURE, open and grey when not."
   "Timer turning the throbber while the shown page loads.")
 
 (defconst lispm-desktop-browser-tools
-  '((back "Back" lispm-browser-back "Go back a page" :back)
-    (forward "Forward" lispm-browser-forward "Go forward a page" :forward)
-    (reload "Reload" lispm-browser-reload "Load the page again" :page)
-    (home "Home" lispm-browser-home "Go to the home page" :page)
-    (search "Search" lispm-desktop-browser-search "Type a search in the location field" t)
-    (history "History" lispm-desktop-browser-show-history "List the pages visited" t)
-    (stop "Stop" lispm-browser-stop "Stop loading the page" :loading))
-  "The navigation toolbar's buttons: (ICON LABEL COMMAND HELP ENABLED).
-ENABLED is t, or a key of `lispm-desktop-browser--navigation' saying when.")
+  `((back ,(lispm-desktop-tr-noop "Back") lispm-browser-back
+          ,(lispm-desktop-tr-noop "Go back a page") :back)
+    (forward ,(lispm-desktop-tr-noop "Forward") lispm-browser-forward
+             ,(lispm-desktop-tr-noop "Go forward a page") :forward)
+    (reload ,(lispm-desktop-tr-noop "Reload") lispm-browser-reload
+            ,(lispm-desktop-tr-noop "Load the page again") :page)
+    (home ,(lispm-desktop-tr-noop "Home" "web page") lispm-browser-home
+          ,(lispm-desktop-tr-noop "Go to the home page") :page)
+    (search ,(lispm-desktop-tr-noop "Search") lispm-desktop-browser-search
+            ,(lispm-desktop-tr-noop "Type a search in the location field") t)
+    (history ,(lispm-desktop-tr-noop "History") lispm-desktop-browser-show-history
+             ,(lispm-desktop-tr-noop "List the pages visited") t)
+    (stop ,(lispm-desktop-tr-noop "Stop") lispm-browser-stop
+          ,(lispm-desktop-tr-noop "Stop loading the page") :loading))
+  "The navigation toolbar's buttons: (ICON LABEL COMMAND HELP ENABLED),
+LABEL and HELP in English, translated where shown.  ENABLED is t, or a
+key of `lispm-desktop-browser--navigation' saying when.")
 
 (defun lispm-desktop-browser--press-map (command row)
   "Return a keymap pressing a button on ROW that runs COMMAND, see
@@ -469,15 +479,16 @@ ENABLED is t, or a key of `lispm-desktop-browser--navigation' saying when.")
 (defun lispm-desktop-browser--tool-button (tool)
   "Return navigation toolbar button TOOL, an entry of the toolbar's tools.
 See `lispm-desktop-browser-tools'."
-  (pcase-let* ((`(,icon ,label ,command ,help ,condition) tool)
+  (pcase-let* ((`(,icon ,english ,command ,help ,condition) tool)
+               (label (lispm-desktop-tr english))
                (enabled (or (eq condition t) (plist-get lispm-desktop-browser--navigation condition)))
                (target (cons 'header-line icon))
                (pressed (and enabled (lispm-desktop-platinum-pressed-p target)))
                (width (max 46 (+ 14 (lispm-desktop-browser--label-width label)))))
     (propertize " " 'display (lispm-desktop-browser--image
-                              (list 'tool icon enabled pressed width)
+                              (list 'tool icon label enabled pressed width)
                               (lambda () (lispm-desktop-browser--draw-tool icon label enabled pressed width)))
-                'help-echo help 'pointer 'arrow 'lispm-desktop-platinum-target target
+                'help-echo (lispm-desktop-tr help) 'pointer 'arrow 'lispm-desktop-platinum-target target
                 'keymap (and enabled (lispm-desktop-browser--press-map command 'header-line)))))
 
 (defun lispm-desktop-browser--throbber ()
@@ -489,7 +500,8 @@ to Netscape's own page."
     (propertize " " 'display (lispm-desktop-browser--image
                               (list 'throbber frame pressed)
                               (lambda () (lispm-desktop-browser--draw-throbber frame pressed)))
-                'help-echo "Go to the home page" 'pointer 'arrow 'lispm-desktop-platinum-target target
+                'help-echo (lispm-desktop-tr "Go to the home page") 'pointer 'arrow
+                'lispm-desktop-platinum-target target
                 'keymap (lispm-desktop-browser--press-map #'lispm-browser-home 'header-line))))
 
 (defun lispm-desktop-browser--toolbar ()
@@ -538,9 +550,9 @@ the page's `lispm-browser-status-note'."
                                                     (lambda () (lispm-desktop-browser--draw-progress progress))))
                           " "
                           (if (and host (not (string-empty-p host)))
-                              (format "Loading %s…" host)
-                            "Loading…")))
-              (or lispm-browser-status-note "Document: Done")))))
+                              (lispm-desktop-tr "Loading %s…" host)
+                            (lispm-desktop-tr "Loading…"))))
+              (or lispm-browser-status-note (lispm-desktop-tr "Document: Done"))))))
 
 ;;;;; Extension buttons
 ;;
@@ -689,7 +701,7 @@ extensions, or nothing is drawn."
                     (propertize " " 'display (lispm-desktop-browser--image
                                               '(puzzle) (lambda () (lispm-desktop-browser--draw-puzzle nil)))
                                 'lispm-browser-extensions-button 'menu 'pointer 'arrow
-                                'help-echo "Extensions: press one, pin them, manage them"
+                                'help-echo (lispm-desktop-tr "Extensions: press one, pin them, manage them")
                                 'keymap lispm-desktop-browser-extensions-button-map))
             (+ (* (length buttons) (+ size lispm-desktop-browser-extension-gap)) size)))))
 
@@ -756,11 +768,11 @@ the bookmark ribbon, its name and a menu arrow."
                                                     (format "<g transform='scale(0.66)'>%s</g>"
                                                             (format-spec (alist-get 'bookmarks lispm-desktop-browser--icons)
                                                                          (lispm-desktop-browser--ink t)))))))
-                       " Bookmarks ▾ ")))
+                       " " (lispm-desktop-tr "Bookmarks") " ▾ ")))
     (add-face-text-property 0 (length label) 'lispm-desktop-platinum-button t label)
     (propertize label 'keymap lispm-desktop-browser-bookmarks-button-map 'pointer 'arrow
                 'mouse-face 'lispm-desktop-platinum-button-pressed
-                'help-echo "Bookmarks: add one, edit them, or go to one")))
+                'help-echo (lispm-desktop-tr "Bookmarks: add one, edit them, or go to one"))))
 
 (defun lispm-desktop-browser--render-address (uri)
   "Fill the address buffer with the location toolbar and the editable URI:
@@ -780,7 +792,7 @@ inhibited and the edit mark cleared."
               (lispm-desktop-platinum-space 10)
               (or (and page (lispm-browser-favicon page)) (lispm-desktop-platinum-icon "globe"))
               " "
-              (propertize "Location:" 'face 'lispm-desktop-platinum-toolbar-label)
+              (propertize (lispm-desktop-tr "Location:") 'face 'lispm-desktop-platinum-toolbar-label)
               " ")
       (add-text-properties (point-min) (point)
                            '(read-only t rear-nonsticky (read-only)))
@@ -941,7 +953,7 @@ toolbar.
               header-line-format '(:eval (lispm-desktop-browser--toolbar))
               truncate-lines t
               cursor-type 'bar
-              lispm-desktop-platinum-title lispm-desktop-browser-workspace-name
+              lispm-desktop-platinum-title #'lispm-desktop-browser--no-page-title
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "netscape")
               lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes))
   ;; Its height is the toolbars': a frame growing, as on a tall screen,
@@ -971,6 +983,12 @@ toolbar.
 ;; A tab shows its page's icon, which lispm-browser fetches, and its title.
 ;; Until the icon is known, or when the page has none, a globe stands in.
 
+(defun lispm-desktop-browser--no-page-title ()
+  "Return the browser window's title while it shows no page: Browser, in
+the language LispM speaks.  This is the address buffer's
+`lispm-desktop-platinum-title' then."
+  (lispm-desktop-tr "Browser"))
+
 (defun lispm-desktop-browser--retitle ()
   "Name the browser window after the shown page, with the page's icon.
 Each tab's window bottom is named after its page too, not after the
@@ -982,7 +1000,7 @@ buffer, whose name WebKit prefixes."
     (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
       (with-current-buffer buffer
         (setq lispm-desktop-platinum-title (if shown (lispm-browser-title shown)
-                                             lispm-desktop-browser-workspace-name)
+                                             #'lispm-desktop-browser--no-page-title)
               lispm-desktop-platinum-icon (or (and shown (lispm-browser-favicon shown))
                                               (lispm-desktop-platinum-icon "globe")))))))
 
@@ -995,25 +1013,31 @@ buffer, whose name WebKit prefixes."
 
 (defun lispm-desktop-browser--tab-line ()
   "Return the row of tabs atop the page: a tab per page, then + for a new one.
-The tabs are Mac OS 9's, the shown page's in front.  Each shows its
-page's icon before its title, or the globe until the icon is known and
-when the page has none."
+The tabs are Mac OS 9's, the shown page's in front.  Each shows a cross
+closing it, then its page's icon before its title, or the globe until the
+icon is known and when the page has none.  A middle click closes a tab
+too."
   (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
     (lispm-desktop-platinum-tabs
      (append
       (mapcar (lambda (buffer)
-                (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
-                              " "
-                              (truncate-string-to-width (lispm-browser-title buffer)
-                                                        lispm-browser-tab-width nil nil "…"))
-                      (eq buffer shown)
-                      'keymap (lispm-browser-tab-keymap
-                               (lispm-browser-tab-command #'lispm-browser-select-tab buffer))
-                      'help-echo (or (lispm-browser-uri buffer) "Show this tab")
-                      'pointer 'arrow))
+                (let ((close (lispm-browser-tab-command #'lispm-browser-close-tab buffer))
+                      (map (lispm-browser-tab-keymap
+                            (lispm-browser-tab-command #'lispm-browser-select-tab buffer))))
+                  (keymap-set map "<tab-line> <down-mouse-2>" #'ignore)
+                  (keymap-set map "<tab-line> <mouse-2>" close)
+                  (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
+                                " "
+                                (truncate-string-to-width (lispm-browser-title buffer)
+                                                          lispm-browser-tab-width nil nil "…"))
+                        (eq buffer shown)
+                        :close close
+                        'keymap map
+                        'help-echo (or (lispm-browser-uri buffer) (lispm-desktop-tr "Show this tab"))
+                        'pointer 'arrow)))
               (lispm-browser-tabs))
       (list (list "+" nil 'keymap (lispm-browser-tab-keymap #'lispm-browser-new-tab)
-                  'help-echo "New tab" 'pointer 'arrow)))
+                  'help-echo (lispm-desktop-tr "New tab") 'pointer 'arrow)))
      (- (window-pixel-width) (window-right-divider-width) (window-scroll-bar-width)))))
 
 (declare-function lispm-desktop-show "lispm-desktop-surface" (&optional window))
@@ -1197,7 +1221,7 @@ full-screen editor, whose workspace it would cover."
   (and (eq app 'editor) (lispm-desktop-apps-full-screen-p app)))
 
 (lispm-desktop-app-window-define 'browser
-  :name "Browser" :geometry #'lispm-desktop-browser--default-geometry
+  :name (lispm-desktop-tr-noop "Browser") :geometry #'lispm-desktop-browser--default-geometry
   :roll #'lispm-desktop-browser--roll :hidden-by #'lispm-desktop-browser--hidden-by)
 
 (defun lispm-desktop-browser--make-frame (screen)
@@ -1394,6 +1418,8 @@ Its pages take the desktop's keys, and \\`C-c x' prefixes its commands."
   (add-hook 'lispm-browser-tab-hook #'lispm-desktop-browser--setup)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-browser--scroll-bar)
   (add-hook 'lispm-browser-change-hook #'lispm-desktop-browser--sync-now)
+  ;; The address line's words, in the language now spoken.
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-browser--sync-now)
   (add-hook 'lispm-browser-redraw-hook #'lispm-desktop-browser--retitle)
   (add-hook 'lispm-browser-before-quit-hook #'lispm-desktop-browser--before-quit)
   ;; The extension buttons on the location toolbar.

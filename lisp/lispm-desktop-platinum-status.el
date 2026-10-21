@@ -33,6 +33,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum-menubar)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function battery-format "battery" (format alist))
@@ -140,27 +141,30 @@ bars rising left to right, filled to FRACTION."
 (defun lispm-desktop-platinum-load-items ()
   "Return the load menu: which average to show, and the processes."
   (let ((averages (ignore-errors (load-average t))))
-    `((:label "Load Average" :enabled nil)
+    `((:label ,(lispm-desktop-tr "Load Average") :enabled nil)
       ,@(seq-map-indexed
-         (lambda (span index)
-           (list :label (format "%s: %.2f" span (or (nth index averages) 0))
+         (lambda (minutes index)
+           (list :label (lispm-desktop-tr-n "%d minute: %.2f" "%d minutes: %.2f" minutes
+                                            minutes (or (nth index averages) 0))
                  :checked (eql display-time-load-average index)
                  :action (lambda ()
                            (setq display-time-load-average index)
                            (display-time-update))))
-         '("1 minute" "5 minutes" "15 minutes"))
+         '(1 5 15))
       separator
-      (:label "Processes" :action proced))))
+      (:label ,(lispm-desktop-tr "Processes") :action proced))))
 
 (defun lispm-desktop-platinum-mail-items ()
   "Return the Mail menu: read, compose and check mail."
-  `((:label ,(if lispm-desktop-platinum--mail "You have new mail" "No new mail")
+  `((:label ,(if lispm-desktop-platinum--mail
+                  (lispm-desktop-tr "You have new mail")
+                (lispm-desktop-tr "No new mail"))
             :enabled nil)
     separator
-    (:label "Read Mail" :action ,(lambda () (call-interactively read-mail-command)))
-    (:label "Compose Mail…" :action compose-mail)
+    (:label ,(lispm-desktop-tr "Read Mail") :action ,(lambda () (call-interactively read-mail-command)))
+    (:label ,(lispm-desktop-tr "Compose Mail…") :action compose-mail)
     separator
-    (:label "Check for Mail" :action display-time-update)))
+    (:label ,(lispm-desktop-tr "Check for Mail") :action display-time-update)))
 
 (defun lispm-desktop-platinum-battery-percent ()
   "Return the battery's charge in percent, or nil without a battery shown."
@@ -175,17 +179,17 @@ bars rising left to right, filled to FRACTION."
   "Return the battery menu: its charge, its power source and the time left."
   (let* ((data lispm-desktop-platinum--battery)
          (line (lambda (format) (battery-format format data))))
-    `((:label ,(funcall line "Charge: %p%%") :enabled nil)
-      (:label ,(concat "Power: "
-                       (pcase (alist-get ?L data)
-                         ((or "AC" "on-line") "Power Adapter")
-                         ((or "Battery" "Battery Power" "off-line") "Battery")
-                         (source (or source "unknown"))))
+    `((:label ,(funcall line (lispm-desktop-tr "Charge: %p%%")) :enabled nil)
+      (:label ,(lispm-desktop-tr "Power: %s"
+                                 (pcase (alist-get ?L data)
+                                   ((or "AC" "on-line") (lispm-desktop-tr "Power Adapter"))
+                                   ((or "Battery" "Battery Power" "off-line") (lispm-desktop-tr "Battery"))
+                                   (source (or source (lispm-desktop-tr "unknown")))))
               :enabled nil)
       ,@(unless (member (alist-get ?t data) '(nil "N/A" "0:00"))
-          `((:label ,(funcall line "Time left: %t") :enabled nil)))
+          `((:label ,(funcall line (lispm-desktop-tr "Time left: %t")) :enabled nil)))
       separator
-      (:label "Battery Status" :action battery))))
+      (:label ,(lispm-desktop-tr "Battery Status") :action battery))))
 
 (defun lispm-desktop-platinum--status-title (key image label command help)
   "Return the menu bar status item KEY: IMAGE (an SVG or nil) and LABEL.
@@ -210,17 +214,20 @@ It runs COMMAND, described by HELP, and is highlighted while its menu is open."
   (interactive)
   (lispm-desktop-platinum--status-menu
    'lispm-desktop-time
-   `((:label ,(format-time-string "%A, %B %-e, %Y") :enabled nil)
+   `((:label ,(lispm-desktop-format-time "%A, %B %-e, %Y") :enabled nil)
      separator
-     (:label "Calendar" :action calendar)
-     (:label "World Clock" :action world-clock)
+     (:label ,(lispm-desktop-tr "Calendar") :action calendar)
+     (:label ,(lispm-desktop-tr "World Clock") :action world-clock)
      separator
-     (:label "Time Format…" :action ,(lambda () (customize-variable 'display-time-format))))))
+     (:label ,(lispm-desktop-tr "Time Format…")
+             :action ,(lambda () (customize-variable 'display-time-format))))))
 
 (defun lispm-desktop-platinum-menu-status ()
   "Return the status titles at the menu bar's right end: whatever
 `global-mode-string' holds besides the time and the battery, then the
-time.  The load, the mail and the battery are in the Control Strip."
+time, as `display-time-format' says it, translated, see
+`lispm-desktop-format-time'.  The load, the mail and the battery are in
+the Control Strip."
   (let ((others (string-trim
                  (format-mode-line
                   (seq-remove (lambda (part)
@@ -232,8 +239,11 @@ time.  The load, the mail and the battery are in the Control Strip."
              (lispm-desktop-platinum--menu-title 'lispm-desktop-status others #'ignore nil))
            (when (bound-and-true-p display-time-mode)
              (lispm-desktop-platinum--status-title
-              'lispm-desktop-time nil (format-time-string (or display-time-format "%-I:%M %p"))
-              #'lispm-desktop-platinum-time-menu (format-time-string "%A, %B %-e, %Y")))))))
+              'lispm-desktop-time nil
+              ;; The format is translated, so that the clock reads as the
+              ;; language has it, as 14:05 in German.
+              (lispm-desktop-format-time (or display-time-format (lispm-desktop-tr-noop "%-I:%M %p")))
+              #'lispm-desktop-platinum-time-menu (lispm-desktop-format-time "%A, %B %-e, %Y")))))))
 
 (defun lispm-desktop-platinum--start-status ()
   "Turn on Emacs's own time, load and mail, and the battery if there is one.
@@ -244,7 +254,7 @@ set already."
   (add-hook 'display-time-hook #'lispm-desktop-platinum--note-time)
   (add-hook 'battery-update-functions #'lispm-desktop-platinum--note-battery)
   (unless display-time-format
-    (setq display-time-format "%-I:%M %p"))
+    (setq display-time-format (lispm-desktop-tr-noop "%-I:%M %p")))
   (display-time-mode 1)
   (when (and battery-status-function
              (not (equal (alist-get ?p (ignore-errors (funcall battery-status-function)))
