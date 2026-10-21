@@ -200,16 +200,21 @@ it first.  NAME and SIZE stand in for the kind's :name and :size."
                            (height . (text-pixels . ,height)))))))
     (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum-color :chrome))
     (setf (alist-get id lispm-desktop-app-window--frames) frame)
-    (when-let* ((buffer (lispm-desktop-app-window--get id :buffer)))
-      (let ((window (frame-root-window frame)))
-        (set-window-buffer window (funcall buffer))
-        (set-window-dedicated-p window t)))
+    (let ((window (frame-root-window frame)))
+      (cond ((lispm-desktop-app-window--get id :buffer)
+             (set-window-buffer window (funcall (lispm-desktop-app-window--get id :buffer)))
+             (set-window-dedicated-p window t))
+            ;; A new frame shows some buffer of before, of another
+            ;; application perhaps: an application's shows the blank one
+            ;; until it is filled.
+            ((eq (lispm-desktop-app-window--get id :documents) 'keep)
+             (set-window-buffer window (lispm-desktop-app-window-blank)))))
     (when-let* ((after-make (lispm-desktop-app-window--get id :after-make)))
       (funcall after-make frame))
     frame))
 
-(defun lispm-desktop-app-window--blank ()
-  "Return the blank buffer a new application's window opens on."
+(defun lispm-desktop-app-window-blank ()
+  "Return the blank buffer a new window opens on, before it is filled."
   (or (get-buffer " *lispm-desktop-app-window*")
       (with-current-buffer (get-buffer-create " *lispm-desktop-app-window*")
         (setq buffer-read-only t)
@@ -219,7 +224,7 @@ it first.  NAME and SIZE stand in for the kind's :name and :size."
   "Run SETUP with WINDOW selected, a new application's window holding only
 a blank buffer at first; then close what of the window still shows the
 blank, as where an application split its window, Calculator its trail."
-  (let ((blank (lispm-desktop-app-window--blank))
+  (let ((blank (lispm-desktop-app-window-blank))
         (frame (window-frame window)))
     (set-window-buffer window blank)
     (with-selected-window window

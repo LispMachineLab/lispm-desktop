@@ -108,7 +108,9 @@ down again to HEIGHT pixels."
 (defvar-local lispm-desktop-platinum-info nil
   "What the bottom of this buffer's window says instead of the buffer's state.
 List windows set it, as Finder's windows counted their items: a string,
-or a function returning one when the window is drawn.")
+or a function returning one when the window is drawn.  A function may
+return a list of strings instead, each on a placard of its own, or nil
+for none: an application's window says only what it has to say.")
 
 (defconst lispm-desktop-platinum--grow-ridges
   '("wwwwwwwwwwwwwww" "w" "w" "w       ww" "w      w h" "w     w h ww" "w    w h w h"
@@ -188,10 +190,11 @@ A list window shows its `lispm-desktop-platinum-info' instead."
     (concat
      (propertize " " 'display (lispm-desktop-platinum--strut 8))
      (if lispm-desktop-platinum-info
-         (lispm-desktop-platinum--placard (string-replace "%" "%%" (if (functionp lispm-desktop-platinum-info)
-                                                                        (funcall lispm-desktop-platinum-info)
-                                                                       lispm-desktop-platinum-info))
-                                          active)
+         (mapconcat (lambda (text) (lispm-desktop-platinum--placard (string-replace "%" "%%" text) active))
+                    (ensure-list (if (functionp lispm-desktop-platinum-info)
+                                     (funcall lispm-desktop-platinum-info)
+                                   lispm-desktop-platinum-info))
+                    " ")
        (mapconcat
         (lambda (text) (lispm-desktop-platinum--placard text active))
         (delq nil

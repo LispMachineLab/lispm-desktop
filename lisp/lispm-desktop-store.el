@@ -26,8 +26,10 @@
 ;; The App Store installs what LispM runs beyond what it ships with:
 ;;
 ;;   Applications  Emacs packages, each in a window of its own on the
-;;                 desktop, see lispm-desktop-app-window.el: a reader of
-;;                 feeds, a music player, Emacs's calculator, its games
+;;                 desktop, see lispm-desktop-app-window.el, with the
+;;                 desktop's interface, see lispm-desktop-app-ui.el: a
+;;                 reader of feeds, a music player, Emacs's calculator,
+;;                 its games
 ;;   Extensions    packages adding to the editor, as an agent its CLI
 ;;                 runs (`lispm-desktop-agent-define'): Hermes
 ;;
@@ -92,6 +94,7 @@
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
+(require 'lispm-desktop-app-ui)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
@@ -928,18 +931,21 @@ pinned to its newest commit."
         (lispm-desktop-apps-activate id)
       (lispm-desktop-app-window-show
        id :name (plist-get props :name)
-       :setup (lambda () (call-interactively (plist-get props :command)))))))
+       :setup (lambda () (lispm-desktop-app-ui-run id (plist-get props :command)))))))
 
 (defun lispm-desktop-store--register-app (id props)
-  "Make the installed application ID, of PROPS, one of the desktop's."
+  "Make the installed application ID, of PROPS, one of the desktop's: its
+window gets the desktop's interface, see lispm-desktop-app-ui.el, and its
+menus with it."
   (if-let* ((feature (plist-get props :feature)))
       (require feature nil t)
-    (let ((menu (intern (format "lispm-desktop-store-%s-file" id))))
-      (lispm-desktop-define-app
-       id :name (plist-get props :name) :icon (lispm-desktop-store--icon props)
-       :menus (lambda () `((,menu "File" ,(lambda () (lispm-desktop-app-window-file-items id)))))
-       :activate (lambda () (lispm-desktop-store-open id))
-       :visible (lambda () (lispm-desktop-app-window-open-p id))))))
+    (lispm-desktop-define-app
+     id :name (plist-get props :name) :icon (lispm-desktop-store--icon props)
+     :category (lispm-desktop-store--category-of props) :description (plist-get props :description)
+     :store t
+     :menus (lambda () (lispm-desktop-app-ui-menus id))
+     :activate (lambda () (lispm-desktop-store-open id))
+     :visible (lambda () (lispm-desktop-app-window-open-p id)))))
 
 (defun lispm-desktop-store--register (id props)
   "Make the installed item ID, of PROPS, take part: an application one of
