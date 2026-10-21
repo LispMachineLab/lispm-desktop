@@ -108,6 +108,7 @@
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-needs)
 (require 'lispm-desktop-update)
+(require 'lispm-desktop-loading)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
@@ -295,7 +296,8 @@ called after."
     (setq lispm-desktop-store--checking t)
     (lispm-desktop-store--status "Checking the catalogs…")
     (let ((urls lispm-desktop-store-catalogs)
-          (failed nil))
+          (failed nil)
+          (loading (lispm-desktop-loading-start lispm-desktop-store-buffer-name)))
       (cl-labels ((next ()
                     (if-let* ((url (pop urls)))
                         (lispm-desktop-store--git-steps
@@ -308,6 +310,7 @@ called after."
                       (lispm-desktop-store-read-catalogs)
                       (lispm-desktop-store--refresh-archives
                        (lambda ()
+                         (lispm-desktop-loading-stop loading)
                          (setq lispm-desktop-store--checking nil
                                lispm-desktop-store--checked t)
                          (lispm-desktop-store--status
@@ -745,31 +748,33 @@ package's compilation, which would split the App Store's window."
 
 (defun lispm-desktop-store--install-1 (item)
   "Install ITEM, unasked, keep what was installed, and make it take part:
-an application one of the desktop's, an extension loaded."
-  (pcase-let* ((`(,id . ,props) item)
-               (package (plist-get props :package))
-               (present (lispm-desktop-store--package-present props))
-               (installed (pcase present
-                            ('nil
-                             (lispm-desktop-store--status (format "Installing %s…" (plist-get props :name)))
-                             (lispm-desktop-store--quietly
-                               (lispm-desktop-store--install-package package)))
-                            ;; A checkout's: no package of the App Store's
-                            ;; to update or delete.
-                            ('load-path "load-path")
-                            ('built-in "built-in")
-                            ;; Installed already: taken as the catalog pins it.
-                            (_ (if (consp package)
-                                   (plist-get (cdr package) :rev)
-                                 (or (lispm-desktop-store--package-version package) "installed"))))))
-    ;; Kept only once it takes part: a package that cannot be loaded is
-    ;; not left installed.
-    (condition-case err
-        (lispm-desktop-store--register id props)
-      (error (unless present
-               (lispm-desktop-store--quietly (lispm-desktop-store--delete-package package)))
-             (user-error "%s cannot be loaded: %s" (plist-get props :name) (error-message-string err))))
-    (lispm-desktop-store--keep id props :installed installed :owned (not present))))
+an application one of the desktop's, an extension loaded.  The pointer
+is a watch over the App Store meanwhile."
+  (lispm-desktop-with-loading lispm-desktop-store-buffer-name
+    (pcase-let* ((`(,id . ,props) item)
+                 (package (plist-get props :package))
+                 (present (lispm-desktop-store--package-present props))
+                 (installed (pcase present
+                              ('nil
+                               (lispm-desktop-store--status (format "Installing %s…" (plist-get props :name)))
+                               (lispm-desktop-store--quietly
+                                 (lispm-desktop-store--install-package package)))
+                              ;; A checkout's: no package of the App Store's
+                              ;; to update or delete.
+                              ('load-path "load-path")
+                              ('built-in "built-in")
+                              ;; Installed already: taken as the catalog pins it.
+                              (_ (if (consp package)
+                                     (plist-get (cdr package) :rev)
+                                   (or (lispm-desktop-store--package-version package) "installed"))))))
+      ;; Kept only once it takes part: a package that cannot be loaded is
+      ;; not left installed.
+      (condition-case err
+          (lispm-desktop-store--register id props)
+        (error (unless present
+                 (lispm-desktop-store--quietly (lispm-desktop-store--delete-package package)))
+               (user-error "%s cannot be loaded: %s" (plist-get props :name) (error-message-string err))))
+      (lispm-desktop-store--keep id props :installed installed :owned (not present)))))
 
 (defun lispm-desktop-store-install (id)
   "Install the item ID, and the items it requires first, once confirmed."
@@ -901,19 +906,20 @@ once.  QUIETLY, as when updates install by themselves, asks nothing."
                                             "Update"))
       (lispm-desktop-store--status (format "Updating %s…" (plist-get props :name)))
       (unwind-protect
-          (let* ((package (plist-get props :package))
-                 (now (if (consp package)
-                          (let ((rev (plist-get (cdr package) :rev)))
-                            (lispm-desktop-store--quietly
-                              (lispm-desktop-store--repin (car package) rev))
-                            rev)
-                        (lispm-desktop-store--quietly
-                          (package-upgrade package))
-                        (or (lispm-desktop-store--package-version package) "installed"))))
-            (lispm-desktop-store--keep id props :installed now :owned (plist-get installed :owned))
-            (when (eq (plist-get props :kind) 'extension)
-              (lispm-desktop-store--unload (plist-get props :feature)))
-            (lispm-desktop-store--register id (lispm-desktop-store--installed id)))
+          (lispm-desktop-with-loading lispm-desktop-store-buffer-name
+            (let* ((package (plist-get props :package))
+                   (now (if (consp package)
+                            (let ((rev (plist-get (cdr package) :rev)))
+                              (lispm-desktop-store--quietly
+                                (lispm-desktop-store--repin (car package) rev))
+                              rev)
+                          (lispm-desktop-store--quietly
+                            (package-upgrade package))
+                          (or (lispm-desktop-store--package-version package) "installed"))))
+              (lispm-desktop-store--keep id props :installed now :owned (plist-get installed :owned))
+              (when (eq (plist-get props :kind) 'extension)
+                (lispm-desktop-store--unload (plist-get props :feature)))
+              (lispm-desktop-store--register id (lispm-desktop-store--installed id))))
         (lispm-desktop-store--status nil)
         (lispm-desktop-store--render)))))
 
@@ -1079,7 +1085,8 @@ pinned to its newest commit."
     (unwind-protect
         (progn
           (lispm-desktop-store--status (format "Looking at %s…" url))
-          (lispm-desktop-store--git directory "clone" "--quiet" "--depth" "1" url "repository")
+          (lispm-desktop-with-loading lispm-desktop-store-buffer-name
+            (lispm-desktop-store--git directory "clone" "--quiet" "--depth" "1" url "repository"))
           (let ((repository (expand-file-name "repository" directory)))
             (lispm-desktop-store--status nil)
             (if (file-exists-p (expand-file-name "catalog.eld" repository))

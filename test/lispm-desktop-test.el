@@ -3328,6 +3328,150 @@ what a side window's close box does and which windows trade places."
       (let ((hidden (current-buffer)))
         (should-not (memq hidden (lispm-desktop-platinum-window-buffers (selected-window))))))))
 
+;;;; The watch on the pointer
+
+(ert-deftest lispm-desktop-test-platinum-watch ()
+  "The watch pointer is Mac OS 9.0.4's: eight frames ten pixels by sixteen,
+twelve to six as read off its screen, the rest their mirror images; the
+hot spot is on it."
+  (let* ((strap (make-list 4 "  ######  "))
+         (seen (mapcar (lambda (face) (string-join (append strap face strap) "\n"))
+                       '((" #......# " "#....#...#" "#....#...#" "#....#...#"
+                          "#..###...#" "#........#" "#........#" " #......# ")
+                         (" #......# " "#........#" "#......#.#" "#.....#..#"
+                          "#..###...#" "#........#" "#........#" " #......# ")
+                         (" #......# " "#........#" "#........#" "#........#"
+                          "#..#####.#" "#........#" "#........#" " #......# ")
+                         (" #......# " "#........#" "#........#" "#........#"
+                          "#..###...#" "#.....#..#" "#........#" " #......# ")
+                         (" #......# " "#........#" "#........#" "#........#"
+                          "#..###...#" "#....#...#" "#....#...#" " #......# "))))
+         (frames (lispm-desktop-platinum-watch-frames))
+         (hands lispm-desktop-platinum-watch-hands))
+    (should (= (length frames) 8))
+    (should (equal (seq-take frames 5) seen))
+    (dolist (frame frames)
+      (let ((rows (split-string frame "\n")))
+        (should (= (length rows) 16))
+        (should (seq-every-p (lambda (row) (string-match-p "\\`[#. ]\\{10\\}\\'" row)) rows))))
+    (pcase-let ((`(,x . ,y) lispm-desktop-platinum-watch-hot-spot))
+      (should (and (< -1 x 10) (< -1 y 16))))
+    ;; Mirrored about the hands' column, the sixth: half past one becomes
+    ;; half past ten, half past four half past seven, and three falls on
+    ;; the hour hand.
+    (cl-flet ((mirror (hand) (mapcar (pcase-lambda (`(,x . ,y)) (cons (- 10 x) y)) hand)))
+      (should (equal (nth 7 hands) (mirror (nth 1 hands))))
+      (should (equal (nth 5 hands) (mirror (nth 3 hands))))
+      (should-not (nth 6 hands))
+      (pcase-dolist (`(,x . ,y) (mirror (nth 2 hands)))
+        (should (eq (aref (nth y lispm-desktop-platinum-watch-case) x) ?#))))))
+
+(defmacro lispm-desktop-test--with-loading (&rest body)
+  "Run BODY with no loading under way and the module's pointer stubbed:
+BODY sees `shown', the last flag the pointer was given, and `told', how
+many times it was."
+  (declare (indent 0))
+  `(let ((lispm-desktop-loading--loadings nil)
+         (lispm-desktop-loading--shown nil)
+         (shown nil)
+         (told 0))
+     (cl-letf (((symbol-function 'lispm-desktop-loading--module-p) (lambda () t))
+               ((symbol-function 'lispm-desktop-term-module-cursor-loading)
+                (lambda (flag) (setq shown flag told (1+ told)))))
+       ,@body)))
+
+(ert-deftest lispm-desktop-test-loading-in-front ()
+  "A loading is for what is in front: the selected frame, a window of it,
+a buffer it shows, by name too, or anything at all; not a buffer the
+selected frame does not show, nor one killed."
+  (let ((front (get-buffer-create " *lispm-desktop-test front*"))
+        (back (get-buffer-create " *lispm-desktop-test back*")))
+    (unwind-protect
+        (save-window-excursion
+          (set-window-buffer (selected-window) front)
+          (should (lispm-desktop-loading-in-front-p nil))
+          (should (lispm-desktop-loading-in-front-p (selected-frame)))
+          (should (lispm-desktop-loading-in-front-p (selected-window)))
+          (should (lispm-desktop-loading-in-front-p front))
+          (should (lispm-desktop-loading-in-front-p (buffer-name front)))
+          (should-not (lispm-desktop-loading-in-front-p back))
+          (should-not (lispm-desktop-loading-in-front-p " *lispm-desktop-test none*")))
+      (kill-buffer front)
+      (kill-buffer back))
+    (should-not (lispm-desktop-loading-in-front-p front))))
+
+(ert-deftest lispm-desktop-test-loading-shows-while-in-front ()
+  "The watch shows while a loading under way is for what is in front: from
+its start, or from when what it is for comes in front, until the last
+such loading stops.  The pointer hears only of changes; stopping twice
+does nothing."
+  (lispm-desktop-test--with-loading
+    (let ((buffer (get-buffer-create " *lispm-desktop-test loading*")))
+      (unwind-protect
+          (save-window-excursion
+            (let ((loading (lispm-desktop-loading-start buffer)))
+              (should-not shown)
+              (should (= told 0))
+              (set-window-buffer (selected-window) buffer)
+              (lispm-desktop-loading--update (selected-frame))
+              (should shown)
+              (let ((anywhere (lispm-desktop-loading-start)))
+                (should (lispm-desktop-loading-p))
+                (lispm-desktop-loading-stop loading)
+                (should shown)
+                (should (= told 1))
+                (lispm-desktop-loading-stop anywhere)
+                (should-not shown)
+                (should-not (lispm-desktop-loading-p))
+                (lispm-desktop-loading-stop anywhere)
+                (should (= told 2)))))
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-with-loading ()
+  "Work done with a loading has the watch while it runs and returns what it
+returns; no loading is left behind, even when it fails."
+  (lispm-desktop-test--with-loading
+    (should (eq (lispm-desktop-with-loading nil (should shown) 'done) 'done))
+    (should-not shown)
+    (should-error (lispm-desktop-with-loading nil (error "Failed")))
+    (should-not shown)
+    (should-not lispm-desktop-loading--loadings)))
+
+(ert-deftest lispm-desktop-test-loading-process ()
+  "A process's loading lasts while the process runs; its own sentinel is
+called as before."
+  (lispm-desktop-test--with-loading
+    (let* ((events nil)
+           (process (make-process :name "lispm-desktop-test-loading" :noquery t
+                                  :command '("sh" "-c" "sleep 0.2")
+                                  :sentinel (lambda (_ event) (push event events)))))
+      (should (eq (lispm-desktop-loading-process process) process))
+      (should shown)
+      (with-timeout (10 (error "The process did not end"))
+        (while (not events)
+          (accept-process-output nil 0.05)))
+      (should-not shown)
+      (should-not lispm-desktop-loading--loadings))))
+
+(defvar display-hourglass)
+(defvar hourglass-delay)
+
+(ert-deftest lispm-desktop-test-loading-busy-follows-hourglass ()
+  "Emacs at work shows the watch after `hourglass-delay', unless
+`display-hourglass' is nil, as Emacs's own busy pointer; the module hears
+anew once either is set."
+  (let ((display-hourglass t)
+        (hourglass-delay 1))
+    (should (equal (lispm-desktop-loading--busy-delay) 1.0))
+    (setq display-hourglass nil)
+    (should-not (lispm-desktop-loading--busy-delay)))
+  (let ((timers nil))
+    (cl-letf (((symbol-function 'run-at-time) (lambda (_time _repeat function &rest _) (push function timers))))
+      (lispm-desktop-loading--busy-changed 'hourglass-delay 0.5 'let nil)
+      (should-not timers)
+      (lispm-desktop-loading--busy-changed 'hourglass-delay 0.5 'set nil)
+      (should (equal timers '(lispm-desktop-loading--tell-busy))))))
+
 (ert-deftest lispm-desktop-test-menu-text ()
   "A menu is drawn as Mac OS 9's: lit and shaded edges, items sixteen pixels
 tall, separators engraved, checks marked, the item under the mouse in the
@@ -6243,6 +6387,25 @@ newest commit after, in the background; then the list shows what it holds."
             (check)
             (should (equal (mapcar #'car (lispm-desktop-store-items)) '(calculator calendar))))
         (delete-directory source t)))))
+
+(ert-deftest lispm-desktop-test-store-loads-with-the-watch ()
+  "The App Store's window has the watch on the pointer while the App Store
+checks its catalogs and while it installs, and not after."
+  (lispm-desktop-test--with-store
+    (let ((lispm-desktop-loading--loadings nil)
+          (lispm-desktop-loading--shown nil)
+          (during nil))
+      (cl-flet ((note (&rest _) (push (mapcar #'car lispm-desktop-loading--loadings) during)))
+        (cl-letf (((symbol-function 'lispm-desktop-loading--module-p) #'ignore)
+                  ((symbol-function 'lispm-desktop-store--refresh-archives)
+                   (lambda (then) (note) (funcall then)))
+                  ((symbol-function 'lispm-desktop-store--register) #'note)
+                  ((symbol-function 'lispm-desktop-store--checked-updates) #'ignore)
+                  ((symbol-function 'lispm-desktop-store--render) #'ignore))
+          (lispm-desktop-store-check-for-updates)
+          (lispm-desktop-store--install-1 '(calculator :kind app :name "Calculator" :command calc))))
+      (should (equal during (make-list 2 (list lispm-desktop-store-buffer-name))))
+      (should-not lispm-desktop-loading--loadings))))
 
 (ert-deftest lispm-desktop-test-store-git-ignores-callers-repository ()
   "Git runs for the App Store in the directory given, whatever repository

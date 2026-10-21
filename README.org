@@ -184,6 +184,19 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   as it opens, its Help menu too, and a command needing a program offers it before it runs.  A
   package can describe itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
   application installed in turn and lists what of this it finds missing.
+- *A watch on the pointer* while LispM works, as Mac OS 9 showed one: its wristwatch, copied
+  off its screen pixel by pixel, the minute hand going round.  It shows once Emacs has been at
+  work longer than Emacs's own ~hourglass-delay~ (a second), on a long command or a program it
+  waits for (~display-hourglass~ set to nil turns that off), and while something loads for the
+  window in front: the App Store checking its catalogs, installing or updating, Control Panels
+  while Software Update checks.  It shows over LispM's windows only, and a loading's only while
+  its window is in front, as Mac OS 9's watch was the application in front's.  Code says it
+  loads with ~lispm-desktop-with-loading~ around work it does there and then,
+  ~lispm-desktop-loading-process~ for a process it waits for, or ~lispm-desktop-loading-start~ and
+  ~lispm-desktop-loading-stop~ (=lisp/lispm-desktop-loading.el=), for a frame, a window, a buffer,
+  or whatever is in front.  Emacs's Mac build has neither pointers of images nor a busy one, so
+  the terminals' module draws the watch (=native/lispm-desktop-term/src/cursor.rs=), from the
+  time it is built or downloaded.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
   bottom-left corner at first: a collapse box, scroll arrows, a module each for Appearance, Desktop, Keyboard and
   Internet, and Emacs's own battery, load average and mail flag, then a tab.  Pressing a module
@@ -411,6 +424,8 @@ what it was built with.
   icon and menu items are not shown.  Its pages run Chrome extensions in the Mac build only, on
   macOS 15.4 and later: WebKitGTK has no extension engine, so elsewhere there is no Extensions
   menu.
+- *The watch on the pointer* is drawn in the Mac build.  Under X, Emacs shows its own busy
+  pointer, as X's watch, and loadings leave the pointer as it is.
 - *Tree-sitter modes* are used when Emacs is built with tree-sitter.
 - *Modifier keys*: Command is Meta in the Mac build; an X build takes its modifiers from the X
   server's keyboard map.

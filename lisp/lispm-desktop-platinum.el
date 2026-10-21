@@ -65,6 +65,7 @@
 ;;   lispm-desktop-platinum-menubar
 ;;   lispm-desktop-platinum-scroll
 ;;   lispm-desktop-platinum-status
+;;   lispm-desktop-platinum-pointer
 
 ;;; Code:
 
@@ -83,6 +84,7 @@
 (require 'lispm-desktop-platinum-menubar)
 (require 'lispm-desktop-platinum-scroll)
 (require 'lispm-desktop-platinum-status)
+(require 'lispm-desktop-platinum-pointer)
 
 (declare-function treemacs-load-theme "treemacs-themes" (name))
 
