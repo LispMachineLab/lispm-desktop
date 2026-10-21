@@ -242,9 +242,10 @@ with its old copy protection, or Apple Music's."
     track))
 
 (defun lispm-desktop-app-emms--import (data)
-  "Keep the songs and playlists of the Music library DATA, as the script
+  "Keep the songs and playlists of the Music library DATA, as the reader
 read it, in EMMS's cache and the playlists file; return (SONGS PLAYLISTS
-LEFT), LEFT the songs EMMS cannot play."
+LEFT FILES), LEFT the songs EMMS cannot play, FILES a few of the files
+kept."
   (let ((files (make-hash-table :test #'equal))
         (songs 0)
         (left (- (or (plist-get data :total) 0) (length (plist-get data :tracks)))))
@@ -267,21 +268,72 @@ LEFT), LEFT the songs EMMS cannot play."
           (insert "\n")))
       (setq emms-cache-dirty t)
       (emms-cache-save)
-      (list songs (length playlists) (max 0 left)))))
+      (list songs (length playlists) (max 0 left)
+            (seq-take (hash-table-values files) 3)))))
+
+(defconst lispm-desktop-app-emms-media-settings
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Media"
+  "Where System Settings lets applications read the media library:
+Privacy & Security, Media & Apple Music.")
+
+(defun lispm-desktop-app-emms-readable-p (files)
+  "Return how Emacs may read FILES, the first of them there: t, or
+`denied' when macOS keeps it from Emacs, as it keeps ~/Music from the
+applications not let read the media library, or nil when none is there.
+macOS asks the first time, if this Emacs's application says why it would
+read them, as LispM.app does; Emacs waits for the answer."
+  (seq-some (lambda (file)
+              (condition-case err
+                  (with-temp-buffer (insert-file-contents-literally file nil 0 1) t)
+                (file-missing nil)
+                (file-error (if (string-match-p "not permitted\\|Permission denied"
+                                                (error-message-string err))
+                                'denied
+                              nil))))
+            files))
+
+(defun lispm-desktop-app-emms--application (&optional directory)
+  "Return the name of the application this Emacs runs as, as System Settings
+lists it: LispM, or Emacs.  DIRECTORY is where its program lies, by
+default `invocation-directory'."
+  (let ((directory (or directory invocation-directory "")))
+    (if (string-match "\\([^/]+\\)\\.app/Contents/MacOS/?\\'" directory)
+        (match-string 1 directory)
+      "Emacs")))
+
+(defun lispm-desktop-app-emms--open-media-settings (alert)
+  "Open Privacy & Security, Media & Apple Music, when ALERT, the value of
+an alert, is its Open Privacy Settings button's."
+  (when (eq alert 'settings)
+    (call-process "open" nil 0 nil lispm-desktop-app-emms-media-settings)))
 
 (defun lispm-desktop-app-emms--imported (window result)
   "Say how the import went, RESULT of `lispm-desktop-app-emms--import',
-and browse the library in WINDOW."
-  (pcase-let ((`(,songs ,playlists ,left) result))
+and browse the library in WINDOW.  When Emacs may not read the files
+imported, as macOS keeps the Music folder from an application not let
+read the media library, say so, with a button opening the settings
+letting it."
+  (pcase-let ((`(,songs ,playlists ,left ,files) result))
     (when (window-live-p window)
       (with-selected-window window (emms-browse-by-artist)))
-    (lispm-desktop-popup-alert
-     'note (format "%s songs and %d playlists came from Music."
-                   (lispm-desktop-app-ui--number songs) playlists)
-     '(("OK" ok default))
-     (when (> left 0)
-       (format "%s songs play in Music only: Apple Music's, and those bought protected."
-               (lispm-desktop-app-ui--number left))))))
+    (let ((counted (format "%s songs and %d playlists came from Music"
+                           (lispm-desktop-app-ui--number songs) playlists))
+          (application (lispm-desktop-app-emms--application)))
+      (if (eq (lispm-desktop-app-emms-readable-p files) 'denied)
+          (lispm-desktop-app-emms--open-media-settings
+           (lispm-desktop-popup-alert
+            'caution (format "%s, but %s may not read them." counted application)
+            '(("Open Privacy Settings" settings) ("OK" ok default))
+            (format (concat "macOS lets only the applications allowed to read the media library read the"
+                            " Music folder.  Turn %s on in Privacy & Security, Media & Apple Music, or add"
+                            " it there with +, then play the songs.")
+                    application)))
+        (lispm-desktop-popup-alert
+         'note (concat counted ".")
+         '(("OK" ok default))
+         (when (> left 0)
+           (format "%s songs play in Music only: Apple Music's, and those bought protected."
+                   (lispm-desktop-app-ui--number left))))))))
 
 (defconst lispm-desktop-app-emms--reader-sources
   (expand-file-name "native/lispm-music-library/" lispm-desktop-directory)
@@ -373,23 +425,17 @@ parsed into plists."
            (delete-file output)
            (funcall then data)))))))
 
-(defconst lispm-desktop-app-emms-media-settings
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_Media"
-  "Where System Settings lets applications read the media library:
-Privacy & Security, Media & Apple Music.")
-
 (defun lispm-desktop-app-emms--not-read (data)
   "Say the Music library could not be read, with why, from DATA, what
 the reader wrote, or nil; most often it was not let read the media
 library, so a button opens the settings letting it."
-  (when (eq (lispm-desktop-popup-alert
-             'stop "The Music library could not be read."
-             '(("Open Privacy Settings" settings) ("OK" ok default))
-             (concat (or (plist-get data :error) "LispM Music Library said nothing.")
-                     "  If it was not let read the media library, let LispM Music Library"
-                     " in Privacy & Security, Media & Apple Music, then import again."))
-            'settings)
-    (call-process "open" nil 0 nil lispm-desktop-app-emms-media-settings)))
+  (lispm-desktop-app-emms--open-media-settings
+   (lispm-desktop-popup-alert
+    'stop "The Music library could not be read."
+    '(("Open Privacy Settings" settings) ("OK" ok default))
+    (concat (or (plist-get data :error) "LispM Music Library said nothing.")
+            "  If it was not allowed to read the media library, allow LispM Music Library"
+            " in Privacy & Security, Media & Apple Music, then import again."))))
 
 (defun lispm-desktop-app-emms-import-music ()
   "Read the Music app's library into EMMS: every song Music keeps a file

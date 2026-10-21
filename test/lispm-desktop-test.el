@@ -7213,17 +7213,18 @@ counted as left to Music."
                    (lambda (track field value) (nconc track (list (cons field value)))))
                   ((symbol-function 'emms-cache-set) (lambda (_type path track) (push (cons path track) cache)))
                   ((symbol-function 'emms-cache-save) #'ignore))
-          (should (equal (lispm-desktop-app-emms--import
-                          '(:total 5
-                            :tracks ((:id "A" :path "/m/a.m4a" :name "Song A" :artist "Band" :trackNumber 2
-                                      :year 0 :duration 181.6 :kind "AAC audio file")
-                                     (:id "B" :path "/m/b.m4p" :name "Song B" :kind "Protected AAC audio file")
-                                     (:id "C" :path nil :name "Song C" :kind "MPEG audio file")
-                                     (:id "D" :path "/m/d.mp3" :name "Song D" :kind "MPEG audio file")
-                                     (:id "E" :path "/m/e.m4a" :name "Song E" :kind "AAC audio file"
-                                      :protected t))
-                            :playlists ((:name "Mix" :ids ("D" "B" "A")) (:name "Gone" :ids ("C")))))
-                         '(2 1 3)))
+          (let ((result (lispm-desktop-app-emms--import
+                         '(:total 5
+                           :tracks ((:id "A" :path "/m/a.m4a" :name "Song A" :artist "Band" :trackNumber 2
+                                     :year 0 :duration 181.6 :kind "AAC audio file")
+                                    (:id "B" :path "/m/b.m4p" :name "Song B" :kind "Protected AAC audio file")
+                                    (:id "C" :path nil :name "Song C" :kind "MPEG audio file")
+                                    (:id "D" :path "/m/d.mp3" :name "Song D" :kind "MPEG audio file")
+                                    (:id "E" :path "/m/e.m4a" :name "Song E" :kind "AAC audio file"
+                                     :protected t))
+                           :playlists ((:name "Mix" :ids ("D" "B" "A")) (:name "Gone" :ids ("C")))))))
+            (should (equal (take 3 result) '(2 1 3)))
+            (should (equal (sort (copy-sequence (nth 3 result)) #'string<) '("/m/a.m4a" "/m/d.mp3"))))
           (let ((a (cdr (assoc "/m/a.m4a" cache))))
             (should (equal (alist-get 'info-title (cddr a)) "Song A"))
             (should (equal (alist-get 'info-tracknumber (cddr a)) "2"))
@@ -7263,6 +7264,46 @@ Open Privacy Settings opens Media & Apple Music in System Settings."
     (should (equal (nth 1 asked) '("Open Privacy Settings" "OK")))
     (should (string-prefix-p "Access denied." (nth 2 asked)))
     (should (equal opened (list "open" lispm-desktop-app-emms-media-settings)))))
+
+(ert-deftest lispm-desktop-test-app-emms-readable ()
+  "Emacs may read the files imported, or macOS keeps them from it, as it
+keeps ~/Music from an application not let read the media library, or
+none of them is there."
+  (let ((file (make-temp-file "lispm-song")))
+    (unwind-protect
+        (progn
+          (should (eq (lispm-desktop-app-emms-readable-p (list "/no/such/song.m4a" file)) t))
+          (should-not (lispm-desktop-app-emms-readable-p (list "/no/such/song.m4a")))
+          (cl-letf (((symbol-function 'insert-file-contents-literally)
+                     (lambda (name &rest _)
+                       (signal 'file-error (list "Opening input file" "Operation not permitted" name)))))
+            (should (eq (lispm-desktop-app-emms-readable-p (list file)) 'denied))))
+      (delete-file file)))
+  (should (equal (lispm-desktop-app-emms--application "/Applications/LispM.app/Contents/MacOS/") "LispM"))
+  (should (equal (lispm-desktop-app-emms--application "/usr/local/bin/") "Emacs")))
+
+(ert-deftest lispm-desktop-test-app-emms-imported-unreadable ()
+  "Songs imported that Emacs may not read are said so, naming the
+application to let read the media library, and Open Privacy Settings
+opens Media & Apple Music; songs it may read are counted."
+  (let ((asked nil) (opened nil) (readable 'denied))
+    (cl-letf (((symbol-function 'lispm-desktop-app-emms-readable-p) (lambda (_) readable))
+              ((symbol-function 'lispm-desktop-app-emms--application) (lambda (&rest _) "LispM"))
+              ((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message buttons &optional detail)
+                 (setq asked (list message (mapcar #'car buttons) detail))
+                 'settings))
+              ((symbol-function 'call-process)
+               (lambda (program &rest arguments) (setq opened (cons program (last arguments))) 0)))
+      (lispm-desktop-app-emms--imported nil '(426 9 31 ("/m/a.m4a")))
+      (should (equal (car asked) "426 songs and 9 playlists came from Music, but LispM may not read them."))
+      (should (equal (nth 1 asked) '("Open Privacy Settings" "OK")))
+      (should (string-search "Turn LispM on in Privacy & Security, Media & Apple Music" (nth 2 asked)))
+      (should (equal opened (list "open" lispm-desktop-app-emms-media-settings)))
+      (setq readable t opened nil)
+      (lispm-desktop-app-emms--imported nil '(426 9 31 ("/m/a.m4a")))
+      (should (equal (car asked) "426 songs and 9 playlists came from Music."))
+      (should (equal (nth 1 asked) '("OK"))))))
 
 (ert-deftest lispm-desktop-test-app-emms-players ()
   "EMMS plays with its default players whose programs are installed, mpv
