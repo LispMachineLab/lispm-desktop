@@ -43,6 +43,8 @@
 ;;                  interface: buttons, status, menus, keys, boards drawn
 ;;   Software Update  LispM kept up to date, checked daily and installed
 ;;                  as it quits, in Control Panels
+;;   guide          a tour of all this, as Apple Guide gave one, the
+;;                  first time LispM starts and from the Help menu (C-c ?)
 ;;
 ;; Its init.el runs `lispm-desktop-setup' and then the user's own file,
 ;; `lispm-desktop-user-file'.  An existing configuration can use it the same way:
@@ -53,7 +55,8 @@
 ;;
 ;; The first start asks for the editing style (`lispm-desktop-editing-style') and
 ;; the appearance (`lispm-desktop-theme') on a page filling the frame, see
-;; lispm-desktop-assistant.el, and installs the icon font.
+;; lispm-desktop-assistant.el, and installs the icon font; then the guide
+;; shows LispM around, see lispm-desktop-guide.el.
 
 ;;; Code:
 
@@ -86,6 +89,7 @@
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
 (require 'lispm-desktop-strip)
+(require 'lispm-desktop-guide)
 (require 'lispm-desktop-exwm)
 (require 'lispm-desktop-languages)
 (require 'lispm-desktop-ai)
@@ -144,13 +148,6 @@ boxes.  A download that fails, as offline, is only reported."
         (error (message "The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again"
                         (error-message-string err)))))))
 
-(defun lispm-desktop--welcome ()
-  "Say how to start, once the first start is done."
-  (message "%s"
-           (substitute-command-keys
-            (concat "LispM is ready.  \\`C-c a l' starts an agent in this project, "
-                    "\\`C-c a a' shows the agents, \\`C-c a s' resumes a session."))))
-
 (defun lispm-desktop--show-startup-view ()
   "Show `lispm-desktop-startup-view' in the sidebar of the first frame."
   (when (and lispm-desktop-startup-view (not noninteractive)
@@ -189,6 +186,7 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-app-games)
           (lispm-desktop-setup-store)
           (lispm-desktop-setup-strip)
+          (lispm-desktop-setup-guide)
           (setq lispm-desktop--set-up t)
           (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
           (lispm-desktop-setup-langs)
@@ -207,8 +205,7 @@ boxes.  A download that fails, as offline, is only reported."
           (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
           (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
           (when first
-            (lispm-desktop--install-missing-fonts)
-            (add-hook 'window-setup-hook #'lispm-desktop--welcome 90)))
+            (lispm-desktop--install-missing-fonts)))
       (lispm-desktop-assistant-close))))
 
 
