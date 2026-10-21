@@ -995,22 +995,28 @@ buffer, whose name WebKit prefixes."
 
 (defun lispm-desktop-browser--tab-line ()
   "Return the row of tabs atop the page: a tab per page, then + for a new one.
-The tabs are Mac OS 9's, the shown page's in front.  Each shows its
-page's icon before its title, or the globe until the icon is known and
-when the page has none."
+The tabs are Mac OS 9's, the shown page's in front.  Each shows a cross
+closing it, then its page's icon before its title, or the globe until the
+icon is known and when the page has none.  A middle click closes a tab
+too."
   (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
     (lispm-desktop-platinum-tabs
      (append
       (mapcar (lambda (buffer)
-                (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
-                              " "
-                              (truncate-string-to-width (lispm-browser-title buffer)
-                                                        lispm-browser-tab-width nil nil "…"))
-                      (eq buffer shown)
-                      'keymap (lispm-browser-tab-keymap
-                               (lispm-browser-tab-command #'lispm-browser-select-tab buffer))
-                      'help-echo (or (lispm-browser-uri buffer) "Show this tab")
-                      'pointer 'arrow))
+                (let ((close (lispm-browser-tab-command #'lispm-browser-close-tab buffer))
+                      (map (lispm-browser-tab-keymap
+                            (lispm-browser-tab-command #'lispm-browser-select-tab buffer))))
+                  (keymap-set map "<tab-line> <down-mouse-2>" #'ignore)
+                  (keymap-set map "<tab-line> <mouse-2>" close)
+                  (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
+                                " "
+                                (truncate-string-to-width (lispm-browser-title buffer)
+                                                          lispm-browser-tab-width nil nil "…"))
+                        (eq buffer shown)
+                        :close close
+                        'keymap map
+                        'help-echo (or (lispm-browser-uri buffer) "Show this tab")
+                        'pointer 'arrow)))
               (lispm-browser-tabs))
       (list (list "+" nil 'keymap (lispm-browser-tab-keymap #'lispm-browser-new-tab)
                   'help-echo "New tab" 'pointer 'arrow)))
