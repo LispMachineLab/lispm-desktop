@@ -5046,7 +5046,9 @@ sources change, whatever their times."
           (should-not (lispm-desktop-term--plan)))
         (let ((system-configuration "aarch64-unknown-linux-gnu"))
           (should-not (lispm-desktop-term--plan)))
-        (cl-letf (((symbol-function 'executable-find) #'ignore))
+        (cl-letf (((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'always)
+                  ((symbol-function 'lispm-desktop-app-ui-needs) #'ignore)
+                  ((symbol-function 'executable-find) #'ignore))
           (should-not (lispm-desktop-term--plan)))
         (let ((prebuilt (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file) 120)))
           (should (string-prefix-p (expand-file-name "prebuilt/" root) prebuilt))
@@ -7467,12 +7469,224 @@ most, the sign changed in front, the last digit taken back."
     (lispm-desktop-app-skins-calc-press 'clear)
     (should (equal lispm-desktop-app-skins--calc-entry ""))))
 
+;;;; The chat applications
+
+(ert-deftest lispm-desktop-test-app-chat-count ()
+  "A conversation's count of messages unread: none without, bold while
+unread, in red where they name you, as many as name you where that is
+known, else as many as are unread."
+  (should-not (lispm-desktop-app-chat--count '(:unread 0)))
+  (should-not (lispm-desktop-app-chat--count '(:unread t :mentions 0)))
+  (let ((count (lispm-desktop-app-chat--count '(:unread 3))))
+    (should (equal count "3"))
+    (should (eq (get-text-property 0 'face count) 'lispm-desktop-app-chat-unread)))
+  (let ((count (lispm-desktop-app-chat--count '(:unread 3 :mentions 1))))
+    (should (equal count "1"))
+    (should (eq (get-text-property 0 'face count) 'lispm-desktop-app-chat-mentions)))
+  (should (equal (lispm-desktop-app-chat--count '(:unread 2 :mentions t)) "2"))
+  (should (equal (lispm-desktop-app-chat--count '(:unread t :mentions 4)) "4")))
+
+(ert-deftest lispm-desktop-test-app-chat-line ()
+  "A network's line holds its name in bold, and what it says of it; a
+conversation's is indented under it, its name bold while it is unread."
+  (let ((heading (lispm-desktop-app-chat-line '(:name "Libera.Chat" :heading t :state "connecting…")))
+        (read (lispm-desktop-app-chat-line '(:name "#emacs" :unread 0)))
+        (unread (lispm-desktop-app-chat-line '(:name "#lispm" :unread 2))))
+    (should (equal (substring-no-properties heading) " Libera.Chat  connecting…"))
+    (should (eq (get-text-property 1 'face heading) 'lispm-desktop-app-chat-heading))
+    (should (equal (substring-no-properties read) "    #emacs"))
+    (should-not (get-text-property 4 'face read))
+    (should (string-prefix-p "    #lispm " (substring-no-properties unread)))
+    (should (eq (get-text-property 4 'face unread) 'lispm-desktop-app-chat-unread))
+    (should (string-suffix-p "2" (substring-no-properties unread)))))
+
+(defvar lispm-desktop-test--conversations nil
+  "The conversations of the list of `lispm-desktop-test-chat-list-mode'.")
+
+(define-derived-mode lispm-desktop-test-chat-list-mode lispm-desktop-app-chat-list-mode "Test"
+  "A list of conversations for the tests."
+  (setq-local lispm-desktop-app-chat-conversations-function (lambda () lispm-desktop-test--conversations)))
+
+(ert-deftest lispm-desktop-test-app-chat-refresh ()
+  "The list is drawn again only where its conversations changed, point
+staying on the conversation it was on; a buffer that is no list is left
+alone."
+  (let ((lispm-desktop-test--conversations
+         '((:key net :name "Net" :heading t) (:key a :name "#a" :unread 0) (:key b :name "#b" :unread 1))))
+    (with-temp-buffer
+      (lispm-desktop-test-chat-list-mode)
+      (lispm-desktop-app-chat-refresh)
+      (should (equal (count-lines (point-min) (point-max)) 3))
+      (forward-line 2)
+      (should (eq (plist-get (lispm-desktop-app-chat-conversation) :key) 'b))
+      (let ((tick (buffer-modified-tick)))
+        (lispm-desktop-app-chat-refresh)
+        (should (= tick (buffer-modified-tick))))
+      (setq lispm-desktop-test--conversations
+            (append (seq-take lispm-desktop-test--conversations 1)
+                    '((:key c :name "#c" :unread 0))
+                    (cdr lispm-desktop-test--conversations)))
+      (lispm-desktop-app-chat-refresh)
+      (should (equal (count-lines (point-min) (point-max)) 4))
+      (should (eq (plist-get (lispm-desktop-app-chat-conversation) :key) 'b))
+      (should (equal (lispm-desktop-app-chat-unread-status lispm-desktop-test--conversations) "1 unread"))))
+  (with-temp-buffer
+    (insert "not a list")
+    (let ((lispm-desktop-app-chat-conversations-function (lambda () '((:key x :name "x")))))
+      (lispm-desktop-app-chat-refresh t))
+    (should (equal (buffer-string) "not a list"))))
+
+(defcustom lispm-desktop-test-chat-option 'standard
+  "An option of a chat application, for the tests."
+  :type 'symbol
+  :group 'lispm-desktop)
+
+(ert-deftest lispm-desktop-test-app-chat-set-options ()
+  "A chat application's option is set as its window wants it while it is
+as the package ships it, never where you set it or customized it."
+  (let ((options '((lispm-desktop-test-chat-option desktop shipped))))
+    (unwind-protect
+        (progn
+          (dolist (value '(standard shipped))
+            (set-default 'lispm-desktop-test-chat-option value)
+            (lispm-desktop-app-chat-set-options options)
+            (should (eq lispm-desktop-test-chat-option 'desktop)))
+          (set-default 'lispm-desktop-test-chat-option 'yours)
+          (lispm-desktop-app-chat-set-options options)
+          (should (eq lispm-desktop-test-chat-option 'yours))
+          (set-default 'lispm-desktop-test-chat-option 'standard)
+          (put 'lispm-desktop-test-chat-option 'saved-value '('standard))
+          (lispm-desktop-app-chat-set-options options)
+          (should (eq lispm-desktop-test-chat-option 'standard)))
+      (put 'lispm-desktop-test-chat-option 'saved-value nil)
+      (set-default 'lispm-desktop-test-chat-option 'standard))))
+
+(ert-deftest lispm-desktop-test-app-erc-channel-name ()
+  "A channel's name typed gets its # unless it has a channel's prefix."
+  (should (equal (lispm-desktop-app-erc-channel-name "emacs") "#emacs"))
+  (should (equal (lispm-desktop-app-erc-channel-name " #emacs ") "#emacs"))
+  (should (equal (lispm-desktop-app-erc-channel-name "##lispm") "##lispm"))
+  (should (equal (lispm-desktop-app-erc-channel-name "&local") "&local"))
+  (should-error (lispm-desktop-app-erc-channel-name "  ") :type 'user-error))
+
+(ert-deftest lispm-desktop-test-app-erc-keeps-networks ()
+  "A network connected to is kept, and its channels as they are joined and
+left, whatever their case; connecting to it again keeps its channels."
+  (let ((lispm-desktop-app-erc-networks nil)
+        (saves 0))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (cl-incf saves) (set variable value))))
+      (lispm-desktop-app-erc--remember '(:server "irc.libera.chat" :port 6697 :tls t :nick "me"))
+      (lispm-desktop-app-erc--keep-channel "IRC.libera.chat" "#emacs" t)
+      (lispm-desktop-app-erc--keep-channel "irc.libera.chat" "#lispm" t)
+      (should (= saves 3))
+      (lispm-desktop-app-erc--keep-channel "irc.libera.chat" "#EMACS" t)
+      (lispm-desktop-app-erc--keep-channel "irc.oftc.net" "#debian" t)
+      (should (= saves 3))
+      (lispm-desktop-app-erc--keep-channel "irc.libera.chat" "#Emacs" nil)
+      (lispm-desktop-app-erc--remember '(:server "irc.libera.chat" :port 6697 :tls t :nick "me2"))
+      (should (equal lispm-desktop-app-erc-networks
+                     '((:server "irc.libera.chat" :port 6697 :tls t :nick "me2" :channels ("#lispm"))))))))
+
+(ert-deftest lispm-desktop-test-app-erc-unread ()
+  "A conversation's messages unread are as ERC tracks them, named where
+the face ERC tracks them with is your nickname's."
+  (require 'erc-track)
+  (with-temp-buffer
+    (let ((plain (current-buffer)))
+      (with-temp-buffer
+        (let ((named (current-buffer)))
+          (dlet ((erc-modified-channels-alist `((,plain 4 . erc-default-face)
+                                                (,named 2 erc-current-nick-face erc-default-face))))
+            (should (equal (lispm-desktop-app-erc--unread plain) '(4 . nil)))
+            (should (equal (lispm-desktop-app-erc--unread named) '(2 . t)))
+            (with-temp-buffer
+              (should (equal (lispm-desktop-app-erc--unread (current-buffer)) '(0 . nil))))))))))
+
+(ert-deftest lispm-desktop-test-app-slack-keeps-secrets ()
+  "A workspace's token and cookie are kept with auth-source, as
+emacs-slack's manual keeps them, and read back; one kept already is left
+as it is."
+  (let* ((file (make-temp-file "lispm-desktop-test-authinfo"))
+         (auth-sources (list file))
+         (auth-source-save-behavior t)
+         (workspace '(:name "lispm" :user "me@example.com"))
+         (host (lispm-desktop-app-slack--host workspace)))
+    (unwind-protect
+        (progn
+          (auth-source-forget-all-cached)
+          (should (equal host "lispm.slack.com"))
+          (should-not (lispm-desktop-app-slack--secret host "me@example.com"))
+          (lispm-desktop-app-slack--keep-secret host "me@example.com" "xoxc-token")
+          (lispm-desktop-app-slack--keep-secret host "me@example.com^cookie" "xoxd-cookie")
+          (lispm-desktop-app-slack--keep-secret host "me@example.com" "xoxc-other")
+          (should (equal (lispm-desktop-app-slack--secret host "me@example.com") "xoxc-token"))
+          (should (equal (lispm-desktop-app-slack--secret host "me@example.com^cookie") "xoxd-cookie")))
+      (auth-source-forget-all-cached)
+      (delete-file file))))
+
+(ert-deftest lispm-desktop-test-app-telega-missing ()
+  "Telega's window says what it lacks first: TDLib, a TDLib new enough, a C
+compiler, then telega-server built; nothing once it is built, or when
+telega-server runs in Docker."
+  (let* ((root (make-temp-file "lispm-desktop-test-telega" t))
+         (prefix (expand-file-name "prefix" root))
+         (version-file (expand-file-name "lib/cmake/Td/TdConfigVersion.cmake" prefix))
+         (programs '("cc" "make")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'executable-find)
+                   (lambda (name &optional _remote)
+                     (cond ((member name programs) (concat "/usr/bin/" name))
+                           ((string-match-p "telega-server" name)
+                            (let ((file (expand-file-name name (expand-file-name "telega" root))))
+                              (and (file-exists-p file) file)))))))
+          (dlet ((telega-use-docker nil)
+                 (telega-directory (expand-file-name "telega" root))
+                 (telega-server-command "telega-server")
+                 (telega-server-libs-prefix (expand-file-name "nowhere" root))
+                 (telega-tdlib-min-version "1.8.66")
+                 (lispm-desktop-app-telega-tdlib-prefixes (list prefix)))
+            (should (eq (lispm-desktop-app-telega-missing) 'tdlib))
+            (should (string-search lispm-desktop-app-telega-tdlib-command (lispm-desktop-app-telega--page-text)))
+            (should (equal (car (car (lispm-desktop-app-telega--page-buttons))) "Copy Command"))
+            ;; As the catalog declares TDLib, the Installer installs it.
+            (cl-letf (((symbol-function 'lispm-desktop-app-ui-needs)
+                       (lambda (_app) '((library "TDLib" :for "Telegram" :brew "tdlib" :head t
+                                                 :file "include/td/telegram/td_json_client.h")
+                                        (program "cc" :for "building telega-server" :xcode t))))
+                      ((symbol-function 'lispm-desktop-needs--brew-prefix) (lambda () root)))
+              (should (equal (lispm-desktop-app-telega--page-buttons)
+                             '(("Install TDLib…" lispm-desktop-app-telega-install)
+                               ("Check Again" lispm-desktop-app-telega-check-again)))))
+            (make-directory (expand-file-name "include/td/telegram" prefix) t)
+            (write-region "" nil (expand-file-name "include/td/telegram/td_json_client.h" prefix))
+            (make-directory (file-name-directory version-file) t)
+            (write-region "set(PACKAGE_VERSION \"1.8.0\")\n" nil version-file)
+            (should (equal (lispm-desktop-app-telega-tdlib-version prefix) "1.8.0"))
+            (should (eq (lispm-desktop-app-telega-missing) 'old-tdlib))
+            (write-region "set(PACKAGE_VERSION \"1.8.70\")\n" nil version-file)
+            (setq programs nil)
+            (should (eq (lispm-desktop-app-telega-missing) 'compiler))
+            (setq programs '("cc" "make"))
+            (should (eq (lispm-desktop-app-telega-missing) 'server))
+            (should (equal (lispm-desktop-app-telega--page-buttons)
+                           '(("Build telega-server" lispm-desktop-app-telega-build))))
+            (make-directory telega-directory t)
+            (write-region "" nil (expand-file-name "telega-server" telega-directory))
+            (should-not (lispm-desktop-app-telega-missing))
+            (delete-file (expand-file-name "telega-server" telega-directory))
+            (setq telega-use-docker t)
+            (should-not (lispm-desktop-app-telega-missing))))
+      (delete-directory root t))))
+
 (ert-deftest lispm-desktop-test-app-ui-every-application-described ()
   "Every application of the App Store's catalog is described where what is
 found out of it is not enough, each board's functions defined."
   (dolist (key '(tetris-mode snake-mode pong 5x5-mode gomoku-mode solitaire-mode blackbox-mode
                  mpuz-mode bubbles-mode life-mode hanoi dun-mode doctor-mode calc-mode calendar-mode
-                 elfeed-search-mode emms-browser-mode))
+                 elfeed-search-mode emms-browser-mode erc-mode slack-mode slack-buffer-mode
+                 telega-root-mode telega-chat-mode lispm-desktop-app-erc-list-mode
+                 lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode))
     (let ((skin (alist-get key lispm-desktop-app-ui-skins)))
       (should skin)
       (when-let* ((board (plist-get skin :board)))
@@ -7504,6 +7718,8 @@ not taken."
   (should-not (lispm-desktop-needs-valid-p '("mpv" :for "playing")))
   (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :instead "afplay")))
   (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :commands ("play"))))
+  (should (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head t)))
+  (should-not (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head "yes")))
   (should-not (lispm-desktop-store--item-valid-p
                '(emms :kind app :name "EMMS" :command emms :needs (("mpv"))))))
 
@@ -7540,7 +7756,9 @@ though its name on PATH is found: it is Apple's, offering the tools."
     (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
     (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
   (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
-                 "xcode-select --install")))
+                 "xcode-select --install"))
+  (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
+                 "brew install --HEAD tdlib")))
 
 (ert-deftest lispm-desktop-test-store-needs-from-the-catalog ()
   "An installed app needs what its catalog declares now, though it was
