@@ -136,7 +136,8 @@ The virtual folders are `lispm-desktop-finder-folders'."
         (if (file-exists-p (lispm-desktop-platinum-icon-file name)) name "document-32")))))
 
 (defvar lispm-desktop-finder--icons (make-hash-table :test #'equal)
-  "Large icon images by (NAME . SELECTED).")
+  "Large icon images by (FILE . SELECTED), kept by file, as another look
+draws an icon of the same name from another.")
 
 (defun lispm-desktop-finder--icon (name selected)
   "Return the large icon NAME as a string showing it, darkened when SELECTED."
@@ -144,14 +145,15 @@ The virtual folders are `lispm-desktop-finder-folders'."
       (propertize " " 'display `(space :width (,lispm-desktop-finder-icon-size)))
     (propertize
      " " 'display
-     (or (gethash (cons name selected) lispm-desktop-finder--icons)
-         (puthash (cons name selected)
-                  (let ((svg (with-temp-buffer
-                               (insert-file-contents (lispm-desktop-platinum-icon-file name))
-                               (buffer-string))))
-                    (create-image (if selected (lispm-desktop--darken svg) svg) 'svg t
-                                  :height lispm-desktop-finder-icon-size :ascent 'center))
-                  lispm-desktop-finder--icons)))))
+     (let ((file (lispm-desktop-platinum-icon-file name)))
+       (or (gethash (cons file selected) lispm-desktop-finder--icons)
+           (puthash (cons file selected)
+                    (let ((svg (with-temp-buffer
+                                 (insert-file-contents file)
+                                 (buffer-string))))
+                      (create-image (if selected (lispm-desktop--darken svg) svg) 'svg t
+                                    :height lispm-desktop-finder-icon-size :ascent 'center))
+                    lispm-desktop-finder--icons))))))
 
 ;;;; Drawing
 
@@ -695,8 +697,10 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
       (:label "Home" :action lispm-desktop-finder-home))))
 
 (defun lispm-desktop-setup-finder ()
-  "Note when the desktop's Finder window has the keyboard."
-  (add-hook 'window-selection-change-functions #'lispm-desktop-finder--note-selected))
+  "Note when the desktop's Finder window has the keyboard, and draw it
+again in another look."
+  (add-hook 'window-selection-change-functions #'lispm-desktop-finder--note-selected)
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-finder--render))
 
 (provide 'lispm-desktop-finder)
 ;;; lispm-desktop-finder.el ends here

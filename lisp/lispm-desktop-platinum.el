@@ -74,6 +74,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum-palette)
 (require 'lispm-desktop-platinum-draw)
 (require 'lispm-desktop-platinum-controls)
@@ -88,6 +89,12 @@
 
 (declare-function treemacs-load-theme "treemacs-themes" (name))
 
+
+(lispm-desktop-look-define
+ 'platinum
+ :title "Mac OS 9"
+ :description "Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars"
+ :theme 'platinum)
 
 (defcustom lispm-desktop-platinum-system-families
   '("Charcoal" "Charcoal CY" "ChicagoFLF" "Chicago" "Geneva" "Lucida Grande")
@@ -114,7 +121,7 @@ Mac OS 9's Finder listed files in Geneva."
   '("      #" "     ##" "    ###" "   ####" "  #####" " ######" "#######")
   "The glyph of a list's sort-direction button, a row of pixels a string.")
 
-(defun lispm-desktop-platinum-draw-list-header (palette columns &optional label-x)
+(cl-defgeneric lispm-desktop-platinum-draw-list-header (palette columns &optional label-x)
   "Return an SVG of a list's row of column headings, in PALETTE.
 COLUMNS lists (LABEL WIDTH SORTED [X]) from left to right; a
 sixteen-pixel sort-direction button ends the row.  Each heading is a
@@ -238,9 +245,14 @@ it, as on every theme change, is idempotent."
             lispm-desktop-platinum-generation (1+ lispm-desktop-platinum-generation))
       (let ((chrome (lispm-desktop-platinum-color :chrome))
             (header (lispm-desktop-platinum-color :header))
-            (system (and (display-graphic-p) (lispm-desktop-platinum--family lispm-desktop-platinum-system-families)))
+            (system (and (display-graphic-p)
+                         (lispm-desktop-platinum--family
+                          (lispm-desktop-look-families :system-families
+                                                       lispm-desktop-platinum-system-families))))
             (list-family (and (display-graphic-p)
-                              (lispm-desktop-platinum--family lispm-desktop-platinum-list-families))))
+                              (lispm-desktop-platinum--family
+                               (lispm-desktop-look-families :list-families
+                                                            lispm-desktop-platinum-list-families)))))
         (set-face-attribute 'tab-line nil
                             :inherit 'unspecified :background chrome :foreground text
                             :box nil :height 'unspecified)
@@ -344,7 +356,14 @@ it, as on every theme change, is idempotent."
         (set-face-attribute 'window-divider-first-pixel nil
                             :foreground (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xFF))
         (set-face-attribute 'window-divider-last-pixel nil
-                            :foreground (lispm-desktop-platinum-color :outline))))))
+                            :foreground (lispm-desktop-platinum-color :outline))
+        (lispm-desktop-platinum-apply-look-faces lispm-desktop-platinum-current-palette)))))
+
+(cl-defgeneric lispm-desktop-platinum-apply-look-faces (palette)
+  "Set the chrome's faces as the look draws them, once Platinum's are set,
+in PALETTE.  Platinum's are its own; another look sets those it draws
+otherwise, as Windows' flat placards and sunken fields."
+  (ignore palette))
 
 ;;;; Setup
 

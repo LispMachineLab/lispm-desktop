@@ -25,9 +25,14 @@ sidebar and the browser as one of its applications, and installs them at its fir
 
 * What you get
 
-The frame is laid out as Mac OS 9 laid out its desktop, in the forms of its Platinum appearance.
-Two appearances come with it, asked for at the first start and switched from the λ menu: Dracula,
-and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
+The frame is laid out as Mac OS 9 laid out its desktop, in the forms of a /look/: Mac OS 9's
+Platinum appearance by default, or Windows 3.2's (navy captions, the control-menu box, sizing
+borders, white menus), or OS/2 2.0's Workplace Shell (teal title bars over pale yellow borders,
+the window's own icon as its system menu, pale grey menus).  Control Panels' Appearance switches
+looks, and each brings its own colours.  Four colour themes come with it, asked for at the first
+start and switched from the λ menu: Dracula; Platinum, Mac OS 9's own greys with black on white
+and the Lavender accent; Windows 3.2's Windows Default scheme; and OS/2 2.0's.  Any theme draws
+any look.
 
 - *A desktop*, where Emacs starts, in the theme's colours tinted with its accent (Mac OS 8's
   blue-violet under Platinum), or a colour and a picture of your own (see [[*Your own
@@ -133,8 +138,9 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
 - *Control Panels*, as Mac OS 9's: the desktop's Control Panels folder opens a Finder window
   holding a panel each, and the λ menu's Control Panels lists them too.  A panel opens in a
   window floating over the desktop, titled with its name, its tabs choosing among the panels as
-  the Appearance control panel's did, each group of settings framed in a group box.  Appearance chooses the colour theme (Dracula, Platinum,
-  or any other installed); Desktop the desktop's colour, its picture and how the picture covers
+  the Appearance control panel's did, each group of settings framed in a group box.  Appearance chooses the look (Mac OS 9, Windows 3.2,
+  OS/2 2.0) and the colour theme (Dracula, Platinum, Windows 3.2, OS/2 2.0, or any other
+  installed); Desktop the desktop's colour, its picture and how the picture covers
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
   browser's home page and search address, its history and its bookmarks; Network the proxy every
   connection goes through (see [[*A proxy][A proxy]]); Sandbox how strictly the commands agents
@@ -552,8 +558,13 @@ Put them in =personal.el= next to =init.el= (git ignores it); it is loaded after
 set up, so it can change anything, and the appearance takes a new value at once:
 
 #+begin_src emacs-lisp
-;; The colour theme: dracula, platinum (Mac OS 9's greys), or any theme you
-;; have installed; the menu bar, title bars and lists take their colours from it.
+;; The look: platinum (Mac OS 9), win3 (Windows 3.2) or os2 (OS/2 2.0's
+;; Workplace Shell).
+(setq lispm-desktop-look 'platinum)
+
+;; The colour theme: dracula, platinum (Mac OS 9's greys), win3, os2, or any
+;; theme you have installed; the menu bar, title bars and lists take their
+;; colours from it.
 (setq lispm-desktop-theme 'platinum)
 
 ;; The desktop: a colour of its own, rather than the theme's tinted with its

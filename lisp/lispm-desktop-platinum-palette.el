@@ -35,6 +35,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-look)
 
 
 
@@ -47,8 +48,9 @@
   "Chrome colours a theme names outright, a plist.
 Keys are those of `lispm-desktop-platinum-derive-palette' (:chrome, :header,
 :light, :shade, :frame, :muted, :accent, :outline, :highlight, :thumb,
-:focus, :strip, ...); a colour left out is derived from the theme's
-faces.  Themes set it, as the platinum theme does; users rarely need to."
+:focus, :strip, :title, :border, :menu, ...); a colour left out is
+derived from the theme's faces.  Themes set it, as the platinum theme
+does; users rarely need to."
   :type '(plist :value-type color))
 
 ;;;; Palette
@@ -94,7 +96,13 @@ the accent.
 As Mac OS 9's variation colour was a ramp, so is the accent: menus are
 highlighted in it darkened, scroll thumbs are it lightened, and the
 keyboard focus is ringed in it.  The Control Strip has greys of its own,
-a little darker than the chrome; alerts are framed in a light red."
+a little darker than the chrome; alerts are framed in a light red.
+
+Other looks than Platinum draw a few more parts: active captions
+\(:title, :title-text) in the highlight, inactive ones (:title-inactive,
+:title-inactive-text) in the chrome, sizing borders (:border,
+:border-inactive) in the chrome, menus (:menu, :menu-text) on the
+document's ground."
   (let* ((chrome (lispm-desktop-platinum-blend content "#000000" 0.25))
          (light (lispm-desktop-platinum-blend chrome text 0.3))
          (outline (lispm-desktop-platinum-blend content "#000000" 0.85))
@@ -120,7 +128,18 @@ a little darker than the chrome; alerts are framed in a light red."
            :strip (lispm-desktop-platinum-grey palette #xC0)
            :strip-light (lispm-desktop-platinum-grey palette #xFF)
            :strip-shade (lispm-desktop-platinum-grey palette #xA0)
-           :strip-dark (lispm-desktop-platinum-grey palette #x80)))))
+           :strip-dark (lispm-desktop-platinum-grey palette #x80)
+           ;; What other looks draw: captions in the highlight, an
+           ;; inactive one in the chrome; sizing borders in the chrome;
+           ;; menus on the document's own ground.
+           :title highlight
+           :title-text (lispm-desktop-platinum-legible highlight text content)
+           :title-inactive chrome
+           :title-inactive-text (lispm-desktop-platinum-blend dim text 0.35)
+           :border chrome
+           :border-inactive chrome
+           :menu content
+           :menu-text text))))
 
 (defun lispm-desktop-platinum-grey (palette level)
   "Return the colour of PALETTE standing where Platinum's grey LEVEL stands.

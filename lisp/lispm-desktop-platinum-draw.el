@@ -203,7 +203,7 @@ lit line down the bar's left end, TRAIL the shaded one down its right."
 O is the outline, L, F and D the light, face and dark of the variation
 colour, S and s the shadow falling to the lower right.")
 
-(defun lispm-desktop-platinum-draw-triangle (palette open)
+(cl-defgeneric lispm-desktop-platinum-draw-triangle (palette open)
   "Return an SVG of a list's disclosure triangle in PALETTE.
 OPEN points it down, at a disclosed group; otherwise it points right.
 It is drawn as Mac OS 9 drew it: outlined, in the variation colour lit

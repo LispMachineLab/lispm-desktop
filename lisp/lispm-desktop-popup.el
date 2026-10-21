@@ -351,7 +351,7 @@ TOPS lists each item's top in pixels; HEIGHT is the menu's."
                      (lispm-desktop-popup--item-height)))))
     (cons (nreverse tops) y)))
 
-(defun lispm-desktop-popup-draw-menu (palette items width highlight)
+(cl-defgeneric lispm-desktop-popup-draw-menu (palette items width highlight)
   "Return an SVG of a menu WIDTH pixels wide listing ITEMS, in PALETTE.
 It is drawn as Mac OS 9 drew its menus, inside the outline the menu's
 frame draws: lit along its top and left, shaded along its bottom and
@@ -927,9 +927,10 @@ Lines break between words; a word wider than WIDTH stands alone."
           (setq line word))))
     (nreverse (if line (cons line lines) lines))))
 
-(defun lispm-desktop-popup--alert-layout (message detail buttons)
+(cl-defgeneric lispm-desktop-popup--alert-layout (message detail buttons)
   "Return where an alert of MESSAGE, DETAIL and BUTTONS draws its parts.
-The value is a plist: :height of the alert inside its outline,
+The value is a plist: :height of the alert inside its outline, and its
+:width where it is not `lispm-desktop-popup-alert-width',
 :message and :detail as lists of lines, and :buttons as (LABEL VALUE
 ROLE X Y WIDTH).  Laid out as Mac OS 9 laid out its alerts: the caution,
 stop or note icon at the top left, the message to its right in the
@@ -973,7 +974,7 @@ before Cancel, standing apart at the left, under the message."
                                                                (lambda (b value) (equal (nth 1 b) value))))
                                 #'< placed))))
 
-(defun lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused)
+(cl-defgeneric lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused)
   "Return an SVG of an alert of ICON, MESSAGE, DETAIL and BUTTONS, in PALETTE.
 It is drawn as Mac OS 9 drew its alerts, inside the outline the alert's
 frame draws: a light red ring lit along the top and left and darker along
@@ -1040,10 +1041,11 @@ selected frame, as Mac OS 9's alerts did, outlined and casting a black
 shadow.  Return its frame; nothing is read from the user."
   (let* ((parent (selected-frame))
          (popup (lispm-desktop-popup-make-frame parent))
-         (layout (lispm-desktop-popup--alert-layout message detail buttons)))
+         (layout (lispm-desktop-popup--alert-layout message detail buttons))
+         (width (or (plist-get layout :width) lispm-desktop-popup-alert-width)))
     (lispm-desktop-popup--draw-alert popup icon message detail buttons nil nil)
-    (lispm-desktop-popup-set-size popup lispm-desktop-popup-alert-width (plist-get layout :height))
-    (lispm-desktop-popup-show popup (/ (- (frame-pixel-width parent) lispm-desktop-popup-alert-width) 2)
+    (lispm-desktop-popup-set-size popup width (plist-get layout :height))
+    (lispm-desktop-popup-show popup (/ (- (frame-pixel-width parent) width) 2)
                                (/ (frame-pixel-height parent) 5)
                                'alert)
     popup))

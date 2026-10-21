@@ -365,13 +365,26 @@ indent of a row of settings."
       (lispm-desktop-set-theme (intern theme)))))
 
 (defun lispm-desktop-settings--themes ()
-  "Insert the Themes panel: the colour theme."
+  "Insert the Themes panel: the look, and the colour theme."
+  (lispm-desktop-settings--heading "Look")
+  (pcase-dolist (`(,look . ,properties) lispm-desktop-looks)
+    (lispm-desktop-settings--radio (lispm-desktop-look-title look) (eq lispm-desktop-look look)
+                                   (lambda () (lispm-desktop-set-look look))
+                                   (plist-get properties :description)))
+  (insert "\n")
+  (lispm-desktop-settings--note "Choosing a look takes its own colours with it, unless you chose")
+  (lispm-desktop-settings--note "a theme of your own.")
+  (insert "\n")
   (lispm-desktop-settings--heading "Theme")
   (lispm-desktop-settings--radio "Dracula" (eq lispm-desktop-theme 'dracula)
                                  (lambda () (lispm-desktop-set-theme 'dracula)) "dark, Dracula's colours")
   (lispm-desktop-settings--radio "Platinum" (eq lispm-desktop-theme 'platinum)
                                  (lambda () (lispm-desktop-set-theme 'platinum)) "Mac OS 9's greys")
-  (when (and lispm-desktop-theme (not (memq lispm-desktop-theme '(dracula platinum))))
+  (lispm-desktop-settings--radio "Windows 3.2" (eq lispm-desktop-theme 'win3)
+                                 (lambda () (lispm-desktop-set-theme 'win3)) "navy and VGA grey")
+  (lispm-desktop-settings--radio "OS/2 2.0" (eq lispm-desktop-theme 'os2)
+                                 (lambda () (lispm-desktop-set-theme 'os2)) "teal, pale yellow, pale grey")
+  (when (and lispm-desktop-theme (not (memq lispm-desktop-theme '(dracula platinum win3 os2))))
     (lispm-desktop-settings--radio (capitalize (symbol-name lispm-desktop-theme)) t #'ignore))
   (insert lispm-desktop-settings--indent)
   (lispm-desktop-settings--button "Other Theme…" #'lispm-desktop-settings--other-theme

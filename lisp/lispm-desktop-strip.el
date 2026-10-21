@@ -127,12 +127,18 @@ Dragging its tab sets it, for the next start too."
         :action (lambda () (lispm-desktop-settings-show panel))))
 
 (defun lispm-desktop-strip--appearance-items ()
-  "Return the Appearance module's menu: the themes, and the panel."
-  `(,@(mapcar (lambda (theme)
+  "Return the Appearance module's menu: the looks, the themes, and the panel."
+  `(,@(mapcar (lambda (look)
+                (list :label (lispm-desktop-look-title (car look))
+                      :checked (eq lispm-desktop-look (car look))
+                      :action (lambda () (lispm-desktop-set-look (car look)))))
+              lispm-desktop-looks)
+    separator
+    ,@(mapcar (lambda (theme)
                 (list :label (capitalize (symbol-name theme))
                       :checked (eq lispm-desktop-theme theme)
                       :action (lambda () (lispm-desktop-set-theme theme))))
-              (delete-dups (delq nil (list 'dracula 'platinum lispm-desktop-theme))))
+              (delete-dups (delq nil (list 'dracula 'platinum 'win3 'os2 lispm-desktop-theme))))
     (:label "Other Theme…" :action lispm-desktop-settings--other-theme)
     separator
     ,(lispm-desktop-strip--panel-item 'themes)))

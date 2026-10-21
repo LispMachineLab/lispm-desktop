@@ -1179,7 +1179,7 @@ screen; a decorated frame, or one of another window system, it does not."
 resizes its frame from the corners; then they come of where the bar runs
 in the frame, its right end before the window's divider and scroll bar."
   (let ((margin lispm-desktop-platinum-box-margin))
-    (should (equal (lispm-desktop-platinum--window-box-margins (selected-window))
+    (should (equal (lispm-desktop-platinum-window-box-margins (selected-window))
                    (cons margin margin)))
     (cl-letf (((symbol-function 'lispm-desktop-platinum--resized-from-corners-p) #'always)
               ((symbol-function 'frame-native-width) (lambda (&optional _) 410))
@@ -1189,7 +1189,7 @@ in the frame, its right end before the window's divider and scroll bar."
               ((symbol-function 'window-scroll-bar-width) (lambda (&optional _) 6)))
       ;; The bar ends ten pixels in from the frame's right, past where
       ;; the corner reaches less Mac OS 9's margin.
-      (should (equal (lispm-desktop-platinum--window-box-margins (selected-window))
+      (should (equal (lispm-desktop-platinum-window-box-margins (selected-window))
                      (cons 12 margin))))))
 
 (defun lispm-desktop-test--bar-pieces (bar)
@@ -1290,12 +1290,12 @@ glyphs; the bar is lit along its top, shaded along its bottom."
   "A lone window zooms but cannot roll up; a side window only closes."
   (save-window-excursion
     (delete-other-windows)
-    (should (equal (lispm-desktop-platinum--window-controls (selected-window)) '(on on nil)))
+    (should (equal (lispm-desktop-platinum-window-controls (selected-window)) '(on on nil)))
     (let ((below (split-window-below)))
-      (should (equal (lispm-desktop-platinum--window-controls below) '(on on on))))
+      (should (equal (lispm-desktop-platinum-window-controls below) '(on on on))))
     (let ((side (display-buffer-in-side-window (get-buffer-create " lispm-desktop-test-side")
                                                '((side . left)))))
-      (should (equal (lispm-desktop-platinum--window-controls side) '(on nil nil))))))
+      (should (equal (lispm-desktop-platinum-window-controls side) '(on nil nil))))))
 
 (ert-deftest lispm-desktop-test-chrome-controls ()
   "Chrome, such as the browser's address window, only closes, and its close
@@ -1305,7 +1305,7 @@ box runs the buffer's own close function."
     (let ((chrome (split-window-below))
           (closed nil))
       (set-window-parameter chrome 'lispm-desktop-chrome t)
-      (should (equal (lispm-desktop-platinum--window-controls chrome) '(on nil nil)))
+      (should (equal (lispm-desktop-platinum-window-controls chrome) '(on nil nil)))
       (with-temp-buffer
         (setq-local lispm-desktop-platinum-box-functions (list :close (lambda (window) (setq closed window))))
         (set-window-buffer chrome (current-buffer))
@@ -3889,9 +3889,9 @@ the button ringed; a button's own keys press it."
 (ert-deftest lispm-desktop-test-title-bar-clicks ()
   "A title bar brings its window forward, rolls up on a double click, and
 pops up its buffers on a Meta click."
-  (should (keymap-lookup lispm-desktop-platinum--title-map "<tab-line> <mouse-1>"))
-  (should (keymap-lookup lispm-desktop-platinum--title-map "<tab-line> <double-mouse-1>"))
-  (should (keymap-lookup lispm-desktop-platinum--title-map "<tab-line> M-<mouse-1>")))
+  (should (keymap-lookup lispm-desktop-platinum-title-map "<tab-line> <mouse-1>"))
+  (should (keymap-lookup lispm-desktop-platinum-title-map "<tab-line> <double-mouse-1>"))
+  (should (keymap-lookup lispm-desktop-platinum-title-map "<tab-line> M-<mouse-1>")))
 
 (ert-deftest lispm-desktop-test-shade-or-zoom ()
   "A window alone in its column zooms; one sharing it rolls up."
@@ -5347,7 +5347,7 @@ idle, when its label there changes; progress alone does not."
          (bar (lispm-desktop-platinum-draw-title-bar 600 t nil "codex" nil '(on on nil) nil
                                                       (propertize "needs approval" 'face '(:foreground "#CE3131"))))
          (title (seq-find (lambda (position)
-                            (equal (get-text-property position 'keymap bar) lispm-desktop-platinum--title-map))
+                            (equal (get-text-property position 'keymap bar) lispm-desktop-platinum-title-map))
                           (number-sequence 0 (1- (length bar)))))
          (data (plist-get (cdr (get-text-property title 'display bar)) :data))
          (svg (with-temp-buffer (insert data) (libxml-parse-xml-region (point-min) (point-max))))
@@ -9734,6 +9734,197 @@ items, each turned on or off by its check box, and adds and removes them."
           (should (equal (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)
                          '("ollama" "Site")))
           (should (= (length saved) 3)))))))
+
+;;;; Looks
+
+(defun lispm-desktop-test--theme-palette (theme)
+  "Return the palette THEME gives, one of the themes of themes/."
+  (let ((custom-theme-load-path (cons (expand-file-name "themes/" lispm-desktop-directory)
+                                      custom-theme-load-path)))
+    (unwind-protect
+        (progn
+          (load-theme theme t)
+          (lispm-desktop-platinum--merge-palette
+           (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000" "#808080" "#000080")
+           lispm-desktop-platinum-colors))
+      (disable-theme theme))))
+
+(ert-deftest lispm-desktop-test-looks-defined ()
+  "Mac OS 9, Windows 3.2 and OS/2 2.0 are looks, each with its own theme."
+  (dolist (look '(platinum win3 os2))
+    (should (assq look lispm-desktop-looks))
+    (should (lispm-desktop-look-title look))
+    (let ((theme (lispm-desktop-look-get :theme look)))
+      (should (file-readable-p (expand-file-name (format "themes/%s-theme.el" theme)
+                                                 lispm-desktop-directory)))))
+  (should (equal (lispm-desktop-look-title 'win3) "Windows 3.2"))
+  (should (eq (default-value 'lispm-desktop-look) 'platinum)))
+
+(ert-deftest lispm-desktop-test-look-themes-name-their-colours ()
+  "The win3 and os2 themes name what their looks draw: captions, borders
+and menus in their systems' own colours."
+  (let ((win3 (lispm-desktop-test--theme-palette 'win3))
+        (os2 (lispm-desktop-test--theme-palette 'os2)))
+    (should (equal (plist-get win3 :title) "#000080"))
+    (should (equal (plist-get win3 :title-inactive) "#FFFFFF"))
+    (should (equal (plist-get win3 :menu) "#FFFFFF"))
+    (should (equal (plist-get win3 :chrome) "#C0C0C0"))
+    (should (equal (plist-get os2 :title) "#408080"))
+    (should (equal (plist-get os2 :border) "#FFFF80"))
+    (should (equal (plist-get os2 :menu) "#CCCCCC"))))
+
+(ert-deftest lispm-desktop-test-look-palette-derives-the-new-parts ()
+  "A theme naming no caption, border or menu colours still gives every
+look its parts: captions in the highlight, borders in the chrome, menus
+on the document's ground."
+  (let ((palette (lispm-desktop-test--dracula-palette)))
+    (should (equal (plist-get palette :title) (plist-get palette :highlight)))
+    (should (equal (plist-get palette :border) (plist-get palette :chrome)))
+    (should (equal (plist-get palette :menu) (plist-get palette :content)))
+    (should (plist-get palette :title-text))))
+
+(ert-deftest lispm-desktop-test-look-draws-its-own-forms ()
+  "The drawing functions draw the look chosen: a window's frame, the grow
+box and a push button differ from look to look, at the same size."
+  (let ((palette (lispm-desktop-test--theme-palette 'win3))
+        (frames nil))
+    (dolist (look '(platinum win3 os2))
+      (let* ((lispm-desktop-look look)
+             (frame (lispm-desktop-platinum-draw-window-frame palette 120 80 :active t))
+             (grow (lispm-desktop-platinum-draw-grow-box palette 22)))
+        (should (equal (dom-attr frame 'width) 120))
+        (should (equal (dom-attr frame 'height) 80))
+        (should (equal (dom-attr grow 'width) 16))
+        (push (format "%S" frame) frames)))
+    (should (= (length (delete-dups frames)) 3))
+    ;; Windows 3.2's sizing border: black outline, grey band, black line.
+    (let* ((lispm-desktop-look 'win3)
+           (frame (lispm-desktop-platinum-draw-window-frame palette 120 80 :active t)))
+      (should (equal (lispm-desktop-test--pixel frame 0 40) "#000000"))
+      (should (equal (lispm-desktop-test--pixel frame 2 40) "#C0C0C0"))
+      (should (equal (lispm-desktop-test--pixel frame 5 40) "#000000")))))
+
+(ert-deftest lispm-desktop-test-look-title-layout ()
+  "Windows 3.2 and OS/2 2.0 put a title bar's boxes at its very ends: the
+system menu at the left, minimize and maximize at the right, the title
+centred between them."
+  (dolist (look '(win3 os2))
+    (let* ((lispm-desktop-look look)
+           (layout (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(3 . 3)))
+           (button (if (eq look 'win3) 19 18)))
+      (should (= (plist-get layout :start) button))
+      (should (= (plist-get layout :end) (- 300 button button)))
+      (should (= (plist-get layout :label-x)
+                 (+ button (/ (- 300 button button button 100) 2))))
+      ;; Clear of the corners the window system resizes from.
+      (should (= (plist-get (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(12 . 12)) :start)
+                 (+ 12 button))))))
+
+(ert-deftest lispm-desktop-test-look-title-bar-keeps-the-boxes ()
+  "Windows 3.2's caption keeps the boxes' targets, so pressing the
+control-menu box, minimize or maximize acts as Platinum's boxes do."
+  (let* ((lispm-desktop-look 'win3)
+         (lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette 'win3))
+         (bar (lispm-desktop-platinum-draw-title-bar 300 t nil "Notes" nil '(on on on)))
+         (targets (delete-dups (delq nil (mapcar (lambda (i) (get-text-property i 'lispm-desktop-platinum-target bar))
+                                                 (number-sequence 0 (1- (length bar))))))))
+    (should (equal targets '(close collapse zoom)))
+    (should (seq-some (lambda (i) (eq (get-text-property i 'keymap bar) lispm-desktop-platinum-title-map))
+                      (number-sequence 0 (1- (length bar)))))))
+
+(ert-deftest lispm-desktop-test-look-theme-follows ()
+  "Switching looks switches to the new look's theme while the theme in use
+is the old look's own, and keeps any other theme."
+  (let ((lispm-desktop-theme 'platinum))
+    (should (eq (lispm-desktop-look-theme-to-follow 'platinum 'win3) 'win3)))
+  (let ((lispm-desktop-theme 'win3))
+    (should (eq (lispm-desktop-look-theme-to-follow 'win3 'os2) 'os2)))
+  (let ((lispm-desktop-theme 'dracula))
+    (should-not (lispm-desktop-look-theme-to-follow 'platinum 'win3)))
+  (let ((lispm-desktop-theme nil))
+    (should (eq (lispm-desktop-look-theme-to-follow 'platinum 'os2) 'os2))))
+
+(ert-deftest lispm-desktop-test-look-set-saves-and-draws ()
+  "`lispm-desktop-set-look' saves the look and draws it, its theme
+following, without the watcher drawing it a second time."
+  (let ((lispm-desktop-look 'platinum)
+        (lispm-desktop-theme 'platinum)
+        (lispm-desktop--set-up t)
+        (saved nil) (themes nil) (redrawn 0))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (push (cons variable value) saved) (set variable value)))
+              ((symbol-function 'lispm-desktop-set-theme) (lambda (theme) (push theme themes)))
+              ((symbol-function 'lispm-desktop-look-redraw) (lambda () (cl-incf redrawn)))
+              ((symbol-function 'run-at-time) (lambda (&rest _) (error "Drawn twice"))))
+      (lispm-desktop-set-look 'win3)
+      (should (equal saved '((lispm-desktop-look . win3))))
+      (should (equal themes '(win3)))
+      (setq lispm-desktop-theme 'dracula)
+      (lispm-desktop-set-look 'os2)
+      (should (equal themes '(win3)))
+      (should (= redrawn 1))
+      (should-error (lispm-desktop-set-look 'beos) :type 'user-error))))
+
+(ert-deftest lispm-desktop-test-look-icons ()
+  "A look's own icons take the place of Mac OS 9's; those it draws none
+of stay Mac OS 9's."
+  (let ((lispm-desktop-look 'os2))
+    (should (string-match-p "/icons/os2/trash-32\\.svg\\'" (lispm-desktop-platinum-icon-file "trash-32")))
+    (should (string-match-p "/icons/os9/netscape\\.svg\\'" (lispm-desktop-platinum-icon-file "netscape"))))
+  (let ((lispm-desktop-look 'platinum))
+    (should (string-match-p "/icons/os9/trash-32\\.svg\\'" (lispm-desktop-platinum-icon-file "trash-32"))))
+  (dolist (look '(win3 os2))
+    (dolist (file (directory-files (expand-file-name (format "icons/%s" look) lispm-desktop-directory) t "\\.svg\\'"))
+      (should (file-exists-p (expand-file-name (concat "icons/os9/" (file-name-nondirectory file))
+                                               lispm-desktop-directory))))))
+
+(ert-deftest lispm-desktop-test-look-scroll-bars ()
+  "Windows 3.2 and OS/2 2.0 put a scroll bar's arrows at its two ends, the
+thumb on the track between; Windows' thumb is a square."
+  (dolist (look '(win3 os2))
+    (let* ((lispm-desktop-look look)
+           (layout (lispm-desktop-platinum-scroll-layout 200)))
+      (should (= (plist-get layout :up) 0))
+      (should (= (plist-get layout :down) (- 200 (plist-get layout :arrow))))
+      (should (= (+ (plist-get layout :track) (plist-get layout :track-length)) (plist-get layout :down)))
+      (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb 200 1 101 1 1001)))
+        (should (= top (plist-get layout :track)))
+        (when (eq look 'win3) (should (= length lispm-desktop-platinum-scroll-width))))
+      (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb 200 901 1001 1 1001)))
+        (should (= (+ top length) (plist-get layout :down))))
+      (should-not (lispm-desktop-platinum-scroll-thumb 200 1 1001 1 1001))))
+  (let ((lispm-desktop-look 'platinum))
+    (should (= (plist-get (lispm-desktop-platinum-scroll-layout 200) :track) 0))))
+
+(ert-deftest lispm-desktop-test-look-alert-layout ()
+  "Windows 3.2's message box puts the default button first and Cancel last,
+centred along its bottom, under a caption."
+  (let* ((lispm-desktop-look 'win3)
+         (layout (lispm-desktop-popup--alert-layout
+                  "Save changes?" nil '(("Don’t Save" discard nil) ("Cancel" cancel cancel)
+                                        ("Save" save default))))
+         (buttons (plist-get layout :buttons))
+         (x (lambda (value) (nth 3 (seq-find (lambda (b) (eq (nth 1 b) value)) buttons)))))
+    (should (= (plist-get layout :width) lispm-desktop-look-alert-width))
+    (should (< (funcall x 'save) (funcall x 'discard) (funcall x 'cancel)))
+    (should (equal (mapcar #'cadr buttons) '(discard cancel save)))
+    (let* ((last (seq-find (lambda (b) (eq (nth 1 b) 'cancel)) buttons))
+           (right (- (plist-get layout :width) (+ (nth 3 last) (nth 5 last)))))
+      (should (<= (abs (- right (funcall x 'save))) 1)))))
+
+(ert-deftest lispm-desktop-test-look-menus-and-alerts-draw ()
+  "Every look draws a menu and an alert at the size laid out for it."
+  (dolist (look '(platinum win3 os2))
+    (let* ((lispm-desktop-look look)
+           (palette (lispm-desktop-test--theme-palette (lispm-desktop-look-get :theme look)))
+           (items (list (list :label "Open" :action #'ignore) 'separator (list :label "Quit")))
+           (menu (lispm-desktop-popup-draw-menu palette items 120 0))
+           (layout (lispm-desktop-popup--alert-layout "Quit?" nil '(("Cancel" cancel cancel) ("Quit" quit default))))
+           (alert (lispm-desktop-popup-draw-alert palette 'caution "Quit?" nil
+                                                  '(("Cancel" cancel cancel) ("Quit" quit default)) nil nil)))
+      (should (equal (dom-attr menu 'height) (cdr (lispm-desktop-popup--rows items))))
+      (should (equal (dom-attr alert 'height) (plist-get layout :height)))
+      (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-desktop-popup-alert-width))))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

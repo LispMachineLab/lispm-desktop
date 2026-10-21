@@ -308,35 +308,38 @@ text terminal shows names only roughly."
    svg t t))
 
 (defvar lispm-desktop--svg-icons (make-hash-table :test #'equal)
-  "Icons ready to nest, by (NAME . SELECTED): (ROOT-ATTRIBUTES . CONTENT).")
+  "Icons ready to nest, by (FILE . SELECTED): (ROOT-ATTRIBUTES . CONTENT).
+Kept by file, as another look draws an icon of the same name from
+another.")
 
 (defun lispm-desktop--icon-parts (name selected)
   "Return icon NAME, darkened when SELECTED, ready to nest in the desktop.
 The value is (ATTRIBUTES . CONTENT): what its root element declares that
 its content needs (its view box, namespaces, rendering) and the content."
-  (or (gethash (cons name selected) lispm-desktop--svg-icons)
-      (puthash
-       (cons name selected)
-       (let* ((text (with-temp-buffer
-                      (insert-file-contents (lispm-desktop-platinum-icon-file name))
-                      (buffer-string)))
-              (text (if selected (lispm-desktop--darken text) text))
-              (start (string-match "<svg\\b[^>]*>" text))
-              (root (match-string 0 text))
-              (end (string-match "</svg>[[:space:]]*\\'" text))
-              (box (if (string-match "viewBox=\"\\([^\"]*\\)\"" root)
-                       (match-string 1 root)
-                     (format "0 0 %s %s"
-                             (if (string-match "width=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)
-                             (if (string-match "height=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)))))
-         (cons (concat (format "viewBox=\"%s\"" box)
-                       (let ((pos 0) (kept ""))
-                         (while (string-match "\\(xmlns:[A-Za-z]+\\|shape-rendering\\)=\"[^\"]*\"" root pos)
-                           (setq kept (concat kept " " (match-string 0 root))
-                                 pos (match-end 0)))
-                         kept))
-               (substring text (+ start (length root)) end)))
-       lispm-desktop--svg-icons)))
+  (let ((file (lispm-desktop-platinum-icon-file name)))
+    (or (gethash (cons file selected) lispm-desktop--svg-icons)
+        (puthash
+         (cons file selected)
+         (let* ((text (with-temp-buffer
+                        (insert-file-contents file)
+                        (buffer-string)))
+                (text (if selected (lispm-desktop--darken text) text))
+                (start (string-match "<svg\\b[^>]*>" text))
+                (root (match-string 0 text))
+                (end (string-match "</svg>[[:space:]]*\\'" text))
+                (box (if (string-match "viewBox=\"\\([^\"]*\\)\"" root)
+                         (match-string 1 root)
+                       (format "0 0 %s %s"
+                               (if (string-match "width=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)
+                               (if (string-match "height=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)))))
+           (cons (concat (format "viewBox=\"%s\"" box)
+                         (let ((pos 0) (kept ""))
+                           (while (string-match "\\(xmlns:[A-Za-z]+\\|shape-rendering\\)=\"[^\"]*\"" root pos)
+                             (setq kept (concat kept " " (match-string 0 root))
+                                   pos (match-end 0)))
+                           kept))
+                 (substring text (+ start (length root)) end)))
+         lispm-desktop--svg-icons))))
 
 (defun lispm-desktop--nest (name selected x y)
   "Return icon NAME, darkened when SELECTED, as SVG standing at X, Y."
@@ -567,7 +570,7 @@ first cells of the column no put icon covers."
         (append (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items)
                 (reverse (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items))))))))
 
-(defun lispm-desktop--draw-icon (spec x y selected label-width family size ascent)
+(cl-defgeneric lispm-desktop--draw-icon (spec x y selected label-width family size ascent)
   "Return SVG of the icon SPEC with its name, its cell's top left at X, Y,
 darkened and its name inverted when SELECTED.  LABEL-WIDTH, FAMILY, SIZE
 and ASCENT measure and set its name."
