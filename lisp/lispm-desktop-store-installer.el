@@ -37,7 +37,9 @@
 ;;
 ;; JOB sets what the App Store's Emacs installs packages with, as
 ;; `package-user-dir' and `package-archives', then calls
-;; `lispm-desktop-store-installer-run'.  It says how far it is on its
+;; `lispm-desktop-store-installer-run' to install a package, to check
+;; one from git out at another commit, or to upgrade one from the
+;; package archives.  It says how far it is on its
 ;; standard output, a line each beginning with
 ;; `lispm-desktop-store-installer-tag':
 ;;
@@ -284,6 +286,18 @@ nothing, and keep no customization, which the App Store's Emacs keeps."
   (advice-add 'package--compile :around #'lispm-desktop-store-installer--compile)
   (advice-add 'byte-compile-file :after #'lispm-desktop-store-installer--compiled))
 
+(defun lispm-desktop-store-installer--upgrade (name)
+  "Install the package archives' newest NAME beside the one installed, then
+delete that one; return the new version.  One that fails, or is stopped,
+leaves the one installed as it was."
+  (let ((old (cadr (assq name package-alist)))
+        (new (or (cadr (assq name package-archive-contents))
+                 (error "The package archives hold no %s" name))))
+    (package-install new 'dont-select)
+    (when (and old (not (equal (package-desc-version old) (package-desc-version new))))
+      (package-delete old 'force 'dont-unselect))
+    (package-version-join (package-desc-version new))))
+
 (defun lispm-desktop-store-installer--update (name rev former)
   "Check the package NAME out at commit REV and build it again; return REV.
 When that fails, it is checked out at FORMER again."
@@ -298,8 +312,9 @@ When that fails, it is checked out at FORMER again."
 
 (defun lispm-desktop-store-installer-run (job)
   "Do JOB for the App Store, in this Emacs run in batch, then exit.
-JOB is (install PACKAGE), PACKAGE an item's :package, or (update NAME
-REV FORMER), the package NAME from git to go from commit FORMER to REV.
+JOB is (install PACKAGE), PACKAGE an item's :package; (update NAME REV
+FORMER), the package NAME from git to go from commit FORMER to REV; or
+\(upgrade NAME), the package NAME to the package archives' newest.
 How far it is is said on the standard output; Emacs exits with 0 once
 done, else with 1."
   (lispm-desktop-store-installer--prepare)
@@ -315,6 +330,9 @@ done, else with 1."
                          (`(update ,name ,rev ,former)
                           (package-initialize t)
                           (lispm-desktop-store-installer--update name rev former))
+                         (`(upgrade ,name)
+                          (package-initialize t)
+                          (lispm-desktop-store-installer--upgrade name))
                          (_ (error "No such job: %S" job)))))
         (lispm-desktop-store-installer--say 'done installed)
         (kill-emacs 0))

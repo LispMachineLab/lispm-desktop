@@ -4328,6 +4328,278 @@ when none is given; with one, the choice is saved."
           (funcall press "HTTP")
           (should (equal (car saved) '(lispm-desktop-proxy-type . http))))))))
 
+;; LispM Agent's sandbox, which the tests do not load.
+(defvar lispm-sandbox-level)
+(defvar lispm-sandbox-levels)
+(defvar lispm-sandbox-allowed-domains)
+(defvar lispm-sandbox-srt-program)
+(defvar lispm-sandbox-srt-version)
+(defvar lispm-sandbox-change-hook)
+(defvar lispm-sandbox-custom)
+
+(defmacro lispm-desktop-test--with-sandbox (&rest body)
+  "Run BODY with a stand-in for LispM Agent's sandbox, at level none.
+Its levels are those of LispM Agent 0.3.0; BODY adds Custom to
+`lispm-sandbox-levels' for those of 0.4.0.  BODY can set `status', what
+`lispm-sandbox-srt-status' answers, nil at first; `chosen' lists the
+levels set, with whether they were saved, the last first.  Installing
+srt makes the status `installing'.  Custom's rules may not have the key
+:wrong."
+  (declare (indent 0))
+  `(let ((lispm-sandbox-levels '((none . "no sandbox")
+                                 (low . "reads all but secrets; reaches package registries")
+                                 (middle . "reaches only allowed domains")
+                                 (high . "reads only the project; no network")))
+         (lispm-sandbox-level 'none)
+         (lispm-sandbox-allowed-domains nil)
+         (lispm-sandbox-custom nil)
+         (lispm-sandbox-srt-program nil)
+         (lispm-sandbox-srt-version "0.0.81")
+         (lispm-sandbox-change-hook nil)
+         (status nil)
+         (chosen nil))
+     (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
+               ((symbol-function 'lispm-sandbox-level-name) (lambda (level) (capitalize (symbol-name level))))
+               ((symbol-function 'lispm-sandbox-srt-status) (lambda () status))
+               ((symbol-function 'lispm-sandbox-install) (lambda () (setq status 'installing)))
+               ((symbol-function 'lispm-sandbox-set-level)
+                (lambda (level &optional save)
+                  (push (list level save) chosen)
+                  (setq lispm-sandbox-level level)
+                  (run-hooks 'lispm-sandbox-change-hook)))
+               ((symbol-function 'lispm-sandbox-rules)
+                (lambda (&optional level)
+                  (pcase (or level lispm-sandbox-level)
+                    ('low (list :deny-read '("~/.ssh") :allow-write '(".") :allowed-domains '("github.com")))
+                    ('middle (list :deny-read '("~/.ssh") :allow-write '(".")))
+                    ('high (list :deny-read '("~") :allow-read '(".") :allow-write '(".")))
+                    ('custom (or lispm-sandbox-custom (lispm-sandbox-rules 'middle))))))
+               ((symbol-function 'lispm-sandbox-settings)
+                (lambda (&optional _)
+                  (when (plist-member lispm-sandbox-custom :wrong)
+                    (error "Sandbox unavailable: :wrong is no sandbox rule")))))
+       ,@body)))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-with-lispm-agent ()
+  "The Sandbox panel shows, after Network, once LispM Agent's sandbox is
+loaded, and not before."
+  (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore))
+    (should-not (assq 'sandbox (lispm-desktop-settings--panels))))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always))
+    (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
+      (should (equal (cadr (memq 'network keys)) 'sandbox))))
+  (should (file-readable-p (lispm-desktop-platinum-icon-file "sandbox-32"))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-srt ()
+  "The Sandbox panel says whether srt is installed, being installed, or why
+it cannot be had, and that commands fail meanwhile at a level other than
+None."
+  (lispm-desktop-test--with-sandbox
+    (should (equal (lispm-desktop-settings--sandbox-srt 'ready)
+                   '("srt 0.0.81, Anthropic's sandbox runtime, is installed.")))
+    (should (equal (lispm-desktop-settings--sandbox-srt nil)
+                   '("Any level but None installs srt, Anthropic's sandbox runtime, with npm first.")))
+    (setq lispm-sandbox-level 'middle)
+    (should (equal (lispm-desktop-settings--sandbox-srt 'installing)
+                   '("Installing srt 0.0.81, Anthropic's sandbox runtime, with npm…"
+                     "Until it runs, agents' commands fail rather than run unconfined.")))
+    (should (equal (car (lispm-desktop-settings--sandbox-srt
+                         '(failed . "srt could not be installed: npm error network unreachable.\n")))
+                   "Sandbox unavailable: srt could not be installed: npm error network unreachable."))
+    (let ((lispm-sandbox-srt-program "/opt/srt/bin/srt"))
+      (should (equal (lispm-desktop-settings--sandbox-srt 'ready)
+                     '("srt, Anthropic's sandbox runtime, runs from /opt/srt/bin/srt."))))))
+
+(ert-deftest lispm-desktop-test-settings-wrap ()
+  "A remark wraps between words to the pane; a word wider than the pane is
+cut short, an ellipsis ending it."
+  (let ((width (lispm-desktop-platinum-content-width "aaaa bbbb" 'shadow)))
+    (should (equal (lispm-desktop-settings--wrap "aaaa bbbb cccc  dd\n" width) '("aaaa bbbb" "cccc dd")))
+    (pcase-let ((`(,first ,long ,last) (lispm-desktop-settings--wrap
+                                        (concat "aaaa " (make-string 40 ?x) " dd") width)))
+      (should (equal (list first last) '("aaaa" "dd")))
+      (should (string-suffix-p "…" long))
+      (should (<= (lispm-desktop-platinum-content-width long 'shadow) width)))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-domains ()
+  "The domains sandboxed commands may reach are kept as typed, separated by
+commas; one srt cannot allow is refused, and nothing is kept."
+  (lispm-desktop-test--with-sandbox
+    (let ((saved nil)
+          (answer nil))
+      (cl-letf (((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (push (cons variable value) saved)))
+                ((symbol-function 'read-string) (lambda (&rest _) answer)))
+        (setq answer "example.com, *.example.org api.example.net:443,localhost")
+        (lispm-desktop-settings--sandbox-domains)
+        (should (equal (car saved) '(lispm-sandbox-allowed-domains
+                                     "example.com" "*.example.org" "api.example.net:443" "localhost")))
+        (dolist (wrong '("*" "*.com" "https://example.com" "example.com/path" "example"))
+          (setq saved nil answer (concat "example.com, " wrong))
+          (should-error (lispm-desktop-settings--sandbox-domains) :type 'user-error)
+          (should-not saved))
+        (setq answer "")
+        (lispm-desktop-settings--sandbox-domains)
+        (should (equal (car saved) '(lispm-sandbox-allowed-domains)))))))
+
+(defun lispm-desktop-test--settings-button (label)
+  "Return the first button of the current panel whose label holds LABEL."
+  (let ((button (next-button (point-min))))
+    (while (and button (not (string-search label (or (get-text-property (button-start button)
+                                                                         'lispm-desktop-platinum-label)
+                                                      (button-label button)))))
+      (setq button (next-button (button-end button))))
+    button))
+
+(defun lispm-desktop-test--settings-text ()
+  "Return the current panel's text, and the labels its images draw: the
+group boxes' titles and the push buttons'."
+  (concat (buffer-string) " "
+          (mapconcat #'identity
+                     (delq nil (mapcar (lambda (position)
+                                         (get-text-property position 'lispm-desktop-platinum-label))
+                                       (number-sequence (point-min) (1- (point-max)))))
+                     " ")))
+
+(defun lispm-desktop-test--radio-on-p (label)
+  "Return non-nil when the radio button LABEL of the current panel is on."
+  (equal (get-text-property (button-start (lispm-desktop-test--settings-button label))
+                            'lispm-desktop-platinum-plain)
+         (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t nil nil))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-panel ()
+  "The Sandbox panel offers the four levels with what each allows; choosing
+one sets it for later starts too.  A level chosen elsewhere, srt's
+installation and the domains show as they change."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-sandbox
+    (let ((lispm-desktop-finder-folders nil)
+          (enable-theme-functions nil)
+          (lispm-desktop-update-changed-hook nil)
+          (lispm-desktop-startup-changed-hook nil))
+      (lispm-desktop-setup-settings)
+      (with-current-buffer (lispm-desktop-settings--buffer)
+        (lispm-desktop-settings-select 'sandbox)
+        (should (equal lispm-desktop-platinum-title "Sandbox"))
+        (dolist (text '("Sandbox Level" "No sandbox." "Reads all but secrets; reaches package registries."
+                        "Reaches only allowed domains." "Reads only the project; no network."
+                        "Any level but None installs srt" "Allowed Domains" "None." "Change…"))
+          (should (string-search text (lispm-desktop-test--settings-text))))
+        (dolist (level '("None" "Low" "Middle" "High"))
+          (should (lispm-desktop-test--settings-button level)))
+        ;; LispM Agent 0.3.0 has no level Custom.
+        (should-not (lispm-desktop-test--settings-button "Custom"))
+        (should (lispm-desktop-test--radio-on-p "None"))
+        (button-activate (lispm-desktop-test--settings-button "High"))
+        (should (equal chosen '((high t))))
+        (should (lispm-desktop-test--radio-on-p "High"))
+        (should-not (lispm-desktop-test--radio-on-p "None"))
+        (should (string-search "fail rather than run unconfined" (buffer-string)))
+        ;; /sandbox in a chat, then srt failing and installed again.
+        (setq lispm-sandbox-level 'low)
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should (lispm-desktop-test--radio-on-p "Low"))
+        (should-not (lispm-desktop-test--radio-on-p "High"))
+        (setq status '(failed . "srt could not be installed: it needs npm"))
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should (string-search "Sandbox unavailable: srt could not be installed: it needs npm."
+                               (buffer-string)))
+        (button-activate (lispm-desktop-test--settings-button "Try Again"))
+        (should (string-search "Installing srt 0.0.81" (buffer-string)))
+        (setq status 'ready)
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should-not (string-search "fail rather than run unconfined" (buffer-string)))
+        (should-not (lispm-desktop-test--settings-button "Try Again"))
+        (setq lispm-sandbox-allowed-domains '("example.com" "*.example.org"))
+        (run-hooks 'lispm-sandbox-change-hook)
+        (should (string-search "example.com, *.example.org" (buffer-string)))))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-entries ()
+  "A rule's entries show as many as fit, then how many more there are."
+  (should (equal (lispm-desktop-settings--sandbox-entries nil 30) "none"))
+  (let ((entries '("aaaa" "bbbb" "cccc" "dddd")))
+    (should (equal (lispm-desktop-settings--sandbox-entries entries 30) "aaaa, bbbb, cccc, dddd"))
+    (should (equal (lispm-desktop-settings--sandbox-entries entries 21) "aaaa, bbbb and 2 more"))
+    (should (equal (lispm-desktop-settings--sandbox-entries entries 15) "aaaa and 3 more"))
+    (should (equal (lispm-desktop-settings--sandbox-entries entries 10) "aaaa and …"))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-custom-rules ()
+  "A rule of the level Custom changes, the others kept: Middle's while the
+user has none.  Files are separated by commas alone; domains are checked,
+and every domain may be denied but not allowed.  Starting from a level's
+rules replaces the user's own only once they say so."
+  (lispm-desktop-test--with-sandbox
+    (let ((answer nil) (replace nil) (asked nil))
+      (cl-letf (((symbol-function 'customize-save-variable) (lambda (variable value) (set variable value)))
+                ((symbol-function 'read-string) (lambda (&rest _) answer))
+                ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) (setq asked t) replace)))
+        (should (equal (lispm-desktop-settings--sandbox-description 'high) "Reads only the project; no network."))
+        (cl-letf (((symbol-function 'lispm-sandbox-level-description)
+                   (lambda (&optional level) (format "%s, said from its rules" level))))
+          (should (equal (lispm-desktop-settings--sandbox-description 'custom) "Custom, said from its rules.")))
+        (lispm-desktop-settings--sandbox-rule :pty t)
+        (should (equal lispm-sandbox-custom '(:deny-read ("~/.ssh") :allow-write (".") :pty t)))
+        (setq answer " ~/Library/Application Support/x ,, /tmp/a,b ")
+        (lispm-desktop-settings--sandbox-change-list :allow-write)
+        (should (equal lispm-sandbox-custom '(:deny-read ("~/.ssh")
+                                              :allow-write ("~/Library/Application Support/x" "/tmp/a" "b")
+                                              :pty t)))
+        (setq answer "example.com *.example.org")
+        (lispm-desktop-settings--sandbox-change-list :allowed-domains)
+        (should (equal (plist-get lispm-sandbox-custom :allowed-domains) '("example.com" "*.example.org")))
+        (setq answer "*")
+        (should-error (lispm-desktop-settings--sandbox-change-list :allowed-domains) :type 'user-error)
+        (lispm-desktop-settings--sandbox-change-list :denied-domains)
+        (should (equal (plist-get lispm-sandbox-custom :denied-domains) '("*")))
+        (lispm-desktop-settings--sandbox-start-from 'low)
+        (should asked)
+        (should (plist-get lispm-sandbox-custom :pty))
+        (setq replace t)
+        (lispm-desktop-settings--sandbox-start-from 'low)
+        (should (equal lispm-sandbox-custom (lispm-sandbox-rules 'low)))
+        (setq lispm-sandbox-custom nil asked nil)
+        (lispm-desktop-settings--sandbox-start-from 'high)
+        (should-not asked)
+        (should (equal lispm-sandbox-custom (lispm-sandbox-rules 'high)))))))
+
+(ert-deftest lispm-desktop-test-settings-sandbox-custom-panel ()
+  "With LispM Agent 0.4.0, Custom is a fifth level.  While it is chosen its
+rules show, each with what changes it, and what is wrong with them."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-sandbox
+    (let ((lispm-sandbox-levels (append lispm-sandbox-levels '((custom . "your own rules"))))
+          (lispm-desktop-finder-folders nil)
+          (enable-theme-functions nil)
+          (lispm-desktop-update-changed-hook nil)
+          (lispm-desktop-startup-changed-hook nil))
+      (cl-letf (((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (set variable value) (run-hooks 'lispm-sandbox-change-hook)))
+                ((symbol-function 'lispm-sandbox-customize) #'ignore))
+        (lispm-desktop-setup-settings)
+        (with-current-buffer (lispm-desktop-settings--buffer)
+          (lispm-desktop-settings-select 'sandbox)
+          (should-not (string-search "Custom Rules" (lispm-desktop-test--settings-text)))
+          (button-activate (lispm-desktop-test--settings-button "Custom"))
+          (should (equal chosen '((custom t))))
+          (should (lispm-desktop-test--radio-on-p "Custom"))
+          (let ((text (lispm-desktop-test--settings-text)))
+            (dolist (part '("Your own rules." "Custom Rules" "Start from:" "Not readable: ~/.ssh"
+                            "Writable: the project" "Refused domains: none" "Unix sockets: none"
+                            "Serve on local ports" "Customize…"))
+              (should (string-search part text)))
+            (should (eq (and (string-search "Caution: the applications" text) t)
+                        (eq system-type 'darwin))))
+          (button-activate (lispm-desktop-test--settings-button "Serve on local ports"))
+          (should (equal lispm-sandbox-custom '(:deny-read ("~/.ssh") :allow-write (".") :local-binding t)))
+          (setq lispm-sandbox-custom (append lispm-sandbox-custom '(:wrong t)))
+          (run-hooks 'lispm-sandbox-change-hook)
+          (should (string-search "Sandbox unavailable: :wrong is no sandbox rule." (buffer-string)))
+          (setq lispm-sandbox-level 'high)
+          (run-hooks 'lispm-sandbox-change-hook)
+          (should-not (string-search "Custom Rules" (lispm-desktop-test--settings-text))))))))
+
 (ert-deftest lispm-desktop-test-control-panels-folder ()
   "The Control Panels folder is a Finder folder of a panel each: opening an
 item opens its panel, and nothing is made, renamed or thrown away there."
@@ -5046,7 +5318,9 @@ sources change, whatever their times."
           (should-not (lispm-desktop-term--plan)))
         (let ((system-configuration "aarch64-unknown-linux-gnu"))
           (should-not (lispm-desktop-term--plan)))
-        (cl-letf (((symbol-function 'executable-find) #'ignore))
+        (cl-letf (((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'always)
+                  ((symbol-function 'lispm-desktop-app-ui-needs) #'ignore)
+                  ((symbol-function 'executable-find) #'ignore))
           (should-not (lispm-desktop-term--plan)))
         (let ((prebuilt (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file) 120)))
           (should (string-prefix-p (expand-file-name "prebuilt/" root) prebuilt))
@@ -6903,6 +7177,44 @@ for a line, as a file name an error names, after its slashes."
     (should (equal (string-replace " " "" (string-join lines ""))
                    (string-replace " " "" text)))))
 
+(ert-deftest lispm-desktop-test-store-installer-upgrade-keeps-the-old ()
+  "An update from the package archives installs the newest package beside
+the one installed and deletes that one only then: one that fails leaves
+it as it was."
+  (let* ((old (package-desc-create :name 'emms :version '(1)))
+         (new (package-desc-create :name 'emms :version '(2)))
+         (package-alist (list (list 'emms old)))
+         (package-archive-contents (list (list 'emms new)))
+         (calls nil))
+    (cl-letf (((symbol-function 'package-install) (lambda (desc &rest _) (push (list 'install desc) calls)))
+              ((symbol-function 'package-delete) (lambda (desc &rest _) (push (list 'delete desc) calls))))
+      (should (equal (lispm-desktop-store-installer--upgrade 'emms) "2"))
+      (should (equal (nreverse calls) (list (list 'install new) (list 'delete old)))))
+    (setq calls nil)
+    (cl-letf (((symbol-function 'package-install) (lambda (&rest _) (error "No network")))
+              ((symbol-function 'package-delete) (lambda (desc &rest _) (push (list 'delete desc) calls))))
+      (should-error (lispm-desktop-store-installer--upgrade 'emms))
+      (should-not calls))))
+
+(ert-deftest lispm-desktop-test-store-update-tasks ()
+  "In the background, a package from git is updated to the commit its
+catalog pins, from the one installed; one from the package archives to
+their newest."
+  (lispm-desktop-test--with-store
+    (let ((lispm-desktop-store-install-in-background t)
+          (tasks nil))
+      (setq lispm-desktop-store-installed
+            '((elfeed :kind app :name "Elfeed" :command elfeed :installed "old"
+                      :package (elfeed :url "u" :rev "old"))
+              (emms :kind app :name "EMMS" :command emms :package emms :installed "1")))
+      (cl-letf (((symbol-function 'lispm-desktop-store--spawn) (lambda (_job task) (push task tasks))))
+        (lispm-desktop-store--queue
+         (list '(elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "new")))
+         'update)
+        (setq lispm-desktop-store--jobs nil)
+        (lispm-desktop-store--queue (list '(emms :kind app :name "EMMS" :command emms :package emms)) 'update))
+      (should (equal (nreverse tasks) '((update elfeed "new" "old") (upgrade emms)))))))
+
 (ert-deftest lispm-desktop-test-store-stoppable ()
   "A job waiting can be stopped, an install in the background all along,
 an update only until it builds; one in this Emacs cannot."
@@ -7800,12 +8112,224 @@ most, the sign changed in front, the last digit taken back."
     (lispm-desktop-app-skins-calc-press 'clear)
     (should (equal lispm-desktop-app-skins--calc-entry ""))))
 
+;;;; The chat applications
+
+(ert-deftest lispm-desktop-test-app-chat-count ()
+  "A conversation's count of messages unread: none without, bold while
+unread, in red where they name you, as many as name you where that is
+known, else as many as are unread."
+  (should-not (lispm-desktop-app-chat--count '(:unread 0)))
+  (should-not (lispm-desktop-app-chat--count '(:unread t :mentions 0)))
+  (let ((count (lispm-desktop-app-chat--count '(:unread 3))))
+    (should (equal count "3"))
+    (should (eq (get-text-property 0 'face count) 'lispm-desktop-app-chat-unread)))
+  (let ((count (lispm-desktop-app-chat--count '(:unread 3 :mentions 1))))
+    (should (equal count "1"))
+    (should (eq (get-text-property 0 'face count) 'lispm-desktop-app-chat-mentions)))
+  (should (equal (lispm-desktop-app-chat--count '(:unread 2 :mentions t)) "2"))
+  (should (equal (lispm-desktop-app-chat--count '(:unread t :mentions 4)) "4")))
+
+(ert-deftest lispm-desktop-test-app-chat-line ()
+  "A network's line holds its name in bold, and what it says of it; a
+conversation's is indented under it, its name bold while it is unread."
+  (let ((heading (lispm-desktop-app-chat-line '(:name "Libera.Chat" :heading t :state "connecting…")))
+        (read (lispm-desktop-app-chat-line '(:name "#emacs" :unread 0)))
+        (unread (lispm-desktop-app-chat-line '(:name "#lispm" :unread 2))))
+    (should (equal (substring-no-properties heading) " Libera.Chat  connecting…"))
+    (should (eq (get-text-property 1 'face heading) 'lispm-desktop-app-chat-heading))
+    (should (equal (substring-no-properties read) "    #emacs"))
+    (should-not (get-text-property 4 'face read))
+    (should (string-prefix-p "    #lispm " (substring-no-properties unread)))
+    (should (eq (get-text-property 4 'face unread) 'lispm-desktop-app-chat-unread))
+    (should (string-suffix-p "2" (substring-no-properties unread)))))
+
+(defvar lispm-desktop-test--conversations nil
+  "The conversations of the list of `lispm-desktop-test-chat-list-mode'.")
+
+(define-derived-mode lispm-desktop-test-chat-list-mode lispm-desktop-app-chat-list-mode "Test"
+  "A list of conversations for the tests."
+  (setq-local lispm-desktop-app-chat-conversations-function (lambda () lispm-desktop-test--conversations)))
+
+(ert-deftest lispm-desktop-test-app-chat-refresh ()
+  "The list is drawn again only where its conversations changed, point
+staying on the conversation it was on; a buffer that is no list is left
+alone."
+  (let ((lispm-desktop-test--conversations
+         '((:key net :name "Net" :heading t) (:key a :name "#a" :unread 0) (:key b :name "#b" :unread 1))))
+    (with-temp-buffer
+      (lispm-desktop-test-chat-list-mode)
+      (lispm-desktop-app-chat-refresh)
+      (should (equal (count-lines (point-min) (point-max)) 3))
+      (forward-line 2)
+      (should (eq (plist-get (lispm-desktop-app-chat-conversation) :key) 'b))
+      (let ((tick (buffer-modified-tick)))
+        (lispm-desktop-app-chat-refresh)
+        (should (= tick (buffer-modified-tick))))
+      (setq lispm-desktop-test--conversations
+            (append (seq-take lispm-desktop-test--conversations 1)
+                    '((:key c :name "#c" :unread 0))
+                    (cdr lispm-desktop-test--conversations)))
+      (lispm-desktop-app-chat-refresh)
+      (should (equal (count-lines (point-min) (point-max)) 4))
+      (should (eq (plist-get (lispm-desktop-app-chat-conversation) :key) 'b))
+      (should (equal (lispm-desktop-app-chat-unread-status lispm-desktop-test--conversations) "1 unread"))))
+  (with-temp-buffer
+    (insert "not a list")
+    (let ((lispm-desktop-app-chat-conversations-function (lambda () '((:key x :name "x")))))
+      (lispm-desktop-app-chat-refresh t))
+    (should (equal (buffer-string) "not a list"))))
+
+(defcustom lispm-desktop-test-chat-option 'standard
+  "An option of a chat application, for the tests."
+  :type 'symbol
+  :group 'lispm-desktop)
+
+(ert-deftest lispm-desktop-test-app-chat-set-options ()
+  "A chat application's option is set as its window wants it while it is
+as the package ships it, never where you set it or customized it."
+  (let ((options '((lispm-desktop-test-chat-option desktop shipped))))
+    (unwind-protect
+        (progn
+          (dolist (value '(standard shipped))
+            (set-default 'lispm-desktop-test-chat-option value)
+            (lispm-desktop-app-chat-set-options options)
+            (should (eq lispm-desktop-test-chat-option 'desktop)))
+          (set-default 'lispm-desktop-test-chat-option 'yours)
+          (lispm-desktop-app-chat-set-options options)
+          (should (eq lispm-desktop-test-chat-option 'yours))
+          (set-default 'lispm-desktop-test-chat-option 'standard)
+          (put 'lispm-desktop-test-chat-option 'saved-value '('standard))
+          (lispm-desktop-app-chat-set-options options)
+          (should (eq lispm-desktop-test-chat-option 'standard)))
+      (put 'lispm-desktop-test-chat-option 'saved-value nil)
+      (set-default 'lispm-desktop-test-chat-option 'standard))))
+
+(ert-deftest lispm-desktop-test-app-erc-channel-name ()
+  "A channel's name typed gets its # unless it has a channel's prefix."
+  (should (equal (lispm-desktop-app-erc-channel-name "emacs") "#emacs"))
+  (should (equal (lispm-desktop-app-erc-channel-name " #emacs ") "#emacs"))
+  (should (equal (lispm-desktop-app-erc-channel-name "##lispm") "##lispm"))
+  (should (equal (lispm-desktop-app-erc-channel-name "&local") "&local"))
+  (should-error (lispm-desktop-app-erc-channel-name "  ") :type 'user-error))
+
+(ert-deftest lispm-desktop-test-app-erc-keeps-networks ()
+  "A network connected to is kept, and its channels as they are joined and
+left, whatever their case; connecting to it again keeps its channels."
+  (let ((lispm-desktop-app-erc-networks nil)
+        (saves 0))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (cl-incf saves) (set variable value))))
+      (lispm-desktop-app-erc--remember '(:server "irc.libera.chat" :port 6697 :tls t :nick "me"))
+      (lispm-desktop-app-erc--keep-channel "IRC.libera.chat" "#emacs" t)
+      (lispm-desktop-app-erc--keep-channel "irc.libera.chat" "#lispm" t)
+      (should (= saves 3))
+      (lispm-desktop-app-erc--keep-channel "irc.libera.chat" "#EMACS" t)
+      (lispm-desktop-app-erc--keep-channel "irc.oftc.net" "#debian" t)
+      (should (= saves 3))
+      (lispm-desktop-app-erc--keep-channel "irc.libera.chat" "#Emacs" nil)
+      (lispm-desktop-app-erc--remember '(:server "irc.libera.chat" :port 6697 :tls t :nick "me2"))
+      (should (equal lispm-desktop-app-erc-networks
+                     '((:server "irc.libera.chat" :port 6697 :tls t :nick "me2" :channels ("#lispm"))))))))
+
+(ert-deftest lispm-desktop-test-app-erc-unread ()
+  "A conversation's messages unread are as ERC tracks them, named where
+the face ERC tracks them with is your nickname's."
+  (require 'erc-track)
+  (with-temp-buffer
+    (let ((plain (current-buffer)))
+      (with-temp-buffer
+        (let ((named (current-buffer)))
+          (dlet ((erc-modified-channels-alist `((,plain 4 . erc-default-face)
+                                                (,named 2 erc-current-nick-face erc-default-face))))
+            (should (equal (lispm-desktop-app-erc--unread plain) '(4 . nil)))
+            (should (equal (lispm-desktop-app-erc--unread named) '(2 . t)))
+            (with-temp-buffer
+              (should (equal (lispm-desktop-app-erc--unread (current-buffer)) '(0 . nil))))))))))
+
+(ert-deftest lispm-desktop-test-app-slack-keeps-secrets ()
+  "A workspace's token and cookie are kept with auth-source, as
+emacs-slack's manual keeps them, and read back; one kept already is left
+as it is."
+  (let* ((file (make-temp-file "lispm-desktop-test-authinfo"))
+         (auth-sources (list file))
+         (auth-source-save-behavior t)
+         (workspace '(:name "lispm" :user "me@example.com"))
+         (host (lispm-desktop-app-slack--host workspace)))
+    (unwind-protect
+        (progn
+          (auth-source-forget-all-cached)
+          (should (equal host "lispm.slack.com"))
+          (should-not (lispm-desktop-app-slack--secret host "me@example.com"))
+          (lispm-desktop-app-slack--keep-secret host "me@example.com" "xoxc-token")
+          (lispm-desktop-app-slack--keep-secret host "me@example.com^cookie" "xoxd-cookie")
+          (lispm-desktop-app-slack--keep-secret host "me@example.com" "xoxc-other")
+          (should (equal (lispm-desktop-app-slack--secret host "me@example.com") "xoxc-token"))
+          (should (equal (lispm-desktop-app-slack--secret host "me@example.com^cookie") "xoxd-cookie")))
+      (auth-source-forget-all-cached)
+      (delete-file file))))
+
+(ert-deftest lispm-desktop-test-app-telega-missing ()
+  "Telega's window says what it lacks first: TDLib, a TDLib new enough, a C
+compiler, then telega-server built; nothing once it is built, or when
+telega-server runs in Docker."
+  (let* ((root (make-temp-file "lispm-desktop-test-telega" t))
+         (prefix (expand-file-name "prefix" root))
+         (version-file (expand-file-name "lib/cmake/Td/TdConfigVersion.cmake" prefix))
+         (programs '("cc" "make")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'executable-find)
+                   (lambda (name &optional _remote)
+                     (cond ((member name programs) (concat "/usr/bin/" name))
+                           ((string-match-p "telega-server" name)
+                            (let ((file (expand-file-name name (expand-file-name "telega" root))))
+                              (and (file-exists-p file) file)))))))
+          (dlet ((telega-use-docker nil)
+                 (telega-directory (expand-file-name "telega" root))
+                 (telega-server-command "telega-server")
+                 (telega-server-libs-prefix (expand-file-name "nowhere" root))
+                 (telega-tdlib-min-version "1.8.66")
+                 (lispm-desktop-app-telega-tdlib-prefixes (list prefix)))
+            (should (eq (lispm-desktop-app-telega-missing) 'tdlib))
+            (should (string-search lispm-desktop-app-telega-tdlib-command (lispm-desktop-app-telega--page-text)))
+            (should (equal (car (car (lispm-desktop-app-telega--page-buttons))) "Copy Command"))
+            ;; As the catalog declares TDLib, the Installer installs it.
+            (cl-letf (((symbol-function 'lispm-desktop-app-ui-needs)
+                       (lambda (_app) '((library "TDLib" :for "Telegram" :brew "tdlib" :head t
+                                                 :file "include/td/telegram/td_json_client.h")
+                                        (program "cc" :for "building telega-server" :xcode t))))
+                      ((symbol-function 'lispm-desktop-needs--brew-prefix) (lambda () root)))
+              (should (equal (lispm-desktop-app-telega--page-buttons)
+                             '(("Install TDLib…" lispm-desktop-app-telega-install)
+                               ("Check Again" lispm-desktop-app-telega-check-again)))))
+            (make-directory (expand-file-name "include/td/telegram" prefix) t)
+            (write-region "" nil (expand-file-name "include/td/telegram/td_json_client.h" prefix))
+            (make-directory (file-name-directory version-file) t)
+            (write-region "set(PACKAGE_VERSION \"1.8.0\")\n" nil version-file)
+            (should (equal (lispm-desktop-app-telega-tdlib-version prefix) "1.8.0"))
+            (should (eq (lispm-desktop-app-telega-missing) 'old-tdlib))
+            (write-region "set(PACKAGE_VERSION \"1.8.70\")\n" nil version-file)
+            (setq programs nil)
+            (should (eq (lispm-desktop-app-telega-missing) 'compiler))
+            (setq programs '("cc" "make"))
+            (should (eq (lispm-desktop-app-telega-missing) 'server))
+            (should (equal (lispm-desktop-app-telega--page-buttons)
+                           '(("Build telega-server" lispm-desktop-app-telega-build))))
+            (make-directory telega-directory t)
+            (write-region "" nil (expand-file-name "telega-server" telega-directory))
+            (should-not (lispm-desktop-app-telega-missing))
+            (delete-file (expand-file-name "telega-server" telega-directory))
+            (setq telega-use-docker t)
+            (should-not (lispm-desktop-app-telega-missing))))
+      (delete-directory root t))))
+
 (ert-deftest lispm-desktop-test-app-ui-every-application-described ()
   "Every application of the App Store's catalog is described where what is
 found out of it is not enough, each board's functions defined."
   (dolist (key '(tetris-mode snake-mode pong 5x5-mode gomoku-mode solitaire-mode blackbox-mode
                  mpuz-mode bubbles-mode life-mode hanoi dun-mode doctor-mode calc-mode calendar-mode
-                 elfeed-search-mode emms-browser-mode))
+                 elfeed-search-mode emms-browser-mode erc-mode slack-mode slack-buffer-mode
+                 telega-root-mode telega-chat-mode lispm-desktop-app-erc-list-mode
+                 lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode))
     (let ((skin (alist-get key lispm-desktop-app-ui-skins)))
       (should skin)
       (when-let* ((board (plist-get skin :board)))
@@ -7814,75 +8338,253 @@ found out of it is not enough, each board's functions defined."
             (when (and function (symbolp function))
               (should (fboundp function)))))))))
 
-(defconst lispm-desktop-test--programs
-  '(("lispm-test-player" :for "playing music" :install "brew install lispm-test-player"
-     :instead ("lispm-test-stand-in") :more "seeking")
-    ("lispm-test-tagger" :for "reading tags" :install "brew install lispm-test-tagger"))
-  "Programs an app's catalog declares, for the tests.")
+;;;; Needs
 
-(ert-deftest lispm-desktop-test-app-programs-declared ()
-  "A catalog declares the programs an app uses, each with what it is for,
-how to install it and what may stand in for it; those malformed are not
-taken."
-  (should (lispm-desktop-store--programs-valid-p lispm-desktop-test--programs))
-  (should (lispm-desktop-store--programs-valid-p nil))
-  (should-not (lispm-desktop-store--programs-valid-p '(("mpv" :install "brew install mpv"))))
-  (should-not (lispm-desktop-store--programs-valid-p '((mpv :for "playing"))))
-  (should-not (lispm-desktop-store--programs-valid-p '(("mpv" :for "playing" :instead "afplay"))))
+(defconst lispm-desktop-test--needs
+  '((program "lispm-test-player" :for "playing music" :brew "lispm-test-player"
+             :instead ("lispm-test-stand-in") :more "seeking")
+    (program "lispm-test-tagger" :for "reading tags" :brew "lispm-test-tagger"))
+  "What an app's catalog says it needs, for the tests.")
+
+(ert-deftest lispm-desktop-test-needs-declared ()
+  "A catalog declares what an app needs: each of a kind, with what it is
+for, what installs it and what may stand in for it; those malformed are
+not taken."
+  (should (lispm-desktop-needs-list-valid-p lispm-desktop-test--needs))
+  (should (lispm-desktop-needs-list-valid-p nil))
+  (should (lispm-desktop-needs-valid-p '(application "Spotify" :for "playing" :cask "spotify"
+                                                     :bundle "com.spotify.client")))
+  (should (lispm-desktop-needs-valid-p '(library "libvterm" :for "terminals" :brew "libvterm"
+                                                 :file "lib/libvterm.dylib")))
+  (should-not (lispm-desktop-needs-valid-p '(program "mpv" :brew "mpv")))
+  (should-not (lispm-desktop-needs-valid-p '(widget "mpv" :for "playing")))
+  (should-not (lispm-desktop-needs-valid-p '("mpv" :for "playing")))
+  (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :instead "afplay")))
+  (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :commands ("play"))))
+  (should (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head t)))
+  (should-not (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head "yes")))
   (should-not (lispm-desktop-store--item-valid-p
-               '(emms :kind app :name "EMMS" :command emms :programs (("mpv"))))))
+               '(emms :kind app :name "EMMS" :command emms :needs (("mpv"))))))
 
-(ert-deftest lispm-desktop-test-app-programs-stand ()
-  "A program an app uses is present, missing with a stand-in installed,
-or missing; what is said of it says which, and the App Store copies the
-commands installing those missing."
+(ert-deftest lispm-desktop-test-needs-stand ()
+  "A need is present, missing with a stand-in installed, or missing; what
+is said of it says which, and the App Store installs those missing or
+copies the commands installing them."
   (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in"))))
-    (let ((states (lispm-desktop-app-ui-program-states lispm-desktop-test--programs)))
-      (should (equal (mapcar (lambda (state) (take 2 state)) states)
-                     '(("lispm-test-player" instead) ("lispm-test-tagger" missing))))
-      (should (equal (apply #'lispm-desktop-app-ui-program-text "EMMS" (car states))
+    (pcase-let ((`(,player ,tagger) lispm-desktop-test--needs))
+      (should (eq (lispm-desktop-needs-state player) 'instead))
+      (should (eq (lispm-desktop-needs-state tagger) 'missing))
+      (should (equal (lispm-desktop-needs-missing lispm-desktop-test--needs) (list tagger)))
+      (should (equal (lispm-desktop-needs-missing lispm-desktop-test--needs t) lispm-desktop-test--needs))
+      (should (equal (lispm-desktop-needs-text "EMMS" player)
                      "EMMS uses lispm-test-stand-in for playing music; lispm-test-player would add seeking."))
-      (should (equal (apply #'lispm-desktop-app-ui-program-text "EMMS" (cadr states))
-                     "EMMS needs lispm-test-tagger for reading tags.")))
-    (let ((props `(:kind app :name "EMMS" :description "Music." :programs ,lispm-desktop-test--programs)))
+      (should (equal (lispm-desktop-needs-text "EMMS" tagger) "EMMS needs lispm-test-tagger for reading tags."))
+      (should (equal (lispm-desktop-needs-install-command tagger) "brew install lispm-test-tagger")))
+    (let ((props `(:kind app :name "EMMS" :description "Music." :needs ,lispm-desktop-test--needs)))
       (should (equal (lispm-desktop-store--install-commands props)
                      "brew install lispm-test-player && brew install lispm-test-tagger"))
+      (should (equal (lispm-desktop-store--needs-to-install props) lispm-desktop-test--needs))
       (should (string-search "It needs lispm-test-tagger for reading tags." (lispm-desktop-store--description props)))
-      (should (string-suffix-p
-               "Install them with: brew install lispm-test-player && brew install lispm-test-tagger"
-               (lispm-desktop-store--description props)))))
+      (should (string-search "With it, lispm-test-tagger, for reading tags: brew install lispm-test-tagger."
+                             (lispm-desktop-store--preview (cons 'emms props))))))
   (cl-letf (((symbol-function 'executable-find) #'always))
     (should-not (lispm-desktop-store--install-commands
-                 `(:kind app :name "EMMS" :programs ,lispm-desktop-test--programs)))))
+                 `(:kind app :name "EMMS" :needs ,lispm-desktop-test--needs)))))
 
-(ert-deftest lispm-desktop-test-store-programs-from-the-catalog ()
-  "An installed app uses the programs its catalog declares now, though it
-was installed before the catalog declared them."
+(ert-deftest lispm-desktop-test-needs-command-line-tools ()
+  "A program of Apple's command line tools is missing while they are,
+though its name on PATH is found: it is Apple's, offering the tools."
+  (cl-letf (((symbol-function 'executable-find) #'always)
+            ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
+    (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
+    (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
+  (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
+                 "xcode-select --install"))
+  (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
+                 "brew install --HEAD tdlib")))
+
+(ert-deftest lispm-desktop-test-store-needs-from-the-catalog ()
+  "An installed app needs what its catalog declares now, though it was
+installed before the catalog declared it; the commands a need names are
+guarded while the app is installed."
   (let ((lispm-desktop-store-installed '((emms :kind app :name "EMMS" :command emms-browser)))
         (lispm-desktop-store--catalogs
          `((:url "https://example.org/store"
             :items ((emms :kind app :name "EMMS" :command emms-browser
-                          :programs ,lispm-desktop-test--programs)))))
-        (lispm-desktop-apps nil))
-    (lispm-desktop-store--register-app 'emms (lispm-desktop-store--installed 'emms))
-    (should (equal (mapcar #'car (lispm-desktop-app-ui-programs 'emms))
-                   '("lispm-test-player" "lispm-test-tagger")))))
+                          :needs ((program "lispm-test-player" :for "playing music" :brew "lispm-test-player"
+                                           :commands (lispm-desktop-test--play))))))))
+        (lispm-desktop-apps nil)
+        (lispm-desktop-needs--guards nil))
+    (defalias 'lispm-desktop-test--play #'ignore)
+    (unwind-protect
+        (progn
+          (lispm-desktop-store--register-app 'emms (cdr (assq 'emms (lispm-desktop-store-items))))
+          (should (equal (mapcar #'lispm-desktop-needs-name (lispm-desktop-app-ui-needs 'emms))
+                         '("lispm-test-player")))
+          (should (assq 'lispm-desktop-test--play lispm-desktop-needs--guards))
+          (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs 'emms))
+          (should-not (assq 'lispm-desktop-test--play lispm-desktop-needs--guards)))
+      (lispm-desktop-needs-unguard 'lispm-desktop-test--play)
+      (fmakunbound 'lispm-desktop-test--play))))
 
-(ert-deftest lispm-desktop-test-app-programs-in-help ()
-  "An app's Help menu offers to install each program it uses that is
-missing; one it needs with nothing standing in is said as it opens, once."
-  (let ((lispm-desktop-apps (list (list 'emms :name "EMMS" :programs (lambda () lispm-desktop-test--programs))))
+(ert-deftest lispm-desktop-test-app-needs-in-help ()
+  "An app's Help menu offers to install each need missing; one with
+nothing standing in is offered as it opens, once a session."
+  (let ((lispm-desktop-apps (list (list 'emms :name "EMMS" :needs (lambda () lispm-desktop-test--needs))))
         (lispm-desktop-app-ui--told nil)
-        (told nil))
+        (asked nil))
     (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in")))
               ((symbol-function 'lispm-desktop-popup-alert)
-               (lambda (_icon message &rest _) (push message told) 'ok)))
+               (lambda (_icon message &rest _) (push message asked) 'cancel)))
       (should (equal (seq-filter #'stringp (mapcar (lambda (item) (and (consp item) (plist-get item :label)))
                                                    (lispm-desktop-app-ui--help-items 'emms)))
                      '("EMMS Keys" "About EMMS" "Install lispm-test-player…" "Install lispm-test-tagger…")))
-      (lispm-desktop-app-ui--tell-missing 'emms)
-      (lispm-desktop-app-ui--tell-missing 'emms)
-      (should (equal told '("EMMS needs lispm-test-tagger for reading tags."))))))
+      (lispm-desktop-app-ui--offer-missing 'emms)
+      (lispm-desktop-app-ui--offer-missing 'emms)
+      (should (equal asked '("EMMS needs lispm-test-tagger.  Install it?"))))))
+
+(ert-deftest lispm-desktop-test-needs-guard ()
+  "A guarded command run while its need is missing offers to install it,
+then runs once it is; called from code, it runs as it is."
+  (let ((lispm-desktop-needs--guards nil)
+        (ran 0)
+        (installs nil))
+    (defalias 'lispm-desktop-test--guarded (lambda () (interactive) (cl-incf ran)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'executable-find) #'ignore)
+                  ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) 'install))
+                  ((symbol-function 'lispm-desktop-needs-install)
+                   (lambda (needs who then) (push (list (mapcar #'lispm-desktop-needs-name needs) who) installs)
+                     (funcall then t))))
+          (lispm-desktop-needs-guard 'lispm-desktop-test--guarded "EMMS" (list (cadr lispm-desktop-test--needs)))
+          (lispm-desktop-test--guarded)
+          (should (= ran 1))
+          (should-not installs)
+          (call-interactively #'lispm-desktop-test--guarded)
+          (should (equal installs '((("lispm-test-tagger") "EMMS"))))
+          (should (= ran 2)))
+      (lispm-desktop-needs-unguard 'lispm-desktop-test--guarded)
+      (fmakunbound 'lispm-desktop-test--guarded))))
+
+;; A package's option set from what it found as it loaded, for the test.
+(defvar lispm-desktop-test--found nil)
+
+(ert-deftest lispm-desktop-test-needs-refresh ()
+  "Once a need is there, the options holding it that a package left nil
+as it loaded are set again from their definitions; others are left."
+  (let ((need '(program "lispm-test-player" :for "playing music" :brew "lispm-test-player"
+                        :variables (lispm-desktop-test--option lispm-desktop-test--found))))
+    (cl-letf (((symbol-function 'executable-find) #'ignore))
+      (custom-declare-variable 'lispm-desktop-test--option
+                               '(and (executable-find "lispm-test-player") "lispm-test-player")
+                               "An option holding a program." :type 'sexp :group 'lispm-desktop))
+    (unwind-protect
+        (progn
+          (should-not lispm-desktop-test--option)
+          (lispm-desktop-needs-refresh (list need))
+          (should-not lispm-desktop-test--option)
+          (cl-letf (((symbol-function 'executable-find) #'always))
+            (lispm-desktop-needs-refresh (list need)))
+          (should (equal lispm-desktop-test--option "lispm-test-player"))
+          (should (equal lispm-desktop-test--found "lispm-test-player")))
+      (setq lispm-desktop-test--found nil)
+      (makunbound 'lispm-desktop-test--option))))
+
+(defmacro lispm-desktop-test--with-brew (script &rest body)
+  "Run BODY with a brew of SCRIPT, a shell script, alone on PATH beside the
+programs it installs; BIN is its directory.  A program it installs is a
+script it writes into BIN."
+  (declare (indent 1))
+  `(let* ((bin (make-temp-file "lispm-test-brew" t))
+          (exec-path (list bin))
+          (process-environment (cons (concat "PATH=" bin ":/bin:/usr/bin") process-environment))
+          (lispm-desktop-needs--jobs nil)
+          (lispm-desktop-needs--requests nil)
+          (lispm-desktop-needs--homebrew nil)
+          (lispm-desktop-needs--process nil))
+     (ignore bin)
+     (with-temp-file (expand-file-name "brew" bin)
+       (insert "#!/bin/sh\nBIN=" (shell-quote-argument bin) "\n" ,script))
+     (set-file-modes (expand-file-name "brew" bin) #o755)
+     (unwind-protect
+         (cl-letf (((symbol-function 'lispm-desktop-app-window-close) #'ignore))
+           ,@body)
+       (when (process-live-p lispm-desktop-needs--process)
+         (delete-process lispm-desktop-needs--process))
+       (delete-directory bin t))))
+
+(defun lispm-desktop-test--wait (predicate)
+  "Wait until PREDICATE returns non-nil, ten seconds at most."
+  (let ((deadline (+ (float-time) 10)))
+    (while (and (not (funcall predicate)) (< (float-time) deadline))
+      (accept-process-output nil 0.05))))
+
+(ert-deftest lispm-desktop-test-needs-install-one-at-a-time ()
+  "Installs run one at a time, in order, with Homebrew; once they all
+end, what waited for them is called back."
+  (lispm-desktop-test--with-brew
+      "echo \"start $3\" >> $BIN/log; sleep 0.2
+printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3; echo \"end $3\" >> $BIN/log; echo \"Pouring $3\"\n"
+    (let (answer)
+      (lispm-desktop-needs-install lispm-desktop-test--needs "EMMS" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(t)))
+      (should (equal (with-temp-buffer (insert-file-contents (expand-file-name "log" bin))
+                                       (split-string (buffer-string) "\n" t))
+                     '("start lispm-test-player" "end lispm-test-player"
+                       "start lispm-test-tagger" "end lispm-test-tagger")))
+      (should (equal (lispm-desktop-needs--status) "Installed lispm-test-player and lispm-test-tagger."))
+      (should-not (lispm-desktop-needs-running-p)))))
+
+(ert-deftest lispm-desktop-test-needs-install-waits-for-locks ()
+  "An install another brew's lock stops tries again after a while."
+  (lispm-desktop-test--with-brew
+      "if [ ! -e $BIN/tried ]; then touch $BIN/tried
+echo 'Error: A `brew install` process has already locked /opt/homebrew/Cellar/openssl@3.'; exit 1; fi
+printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
+    (let ((lispm-desktop-needs-lock-wait 0.1)
+          answer)
+      (lispm-desktop-needs-install (list (cadr lispm-desktop-test--needs)) "EMMS"
+                                   (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(t))))))
+
+(ert-deftest lispm-desktop-test-needs-install-fails-and-retries ()
+  "An install that fails says Homebrew's error and answers nil; tried
+again, it installs."
+  (lispm-desktop-test--with-brew
+      "if [ ! -e $BIN/tried ]; then touch $BIN/tried; echo 'Error: No available formula'; exit 1; fi
+printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
+    (let (answer)
+      (lispm-desktop-needs-install (list (cadr lispm-desktop-test--needs)) "EMMS"
+                                   (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(nil)))
+      (should (equal (lispm-desktop-needs--job-error (car lispm-desktop-needs--jobs)) "Error: No available formula"))
+      (should (equal (lispm-desktop-needs--status) "lispm-test-tagger could not be installed."))
+      (lispm-desktop-needs-retry)
+      (lispm-desktop-test--wait (lambda () (not (lispm-desktop-needs-running-p))))
+      (should (eq (lispm-desktop-needs--job-state (car lispm-desktop-needs--jobs)) 'installed)))))
+
+(ert-deftest lispm-desktop-test-needs-without-homebrew ()
+  "Without Homebrew, installing offers it first; declined, what Homebrew
+would install fails, and what waited is answered nil."
+  (let ((exec-path nil)
+        (lispm-desktop-needs-brew-places nil)
+        (lispm-desktop-needs--jobs nil)
+        (lispm-desktop-needs--requests nil)
+        (lispm-desktop-needs--homebrew nil)
+        (asked nil)
+        answer)
+    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message &rest _) (push message asked) 'cancel))
+              ((symbol-function 'lispm-desktop-app-window-close) #'ignore))
+      (lispm-desktop-needs-install lispm-desktop-test--needs "EMMS" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal asked '("Install Homebrew first?")))
+      (should (equal answer '(nil)))
+      (should (seq-every-p (lambda (job) (equal (lispm-desktop-needs--job-error job) "Homebrew is not installed."))
+                           lispm-desktop-needs--jobs)))))
 
 (ert-deftest lispm-desktop-test-app-emms-mdls ()
   "Spotlight's tags, as mdls prints them, are read: strings, the first of
@@ -8020,6 +8722,117 @@ only when it is, then macOS's afplay where it is."
   (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "mpv"))))
     (should (memq 'emms-player-mpv (lispm-desktop-app-emms-players)))
     (should-not (memq 'emms-player-afplay (lispm-desktop-app-emms-players)))))
+
+(ert-deftest lispm-desktop-test-store-archive-updates ()
+  "An item from the package archives can be updated when the archives, as
+last read, hold a newer package than installed; one pinned, when its
+catalog pins another commit; one built in, never."
+  (lispm-desktop-test--with-store
+    (let ((package-alist (list (list 'emms (package-desc-create :name 'emms :version '(20260414 1505)))))
+          (package-archive-contents
+           (list (list 'emms (package-desc-create :name 'emms :version '(20261001 900)))))
+          (lispm-desktop-store-installed
+           '((emms :kind app :name "EMMS" :command emms-browser :package emms :installed "20260414.1505")
+             (elfeed :kind app :name "Elfeed" :command elfeed :installed "aaa"
+                     :package (elfeed :url "https://example.org/elfeed" :rev "aaa"))
+             (calculator :kind app :name "Calculator" :command calc :installed "built-in"))))
+      (should (lispm-desktop-store-update-available-p 'emms))
+      (should-not (lispm-desktop-store-update-available-p 'elfeed))
+      (should-not (lispm-desktop-store-update-available-p 'calculator))
+      (should (equal (lispm-desktop-store-updates) '(emms)))
+      (should (string-search "to the package archives' newest, 20261001.900"
+                             (lispm-desktop-store--changes (lispm-desktop-store--installed 'emms)
+                                                           (lispm-desktop-store--installed 'emms))))
+      (setq package-archive-contents
+            (list (list 'emms (package-desc-create :name 'emms :version '(20260414 1505)))))
+      (should-not (lispm-desktop-store-update-available-p 'emms)))))
+
+(ert-deftest lispm-desktop-test-store-updates-quietly ()
+  "An update installing by itself asks nothing: a pinned package goes to
+the commit its catalog pins now, and is kept as installed so."
+  (lispm-desktop-test--with-store
+    (let ((repinned nil))
+      (setq lispm-desktop-store-installed
+            '((elfeed :kind app :name "Elfeed" :command elfeed :installed "aaa"
+                      :package (elfeed :url "https://example.org/elfeed" :rev "aaa")))
+            lispm-desktop-store--catalogs
+            '((:url "https://example.org/store"
+               :items ((elfeed :kind app :name "Elfeed" :command elfeed
+                               :package (elfeed :url "https://example.org/elfeed" :rev "bbb"))))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
+                 (lambda (&rest _) (error "Asked")))
+                ((symbol-function 'lispm-desktop-store--repin)
+                 (lambda (name rev) (setq repinned (list name rev))))
+                ((symbol-function 'lispm-desktop-store--register) #'ignore))
+        (lispm-desktop-store-update 'elfeed t))
+      (should (equal repinned '(elfeed "bbb")))
+      (should (equal (plist-get (lispm-desktop-store--installed 'elfeed) :installed) "bbb"))
+      (should-not (lispm-desktop-store-update-available-p 'elfeed)))))
+
+(ert-deftest lispm-desktop-test-store-updates-install-by-themselves ()
+  "Updates found install by themselves once LispM is idle, quietly, but an
+application open waits for its window to close; told not to, nothing
+installs and the updates wait."
+  (lispm-desktop-test--with-store
+    (let ((updated nil) (scheduled nil) (lispm-desktop-store--update-timer nil)
+          (lispm-desktop-store-update-automatically t))
+      (cl-letf (((symbol-function 'lispm-desktop-store-updates) (lambda () '(elfeed emms hermes)))
+                ((symbol-function 'lispm-desktop-app-window-open-p) (lambda (id) (eq id 'elfeed)))
+                ((symbol-function 'lispm-desktop-store-update)
+                 (lambda (id &optional quietly) (push (cons id quietly) updated)))
+                ((symbol-function 'run-with-idle-timer)
+                 (lambda (seconds _repeat function) (setq scheduled (list seconds function)) 'timer)))
+        (lispm-desktop-store--checked-updates)
+        (should (equal scheduled '(60 lispm-desktop-store--install-updates)))
+        (setq scheduled nil)
+        (lispm-desktop-store--install-updates)
+        (should (equal (nreverse updated) '((emms . t) (hermes . t))))
+        (should (equal scheduled '(60 lispm-desktop-store--install-updates)))
+        (setq updated nil scheduled nil lispm-desktop-store--update-timer nil
+              lispm-desktop-store-update-automatically nil)
+        (lispm-desktop-store--checked-updates)
+        (lispm-desktop-store--install-updates)
+        (should-not updated)
+        (should-not scheduled)))))
+
+(ert-deftest lispm-desktop-test-store-checks-along-software-update ()
+  "The App Store looks for updates whenever Software Update checks, unless
+it is checking already."
+  (lispm-desktop-test--with-update
+    (let ((checked 0)
+          (lispm-desktop-update-check-hook (list #'lispm-desktop-store--check-along))
+          (lispm-desktop-store--checking nil))
+      (cl-letf (((symbol-function 'lispm-desktop-update-checkouts) #'ignore)
+                ((symbol-function 'lispm-desktop-store-check-for-updates)
+                 (lambda (&rest _) (setq checked (1+ checked)))))
+        (lispm-desktop-update-check)
+        (should (= checked 1))
+        (setq lispm-desktop-store--checking t)
+        (lispm-desktop-update-check)
+        (should (= checked 1))))))
+
+(ert-deftest lispm-desktop-test-settings-applications-updates ()
+  "Software Update's panel says whether the App Store's applications update
+by themselves, with a check box saving the choice, and which can be
+updated, with a button showing them in the App Store."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-store
+    (let ((saved nil) (lispm-desktop-store-update-automatically t))
+      (setq lispm-desktop-store-installed '((elfeed :kind app :name "Elfeed" :command elfeed)))
+      (cl-letf (((symbol-function 'lispm-desktop-store-updates) (lambda () '(elfeed)))
+                ((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (push (cons variable value) saved))))
+        (with-temp-buffer
+          (lispm-desktop-settings--applications)
+          (let ((text (concat (buffer-string)
+                              (mapconcat #'identity
+                                         (delq nil (mapcar (lambda (position)
+                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (number-sequence (point-min) (1- (point-max)))))
+                                         " "))))
+            (dolist (label '("Update applications automatically" "Elfeed" "can be updated" "Show Updates"))
+              (should (string-search label text)))))))))
 
 (ert-deftest lispm-desktop-test-platinum-check-box-focus ()
   "A check box the keyboard is on is ringed, in the room left about it."

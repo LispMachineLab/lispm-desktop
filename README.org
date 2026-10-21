@@ -137,18 +137,20 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   or any other installed); Desktop the desktop's colour, its picture and how the picture covers
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
   browser's home page and search address, its history and its bookmarks; Network the proxy every
-  connection goes through (see [[*A proxy][A proxy]]); Startup whether LispM opens at login and
+  connection goes through (see [[*A proxy][A proxy]]); Sandbox how strictly the commands agents
+  run are confined (see [[*The sandbox][The sandbox]]); Startup whether LispM opens at login and
   what it opens once started (see [[*Startup][Startup]]); Software Update keeps LispM up to date (see
   [[*Updating][Updating]]).  Each choice takes effect at once where it can
   and is kept for the next start.
 - *The App Store*, laid out as the Mac App Store in Mac OS 9's forms, installs what LispM runs
   beyond what it ships with: applications, Emacs packages each running in a window of its own on
-  the desktop (Elfeed, EMMS, Emacs's own Calculator and its games); and extensions, packages
+  the desktop (Elfeed, EMMS, ERC, Slack and Telega to chat, Emacs's own Calculator and its
+  games); and extensions, packages
   adding to the editor, as Hermes, an agent beside Claude Code and Codex.  It lists them from
   catalogs, git repositories holding a =catalog.eld=,
   [[https://github.com/LispMachineLab/lispm-store][lispm-store]] by default
   (~lispm-desktop-store-catalogs~): the categories down the left (All, News, Music,
-  Productivity, Utilities, Games, Extensions, Updates), the chosen one's items as icons in a
+  Social, Productivity, Utilities, Games, Extensions, Updates), the chosen one's items as icons in a
   grid, each with its button, Get, Open or Update; under the grid Install from URL… and Remove,
   and the selected item's information below.  An extension whose program is not on ~PATH~ is
   greyed out, its information saying how to install the program.  Nothing is installed unasked:
@@ -181,9 +183,20 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   plays with macOS's own afplay and reads tags through Spotlight where mpv and exiftool are not
   installed, and imports the Music app's library and playlists, read-only, through Apple's
   iTunesLibrary, by a small application built the first time (=native/lispm-music-library=).
-  The programs an app uses are declared in its catalog: the App Store and the app's Help menu
-  say which are missing and copy the commands installing them.  A
-  package can describe itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
+  What an app uses beyond Emacs, programs, libraries and applications, its catalog declares
+  as its needs (=lisp/lispm-desktop-needs.el=): Get installs those missing with the app, the
+  alert asking for both, in the *Installer*, a window of its own, one install at a time with
+  Homebrew (offered first where it is not installed, its installer asking for the password in
+  a terminal), saying what fails and trying it again; the app's window offers what is missing
+  as it opens, its Help menu too, and a command needing a program offers it before it runs.  The
+  applications to chat with (=lisp/lispm-desktop-app-chat.el=) open on the list of their
+  conversations, as chat applications do, each network or workspace over its channels and
+  people, those with messages unread in bold with their count, in red where they name you; a
+  conversation opens in the same window, Back going back.  ERC connects again at its next start
+  to the networks it was on and joins their channels; Slack signs in with the token and cookie
+  of Slack's web app, kept with auth-source; Telega's window says what it lacks, TDLib or a C
+  compiler, installs it, and builds telega-server once it is there.  A package can describe
+  itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
   application installed in turn and lists what of this it finds missing.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
   bottom-left corner at first: a collapse box, scroll arrows, a module each for Appearance, Desktop, Keyboard and
@@ -571,6 +584,39 @@ personal.el can set it too:
       lispm-desktop-proxy-exceptions '("intranet.example"))
 #+end_src
 
+* The sandbox
+
+The Sandbox control panel chooses how strictly LispM Agent confines the shell commands and MCP
+servers its agents start, as =/sandbox= in a chat does.  None, the default, leaves them free to do
+whatever you can; Low, Middle and High run them in srt, Anthropic's sandbox runtime, each
+stricter than the one before, as the panel says under each.  The choice takes effect at once and
+is kept for later starts: running commands take its network rules at once, its file rules when
+they start again.  A level chosen elsewhere, with =/sandbox= or =M-x lispm-sandbox-set-level=,
+shows in the panel as it is made.
+
+The first level other than None installs srt with npm (Node.js 22.12 or later).  The panel says
+while it is being installed, or why it cannot be, with Try Again; until srt runs, commands that
+should be confined fail rather than run outside it.  Allowed Domains are the domains commands may
+reach at Low, besides package registries and code hosts, and at Middle, alone: =example.com=,
+=*.example.com= for its subdomains, or =example.com:443=.  The panel shows with LispM Agent 0.3.0
+or later.
+
+With LispM Agent 0.4.0 there is a fifth level, Custom, of rules of your own; while it is chosen,
+the panel shows them under Custom Rules.  Start from Low, Middle or High copies a level's rules
+(asking first when that replaces rules you set); each list, what commands may not read, may read
+after all, may write, may not write, the domains they may reach and those refused, and the Unix
+sockets they may connect to, has a Change… button; check boxes let them serve on local ports, use
+pseudo-terminals and, on macOS, send Apple Events, which opens applications outside the sandbox.
+Customize… edits the same rules in Customize.  Until you change one, Custom has Middle's rules.
+personal.el can set all of it:
+
+#+begin_src emacs-lisp
+(setq lispm-sandbox-level 'middle                 ; none, low, middle, high or custom
+      lispm-sandbox-allowed-domains '("api.example.com" "*.example.org")
+      lispm-sandbox-custom '(:deny-read ("~/.ssh") :allow-write (".")
+                             :allowed-domains ("github.com") :local-binding t))
+#+end_src
+
 * Startup
 
 The Startup control panel chooses what starts with LispM.
@@ -613,6 +659,13 @@ Restart to Update.  A checkout with changes or commits of its own, or on no bran
 it is.  An update to LispM.app itself (=install.sh=, =macos/=) is made by =install.sh=, run
 after LispM quits, which opens LispM again when it is done.  The log (Show Log) lists what was
 installed, and =M-x lispm-desktop-update-now= checks from anywhere.
+
+The App Store's applications and extensions are updated by the App Store, which looks for
+updates whenever Software Update checks, and as its window opens: a package its catalog pins
+to another commit than installed, or one from the package archives that are newer there.  With
+Update applications automatically checked, in the same panel, they install by themselves once
+LispM has been idle a minute, without asking, an application once its window is closed;
+unchecked, they wait in the App Store's Updates, and the panel names them.
 
 Where package-vc installed LispM Agent and LispM Browser, =M-x package-vc-upgrade-all= updates
 them, and =M-x package-upgrade-all= the other packages.  When the update changed the terminals'

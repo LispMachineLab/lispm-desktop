@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.4.1
+;; Version: 0.6.0
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -46,6 +46,9 @@
 ;;   Startup        LispM opened at login, and startup items opened once
 ;;                  it has started: applications, documents, programs
 ;;                  run as services, commands; in Control Panels
+;;   Sandbox        the commands and MCP servers agents start confined by
+;;                  srt, at None, Low, Middle, High or rules of your own;
+;;                  in Control Panels
 ;;   guide          a tour of all this, as Apple Guide gave one, the
 ;;                  first time LispM starts and from the Help menu (C-c ?)
 ;;
@@ -89,10 +92,14 @@
 (require 'lispm-desktop-update)
 (require 'lispm-desktop-startup)
 (require 'lispm-desktop-app-window)
+(require 'lispm-desktop-needs)
 (require 'lispm-desktop-store)
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
 (require 'lispm-desktop-app-emms)
+(require 'lispm-desktop-app-erc)
+(require 'lispm-desktop-app-slack)
+(require 'lispm-desktop-app-telega)
 (require 'lispm-desktop-strip)
 (require 'lispm-desktop-guide)
 (require 'lispm-desktop-exwm)
@@ -189,6 +196,7 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-startup)
           (lispm-desktop-setup-app-windows)
           (lispm-desktop-setup-app-ui)
+          (lispm-desktop-setup-needs)
           (lispm-desktop-setup-app-games)
           (lispm-desktop-setup-store)
           (lispm-desktop-setup-strip)
