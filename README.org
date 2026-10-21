@@ -310,7 +310,7 @@ the browser: nothing needs to be known about Emacs to use it.  On macOS 11 or la
 silicon or Intel, open Terminal and paste:
 
 #+begin_src sh
-curl -fsSL https://lispmachinelab.github.io/install.sh | sh
+curl -fsSL https://lispm.ai/install.sh | sh
 #+end_src
 
 That runs [[file:install.sh][install.sh]].  It installs Apple's command line tools when they
@@ -612,6 +612,13 @@ Restart to Update.  A checkout with changes or commits of its own, or on no bran
 it is.  An update to LispM.app itself (=install.sh=, =macos/=) is made by =install.sh=, run
 after LispM quits, which opens LispM again when it is done.  The log (Show Log) lists what was
 installed, and =M-x lispm-desktop-update-now= checks from anywhere.
+
+The App Store's applications and extensions are updated by the App Store, which looks for
+updates whenever Software Update checks, and as its window opens: a package its catalog pins
+to another commit than installed, or one from the package archives that are newer there.  With
+Update applications automatically checked, in the same panel, they install by themselves once
+LispM has been idle a minute, without asking, an application once its window is closed;
+unchecked, they wait in the App Store's Updates, and the panel names them.
 
 Where package-vc installed LispM Agent and LispM Browser, =M-x package-vc-upgrade-all= updates
 them, and =M-x package-upgrade-all= the other packages.  When the update changed the terminals'

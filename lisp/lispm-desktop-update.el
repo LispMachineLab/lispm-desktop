@@ -144,6 +144,10 @@ A tag with more, as v0.3.0-rc1, is no release.")
   "Hook run once what Software Update knows changed: a check started or
 ended, updates installed.  Its control panel draws itself again.")
 
+(defvar lispm-desktop-update-check-hook nil
+  "Hook run as Software Update begins a check, by itself or asked: what
+else is kept up to date checks along, as the App Store's applications.")
+
 ;;;; Git
 
 (defun lispm-desktop-update--environment ()
@@ -397,6 +401,7 @@ a check runs already, once it ends."
            (left (length checkouts))
            (results (make-vector left nil)))
       (setq lispm-desktop-update--checking t)
+      (run-hooks 'lispm-desktop-update-check-hook)
       (run-hooks 'lispm-desktop-update-changed-hook)
       (cl-flet ((finish ()
                   (setq lispm-desktop-update--checking nil
