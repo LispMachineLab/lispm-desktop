@@ -36,6 +36,7 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-draw)
 (require 'lispm-desktop-modal)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-platinum-fit "lispm-desktop-platinum-titlebar" (string width))
 
@@ -574,6 +575,26 @@ outline and lit band below, in PALETTE."
     (lispm-desktop-platinum-svg-row svg 0 (1- width) (+ h 2) (lispm-desktop-platinum-grey palette #xFF))
     svg))
 
+(defconst lispm-desktop-platinum-tab-close-size 11
+  "Side in pixels of the cross closing a tab.")
+
+(cl-defgeneric lispm-desktop-platinum-draw-tab-close (palette &key pressed)
+  "Return an SVG of the cross closing a tab, in PALETTE.
+Mac OS 9's tabs had none, so it is a plain cross in a dark grey,
+`lispm-desktop-platinum-tab-close-size' square, on no ground of its own:
+the tab's colour shows about it.  PRESSED, it is lit on a grey disc."
+  (let* ((s lispm-desktop-platinum-tab-close-size)
+         (svg (svg-create s s))
+         (from 2)
+         (to (- s 2)))
+    (when pressed
+      (svg-circle svg (/ s 2.0) (/ s 2.0) (/ s 2.0) :fill (lispm-desktop-platinum-grey palette #x77)))
+    (dolist (line `((,from ,from ,to ,to) (,from ,to ,to ,from)))
+      (apply #'svg-line svg (append line
+                                    (list :stroke (lispm-desktop-platinum-grey palette (if pressed #xFF #x44))
+                                          :stroke-width 1.5 :stroke-linecap "round"))))
+    svg))
+
 ;;;;; Placards, radio buttons, check boxes
 
 (cl-defgeneric lispm-desktop-platinum-draw-placard (palette width height &key label font)
@@ -1017,34 +1038,101 @@ fits, or where no tab could be narrower than 48 pixels."
                     (lispm-desktop-platinum-fit (propertize label 'face face) (- cap padding))))
                 labels widths))))
 
+(defconst lispm-desktop-platinum--tab-close-gap 4
+  "Pixels between a tab's cross and its label.")
+
+(defconst lispm-desktop-platinum--tab-close-reach 3
+  "Pixels round a tab's cross a press on it still lands in.")
+
+(defun lispm-desktop-platinum--tab-close (pressed)
+  "Return the cross closing a tab, PRESSED or not, then the gap after it,
+as a label's start, see `lispm-desktop-platinum-draw-tab-close'."
+  (concat (propertize " " 'display
+                      (lispm-desktop-platinum-image
+                       (list 'tab-close pressed)
+                       (lambda () (lispm-desktop-platinum-draw-tab-close
+                                   lispm-desktop-platinum-current-palette :pressed pressed))))
+          (propertize " " 'display `(space :width (,lispm-desktop-platinum--tab-close-gap)))))
+
+(declare-function lispm-desktop-platinum-box-button "lispm-desktop-platinum-titlebar"
+                  (string kind command help))
+(declare-function lispm-desktop-platinum-pressed-p "lispm-desktop-platinum-titlebar" (target))
+
+(defun lispm-desktop-platinum--tab-with-close (image width properties close target)
+  "Return a tab drawn as IMAGE, WIDTH pixels wide, its cross pressable.
+The tab is shown in three slices of IMAGE: the cross, with the pixels
+round it of `lispm-desktop-platinum--tab-close-reach', between the rest
+of the tab before and after it.  The rest carries PROPERTIES; the cross
+runs CLOSE once pressed and let go on it, as a title bar's box does, see
+`lispm-desktop-platinum-box-button', and is held down as TARGET."
+  (let* ((height (+ lispm-desktop-platinum-tab-height 3))
+         ;; Labels are centred in the tab, the cross opening the label.
+         (from (- lispm-desktop-platinum-tab-padding lispm-desktop-platinum--tab-close-reach))
+         (to (+ lispm-desktop-platinum-tab-padding lispm-desktop-platinum-tab-close-size
+                lispm-desktop-platinum--tab-close-reach)))
+    (cl-flet ((slice (x w) `((slice ,x 0 ,w ,height) ,image)))
+      (concat (apply #'propertize " " 'display (slice 0 from) properties)
+              (lispm-desktop-platinum-box-button
+               (propertize " " 'display (slice from (- to from)) 'pointer 'arrow)
+               target (lambda (_window) (funcall close)) (lispm-desktop-tr "Close this tab"))
+              (apply #'propertize " " 'display (slice to (- width to)) properties)))))
+
+(defun lispm-desktop-platinum--plist-without (plist key)
+  "Return PLIST without KEY and its value."
+  (let (kept)
+    (while plist
+      (unless (eq (car plist) key)
+        (setq kept (cons (cadr plist) (cons (car plist) kept))))
+      (setq plist (cddr plist)))
+    (nreverse kept)))
+
 (defun lispm-desktop-platinum-tabs (tabs width &optional face)
   "Return a row of TABS standing on their pane's edge, WIDTH pixels wide.
 Each tab is (LABEL FRONT . PROPERTIES): LABEL shown as Emacs would show
 it in FACE, by default the system font's; FRONT non-nil for the tab in
 front; PROPERTIES, text properties the tab's string carries, such as its
-keymap and help.  The row opens with a short run of the pane's edge and
-runs it on to WIDTH, as Mac OS 9 drew a tab control along its pane.  A
-row too wide for WIDTH, as in a longer language, cuts its widest labels
-short, see `lispm-desktop-platinum--fit-tabs'."
+keymap and help.  A `:close' among PROPERTIES is no text property but a
+function closing the tab: the tab then shows a cross before its label,
+which calls it, see `lispm-desktop-platinum-draw-tab-close'.
+The row opens with a short run of the pane's edge and runs it on to
+WIDTH, as Mac OS 9 drew a tab control along its pane.  A row too wide
+for WIDTH, as in a longer language, cuts its widest labels short, see
+`lispm-desktop-platinum--fit-tabs'."
   (let* ((face (or face 'lispm-desktop-platinum-title))
          (lead lispm-desktop-platinum--tabs-lead)
          (used lead)
-         (tabs (seq-mapn (lambda (tab label) (cons label (cdr tab)))
-                         tabs (lispm-desktop-platinum--fit-tabs (mapcar #'car tabs) width face)))
+         ;; The labels as shown, a cross before each that closes its
+         ;; tab, cut short where the row would not fit.
+         (labels (lispm-desktop-platinum--fit-tabs
+                  (seq-map-indexed (pcase-lambda (`(,label ,_ . ,properties) index)
+                                     (if (plist-get properties :close)
+                                         (concat (lispm-desktop-platinum--tab-close
+                                                  (lispm-desktop-platinum-pressed-p (list 'tab-close index)))
+                                                 label)
+                                       label))
+                                   tabs)
+                  width face))
          (parts
-          (mapcar (pcase-lambda (`(,label ,front . ,properties))
-                    (let ((tab-width (lispm-desktop-platinum--tab-width label face)))
-                      (setq used (+ used tab-width 2))
-                      (concat (apply #'propertize " " 'display
-                                     (lispm-desktop-platinum-image
-                                      (list 'tab (lispm-desktop-platinum--content-key label) front face tab-width)
-                                      (lambda ()
-                                        (lispm-desktop-platinum-draw-tab lispm-desktop-platinum-current-palette
-                                                                         label tab-width :front front
-                                                                         :face face)))
-                                     properties)
-                              (lispm-desktop-platinum--tab-edge 2))))
-                  tabs)))
+          (seq-map-indexed
+           (pcase-lambda (`(,_ ,front . ,properties) index)
+             (let* ((close (plist-get properties :close))
+                    (properties (lispm-desktop-platinum--plist-without properties :close))
+                    (target (list 'tab-close index))
+                    (label (nth index labels))
+                    (tab-width (lispm-desktop-platinum--tab-width label face))
+                    (image (lispm-desktop-platinum-image
+                            (list 'tab (lispm-desktop-platinum--content-key label) front face tab-width)
+                            (lambda ()
+                              (lispm-desktop-platinum-draw-tab lispm-desktop-platinum-current-palette
+                                                               label tab-width :front front
+                                                               :face face)))))
+               (setq used (+ used tab-width 2))
+               (concat (if close
+                           (lispm-desktop-platinum--tab-with-close image tab-width properties
+                                                                   close target)
+                         (apply #'propertize " " 'display image properties))
+                       (lispm-desktop-platinum--tab-edge 2))))
+           tabs)))
     (concat (lispm-desktop-platinum--tab-edge lead)
             (apply #'concat parts)
             (when (> width used)

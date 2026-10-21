@@ -674,6 +674,7 @@
   ("System menu: restore, minimize, maximize, close" . "システムメニュー：復元、最小化、最大化、閉じる")
   ("Minimize: roll up to the title bar" . "最小化：タイトルバーにしまう")
   (("OS/2 2.0" . "Maximize, or restore") . "最大化／復元")
+  ("Close this tab" . "このタブを閉じる")
   ("About LispM" . "LispMについて")
   ("Customize lispm-desktop…" . "lispm-desktopをカスタマイズ…")
   ("LispM, a Lisp Machine for agents, inside Emacs." . "LispM：Emacsの中で動く、エージェントのためのLispマシン。")

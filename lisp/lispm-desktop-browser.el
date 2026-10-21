@@ -874,6 +874,19 @@ others, moving, selecting, killing, do as they always do."
     (let ((delete-selection-mode t))
       (delete-selection-pre-hook))))
 
+(defun lispm-desktop-browser--keep-in-field ()
+  "Keep point and the mark in the address field, off the toolbar before it,
+from the address buffer's `post-command-hook'.  The Bookmarks button, the
+page's icon and the Location label are text of the buffer, which a triple
+click, selecting the whole line, a drag or \\`C-a' would otherwise select
+or reach; a Mac OS 9 edit field selects only its own text, and a triple
+click all of it."
+  (when-let* ((start lispm-desktop-browser--address-start))
+    (when (< (point) start)
+      (goto-char start))
+    (when (and (mark t) (< (mark t) start))
+      (set-marker (mark-marker) start))))
+
 (defconst lispm-desktop-browser-keys
   '(("C-l" . lispm-desktop-browser-focus-address)
     ("M-l" . lispm-desktop-browser-focus-address)
@@ -954,6 +967,7 @@ toolbar.
   (display-line-numbers-mode -1)
   (visual-line-mode -1)
   (add-hook 'pre-command-hook #'lispm-desktop-browser--replace-marked-address nil t)
+  (add-hook 'post-command-hook #'lispm-desktop-browser--keep-in-field nil t)
   (add-hook 'after-change-functions #'lispm-desktop-browser--note-address-edit nil t)
   (add-hook 'window-selection-change-functions #'lispm-desktop-browser--field-focus nil t))
 
@@ -999,22 +1013,28 @@ buffer, whose name WebKit prefixes."
 
 (defun lispm-desktop-browser--tab-line ()
   "Return the row of tabs atop the page: a tab per page, then + for a new one.
-The tabs are Mac OS 9's, the shown page's in front.  Each shows its
-page's icon before its title, or the globe until the icon is known and
-when the page has none."
+The tabs are Mac OS 9's, the shown page's in front.  Each shows a cross
+closing it, then its page's icon before its title, or the globe until the
+icon is known and when the page has none.  A middle click closes a tab
+too."
   (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
     (lispm-desktop-platinum-tabs
      (append
       (mapcar (lambda (buffer)
-                (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
-                              " "
-                              (truncate-string-to-width (lispm-browser-title buffer)
-                                                        lispm-browser-tab-width nil nil "…"))
-                      (eq buffer shown)
-                      'keymap (lispm-browser-tab-keymap
-                               (lispm-browser-tab-command #'lispm-browser-select-tab buffer))
-                      'help-echo (or (lispm-browser-uri buffer) (lispm-desktop-tr "Show this tab"))
-                      'pointer 'arrow))
+                (let ((close (lispm-browser-tab-command #'lispm-browser-close-tab buffer))
+                      (map (lispm-browser-tab-keymap
+                            (lispm-browser-tab-command #'lispm-browser-select-tab buffer))))
+                  (keymap-set map "<tab-line> <down-mouse-2>" #'ignore)
+                  (keymap-set map "<tab-line> <mouse-2>" close)
+                  (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
+                                " "
+                                (truncate-string-to-width (lispm-browser-title buffer)
+                                                          lispm-browser-tab-width nil nil "…"))
+                        (eq buffer shown)
+                        :close close
+                        'keymap map
+                        'help-echo (or (lispm-browser-uri buffer) (lispm-desktop-tr "Show this tab"))
+                        'pointer 'arrow)))
               (lispm-browser-tabs))
       (list (list "+" nil 'keymap (lispm-browser-tab-keymap #'lispm-browser-new-tab)
                   'help-echo (lispm-desktop-tr "New tab") 'pointer 'arrow)))

@@ -674,6 +674,7 @@
   ("System menu: restore, minimize, maximize, close" . "Menu système : restaurer, réduire, agrandir, fermer")
   ("Minimize: roll up to the title bar" . "Réduire : enrouler dans la barre de titre")
   (("OS/2 2.0" . "Maximize, or restore") . "Agrandir, ou restaurer")
+  ("Close this tab" . "Fermer cet onglet")
   ("About LispM" . "À propos de LispM")
   ("Customize lispm-desktop…" . "Personnaliser lispm-desktop…")
   ("LispM, a Lisp Machine for agents, inside Emacs." . "LispM, une machine Lisp pour agents, dans Emacs.")

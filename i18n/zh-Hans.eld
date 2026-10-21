@@ -674,6 +674,7 @@
   ("System menu: restore, minimize, maximize, close" . "系统菜单：还原、最小化、最大化、关闭")
   ("Minimize: roll up to the title bar" . "最小化：卷起到标题栏")
   (("OS/2 2.0" . "Maximize, or restore") . "最大化或还原")
+  ("Close this tab" . "关闭此标签页")
   ("About LispM" . "关于 LispM")
   ("Customize lispm-desktop…" . "自定 lispm-desktop…")
   ("LispM, a Lisp Machine for agents, inside Emacs." . "LispM，在 Emacs 中为智能体打造的 Lisp 机器。")

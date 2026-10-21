@@ -297,6 +297,18 @@ it to the message and hides it again.  This is one of
                                 (make-frame-invisible frame t)))))))
   nil)
 
+(defun lispm-desktop-coherence--quiet-selection (set-region click)
+  "Select as SET-REGION does for CLICK, a double or triple click or a drag,
+quietly in a window out: its \"Mark set\" stays in *Messages*.  Selecting
+says nothing on the Mac, and every such click would show the minibuffer
+of the windows out over the top of the screen; Emacs shows that frame
+before `set-message-functions' could decline the message.  This is
+around `mouse-set-region'."
+  (let* ((window (posn-window (event-start click)))
+         (frame (if (windowp window) (window-frame window) (selected-frame)))
+         (inhibit-message (or inhibit-message (and (lispm-desktop-apps-out-p frame) t))))
+    (funcall set-region click)))
+
 ;;;; Out and in
 
 (defun lispm-desktop-coherence--move (frame x y)
@@ -493,6 +505,7 @@ front then comes in front."
   (add-hook 'minibuffer-setup-hook #'lispm-desktop-coherence--place-minibuffer 90)
   (add-hook 'minibuffer-exit-hook #'lispm-desktop-coherence--hide-minibuffer)
   (add-hook 'set-message-functions #'lispm-desktop-coherence--echo)
+  (advice-add 'mouse-set-region :around #'lispm-desktop-coherence--quiet-selection)
   ;; Hide Desktop and Show Desktop, from the keyboard.
   (keymap-global-set "C-c h" #'lispm-desktop-toggle-desktop))
 

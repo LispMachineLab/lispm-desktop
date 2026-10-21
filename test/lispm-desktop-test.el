@@ -2515,6 +2515,20 @@ its colour, those behind are darker with the pane's outline under them."
     (should (equal (dom-attr (car (dom-by-tag front 'text)) 'fill) "#000000"))
     (should (equal (dom-attr (car (dom-by-tag back 'text)) 'fill) "#000000"))))
 
+(ert-deftest lispm-desktop-test-tab-close ()
+  "A tab closes by a plain cross in a dark grey, on no ground of its own;
+pressed, the cross is lit on a grey disc."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (cross (lispm-desktop-platinum-draw-tab-close palette))
+         (pressed (lispm-desktop-platinum-draw-tab-close palette :pressed t)))
+    (should (equal (lispm-desktop-test--size cross) '(11 . 11)))
+    (should (= (length (dom-by-tag cross 'line)) 2))
+    (should-not (dom-by-tag cross 'rect))
+    (should-not (dom-by-tag cross 'circle))
+    (should (equal (upcase (dom-attr (car (dom-by-tag cross 'line)) 'stroke)) "#444444"))
+    (should (equal (upcase (dom-attr (car (dom-by-tag pressed 'circle)) 'fill)) "#777777"))
+    (should (equal (upcase (dom-attr (car (dom-by-tag pressed 'line)) 'stroke)) "#FFFFFF"))))
+
 (ert-deftest lispm-desktop-test-disclosure-triangle ()
   "The disclosure triangle is outlined, in the variation colour, shadowed."
   (let* ((palette (lispm-desktop-test--platinum-palette))
@@ -3268,6 +3282,56 @@ tabs, which carry their properties."
     (should (equal (get-text-property 1 'help-echo row) "First"))
     ;; The tab in front and the one behind are drawn apart.
     (should-not (equal (get-text-property 1 'display row) (get-text-property 3 'display row)))))
+
+(defun lispm-desktop-test--slice (string position)
+  "Return the slice, (X Y WIDTH HEIGHT), STRING displays at POSITION."
+  (cdr (assq 'slice (get-text-property position 'display string))))
+
+(ert-deftest lispm-desktop-test-tab-row-close ()
+  "A tab given a `:close' function shows a cross before its label: the tab
+is drawn whole and shown in three slices, the middle one, the cross and a
+little round it, pressed as a title bar's box, the others the tab's, with
+its properties.  The cross is drawn pressed while held down."
+  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+         (map (make-sparse-keymap))
+         (closed nil)
+         (close (lambda () (setq closed t)))
+         (row (lispm-desktop-platinum-tabs `(("One" t :close ,close keymap ,map) ("Two" nil)) 400))
+         (image (cadr (get-text-property 1 'display row)))
+         (width (+ (nth 2 (lispm-desktop-test--slice row 1))
+                   (nth 2 (lispm-desktop-test--slice row 2))
+                   (nth 2 (lispm-desktop-test--slice row 3)))))
+    ;; Edge, three slices, edge; the second tab, edge; the edge running on.
+    (should (= (length row) 8))
+    (should (eq (cadr (get-text-property 2 'display row)) image))
+    (should (eq (cadr (get-text-property 3 'display row)) image))
+    (should (equal (lispm-desktop-test--slice row 1) (list 0 0 10 24)))
+    (should (equal (lispm-desktop-test--slice row 2) (list 10 0 17 24)))
+    (should (equal (car (lispm-desktop-test--slice row 3)) 27))
+    (should (string-match (format "width=\"%d\"" width) (plist-get (cdr image) :data)))
+    (should (= (+ width 2 (lispm-desktop-test--image-width row 5) 2
+                  lispm-desktop-platinum--tabs-lead (lispm-desktop-test--image-width row 7))
+               400))
+    ;; The tab's slices carry its properties, and no `:close'.
+    (dolist (position '(1 3))
+      (should (eq (get-text-property position 'keymap row) map))
+      (should-not (plist-member (text-properties-at position row) :close)))
+    (should-not (get-text-property 5 'keymap row))
+    ;; The cross closes the tab, once pressed and let go on it.
+    (should (equal (get-text-property 2 'help-echo row) "Close this tab"))
+    (should (equal (get-text-property 2 'lispm-desktop-platinum-target row) '(tab-close 0)))
+    (cl-letf (((symbol-function 'lispm-desktop-platinum-press)
+               (lambda (_position _pressed-p command) (funcall command))))
+      (funcall (keymap-lookup (get-text-property 2 'keymap row) "<tab-line> <down-mouse-1>")
+               `(down-mouse-1 (,(selected-window) tab-line (20 . 5) 0))))
+    (should closed)
+    ;; Held down, the tab is drawn again with the cross pressed.
+    (unwind-protect
+        (progn
+          (set-window-parameter nil 'lispm-desktop-platinum-pressed '(tab-close 0))
+          (let ((held (lispm-desktop-platinum-tabs `(("One" t :close ,close keymap ,map)) 400)))
+            (should-not (equal (cadr (get-text-property 1 'display held)) image))))
+      (set-window-parameter nil 'lispm-desktop-platinum-pressed nil))))
 
 (ert-deftest lispm-desktop-test-content-runs ()
   "A label drawn into a control keeps its runs: words in the system face,
@@ -4303,6 +4367,43 @@ _NET_SUPPORTING_WM_CHECK names, or to `gone' for a destroyed window."
   (let ((lispm-desktop-browser--navigation '(:page t :back t :forward t)))
     (should (equal (plist-get (car (lispm-desktop-browser--go-items)) :key) "M-["))))
 
+(ert-deftest lispm-desktop-test-browser-tabs-close ()
+  "Each page's tab has a cross closing that page; a middle click on a tab
+closes it too.  The + tab has neither."
+  (let ((a (generate-new-buffer " a"))
+        (b (generate-new-buffer " b"))
+        (closed nil)
+        (lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-browser-tabs) (lambda () (list a b)))
+                  ((symbol-function 'lispm-desktop-browser--window) #'selected-window)
+                  ((symbol-function 'lispm-browser-favicon) #'ignore)
+                  ((symbol-function 'lispm-browser-uri) #'ignore)
+                  ((symbol-function 'lispm-browser-title) #'buffer-name)
+                  ((symbol-function 'lispm-browser-close-tab) (lambda (buffer) (push buffer closed)))
+                  ((symbol-function 'lispm-desktop-platinum-press)
+                   (lambda (_position _pressed-p command) (funcall command))))
+          (let* ((line (save-window-excursion
+                         (set-window-buffer nil b)
+                         (lispm-desktop-browser--tab-line)))
+                 (boxes (seq-filter (lambda (i) (equal (get-text-property i 'help-echo line) "Close this tab"))
+                                    (number-sequence 0 (1- (length line)))))
+                 (event `(down-mouse-1 (,(selected-window) tab-line (20 . 5) 0))))
+            (should (= (length boxes) 2))
+            (dolist (box boxes)
+              (funcall (keymap-lookup (get-text-property box 'keymap line) "<tab-line> <down-mouse-1>")
+                       event))
+            (should (equal closed (list b a)))
+            (setq closed nil)
+            (funcall (keymap-lookup (get-text-property (1- (car boxes)) 'keymap line)
+                                    "<tab-line> <mouse-2>"))
+            (should (equal closed (list a)))
+            ;; The + tab, after the second page's three slices and edge.
+            (should (equal (get-text-property (+ (cadr boxes) 3) 'help-echo line) "New tab"))
+            (should-not (keymap-lookup (get-text-property (+ (cadr boxes) 3) 'keymap line)
+                                       "<tab-line> <mouse-2>"))))
+      (mapc #'kill-buffer (list a b)))))
+
 (defconst lispm-desktop-test--png
   (base64-decode-string
    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")
@@ -4433,6 +4534,38 @@ typed still goes in beside the region, and other keys keep their ways."
               (setq-local lispm-desktop-paste-function #'ignore)
               (should-not (lispm-desktop--paste-delete-selection))))
         (use-global-map global)
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-browser-address-selection-stays-in-field ()
+  "The address field selects only its own text: a triple click, which
+selects the whole line, selects the address, not the toolbar's Bookmarks
+button and Location label before it, and \\`C-a' goes to the address's
+start."
+  (let ((transient-mark-mode t)
+        (buffer (lispm-desktop-browser--address-buffer)))
+    (cl-letf (((symbol-function 'lispm-browser-shown-buffer) #'ignore)
+              ((symbol-function 'lispm-desktop-browser--bookmarks-button) (lambda () "Bookmarks"))
+              ((symbol-function 'lispm-desktop-platinum-icon) (lambda (_) "*")))
+      (unwind-protect
+          (save-window-excursion
+            (switch-to-buffer buffer)
+            (lispm-desktop-browser--render-address "https://example.com/")
+            (let ((start (marker-position lispm-desktop-browser--address-start)))
+              ;; What a triple click leaves, the line from its start.
+              (push-mark (point-min) t t)
+              (goto-char (point-max))
+              (run-hooks 'post-command-hook)
+              (should (equal (list (region-beginning) (region-end)) (list start (point-max))))
+              (should (equal (buffer-substring-no-properties (region-beginning) (region-end))
+                             "https://example.com/"))
+              (deactivate-mark)
+              (execute-kbd-macro (kbd "C-a"))
+              (should (= (point) start))
+              ;; Within the field, point and the mark stay where they are.
+              (push-mark (1+ start) t t)
+              (goto-char (+ start 5))
+              (run-hooks 'post-command-hook)
+              (should (equal (list (mark) (point)) (list (1+ start) (+ start 5))))))
         (kill-buffer buffer)))))
 
 (ert-deftest lispm-desktop-test-throbber-turns-while-loading ()
@@ -4987,6 +5120,26 @@ brought back in, the frame is a child of the screen again where it is."
         (should-not (lispm-desktop-apps-out-p 'window))
         (should-not (lispm-desktop-apps-out-p 'outer))
         (should (equal (frame-parameter 'window 'minibuffer) '(mini screen))))))
+
+(ert-deftest lispm-desktop-test-coherence-quiet-mouse-selection ()
+  "Text selected with the mouse in a window out says \"Mark set\" only in
+*Messages*, not over the top of the screen; elsewhere it says it as
+usual, and a message already inhibited stays so."
+  (let ((out nil)
+        (said nil))
+    (cl-letf (((symbol-function 'lispm-desktop-apps-out-p) (lambda (frame) (and (memq frame out) 'screen))))
+      (cl-flet ((select ()
+                  (lispm-desktop-coherence--quiet-selection
+                   (lambda (_) (push inhibit-message said))
+                   `(double-mouse-1 (,(selected-window) 12 (0 . 0) 0)))))
+        (let ((inhibit-message nil))
+          (setq out (list (selected-frame)))
+          (select)
+          (setq out nil)
+          (select))
+        (let ((inhibit-message t))
+          (select))
+        (should (equal said '(t nil t)))))))
 
 (ert-deftest lispm-desktop-test-coherence-screen-of-a-window-out ()
   "The screen is the desktop's frame, also while a window out is selected."
