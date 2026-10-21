@@ -45,6 +45,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-i18n)
 
 (defgroup lispm-desktop-frame nil
   "One frame clock for the work done in pieces, giving way to the keyboard."
@@ -147,7 +148,8 @@ NAME is then not due, so that it does not fail again every frame."
     (error
      (setq lispm-desktop-frame-last-error (cons name err)
            lispm-desktop-frame--due (delq name lispm-desktop-frame--due))
-     (message "The frame clock's client %s failed: %s" name (error-message-string err))
+     (message (lispm-desktop-tr "The frame clock's client %s failed: %s")
+              name (error-message-string err))
      nil)))
 
 (defun lispm-desktop-frame--tick ()

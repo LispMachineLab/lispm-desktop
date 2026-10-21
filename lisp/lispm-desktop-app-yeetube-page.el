@@ -63,6 +63,7 @@
 (require 'svg)
 (require 'url)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-i18n)
 
 (defvar yeetube-items)
 (defvar yeetube--continuation)
@@ -176,9 +177,9 @@ pages write them, \"96K views\"."
 
 (defun lispm-desktop-app-yeetube-page-meta (item)
   "Return the line of ITEM's views and age, as youtube.com writes it:
-views, a bullet, age; Playlist for a playlist."
+views, a bullet, age, as YouTube gave them; Playlist for a playlist."
   (if (eq (plist-get item :type) 'playlist)
-      "Playlist"
+      (lispm-desktop-tr "Playlist")
     (string-join (seq-remove #'string-empty-p
                              (list (lispm-desktop-app-yeetube-page-views (plist-get item :views))
                                    (or (plist-get item :date) "")))
@@ -380,9 +381,13 @@ button's rectangle, as (search X Y WIDTH HEIGHT)."
     (cons svg hits)))
 
 (defconst lispm-desktop-app-yeetube-page-sorts
-  '(("Relevance" . "Relevance") ("Upload date" . "Date") ("View count" . "Views") ("Rating" . "Rating"))
-  "The chips sorting the results: (LABEL . FILTER), FILTER a value of
-`yeetube-filter'.")
+  `((,(lispm-desktop-tr-noop "Relevance") "Relevance" ,(lispm-desktop-tr-noop "Sort by Relevance"))
+    (,(lispm-desktop-tr-noop "Upload date") "Date" ,(lispm-desktop-tr-noop "Sort by Upload date"))
+    (,(lispm-desktop-tr-noop "View count") "Views" ,(lispm-desktop-tr-noop "Sort by View count"))
+    (,(lispm-desktop-tr-noop "Rating") "Rating" ,(lispm-desktop-tr-noop "Sort by Rating")))
+  "The chips sorting the results: (LABEL FILTER ITEM), FILTER a value of
+`yeetube-filter', LABEL the chip's and ITEM the Video menu's item sorting
+so, both in English, translated where shown.")
 
 (defun lispm-desktop-app-yeetube-page-chips (width selected)
   "Return (SVG . HITS) of the chips sorting the results, WIDTH pixels wide,
@@ -394,9 +399,10 @@ chip chosen: HITS has (FILTER X Y WIDTH HEIGHT) for each chip."
          (x 16)
          (hits nil))
     (svg-rectangle svg 0 0 width 48 :fill (plist-get colors :background))
-    (pcase-dolist (`(,label . ,filter) lispm-desktop-app-yeetube-page-sorts)
-      (let ((wide (+ 24 (funcall measure label)))
-            (on (equal filter selected)))
+    (pcase-dolist (`(,english ,filter . ,_) lispm-desktop-app-yeetube-page-sorts)
+      (let* ((label (lispm-desktop-tr english))
+             (wide (+ 24 (funcall measure label)))
+             (on (equal filter selected)))
         (svg-rectangle svg x 8 wide 32 :rx 8 :fill (plist-get colors (if on :chip-selected :chip)))
         (lispm-desktop-app-yeetube-page--text svg label (+ x 12) 29 14
                                               (plist-get colors (if on :chip-selected-text :chip-text))
@@ -409,7 +415,7 @@ chip chosen: HITS has (FILTER X Y WIDTH HEIGHT) for each chip."
   "Return (SVG . HITS) of the button under the results showing more, WIDTH
 pixels wide, saying so while LOADING: HITS has (more X Y WIDTH HEIGHT)."
   (let* ((colors (lispm-desktop-app-yeetube-page-colors))
-         (label (if loading "Loading…" "Show more results"))
+         (label (if loading (lispm-desktop-tr "Loading…") (lispm-desktop-tr "Show more results")))
          (wide (+ 32 (funcall (lispm-desktop-app-yeetube-page-measure 14 'medium) label)))
          (x (round (- (/ width 2.0) (/ wide 2.0))))
          (svg (svg-create width 64)))
@@ -447,7 +453,8 @@ HEIGHT) for the channel and each button, ACTION `channel', `download',
             hits))
     ;; The buttons, from the right, as youtube.com sets them.
     (let ((x (- width 16)))
-      (dolist (button '((share . "Share") (save . "Save") (download . "Download")))
+      (dolist (button `((share . ,(lispm-desktop-tr "Share")) (save . ,(lispm-desktop-tr "Save"))
+                        (download . ,(lispm-desktop-tr "Download"))))
         (let* ((wide (+ 32 (funcall measure (cdr button))))
                (bx (- x wide)))
           (svg-rectangle svg bx row wide 36 :rx 18 :fill (plist-get colors :hover))
@@ -459,7 +466,7 @@ HEIGHT) for the channel and each button, ACTION `channel', `download',
       (svg-rectangle svg 16 box (- width 32) 64 :rx 12 :fill (plist-get colors :hover))
       (lispm-desktop-app-yeetube-page--text svg (lispm-desktop-app-yeetube-page-meta item) 28 (+ box 26) 14
                                             (plist-get colors :text) :font-weight "500")
-      (lispm-desktop-app-yeetube-page--text svg (if (string-empty-p channel) "" (concat "From " channel))
+      (lispm-desktop-app-yeetube-page--text svg (if (string-empty-p channel) "" (lispm-desktop-tr "From %s" channel))
                                             28 (+ box 48) 14 (plist-get colors :secondary)))
     (cons svg hits)))
 
@@ -527,7 +534,7 @@ ringed in blue while FOCUSED, the field over it, and its button."
         (lispm-desktop-app-yeetube-page--text
          svg (if (and query (not (string-empty-p query)))
                  (car (lispm-desktop-app-yeetube-page-wrap query (- w 32) 1 (lispm-desktop-app-yeetube-page-measure 16)))
-               "Search")
+               (lispm-desktop-tr "Search"))
          (+ x 16) (+ y 26) 16 (plist-get colors (if (and query (not (string-empty-p query))) :text :placeholder))))
       (let ((cx (+ bx 29)) (cy (+ y 18)))
         (svg-circle svg cx cy 7 :fill "none" :stroke text :stroke-width 1.6)

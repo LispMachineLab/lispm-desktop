@@ -42,7 +42,18 @@
 
 
 (defvar-local lispm-desktop-platinum-title nil
-  "Title the window of this buffer shows instead of the buffer's own name.")
+  "Title the window of this buffer shows instead of the buffer's own name:
+a string, or a function returning one when the window is drawn, as a
+title in words of the language LispM speaks is, see
+lispm-desktop-i18n.el.")
+
+(defun lispm-desktop-platinum-title-text (&optional buffer)
+  "Return the title `lispm-desktop-platinum-title' gives BUFFER's window,
+by default the current buffer's, or nil."
+  (let ((title (buffer-local-value 'lispm-desktop-platinum-title (or buffer (current-buffer)))))
+    (if (functionp title)
+        (with-current-buffer (or buffer (current-buffer)) (funcall title))
+      title)))
 
 (defvar-local lispm-desktop-platinum-icon nil
   "Icon the window of this buffer shows before its title, a string.")
@@ -201,7 +212,7 @@ A list window shows its `lispm-desktop-platinum-info' instead."
               (list (when (and (bound-and-true-p evil-local-mode)
                                (stringp evil-mode-line-tag))
                       (string-trim (substring-no-properties evil-mode-line-tag) "[ <]+" "[> ]+"))
-                    (concat (string-replace "%" "%%" (or lispm-desktop-platinum-title (buffer-name)))
+                    (concat (string-replace "%" "%%" (or (lispm-desktop-platinum-title-text) (buffer-name)))
                             (when (and buffer-file-name (buffer-modified-p)) " •"))
                     (lispm-desktop-platinum--mode-line-text mode-line-position)))
         " ")))))
@@ -1008,6 +1019,8 @@ by default where the mouse is when the drag begins.  The mouse is looked
 at every `lispm-desktop-platinum-drag-interval' seconds.
 Return (EVENT . DELTA): EVENT the button's release, or nil when Escape
 or C-g gave the drag up; DELTA the last move, or nil when it never moved.
+Mac OS 9's mouse had one button, so any of the three let go ends the
+drag: none leaves it following the mouse once every button is up.
 Other keys and the window system's own events change nothing."
   (let* ((pointer (or pointer #'mouse-absolute-pixel-position))
          (start (or start (funcall pointer) '(0 . 0)))
@@ -1022,7 +1035,7 @@ Other keys and the window system's own events change nothing."
             (cond ((memq event '(escape ?\e ?\C-g))
                    (setq done t event nil))
                   ((and event (not (mouse-movement-p event))
-                        (eq (event-basic-type event) 'mouse-1)
+                        (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3))
                         (seq-intersection (event-modifiers event) '(click drag)))
                    (setq done t)))
             (when-let* (((or (not done) event))

@@ -32,6 +32,7 @@
 
 (require 'cl-lib)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-i18n)
 
 ;;;; Left sidebar views
 ;;
@@ -52,6 +53,8 @@ PROPS is a property list:
   :icon     its Finder icon, see `lispm-desktop-platinum-icon'
   :help     what its tab says it shows
   :command  the command its menu bar title runs
+:title and :help are in English, marked with `lispm-desktop-tr-noop', and
+translated where shown.
 A list view, which the sidebar shows, hides and draws anew itself, names
 its list:
   :buffer   the name of the list's buffer
@@ -150,9 +153,13 @@ toolbars are, it shows itself pushed in from the window's
 (defun lispm-desktop-sidebar--toolbar-buttons (actions row)
   "Return ACTIONS as bevel buttons on ROW.
 Each action is (LABEL COMMAND HELP [PRESSED]); PRESSED draws its button
-pushed in, as a toggle that is on."
+pushed in, as a toggle that is on.  LABEL and HELP are translated here,
+as the buttons are drawn: in English, marked with
+`lispm-desktop-tr-noop', they show in the language LispM speaks."
   (mapconcat (pcase-lambda (`(,label ,command ,help ,pressed))
-               (lispm-desktop-sidebar-toolbar-button label command help row (and pressed 'pressed)))
+               (lispm-desktop-sidebar-toolbar-button (lispm-desktop-tr label) command
+                                                     (and help (lispm-desktop-tr help))
+                                                     row (and pressed 'pressed)))
              actions (propertize " " 'display '(space :width (4)))))
 
 (defvar-local lispm-desktop-sidebar--faces nil
@@ -171,7 +178,7 @@ are not whole columns."
                                    (concat (lispm-desktop-sidebar--toolbar-buttons title-actions
                                                                                    'header-line)
                                            " "))
-                                 (lispm-desktop-sidebar-toolbar-button "⟳" refresh "Refresh"
+                                 (lispm-desktop-sidebar-toolbar-button "⟳" refresh (lispm-desktop-tr "Refresh")
                                                                         'header-line))))
     (concat " " (lispm-desktop-sidebar--toolbar-buttons actions 'header-line)
             (propertize " " 'display
@@ -183,10 +190,11 @@ are not whole columns."
 VIEW, a key of `lispm-desktop-sidebar-views', names the title bar and gives its
 icon.  The header shows ACTIONS at its left end and, at its right end,
 TITLE-ACTIONS followed by a button calling REFRESH.  Both action lists
-hold (LABEL COMMAND HELP [PRESSED]) entries, see
-`lispm-desktop-sidebar--toolbar-buttons'."
+hold (LABEL COMMAND HELP [PRESSED]) entries, LABEL and HELP in English,
+translated where shown, see `lispm-desktop-sidebar--toolbar-buttons'."
   (let ((spec (alist-get view lispm-desktop-sidebar-views)))
-    (setq-local lispm-desktop-platinum-title (plist-get spec :title)
+    (setq-local lispm-desktop-platinum-title
+                (lambda () (lispm-desktop-tr (plist-get (alist-get view lispm-desktop-sidebar-views) :title)))
                 lispm-desktop-platinum-icon (lispm-desktop-platinum-icon (plist-get spec :icon))))
   (kill-local-variable 'tab-line-format)
   (unless lispm-desktop-sidebar--faces
@@ -219,12 +227,6 @@ selected item."
   ;; A window's title menu offers documents, not the sidebar's lists.
   (setq-local lispm-desktop-platinum-listed nil)
   (display-line-numbers-mode -1))
-
-(defun lispm-desktop-sidebar-count (n singular &optional detail)
-  "Return N SINGULAR things counted for a list window's bottom edge.
-DETAIL, when non-nil, follows after a comma."
-  (concat (format "%d %s%s" n singular (if (= n 1) "" "s"))
-          (when detail (concat ", " detail))))
 
 (defun lispm-desktop-sidebar--keep-width (window)
   "Preserve the width sidebar WINDOW has now, whatever changed it.
@@ -311,6 +313,12 @@ it is shown in the sidebar, never in the main area."
         (goto-char (point-min))
         (forward-line (1- line))
         (when window (set-window-point window (point)))))))
+
+(defun lispm-desktop-sidebar--refresh-lists ()
+  "Draw every list view anew where it exists, as in another language."
+  (dolist (view lispm-desktop-sidebar-views)
+    (when (plist-get (cdr view) :buffer)
+      (lispm-desktop-sidebar-refresh-list (car view)))))
 
 (defun lispm-desktop-sidebar-show-in-main (buffer)
   "Show BUFFER in the main area and select it.
@@ -464,16 +472,18 @@ the right-hand column; clicking the row calls ACTION, described by HELP."
   "Return what the project tree's bottom edge says: the project shown."
   (if-let* ((projects (treemacs-workspace->projects (treemacs-current-workspace))))
       (abbreviate-file-name (treemacs-project->path (car projects)))
-    "No project"))
+    (lispm-desktop-tr "No project")))
 
 (defun lispm-desktop-sidebar--files-toolbar ()
   "Give the project tree buffer its sidebar toolbar and bottom edge."
   (setq lispm-desktop-platinum-info #'lispm-desktop-sidebar--files-info)
   (lispm-desktop-sidebar-set-toolbar
    'files #'treemacs-refresh
-   '(("New File" treemacs-create-file "New file in the selected directory")
-     ("New Folder" treemacs-create-dir "New folder in the selected directory")
-     ("Collapse" treemacs-collapse-all-projects "Collapse all"))))
+   `((,(lispm-desktop-tr-noop "New File") treemacs-create-file
+      ,(lispm-desktop-tr-noop "New file in the selected directory"))
+     (,(lispm-desktop-tr-noop "New Folder") treemacs-create-dir
+      ,(lispm-desktop-tr-noop "New folder in the selected directory"))
+     (,(lispm-desktop-tr-noop "Collapse") treemacs-collapse-all-projects ,(lispm-desktop-tr-noop "Collapse all")))))
 
 (defun lispm-desktop-sidebar--files-visible-p ()
   "Return non-nil when the project tree is shown in the selected frame."
@@ -493,8 +503,8 @@ Outside any project treemacs falls back to the buffer's directory."
     (delete-window window)))
 
 (lispm-desktop-sidebar-define-view
- 'files :title "Files" :icon "disk" :command 'lispm-desktop-sidebar-files
- :help "Project files"
+ 'files :title (lispm-desktop-tr-noop "Files") :icon "disk" :command 'lispm-desktop-sidebar-files
+ :help (lispm-desktop-tr-noop "Project files")
  :visible #'lispm-desktop-sidebar--files-visible-p
  :show #'lispm-desktop-sidebar--files-show
  :hide #'lispm-desktop-sidebar--files-hide)
@@ -571,9 +581,11 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 
 (defun lispm-desktop-setup-sidebar ()
   "Let the sidebar's views close from their windows' close boxes, its lists
-scroll as Finder's did, and the project tree wear a list's toolbar."
+scroll as Finder's did and follow a change of language, and the project
+tree wear a list's toolbar."
   (setq lispm-desktop-platinum-side-window-close-function #'lispm-desktop-sidebar--close-side-window)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-sidebar--refresh-lists)
   (add-hook 'treemacs-mode-hook #'lispm-desktop-sidebar--files-toolbar))
 
 (provide 'lispm-desktop-sidebar)

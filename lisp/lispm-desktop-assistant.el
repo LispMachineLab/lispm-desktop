@@ -23,15 +23,20 @@
 
 ;;; Commentary:
 
-;; The first start asks how text is edited and which appearance LispM
-;; wears.  Someone who has never seen Emacs would hardly notice a question
+;; The first start asks which language LispM speaks, how text is edited
+;; and which appearance LispM wears.  Someone who has never seen Emacs would hardly notice a question
 ;; at the bottom of an empty frame, so the questions fill the frame
 ;; instead, as Mac OS Setup Assistant asked its own: a window on the
 ;; desktop, a question to a page, each choice a large button saying what it
 ;; does, and each appearance showing a small picture of LispM in its
 ;; colours.  The page is drawn in Platinum, before any theme is chosen.
 ;;
-;; Every choice has a letter, shown on its button, that chooses it.  Tab,
+;; The language is asked first, and the next pages speak the one chosen.
+;; Its eight choices, the computer's language and LispM's seven, each
+;; named in itself, stand in two columns of smaller buttons.
+;;
+;; Every choice has a letter or a digit, shown on its button, that
+;; chooses it.  Tab,
 ;; C-f and C-n ring the next choice, S-Tab, C-b and C-p the one before;
 ;; Return or Space chooses the one ringed, DEL goes back a question, and
 ;; Escape or C-g puts the questions off: LispM starts with the first
@@ -49,30 +54,59 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-modal)
+(require 'lispm-desktop-i18n)
 
 (defconst lispm-desktop-assistant-questions
-  '((lispm-desktop-editing-style
-     :title "How do you edit text?"
-     :detail "Choose the keys your fingers know.  Control Panels, on the desktop, changes this later."
+  `((lispm-desktop-editing-style
+     :title ,(lispm-desktop-tr-noop "How do you edit text?")
+     :detail ,(lispm-desktop-tr-noop "Choose the keys your fingers know.  Control Panels, on the desktop, changes this later.")
      :icon "keyboard-32"
-     :choices ((emacs :key ?e :label "Emacs keys"
-                      :text "C-x C-s saves and C-g cancels, everywhere.  The one to choose if you know neither.")
-               (vim :key ?v :label "Vim keys"
-                    :text "Evil in files, SPC as the leader key; Emacs keys in terminals, agents and lists.")))
+     :choices ((emacs :key ?e :label ,(lispm-desktop-tr-noop "Emacs keys")
+                      :text ,(lispm-desktop-tr-noop "C-x C-s saves and C-g cancels, everywhere.  The one to choose if you know neither."))
+               (vim :key ?v :label ,(lispm-desktop-tr-noop "Vim keys")
+                    :text ,(lispm-desktop-tr-noop "Evil in files, SPC as the leader key; Emacs keys in terminals, agents and lists."))))
     (lispm-desktop-theme
-     :title "Which appearance?"
-     :detail "Control Panels, on the desktop, changes this later too."
+     :title ,(lispm-desktop-tr-noop "Which appearance?")
+     :detail ,(lispm-desktop-tr-noop "Control Panels, on the desktop, changes this later too.")
      :icon "appearance-32"
-     :choices ((dracula :key ?d :label "Dracula" :text "Light text on a dark background."
+     :choices ((dracula :key ?d :label "Dracula" :text ,(lispm-desktop-tr-noop "Light text on a dark background.")
                         :preview dracula)
-               (platinum :key ?p :label "Platinum" :text "Mac OS 9's greys, black on white."
+               (platinum :key ?p :label "Platinum" :text ,(lispm-desktop-tr-noop "Mac OS 9's greys, black on white.")
                          :preview platinum))))
   "The first start's questions, in the order asked: (VARIABLE . PROPERTIES).
 :title is the question, :detail a line or two under it, :icon the name
 of its large icon in icons/os9.  :choices are (VALUE . PROPERTIES), the
-first of them taken by a start that asks nothing: :key is the letter
-choosing it, :label and :text what its button says, :preview a key of
-`lispm-desktop-assistant--previews', the appearance its button pictures.")
+first of them taken by a start that asks nothing, or a function
+returning them: :key is the letter choosing it, :label and :text what
+its button says, :preview a key of `lispm-desktop-assistant--previews',
+the appearance its button pictures.  The words are in English,
+translated when shown; a function's choices come translated.  A
+question that is :live takes its choice at once, so the next pages show
+it.")
+
+(defconst lispm-desktop-assistant-language-question
+  `(lispm-desktop-language
+    :title ,(lispm-desktop-tr-noop "Which language?")
+    :detail ,(lispm-desktop-tr-noop "Choose the language LispM speaks.  Control Panels, on the desktop, changes this later.")
+    :icon "language-32"
+    :choices lispm-desktop-assistant--language-choices
+    :live t)
+  "The first start's question of the language LispM speaks, asked before
+`lispm-desktop-assistant-questions' when they are asked and the
+language is not chosen yet.")
+
+(defun lispm-desktop-assistant--language-choices ()
+  "Return the choices of `lispm-desktop-assistant-language-question': the
+computer's language, then each of `lispm-desktop-languages' named in
+itself, chosen by the digits 1 to 8."
+  (cons (list nil :key ?1 :label (lispm-desktop-tr "The computer's language")
+              :text (lispm-desktop-language-name (lispm-desktop-system-language)))
+        (seq-map-indexed (pcase-lambda (`(,language ,english) index)
+                           (let ((name (lispm-desktop-language-name language)))
+                             (list language :key (+ ?2 index) :label name
+                                   :text (let ((translated (lispm-desktop-tr english)))
+                                           (unless (equal translated name) translated)))))
+                         lispm-desktop-languages)))
 
 (defconst lispm-desktop-assistant--previews
   '((dracula :colors ("#282A36" "#F8F8F2" "#6272A4" "#BD93F9")
@@ -108,22 +142,41 @@ text.")
 (defvar lispm-desktop-assistant--last-page nil
   "The page shown last, which `lispm-desktop-assistant-report' adds to.")
 
+(defun lispm-desktop-assistant--choices (question)
+  "Return QUESTION's choices, (VALUE . PROPERTIES), as the page shows them:
+their words in the language LispM speaks."
+  (let ((choices (plist-get (cdr question) :choices)))
+    (if (functionp choices)
+        (funcall choices)
+      (mapcar (pcase-lambda (`(,value . ,properties))
+                (let ((properties (copy-sequence properties)))
+                  (dolist (property '(:label :text))
+                    (when-let* ((text (plist-get properties property)))
+                      (setq properties (plist-put properties property (lispm-desktop-tr text)))))
+                  (cons value properties)))
+              choices))))
+
 (defun lispm-desktop-assistant-default (question)
   "Return the value QUESTION takes when nothing is asked: its first choice's."
-  (car (car (plist-get (cdr question) :choices))))
+  (car (car (lispm-desktop-assistant--choices question))))
 
 ;;;; Pages
 
 (defun lispm-desktop-assistant--page (question index count)
   "Return the page asking QUESTION, the INDEXth of COUNT questions.
-A page is a plist: QUESTION's properties, and :step, saying how far along
-it is, and :back, non-nil when there is a question to go back to."
-  (append (list :step (format "Step %d of %d" (1+ index) count) :back (> index 0))
-          (cdr question)))
+A page is a plist: QUESTION's properties, its words in the language
+LispM speaks, and :step, saying how far along it is, and :back, non-nil
+when there is a question to go back to."
+  (let ((properties (cdr question)))
+    (append (list :step (lispm-desktop-tr "Step %d of %d" (1+ index) count) :back (> index 0)
+                  :title (lispm-desktop-tr (plist-get properties :title))
+                  :detail (lispm-desktop-tr (plist-get properties :detail))
+                  :choices (lispm-desktop-assistant--choices question))
+            properties)))
 
 (defun lispm-desktop-assistant--choice-label (question value)
   "Return the label of QUESTION's choice of VALUE."
-  (plist-get (alist-get value (plist-get (cdr question) :choices)) :label))
+  (plist-get (alist-get value (lispm-desktop-assistant--choices question)) :label))
 
 (defun lispm-desktop-assistant--done-page (questions answers)
   "Return the page shown while LispM is set up after QUESTIONS were asked.
@@ -133,10 +186,10 @@ ANSWERS are the choices made, or nil when the questions were put off."
                               question (alist-get (car question) answers
                                                   (lispm-desktop-assistant-default question))))
                            questions ", ")))
-    (list :title "Setting LispM up…"
+    (list :title (lispm-desktop-tr "Setting LispM up…")
           :detail (if answers
-                      (concat chosen ".  This takes a moment.")
-                    (concat chosen " for now; LispM asks again at the next start."))
+                      (lispm-desktop-tr "%s.  This takes a moment." chosen)
+                    (lispm-desktop-tr "%s for now; LispM asks again at the next start." chosen))
           :picture t)))
 
 ;;;; Layout
@@ -146,8 +199,9 @@ ANSWERS are the choices made, or nil when the questions were put off."
 The value is a plist of rectangles, each (X Y WIDTH HEIGHT): the
 :window, its frame and shadow included, in the middle; :content, the
 platinum inside its title bar and frame; :cards, a rectangle for each of
-PAGE's choices, side by side under the question; and :back, the Go Back
-button at the bottom right, when PAGE goes back."
+PAGE's choices, side by side under the question, or, for more than
+three, in two columns of smaller buttons, row after row; and :back, the
+Go Back button at the bottom right, when PAGE goes back."
   (pcase-let* ((w lispm-desktop-assistant-width)
                (h lispm-desktop-assistant-height)
                (x (max 0 (/ (- width w) 2)))
@@ -161,15 +215,21 @@ button at the bottom right, when PAGE goes back."
                (ch (- h top bottom lispm-desktop-platinum-title-bar-height))
                (margin 20)
                (count (length (plist-get page :choices)))
-               (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- count))) count) 0))
+               (columns (if (> count 3) 2 count))
+               (rows (if (> columns 0) (/ (+ count columns -1) columns) 0))
+               (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- columns))) columns) 0))
+               (card-height (if (> rows 1)
+                                (/ (- lispm-desktop-assistant-card-height (* 6 (1- rows))) rows)
+                              lispm-desktop-assistant-card-height))
                ;; The pixels left over widen the gaps, so both margins match.
-               (gap (if (> count 1) (/ (- cw (* 2 margin) (* count card-width)) (1- count)) 0))
-               (back-width (lispm-desktop-platinum-push-button-width "Go Back")))
+               (gap (if (> columns 1) (/ (- cw (* 2 margin) (* columns card-width)) (1- columns)) 0))
+               (back-width (lispm-desktop-platinum-push-button-width (lispm-desktop-tr "Go Back"))))
     (list :window (list x y w h)
           :content (list cx cy cw ch)
           :cards (mapcar (lambda (index)
-                           (list (+ cx margin (* index (+ card-width gap))) (+ cy 92)
-                                 card-width lispm-desktop-assistant-card-height))
+                           (list (+ cx margin (* (% index columns) (+ card-width gap)))
+                                 (+ cy 92 (* (/ index columns) (+ card-height 6)))
+                                 card-width card-height))
                          (number-sequence 0 (1- count)))
           :back (and (plist-get page :back)
                      (list (- (+ cx cw) margin back-width)
@@ -214,21 +274,34 @@ whose lines are coloured CODE, a list of colours."
              (fill (+ left 5 indent) (+ top 13 (* 5 index)) (min length (- w 10 indent)) 2 ink)))
          '((0 14 0) (0 28 1) (6 40 2) (6 22 4) (0 46 3) (6 30 0)))))))
 
+(defun lispm-desktop-assistant--draw-row-card (svg ink rect properties cap)
+  "Draw on SVG, in INK, the words of a small button filling RECT, of
+PROPERTIES as a choice has them: its label at the left, its text dimmed
+before the key cap, CAP pixels wide, at the right."
+  (pcase-let* ((`(,x ,y ,w ,h) rect)
+               (label (plist-get properties :label))
+               (text (plist-get properties :text))
+               (room (- w 12 cap 16 (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title))))
+    (lispm-desktop-platinum-svg-content svg label (+ x 12) (+ y (/ (- h 20) 2)) 20 ink
+                                          'lispm-desktop-platinum-title)
+    (when (and text (> room 40))
+      (let ((text (lispm-desktop-platinum-fit (propertize text 'face 'lispm-desktop-platinum-list) (- room 8))))
+        (lispm-desktop-platinum-svg-content
+         svg text (- (+ x w) cap 16 (lispm-desktop-platinum-content-width text 'lispm-desktop-platinum-list))
+         (+ y (/ (- h 16) 2)) 16 ink 'lispm-desktop-platinum-list)))))
+
 (defun lispm-desktop-assistant--draw-card (svg palette rect choice state focused)
   "Draw on SVG the button of CHOICE, (VALUE . PROPERTIES), filling RECT.
 It is a bevel button in PALETTE, in STATE as
 `lispm-desktop-platinum-draw-bevel-button' takes it, ringed when
 FOCUSED.  It holds the picture of CHOICE's appearance, if any, its label
-and its text, and its key as a key cap in its top right corner."
+and its text, and its key as a key cap in its top right corner; a button
+too short for that, one of a column, holds its label and text on one
+line, the key cap at its right."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (properties (cdr choice))
                (ink (plist-get (lispm-desktop-platinum-bevel-button-colors palette state) :label))
-               (preview (alist-get (plist-get properties :preview) lispm-desktop-assistant--previews))
-               (lines (lispm-desktop-popup--wrap (plist-get properties :text) (- w 32)
-                                                 'lispm-desktop-platinum-list))
-               (label (propertize (plist-get properties :label) 'face '(:height 1.25)))
-               ;; The picture, the label and the text, as one block in the middle.
-               (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2)))
+               (row (< h 60))
                (cap 20))
     (when focused
       (lispm-desktop-platinum-svg-focus-ring svg x y w h 1 palette))
@@ -238,7 +311,22 @@ and its text, and its key as a key cap in its top right corner."
      svg (lispm-desktop-platinum-draw-bevel-button
           palette cap cap :label (upcase (char-to-string (plist-get properties :key)))
           :face 'lispm-desktop-platinum-title)
-     (- (+ x w) cap 8) (+ y 8) cap cap)
+     (- (+ x w) cap 8) (if row (+ y (/ (- h cap) 2)) (+ y 8)) cap cap)
+    (if row
+        (lispm-desktop-assistant--draw-row-card svg ink rect properties cap)
+      (lispm-desktop-assistant--draw-block-card svg palette ink rect properties))))
+
+(defun lispm-desktop-assistant--draw-block-card (svg palette ink rect properties)
+  "Draw on SVG, in INK, the inside of a choice's button filling RECT, of
+PROPERTIES as a choice has them, as one block in the middle: the
+picture of its appearance, if any, drawn in PALETTE when the appearance
+names no colours, its label and the lines of its text, centred."
+  (pcase-let* ((`(,x ,y ,w ,h) rect)
+               (preview (alist-get (plist-get properties :preview) lispm-desktop-assistant--previews))
+               (lines (lispm-desktop-popup--wrap (or (plist-get properties :text) "") (- w 32)
+                                                 'lispm-desktop-platinum-list))
+               (label (propertize (plist-get properties :label) 'face '(:height 1.25)))
+               (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2))))
     (when preview
       (let ((picture (if-let* ((colors (plist-get preview :colors)))
                          (apply #'lispm-desktop-platinum-derive-palette colors)
@@ -260,9 +348,13 @@ and its text, and its key as a key cap in its top right corner."
   "Return the line telling how PAGE's choices are made."
   (let ((keys (mapcar (lambda (choice) (upcase (char-to-string (plist-get (cdr choice) :key))))
                       (plist-get page :choices))))
-    (concat "Press " (string-join keys " or ") ", or click one.  Tab moves, Return chooses"
-            (if (plist-get page :back) ", DEL goes back" "")
-            ", Esc decides later.")))
+    (concat (if (> (length keys) 3)
+                (lispm-desktop-tr "Press %s to %s, or click one." (car keys) (car (last keys)))
+              (lispm-desktop-tr "Press %s, or click one." (string-join keys (lispm-desktop-tr " or "))))
+            "  "
+            (if (plist-get page :back)
+                (lispm-desktop-tr "Tab moves, Return chooses, DEL goes back, Esc decides later.")
+              (lispm-desktop-tr "Tab moves, Return chooses, Esc decides later.")))))
 
 (defun lispm-desktop-assistant-draw (palette width height page focused pressed)
   "Return an SVG WIDTH by HEIGHT pixels of the assistant showing PAGE.
@@ -276,7 +368,7 @@ page with a :picture shows LispM's λ instead of choices, and its
   (let* ((layout (lispm-desktop-assistant--layout width height page))
          (svg (svg-create width height))
          (text (plist-get palette :text))
-         (title (propertize "Welcome to LispM" 'face 'lispm-desktop-platinum-title)))
+         (title (propertize (lispm-desktop-tr "Welcome to LispM") 'face 'lispm-desktop-platinum-title)))
     (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :desktop))
     (pcase-let ((`(,x ,y ,w ,h) (plist-get layout :window))
                 (`(,cx ,cy ,cw ,ch) (plist-get layout :content)))
@@ -333,7 +425,7 @@ page with a :picture shows LispM's λ instead of choices, and its
          lispm-desktop-platinum-button-height text 'lispm-desktop-platinum-list)
         (pcase (plist-get layout :back)
           (`(,bx ,by ,bw ,_)
-           (lispm-desktop-platinum-svg-push-button svg bx by palette "Go Back" bw
+           (lispm-desktop-platinum-svg-push-button svg bx by palette (lispm-desktop-tr "Go Back") bw
                                                      :state (and (eq pressed 'back) 'pressed))))))
     svg))
 
@@ -453,7 +545,7 @@ order, or nil when they were put off."
   (let ((index 0) (focused 0) (pressed nil) (held nil) (answers nil) (result nil))
     (while (not result)
       (let* ((question (nth index questions))
-             (count (length (plist-get (cdr question) :choices)))
+             (count (length (lispm-desktop-assistant--choices question)))
              (page (lispm-desktop-assistant--page question index (length questions)))
              (layout (lispm-desktop-assistant--show page focused pressed))
              (event (lispm-desktop-assistant--read))
@@ -462,11 +554,14 @@ order, or nil when they were put off."
                     ;; The choice made before, when going back or forth.
                     (let ((question (assq variable questions)))
                       (or (cl-position (alist-get variable answers)
-                                       (plist-get (cdr question) :choices) :key #'car)
+                                       (lispm-desktop-assistant--choices question) :key #'car)
                           0)))
                   (choose (choice)
-                    (setf (alist-get (car question) answers)
-                          (car (nth choice (plist-get (cdr question) :choices))))
+                    (let ((value (car (nth choice (lispm-desktop-assistant--choices question)))))
+                      (setf (alist-get (car question) answers) value)
+                      ;; The next pages show it.
+                      (when (plist-get (cdr question) :live)
+                        (set-default (car question) value)))
                     (setq index (1+ index) held nil pressed nil)
                     (if (= index (length questions))
                         (setq result 'answered)
@@ -481,7 +576,11 @@ order, or nil when they were put off."
             (`(focus . ,step) (setq focused (lispm-desktop-modal-cycle focused step count)))
             ('back (setq index (1- index) held nil pressed nil
                          focused (answered (car (nth index questions)))))
-            ('later (setq result 'later))
+            ('later (setq result 'later)
+                    ;; Put off, the choices shown take their first again.
+                    (dolist (question questions)
+                      (when (plist-get (cdr question) :live)
+                        (set-default (car question) (lispm-desktop-assistant-default question)))))
             ('quit (kill-emacs))
             (`(press . ,target) (setq held target pressed target))
             (`(click . ,target)
@@ -504,17 +603,19 @@ puts the questions off."
   (condition-case nil
       (seq-map-indexed
        (lambda (question index)
-         (let* ((choices (plist-get (cdr question) :choices))
+         (let* ((choices (lispm-desktop-assistant--choices question))
                 (key (car (read-multiple-choice
-                           (concat (if (= index 0) "Welcome to LispM.  " "")
-                                   (plist-get (cdr question) :title))
+                           (concat (if (= index 0) (concat (lispm-desktop-tr "Welcome to LispM.") "  ") "")
+                                   (lispm-desktop-tr (plist-get (cdr question) :title)))
                            (mapcar (lambda (choice)
                                      (list (plist-get (cdr choice) :key)
                                            (downcase (plist-get (cdr choice) :label))
                                            (plist-get (cdr choice) :text)))
-                                   choices)))))
-           (cons (car question)
-                 (car (seq-find (lambda (choice) (eq (plist-get (cdr choice) :key) key)) choices)))))
+                                   choices))))
+                (value (car (seq-find (lambda (choice) (eq (plist-get (cdr choice) :key) key)) choices))))
+           (when (plist-get (cdr question) :live)
+             (set-default (car question) value))
+           (cons (car question) value)))
        questions)
     (quit nil)))
 
@@ -537,7 +638,7 @@ page then stays, saying LispM is being set up, until
             answers))
       (error
        (lispm-desktop-assistant-close)
-       (display-warning 'lispm-desktop (format "LispM's Setup Assistant failed: %S" err))
+       (display-warning 'lispm-desktop (format (lispm-desktop-tr "LispM's Setup Assistant failed: %S") err))
        (lispm-desktop-assistant--ask-in-minibuffer questions)))))
 
 (defun lispm-desktop-assistant-report (status)

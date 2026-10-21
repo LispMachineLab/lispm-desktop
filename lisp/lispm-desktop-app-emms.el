@@ -62,6 +62,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-i18n)
 
 ;; EMMS's own variables and functions, read once it runs.
 (defvar emms-player-list)
@@ -316,24 +317,28 @@ letting it."
   (pcase-let ((`(,songs ,playlists ,left ,files) result))
     (when (window-live-p window)
       (with-selected-window window (emms-browse-by-artist)))
-    (let ((counted (format "%s songs and %d playlists came from Music"
-                           (lispm-desktop-app-ui--number songs) playlists))
+    (let ((number (lispm-desktop-app-ui--number songs))
+          (lists (lispm-desktop-tr-n "%d playlist" "%d playlists" playlists))
           (application (lispm-desktop-app-emms--application)))
       (if (eq (lispm-desktop-app-emms-readable-p files) 'denied)
           (lispm-desktop-app-emms--open-media-settings
            (lispm-desktop-popup-alert
-            'caution (format "%s, but %s may not read them." counted application)
-            '(("Open Privacy Settings" settings) ("OK" ok default))
-            (format (concat "macOS lets only the applications allowed to read the media library read the"
-                            " Music folder.  Turn %s on in Privacy & Security, Media & Apple Music, or add"
-                            " it there with +, then play the songs.")
-                    application)))
+            'caution (lispm-desktop-tr-n "%s song and %s came from Music, but %s may not read them."
+                                         "%s songs and %s came from Music, but %s may not read them."
+                                         songs number lists application)
+            `((,(lispm-desktop-tr "Open Privacy Settings") settings) (,(lispm-desktop-tr "OK") ok default))
+            (lispm-desktop-tr "macOS lets only the applications allowed to read the media library read the \
+Music folder.  Turn %s on in Privacy & Security, Media & Apple Music, or add it there with +, then play \
+the songs."
+                              application)))
         (lispm-desktop-popup-alert
-         'note (concat counted ".")
-         '(("OK" ok default))
+         'note (lispm-desktop-tr-n "%s song and %s came from Music." "%s songs and %s came from Music."
+                                   songs number lists)
+         `((,(lispm-desktop-tr "OK") ok default))
          (when (> left 0)
-           (format "%s songs play in Music only: Apple Music's, and those bought protected."
-                   (lispm-desktop-app-ui--number left))))))))
+           (lispm-desktop-tr-n "%s song plays in Music only: one of Apple Music's, or one bought protected."
+                               "%s songs play in Music only: Apple Music's, and those bought protected."
+                               left (lispm-desktop-app-ui--number left))))))))
 
 (defconst lispm-desktop-app-emms--reader-sources
   (expand-file-name "native/lispm-music-library/" lispm-desktop-directory)
@@ -381,7 +386,7 @@ alone, then call THEN; say why when it cannot be built."
     (make-directory (expand-file-name "Contents/MacOS" app) t)
     (copy-file (expand-file-name "Info.plist" lispm-desktop-app-emms--reader-sources)
                (expand-file-name "Contents/Info.plist" app) t)
-    (message "Building the reader of the Music library…")
+    (message (lispm-desktop-tr "Building the reader of the Music library…"))
     (make-process
      :name "lispm-music-library-build" :buffer log :noquery t
      :command (list "sh" "-c" "swiftc -O -framework iTunesLibrary -o \"$1\" \"$2\" && codesign --force --sign - \"$3\""
@@ -398,10 +403,10 @@ alone, then call THEN; say why when it cannot be built."
            (let ((why (with-current-buffer log (string-trim (buffer-string)))))
              (kill-buffer log)
              (when (eq (lispm-desktop-popup-alert
-                        'stop "The reader of the Music library could not be built."
-                        '(("Copy Command" copy) ("OK" ok default))
-                        (concat "It needs Xcode's command line tools; install them with: "
-                                "xcode-select --install"
+                        'stop (lispm-desktop-tr "The reader of the Music library could not be built.")
+                        `((,(lispm-desktop-tr "Copy Command") copy) (,(lispm-desktop-tr "OK") ok default))
+                        (concat (lispm-desktop-tr "It needs Xcode's command line tools; install them with: %s"
+                                                  "xcode-select --install")
                                 (unless (string-empty-p why) (concat "\n" (truncate-string-to-width why 300)))))
                        'copy)
                (kill-new "xcode-select --install")))))))))
@@ -431,11 +436,12 @@ the reader wrote, or nil; most often it was not let read the media
 library, so a button opens the settings letting it."
   (lispm-desktop-app-emms--open-media-settings
    (lispm-desktop-popup-alert
-    'stop "The Music library could not be read."
-    '(("Open Privacy Settings" settings) ("OK" ok default))
-    (concat (or (plist-get data :error) "LispM Music Library said nothing.")
-            "  If it was not allowed to read the media library, allow LispM Music Library"
-            " in Privacy & Security, Media & Apple Music, then import again."))))
+    'stop (lispm-desktop-tr "The Music library could not be read.")
+    `((,(lispm-desktop-tr "Open Privacy Settings") settings) (,(lispm-desktop-tr "OK") ok default))
+    ;; What the reader said is its own words.
+    (lispm-desktop-tr "%s  If it was not allowed to read the media library, allow LispM Music Library in \
+Privacy & Security, Media & Apple Music, then import again."
+                      (or (plist-get data :error) (lispm-desktop-tr "LispM Music Library said nothing."))))))
 
 (defun lispm-desktop-app-emms-import-music ()
   "Read the Music app's library into EMMS: every song Music keeps a file
@@ -444,11 +450,11 @@ read, through Apple's iTunesLibrary, by LispM Music Library.app, built
 the first time; macOS asks once whether it may read the media library."
   (interactive)
   (unless (eq system-type 'darwin)
-    (user-error "The Music app is macOS's"))
+    (user-error (lispm-desktop-tr "The Music app is macOS's")))
   (lispm-desktop-app-emms-setup)
   (let ((window (selected-window)))
     (cl-flet ((read-library ()
-                (message "Reading the Music library…")
+                (message (lispm-desktop-tr "Reading the Music library…"))
                 (lispm-desktop-app-emms--read-library
                  (lambda (data)
                    (message nil)
@@ -462,12 +468,12 @@ the first time; macOS asks once whether it may read the media library."
 (defun lispm-desktop-app-emms-play-music-playlist (name)
   "Play the Music library's playlist NAME, as read by
 `lispm-desktop-app-emms-import-music'."
-  (interactive (list (completing-read "Play Music playlist: "
+  (interactive (list (completing-read (lispm-desktop-tr "Play Music playlist: ")
                                       (mapcar #'car (lispm-desktop-app-emms-music-playlists)) nil t)))
   (lispm-desktop-app-emms-setup)
   (let ((files (cdr (assoc name (lispm-desktop-app-emms-music-playlists)))))
     (unless files
-      (user-error "No playlist %s" name))
+      (user-error (lispm-desktop-tr "No playlist %s") name))
     (emms-stop)
     (emms-playlist-current-clear)
     (with-current-buffer emms-playlist-buffer
@@ -503,15 +509,15 @@ the first time; macOS asks once whether it may read the media library."
 Music library's playlists, each playing."
   (let ((playlists (lispm-desktop-app-emms-music-playlists)))
     `(,@(when (eq system-type 'darwin)
-          '((:label "Import Music Library" :action lispm-desktop-app-emms-import-music)))
-      (:label "Add Folder…" :action lispm-desktop-app-emms-add-folder)
-      (:label "Add File…" :action lispm-desktop-app-emms-add-file)
+          `((:label ,(lispm-desktop-tr "Import Music Library") :action lispm-desktop-app-emms-import-music)))
+      (:label ,(lispm-desktop-tr "Add Folder…") :action lispm-desktop-app-emms-add-folder)
+      (:label ,(lispm-desktop-tr "Add File…") :action lispm-desktop-app-emms-add-file)
       separator
       ,@(if playlists
             (mapcar (pcase-lambda (`(,name . ,_))
                       (list :label name :action (lambda () (lispm-desktop-app-emms-play-music-playlist name))))
                     playlists)
-          '((:label "No Music Playlists" :enabled nil))))))
+          `((:label ,(lispm-desktop-tr "No Music Playlists") :enabled nil))))))
 
 ;;;; The window
 
@@ -523,16 +529,17 @@ Music library's playlists, each playing."
 (defun lispm-desktop-app-emms--empty-buttons ()
   "Return the buttons of EMMS's page while it knows no music."
   `(,@(when (eq system-type 'darwin)
-        '(("Import Music Library" lispm-desktop-app-emms-import-music)))
-    ("Add Folder…" lispm-desktop-app-emms-add-folder)
-    ("Add File…" lispm-desktop-app-emms-add-file)))
+        `((,(lispm-desktop-tr "Import Music Library") lispm-desktop-app-emms-import-music)))
+    (,(lispm-desktop-tr "Add Folder…") lispm-desktop-app-emms-add-folder)
+    (,(lispm-desktop-tr "Add File…") lispm-desktop-app-emms-add-file)))
 
 (defun lispm-desktop-app-emms--status ()
   "Return what EMMS's bottom says: what is playing, if anything."
   (when-let* (((bound-and-true-p emms-player-playing-p))
               (track (emms-playlist-current-selected-track)))
-    (list (concat (if (bound-and-true-p emms-player-paused-p) "Paused: " "Playing: ")
-                  (emms-track-description track)))))
+    (list (if (bound-and-true-p emms-player-paused-p)
+              (lispm-desktop-tr "Paused: %s" (emms-track-description track))
+            (lispm-desktop-tr "Playing: %s" (emms-track-description track))))))
 
 (lispm-desktop-app-ui-define 'emms-browser-mode
   :app 'emms
@@ -540,18 +547,24 @@ Music library's playlists, each playing."
   :list t
   :title "EMMS"
   :status #'lispm-desktop-app-emms--status
-  :buttons `((,(lambda () (if (bound-and-true-p emms-player-paused-p) "Play" "Pause")) emms-pause
-              ,(lambda () (bound-and-true-p emms-player-playing-p)))
-             ("Stop" emms-stop ,(lambda () (bound-and-true-p emms-player-playing-p)))
-             ("Previous" emms-previous) ("Next" emms-next))
-  :menus '(("Library" . lispm-desktop-app-emms--library-items))
+  :buttons `((,(lambda () (if (bound-and-true-p emms-player-paused-p)
+                              (lispm-desktop-tr "Play")
+                            (lispm-desktop-tr "Pause")))
+              emms-pause ,(lambda () (bound-and-true-p emms-player-playing-p)))
+             (,(lispm-desktop-tr-noop "Stop") emms-stop ,(lambda () (bound-and-true-p emms-player-playing-p)))
+             (,(lispm-desktop-tr-noop "Previous") emms-previous) (,(lispm-desktop-tr-noop "Next") emms-next))
+  :menus `((,(lispm-desktop-tr-noop "Library") . lispm-desktop-app-emms--library-items))
   :empty `(lispm-desktop-app-emms--library-empty-p
-           ,(concat "No music yet.\nImport your Music library, or add a folder of music,\n"
-                    "and browse it here by artist, album, genre or year.")
+           ,(lispm-desktop-tr-noop "No music yet.\nImport your Music library, or add a folder of music,\n\
+and browse it here by artist, album, genre or year.")
            lispm-desktop-app-emms--empty-buttons)
-  :keys '(("Return" . "Add to the playlist") ("C-j" . "Add and play") ("SPC" . "Show or hide what is under")
-          ("n  p" . "Next and previous line") ("b 1 … b 7" . "Browse by artist, album, genre, year…")
-          ("s a  s t" . "Search artists, titles") ("+  −" . "Louder, softer")))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Add to the playlist"))
+          ("C-j" . ,(lispm-desktop-tr-noop "Add and play"))
+          ("SPC" . ,(lispm-desktop-tr-noop "Show or hide what is under"))
+          ("n  p" . ,(lispm-desktop-tr-noop "Next and previous line"))
+          ("b 1 … b 7" . ,(lispm-desktop-tr-noop "Browse by artist, album, genre, year…"))
+          ("s a  s t" . ,(lispm-desktop-tr-noop "Search artists, titles"))
+          ("+  −" . ,(lispm-desktop-tr-noop "Louder, softer"))))
 
 (provide 'lispm-desktop-app-emms)
 ;;; lispm-desktop-app-emms.el ends here

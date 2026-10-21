@@ -35,6 +35,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum-palette)
+(require 'lispm-desktop-i18n)
 
 
 (defconst lispm-desktop-platinum-title-height 22
@@ -279,6 +280,15 @@ face hardly ever does."
       (= (string-pixel-width (propertize sample 'face `(:weight bold ,@spec)))
          (string-pixel-width (propertize sample 'face `(:weight normal ,@spec)))))))
 
+(defun lispm-desktop-platinum--svg-families (family)
+  "Return the font families SVG text set in FAMILY, a face's, is drawn
+in: FAMILY, by default Geneva, then the one for Chinese and Japanese in
+the language spoken, then any sans-serif."
+  (string-join (delq nil (list (if (stringp family) family "Geneva")
+                               (lispm-desktop-i18n-cjk-family)
+                               "sans-serif"))
+               ", "))
+
 (defun lispm-desktop-platinum-svg-font (&optional face)
   "Return the font of SVG labels matching FACE, by default the titles' face.
 The value is a plist: :family and :size, in pixels, are FACE's; :weight
@@ -295,7 +305,7 @@ drawn as SVG is as heavy as the titles and menus Emacs draws beside it."
                          '(semi-bold bold extra-bold ultra-bold heavy black)))
              (synthetic (and bold (display-graphic-p)
                              (lispm-desktop-platinum--synthetic-bold-p face))))
-        (list :family (concat (if (stringp family) family "Geneva") ", sans-serif")
+        (list :family (lispm-desktop-platinum--svg-families family)
               :size (if (numberp height) (/ height 10.0) 12)
               :weight (if (and bold (not synthetic)) "bold" "normal")
               :synthetic synthetic)))))
@@ -449,7 +459,7 @@ Return the x where CONTENT ends."
                  (ink (or (lispm-desktop-platinum--face-attribute faces :foreground) color)))
             (lispm-desktop-platinum--label
              svg run x (+ top (round (/ (+ height (* 0.7 size)) 2.0))) ink
-             (list :family (concat (if (stringp family) family "Geneva") ", sans-serif")
+             (list :family (lispm-desktop-platinum--svg-families family)
                    :size size :weight (if (and bold (not synthetic)) "bold" "normal")
                    :synthetic synthetic)
              "start"))))

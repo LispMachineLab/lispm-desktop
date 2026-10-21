@@ -69,6 +69,7 @@
 ;;; Code:
 
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-i18n)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-deps)
 ;; The browser is lispm-browser, which the desktop's browser files require.
@@ -131,12 +132,17 @@ A key of `lispm-desktop-sidebar-views'."
 (defun lispm-desktop--first-start ()
   "Settle what the first start asks; return non-nil when this is it.
 The editing style and the appearance not chosen yet are asked, see
-`lispm-desktop-assistant-ask', and the answers saved with Customize.  A
-batch Emacs asks nothing and saves nothing: Emacs keys, Dracula; so it
-goes too when the questions are put off, until the next start asks again."
+`lispm-desktop-assistant-ask', and the answers saved with Customize;
+the language first, along with them, while it is not chosen either.  A
+batch Emacs asks nothing and saves nothing: the computer's language,
+Emacs keys, Dracula; so it goes too when the questions are put off,
+until the next start asks again."
   (when-let* ((questions (seq-remove (lambda (question) (symbol-value (car question)))
                                      lispm-desktop-assistant-questions)))
-    (let ((answers (unless noninteractive (lispm-desktop-assistant-ask questions))))
+    (let* ((questions (if lispm-desktop-language
+                          questions
+                        (cons lispm-desktop-assistant-language-question questions)))
+           (answers (unless noninteractive (lispm-desktop-assistant-ask questions))))
       ;; Customize's word on the file it wrote would sit under the page.
       (let ((inhibit-message t))
         (dolist (question questions)
@@ -162,10 +168,10 @@ boxes.  A download that fails, as offline, is only reported."
   (when (and (display-graphic-p) (not noninteractive))
     (require 'nerd-icons)
     (unless (lispm-desktop--icon-font-installed-p)
-      (lispm-desktop-assistant-report "Installing the icon font…")
+      (lispm-desktop-assistant-report (lispm-desktop-tr "Installing the icon font…"))
       (condition-case err
           (lispm-desktop-install-fonts)
-        (error (message "The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again"
+        (error (message (lispm-desktop-tr "The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again")
                         (error-message-string err)))))))
 
 (defun lispm-desktop--show-startup-view ()
@@ -213,6 +219,7 @@ boxes.  A download that fails, as offline, is only reported."
           (setq lispm-desktop--set-up t)
           (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
           (lispm-desktop-setup-look)
+          (lispm-desktop-setup-i18n)
           (lispm-desktop-setup-langs)
           (lispm-desktop-setup-ai)
           (lispm-desktop-setup-agent-list)
@@ -222,7 +229,7 @@ boxes.  A download that fails, as offline, is only reported."
           ;; first start that would install it.
           (condition-case err
               (lispm-desktop-setup-lispm)
-            (error (message "LispM's agents are not set up: %s" (error-message-string err))))
+            (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
           (lispm-desktop-setup-claude)
           (lispm-desktop-setup-codex)
           ;; After init, so personal.el can still set `lispm-desktop-window-manager'.

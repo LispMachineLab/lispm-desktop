@@ -86,6 +86,7 @@
 (require 'lispm-desktop-platinum-scroll)
 (require 'lispm-desktop-platinum-status)
 (require 'lispm-desktop-platinum-pointer)
+(require 'lispm-desktop-i18n)
 
 (declare-function treemacs-load-theme "treemacs-themes" (name))
 
@@ -93,7 +94,7 @@
 (lispm-desktop-look-define
  'platinum
  :title "Mac OS 9"
- :description "Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars"
+ :description (lispm-desktop-tr-noop "Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars")
  :theme 'platinum)
 
 (defcustom lispm-desktop-platinum-system-families
@@ -230,6 +231,20 @@ as the triangles take the theme's colour."
   (let ((installed (font-family-list)))
     (seq-find (lambda (family) (member family installed)) families)))
 
+(defun lispm-desktop-platinum--cjk-fontset (family)
+  "Return a fontset drawing FAMILY, its Chinese and Japanese in the family
+for them in the language spoken (see `lispm-desktop-i18n-cjk-family'),
+made or brought up to date; or nil without either."
+  (when-let* (((stringp family))
+              (cjk (lispm-desktop-i18n-cjk-family))
+              ;; The name's last field, past "fontset-", takes no hyphen.
+              (name (concat "fontset-lispm" (downcase (replace-regexp-in-string "[^[:alnum:]]" "" family)))))
+    (unless (query-fontset name)
+      (create-fontset-from-fontset-spec (format "-*-%s-*-*-*-*-*-*-*-*-*-*-%s" family name)))
+    (dolist (script '(han cjk-misc kana bopomofo))
+      (set-fontset-font name script (font-spec :family cjk)))
+    name))
+
 (defun lispm-desktop-platinum-apply-faces (&rest _)
   "Derive the palette and every chrome face from the active theme.
 Colours come only from faces this function never sets, so re-running
@@ -300,7 +315,8 @@ it, as on every theme change, is idempotent."
         (dolist (face '(lispm-desktop-platinum-title lispm-desktop-platinum-title-inactive
                         lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
           (set-face-attribute face nil :family (or system 'unspecified) :height 120
-                              :weight 'bold))
+                              :weight 'bold
+                              :fontset (or (lispm-desktop-platinum--cjk-fontset system) 'unspecified)))
         (set-face-attribute 'lispm-desktop-platinum-title nil :foreground text)
         (set-face-attribute 'lispm-desktop-platinum-title-inactive nil
                             :foreground (lispm-desktop-platinum-color :muted) :inherit 'unspecified)
@@ -312,7 +328,10 @@ it, as on every theme change, is idempotent."
                             :foreground (lispm-desktop-platinum-color :highlight-text)
                             :background (lispm-desktop-platinum-color :highlight)
                             :inverse-video nil :box nil)
-        (set-face-attribute 'lispm-desktop-platinum-list nil :family (or list-family 'unspecified))
+        ;; Chinese and Japanese in a proportional family, as the words
+        ;; around them are: Emacs's fallback is the terminals' monospace.
+        (set-face-attribute 'lispm-desktop-platinum-list nil :family (or list-family 'unspecified)
+                            :fontset (or (lispm-desktop-platinum--cjk-fontset list-family) 'unspecified))
         (set-face-attribute 'lispm-desktop-platinum-small nil
                             :inherit 'lispm-desktop-platinum-list :height 90 :weight 'normal)
         (set-face-attribute 'lispm-desktop-platinum-header nil

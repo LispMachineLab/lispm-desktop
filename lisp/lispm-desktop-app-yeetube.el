@@ -58,6 +58,7 @@
 (require 'lispm-desktop-local-http)
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-app-yeetube-page)
+(require 'lispm-desktop-i18n)
 
 ;; Yeetube's own variables and functions, read once it runs.
 (defvar yeetube--buffer-name)
@@ -312,7 +313,8 @@ name of its file.  This is the advice of `yeetube-ui--entry-to-row'."
 ;; ...), and a video's `tabulated-list-id'.
 
 (defvar lispm-desktop-app-yeetube--images (make-hash-table :test #'equal)
-  "The rows drawn: (KIND ID WIDTH SELECTED THUMBNAIL DARK) to their image.")
+  "The rows drawn: (KIND ID WIDTH SELECTED THUMBNAIL DARK STATE LANGUAGE)
+to their image, LANGUAGE the one their words are in.")
 
 (defun lispm-desktop-app-yeetube--window ()
   "Return the window showing Yeetube's buffer, the selected one first."
@@ -334,7 +336,8 @@ SELECTED, HITS where its buttons are, see the page's drawings."
          (key (list kind (plist-get item :id) width selected
                     (stringp (gethash (plist-get item :id) lispm-desktop-app-yeetube-page--thumbnails))
                     (eq (lispm-desktop-app-yeetube-page-colors) lispm-desktop-app-yeetube-page-dark)
-                    (plist-get row :state))))
+                    (plist-get row :state)
+                    (lispm-desktop-current-language))))
     (or (and (memq kind '(result compact)) (gethash key lispm-desktop-app-yeetube--images))
         (let* ((drawn (pcase kind
                         ('result (list (lispm-desktop-app-yeetube-page-result item width selected)))
@@ -484,32 +487,35 @@ KEEP, else on the page's first."
          (lispm-desktop-app-yeetube--insert-row
           (list :kind 'chips :state (or (lispm-desktop-app-yeetube-filter (lispm-desktop-app-yeetube--searched-p))
                                         (bound-and-true-p yeetube-filter)))
-          "Sort" width)
+          (lispm-desktop-tr "Sort") width)
          (if items
              (dolist (item items)
                (lispm-desktop-app-yeetube--insert-row (list :kind 'result :item item) (plist-get item :title) width))
-           (lispm-desktop-app-yeetube--insert-row
-            '(:kind message :title "No results found" :text "Try different words, or fewer of them.")
-            "No results found" width))
+           (let ((title (lispm-desktop-tr "No results found")))
+             (lispm-desktop-app-yeetube--insert-row
+              `(:kind message :title ,title :text ,(lispm-desktop-tr "Try different words, or fewer of them."))
+              title width)))
          (when (bound-and-true-p yeetube--continuation)
            (lispm-desktop-app-yeetube--insert-row (list :kind 'more :state lispm-desktop-app-yeetube--loading-more)
-                                                  "Show more results" width)))
+                                                  (lispm-desktop-tr "Show more results") width)))
         ('watch
          (let ((item lispm-desktop-app-yeetube--watching))
            (lispm-desktop-app-yeetube--insert-player item width)
            (lispm-desktop-app-yeetube--insert-row (list :kind 'info :item item) (plist-get item :title) width)
            (let ((others (seq-remove (lambda (other) (equal (plist-get other :id) (plist-get item :id))) items)))
              (when others
-               (lispm-desktop-app-yeetube--insert-row '(:kind heading :text "Up next") "Up next" width)
+               (let ((heading (lispm-desktop-tr "Up next")))
+                 (lispm-desktop-app-yeetube--insert-row `(:kind heading :text ,heading) heading width))
                (dolist (other others)
                  (lispm-desktop-app-yeetube--insert-row (list :kind 'compact :item other)
                                                         (plist-get other :title) width))))))
         (_
-         (lispm-desktop-app-yeetube--insert-row
-          '(:kind message :title "Search to get started"
-                  :text "Find videos on YouTube; they play right here, in this window."
-                  :button "Search")
-          "Search to get started" width))))
+         (let ((title (lispm-desktop-tr "Search to get started")))
+           (lispm-desktop-app-yeetube--insert-row
+            `(:kind message :title ,title
+                    :text ,(lispm-desktop-tr "Find videos on YouTube; they play right here, in this window.")
+                    :button ,(lispm-desktop-tr "Search"))
+            title width)))))
     (goto-char (point-min))
     (if-let* ((at (and keep (lispm-desktop-app-yeetube--position keep))))
         (goto-char at)
@@ -680,7 +686,7 @@ play on unseen.  This is one of `window-buffer-change-functions' and
   (if-let* ((words (lispm-desktop-app-yeetube-words (lispm-desktop-app-yeetube--searched-p))))
       (let ((yeetube-filter filter))
         (yeetube-search words))
-    (user-error "Search first")))
+    (user-error (lispm-desktop-tr "Search first"))))
 
 (defun lispm-desktop-app-yeetube-more ()
   "Show more results under those listed."
@@ -783,7 +789,9 @@ at every redisplay."
                     (lispm-desktop-app-yeetube-words (lispm-desktop-app-yeetube--searched-p))
                     (lispm-desktop-app-yeetube--searching-p)
                     (lispm-desktop-app-yeetube--watching-p)
-                    (lispm-desktop-app-yeetube-page-colors))))
+                    (lispm-desktop-app-yeetube-page-colors)
+                    ;; Its placeholder is in words of this language.
+                    (lispm-desktop-current-language))))
     (unless (equal what (car lispm-desktop-app-yeetube--masthead))
       (setq lispm-desktop-app-yeetube--masthead
             (cons what (propertize " " 'display (svg-image (apply #'lispm-desktop-app-yeetube-page-masthead
@@ -806,19 +814,23 @@ at every redisplay."
 ;; asks.
 
 (defconst lispm-desktop-app-yeetube-questions
-  '((yeetube-read-query "Search YouTube for:" "Search" search)
-    (yeetube--read-channel-id "Show the videos of the channel:" "Show")
-    (yeetube-save-video "Save the video to watch later as:" "Save")
-    (yeetube-play-saved-video "Play the saved video:" "Play")
-    (yeetube-replay "Play again:" "Play")
-    (yeetube-remove-saved-video "Remove the saved video:" "Remove")
-    (yeetube-set-results-limit "List this many results:" "OK")
-    (yeetube--read-video-quality "Play videos at this height:" "OK")
-    (yeetube-set-download-directory "Download into the folder:" "OK")
-    (yeetube--read-audio-format "Download the sound alone, as:" "OK"))
+  `((yeetube-read-query ,(lispm-desktop-tr-noop "Search YouTube for:") ,(lispm-desktop-tr-noop "Search") search)
+    (yeetube--read-channel-id ,(lispm-desktop-tr-noop "Show the videos of the channel:")
+                              ,(lispm-desktop-tr-noop "Show"))
+    (yeetube-save-video ,(lispm-desktop-tr-noop "Save the video to watch later as:") ,(lispm-desktop-tr-noop "Save"))
+    (yeetube-play-saved-video ,(lispm-desktop-tr-noop "Play the saved video:") ,(lispm-desktop-tr-noop "Play"))
+    (yeetube-replay ,(lispm-desktop-tr-noop "Play again:") ,(lispm-desktop-tr-noop "Play"))
+    (yeetube-remove-saved-video ,(lispm-desktop-tr-noop "Remove the saved video:") ,(lispm-desktop-tr-noop "Remove"))
+    (yeetube-set-results-limit ,(lispm-desktop-tr-noop "List this many results:") ,(lispm-desktop-tr-noop "OK"))
+    (yeetube--read-video-quality ,(lispm-desktop-tr-noop "Play videos at this height:") ,(lispm-desktop-tr-noop "OK"))
+    (yeetube-set-download-directory ,(lispm-desktop-tr-noop "Download into the folder:")
+                                    ,(lispm-desktop-tr-noop "OK"))
+    (yeetube--read-audio-format ,(lispm-desktop-tr-noop "Download the sound alone, as:")
+                                ,(lispm-desktop-tr-noop "OK")))
   "Yeetube's functions asking questions, as (FUNCTION QUESTION BUTTON
 STYLE): from Yeetube's window each asks in its dialog, QUESTION over the
-field, BUTTON answering it; or, STYLE `search', in the search box.")
+field, BUTTON answering it, both in English, translated where shown; or,
+STYLE `search', in the search box.")
 
 (defvar lispm-desktop-app-yeetube--sheet nil
   "The frame of Yeetube's dialog, its field its minibuffer.")
@@ -871,18 +883,29 @@ clicked: YouTube's blue one when PRIMARY, else its grey one."
     (keymap-set map "<mouse-1>" command)
     (propertize " " 'display (svg-image svg :ascent 'center) 'keymap map 'mouse-face nil 'help-echo label)))
 
-(defun lispm-desktop-app-yeetube-sheet-line (question button)
+(defun lispm-desktop-app-yeetube-sheet-line (question button &optional room)
   "Return the line of Yeetube's dialog over its field: QUESTION, then Cancel
-and BUTTON, the one Return presses, at its right.  Their width is that of
-their drawings and a column more: a window without fringes keeps its last
-column for the sign of a line cut."
+and BUTTON, the one Return presses, at its right.  QUESTION and BUTTON are
+in English, as `lispm-desktop-app-yeetube-questions' has them, and shown
+translated.  The buttons' width is that of their drawings and a column
+more: a window without fringes keeps its last column for the sign of a
+line cut.  When the question and the buttons are wider than ROOM, the
+dialog's width in pixels, the buttons go on a line of their own under
+the question, as a question in another language may be longer."
   (let* ((measure (lispm-desktop-app-yeetube-page-measure 14 'medium))
-         (width (+ 32 (funcall measure "Cancel") 8 32 (funcall measure button) (frame-char-width))))
+         (question (lispm-desktop-tr question))
+         (cancel (lispm-desktop-tr "Cancel"))
+         (button (lispm-desktop-tr button))
+         (width (+ 32 (funcall measure cancel) 8 32 (funcall measure button) (frame-char-width))))
     (concat (propertize " " 'display '(space :width (16)))
-            (propertize question 'face (list :family (lispm-desktop-app-yeetube-page--family) :height 160
-                                             :foreground (plist-get (lispm-desktop-app-yeetube-page-colors) :text)))
+            (propertize question
+                        'face (list :family (lispm-desktop-app-yeetube-page--family) :height 160
+                                    :foreground (plist-get (lispm-desktop-app-yeetube-page-colors) :text)))
+            (when (and room (> (+ 16 (funcall (lispm-desktop-app-yeetube-page-measure 16) question) 16 width)
+                               room))
+              "\n")
             (propertize " " 'display `(space :align-to (- right (,width))))
-            (lispm-desktop-app-yeetube--dialog-button "Cancel" #'lispm-desktop-app-yeetube-sheet-cancel nil)
+            (lispm-desktop-app-yeetube--dialog-button cancel #'lispm-desktop-app-yeetube-sheet-cancel nil)
             (propertize " " 'display '(space :width (8)))
             (lispm-desktop-app-yeetube--dialog-button button #'lispm-desktop-app-yeetube-sheet-answer t))))
 
@@ -965,6 +988,11 @@ function of the field while it asks."
         (unless (= (frame-text-height frame) height)
           (set-frame-height frame height nil t))))))
 
+(defun lispm-desktop-app-yeetube--sheet-width (window)
+  "Return the width in pixels of Yeetube's dialog over WINDOW, Yeetube's:
+`lispm-desktop-app-yeetube-sheet-width' where its frame has room."
+  (min lispm-desktop-app-yeetube-sheet-width (- (frame-inner-width (window-frame window)) 34)))
+
 (defun lispm-desktop-app-yeetube--place (frame window style)
   "Put FRAME over WINDOW, Yeetube's: the search box's field, STYLE
 `search', in the box; else the dialog, centred under the masthead, as
@@ -979,7 +1007,7 @@ wide as `lispm-desktop-app-yeetube-sheet-width' where it has room."
           (set-frame-size frame (- w 32) line t)
           (set-frame-position frame (+ (window-pixel-left window) x 16) (+ top y (/ (- h line) 2))))
       (let* ((outer (frame-inner-width (window-frame window)))
-             (width (min lispm-desktop-app-yeetube-sheet-width (- outer 34))))
+             (width (lispm-desktop-app-yeetube--sheet-width window)))
         (set-frame-width frame width nil t)
         (set-frame-position frame (max 0 (/ (- outer width 2) 2))
                             (+ top (window-header-line-height window) 8))))))
@@ -997,7 +1025,8 @@ read from.  This is a `minibuffer-setup-hook' function."
             (erase-buffer)
             ;; Room over the line and under it.
             (insert (propertize " " 'display '(space :height (8))) "\n"
-                    (lispm-desktop-app-yeetube-sheet-line question button)))))
+                    (lispm-desktop-app-yeetube-sheet-line
+                     question button (lispm-desktop-app-yeetube--sheet-width window))))))
       (use-local-map (make-composed-keymap lispm-desktop-app-yeetube-sheet-map (current-local-map)))
       ;; The question says what Yeetube's prompt says, the search box
       ;; that it is one.
@@ -1042,7 +1071,7 @@ question is open, that one gets the keyboard."
            (funcall function))
           ((active-minibuffer-window)
            (select-window (active-minibuffer-window))
-           (user-error "Answer the question asked first"))
+           (user-error (lispm-desktop-tr "Answer the question asked first")))
           (t
            (let ((asking (if (eq style 'search)
                              (lispm-desktop-app-yeetube--search-field frame)
@@ -1118,29 +1147,30 @@ as playing its video; q and Delete leave the watch page."
         (searched (lispm-desktop-app-yeetube-words (lispm-desktop-app-yeetube--searched-p)))
         (sorted (or (lispm-desktop-app-yeetube-filter (lispm-desktop-app-yeetube--searched-p))
                     (bound-and-true-p yeetube-filter))))
-    `((:label "Play" :action lispm-desktop-app-yeetube-activate :key "RET" :enabled ,(and video t))
-      (:label "Play in mpv" :action lispm-desktop-app-yeetube-play-in-mpv :enabled ,(and video t))
-      (:label "Back to Results" :action lispm-desktop-app-yeetube-back :key "q"
+    `((:label ,(lispm-desktop-tr "Play") :action lispm-desktop-app-yeetube-activate :key "RET" :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Play in mpv") :action lispm-desktop-app-yeetube-play-in-mpv :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Back to Results") :action lispm-desktop-app-yeetube-back :key "q"
        :enabled ,(lispm-desktop-app-yeetube--watching-p))
-      (:label "Play Again…" :action yeetube-replay :enabled ,(and (bound-and-true-p yeetube-history) t))
-      (:label "Play Saved…" :action yeetube-play-saved-video :enabled ,(and saved t))
+      (:label ,(lispm-desktop-tr "Play Again…") :action yeetube-replay
+       :enabled ,(and (bound-and-true-p yeetube-history) t))
+      (:label ,(lispm-desktop-tr "Play Saved…") :action yeetube-play-saved-video :enabled ,(and saved t))
       separator
-      (:label "Search…" :action lispm-desktop-app-yeetube-search :key "/")
-      (:label "More Results" :action lispm-desktop-app-yeetube-more :key "M-n"
+      (:label ,(lispm-desktop-tr "Search…") :action lispm-desktop-app-yeetube-search :key "/")
+      (:label ,(lispm-desktop-tr "More Results") :action lispm-desktop-app-yeetube-more :key "M-n"
        :enabled ,(and (lispm-desktop-app-yeetube--more-p) t))
-      ,@(mapcar (pcase-lambda (`(,label . ,filter))
-                  (list :label (concat "Sort by " label) :action (lambda () (lispm-desktop-app-yeetube-sort filter))
+      ,@(mapcar (pcase-lambda (`(,_ ,filter ,item))
+                  (list :label (lispm-desktop-tr item) :action (lambda () (lispm-desktop-app-yeetube-sort filter))
                         :enabled (and searched t) :checked (equal filter sorted)))
                 lispm-desktop-app-yeetube-page-sorts)
       separator
-      (:label "Download" :action yeetube-download-video :enabled ,(and video t))
-      (:label "Save to Watch Later…" :action yeetube-save-video :enabled ,(and video t))
-      (:label "Share: Copy URL" :action yeetube-copy-url :enabled ,(and video t))
-      (:label "Open in Browser" :action yeetube-browse-url :enabled ,(and video t))
-      (:label "Channel’s Videos" :action yeetube-channel-videos :enabled ,(and video t))
-      (:label "Remove Saved…" :action yeetube-remove-saved-video :enabled ,(and saved t))
+      (:label ,(lispm-desktop-tr "Download") :action yeetube-download-video :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Save to Watch Later…") :action yeetube-save-video :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Share: Copy URL") :action yeetube-copy-url :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Open in Browser") :action yeetube-browse-url :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Channel’s Videos") :action yeetube-channel-videos :enabled ,(and video t))
+      (:label ,(lispm-desktop-tr "Remove Saved…") :action yeetube-remove-saved-video :enabled ,(and saved t))
       separator
-      (:label "Settings…" :action lispm-desktop-app-yeetube-settings :key "o"))))
+      (:label ,(lispm-desktop-tr "Settings…") :action lispm-desktop-app-yeetube-settings :key "o"))))
 
 (lispm-desktop-app-ui-define 'yeetube-mode
   :app 'yeetube
@@ -1150,14 +1180,22 @@ as playing its video; q and Delete leave the watch page."
   :status #'ignore
   :cursor nil
   :setup #'lispm-desktop-app-yeetube--setup
-  :menu '("Video" . lispm-desktop-app-yeetube--menu-items)
-  :keys '(("s  /" . "Search YouTube") ("C-n  C-p" . "Next and previous video")
-          ("Return" . "Play the video here, as a click does") ("q  Delete" . "Back to the results")
-          ("d" . "Download it") ("S" . "Save it to watch later") ("C" . "Copy its URL, to share it")
-          ("P" . "Play a saved video") ("r" . "Play one played before")
-          ("M-n" . "More results") ("c" . "The channel’s videos")
-          ("b" . "Open it in the browser") ("o" . "Settings") ("h" . "All of Yeetube’s commands")
-          ("Esc" . "Take back a question asked")))
+  :menu `(,(lispm-desktop-tr-noop "Video") . lispm-desktop-app-yeetube--menu-items)
+  :keys `(("s  /" . ,(lispm-desktop-tr-noop "Search YouTube"))
+          ("C-n  C-p" . ,(lispm-desktop-tr-noop "Next and previous video"))
+          ("Return" . ,(lispm-desktop-tr-noop "Play the video here, as a click does"))
+          ("q  Delete" . ,(lispm-desktop-tr-noop "Back to the results"))
+          ("d" . ,(lispm-desktop-tr-noop "Download it"))
+          ("S" . ,(lispm-desktop-tr-noop "Save it to watch later"))
+          ("C" . ,(lispm-desktop-tr-noop "Copy its URL, to share it"))
+          ("P" . ,(lispm-desktop-tr-noop "Play a saved video"))
+          ("r" . ,(lispm-desktop-tr-noop "Play one played before"))
+          ("M-n" . ,(lispm-desktop-tr-noop "More results"))
+          ("c" . ,(lispm-desktop-tr-noop "The channel’s videos"))
+          ("b" . ,(lispm-desktop-tr-noop "Open it in the browser"))
+          ("o" . ,(lispm-desktop-tr-noop "Settings"))
+          ("h" . ,(lispm-desktop-tr-noop "All of Yeetube’s commands"))
+          ("Esc" . ,(lispm-desktop-tr-noop "Take back a question asked"))))
 
 (provide 'lispm-desktop-app-yeetube)
 ;;; lispm-desktop-app-yeetube.el ends here

@@ -51,6 +51,7 @@
 (require 'cl-lib)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
 
@@ -77,7 +78,9 @@ A kind not defined is an installed application's window.  PROPERTIES:
 
 :app        the application the window puts in front, a key of
             `lispm-desktop-apps'; ID by default.
-:name       the window's name, which the window system knows.
+:name       the window's name, which the window system knows, in
+            English, translated as the window opens and as the
+            language changes.
 :geometry   a function of the screen returning where the window opens
             the first time, (LEFT TOP WIDTH HEIGHT) in pixels; without
             it, the window cascades from the others.
@@ -164,6 +167,14 @@ bar's left."
           (+ (lispm-desktop-app-window-menu-bar-height screen) 40 step)
           width height)))
 
+(defun lispm-desktop-app-window--name (id &optional name)
+  "Return the name the window system knows the window of kind ID by: NAME,
+else its kind's :name in the language LispM speaks, else ID's name."
+  (or name
+      (when-let* ((english (lispm-desktop-app-window--get id :name)))
+        (lispm-desktop-tr english))
+      (symbol-name id)))
+
 (defun lispm-desktop-app-window-make-frame (id screen &optional name size)
   "Return a new window of kind ID over SCREEN's desktop, not yet shown.
 It opens where the window of its kind was last, else where its kind puts
@@ -179,7 +190,7 @@ it first.  NAME and SIZE stand in for the kind's :name and :size."
                         (make-frame
                          `((parent-frame . ,screen)
                            (minibuffer . ,(minibuffer-window screen))
-                           (name . ,(or name (lispm-desktop-app-window--get id :name) (symbol-name id)))
+                           (name . ,(lispm-desktop-app-window--name id name))
                            (lispm-desktop-app . ,(lispm-desktop-app-window--app id))
                            (lispm-desktop-window-kind . ,id)
                            ,@(when (eq (lispm-desktop-app-window--get id :documents) 'keep)
@@ -453,13 +464,23 @@ numbered lines, and no scrolling sideways after point."
 (defun lispm-desktop-app-window-file-items (id)
   "Return the items of the File menu of the window of kind ID: Close Window.
 The keyboard closes it as any frame, with \\`C-x 5 0'."
-  `((:label "Close Window" :action ,(lambda () (lispm-desktop-app-window-close id)) :key "C-x 5 0")))
+  `((:label ,(lispm-desktop-tr "Close Window") :action ,(lambda () (lispm-desktop-app-window-close id))
+     :key "C-x 5 0")))
+
+(defun lispm-desktop-app-window--rename ()
+  "Name the windows open of a kind with a :name again, in the language
+LispM now speaks.  This is one of `lispm-desktop-language-changed-hook'."
+  (pcase-dolist (`(,id . ,frame) lispm-desktop-app-window--frames)
+    (when (and (frame-live-p frame) (lispm-desktop-app-window--get id :name))
+      (set-frame-parameter frame 'name (lispm-desktop-app-window--name id)))))
 
 (defun lispm-desktop-setup-app-windows ()
-  "Let the floating windows follow the application in front."
+  "Let the floating windows follow the application in front, and the
+language spoken."
   (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-app-window--follow-frontmost)
   (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-app-window--refocus)
-  (add-hook 'delete-frame-functions #'lispm-desktop-app-window--forget))
+  (add-hook 'delete-frame-functions #'lispm-desktop-app-window--forget)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-window--rename))
 
 (provide 'lispm-desktop-app-window)
 ;;; lispm-desktop-app-window.el ends here

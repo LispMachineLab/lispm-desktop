@@ -30,6 +30,7 @@
 ;;; Code:
 
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-i18n)
 
 (defun lispm-desktop-setup-common-packages ()
   "Set up common packages."
@@ -192,7 +193,9 @@
   (use-package tabspaces
     :demand t
     :init
-    (setq tabspaces-default-tab "Home"
+    ;; Named in English, its title translated where shown, see
+    ;; `lispm-desktop-editor-workspace-title'.
+    (setq tabspaces-default-tab (lispm-desktop-tr-noop "Home")
           tabspaces-use-filtered-buffers-as-default t
           tabspaces-project-switch-opens-workspace t
           tabspaces-initialize-project-with-todo nil

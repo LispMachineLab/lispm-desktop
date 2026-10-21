@@ -52,6 +52,7 @@
 (require 'auth-source)
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-app-chat)
+(require 'lispm-desktop-i18n)
 
 ;; emacs-slack's own variables and functions, read once it runs.
 (defvar slack-teams-by-token)
@@ -158,7 +159,7 @@ own configuration registers, by name."
   "Sign in to the workspaces kept, and those your configuration registers."
   (dolist (workspace lispm-desktop-app-slack-workspaces)
     (unless (lispm-desktop-app-slack--team workspace)
-      (message "Slack: auth-source keeps no token for %s at %s"
+      (message (lispm-desktop-tr "Slack: auth-source keeps no token for %s at %s")
                (plist-get workspace :user) (lispm-desktop-app-slack--host workspace))))
   (mapc #'lispm-desktop-app-slack--start (lispm-desktop-app-slack--teams)))
 
@@ -196,7 +197,7 @@ slack-util.el's `defvar' of `slack-buffer-function' comes before its
           :name name
           :unread (if (and (not muted) (ignore-errors (slack-room-has-unread-p room team))) t 0)
           :mentions (or (ignore-errors (slack-room-mention-count room team)) 0)
-          :state (and muted "muted")
+          :state (and muted (lispm-desktop-tr "muted"))
           :open (lambda () (slack-room-display room team)))))
 
 (defun lispm-desktop-app-slack--team-conversations (team)
@@ -213,7 +214,9 @@ slack-util.el's `defvar' of `slack-buffer-function' comes before its
                           (lambda (a b) (string-lessp (downcase (plist-get a :name)) (downcase (plist-get b :name))))))))
     (cons (list :key (slack-team-name team) :name (slack-team-name team) :heading t
                 :state (unless (lispm-desktop-app-slack--connected-p team)
-                         (if (memq team lispm-desktop-app-slack--started) "connecting…" "signed out")))
+                         (if (memq team lispm-desktop-app-slack--started)
+                             (lispm-desktop-tr "connecting…")
+                           (lispm-desktop-tr "signed out"))))
           (append (funcall by-name (funcall visible (append (slack-team-channels team) (slack-team-groups team))))
                   (funcall by-name (funcall visible (slack-team-ims team)))))))
 
@@ -261,29 +264,30 @@ shows, or the only one; nil when it cannot tell."
 email there: its token, and its cookie for a token of the web app's, are
 asked for unless auth-source keeps them, and kept with it."
   (interactive
-   (list (string-trim (string-remove-suffix ".slack.com" (string-trim (read-string "Workspace, as in NAME.slack.com: "))))
-         (string-trim (read-string "Your email there: " user-mail-address))))
+   (list (string-trim (string-remove-suffix
+                       ".slack.com" (string-trim (read-string (lispm-desktop-tr "Workspace, as in NAME.slack.com: ")))))
+         (string-trim (read-string (lispm-desktop-tr "Your email there: ") user-mail-address))))
   (when (or (string-empty-p name) (string-empty-p user))
-    (user-error "A workspace needs its name and your email there"))
+    (user-error (lispm-desktop-tr "A workspace needs its name and your email there")))
   (require 'slack)
   (lispm-desktop-app-chat-set-options lispm-desktop-app-slack-options)
   (let* ((workspace (list :name name :user user))
          (host (lispm-desktop-app-slack--host workspace)))
     (unless (lispm-desktop-app-slack--secret host user)
-      (let ((token (string-trim (read-passwd (format "Token of %s (xoxc-… or xoxp-…): " host)))))
+      (let ((token (string-trim (read-passwd (lispm-desktop-tr "Token of %s (xoxc-… or xoxp-…): " host)))))
         (when (string-empty-p token)
-          (user-error "No token"))
+          (user-error (lispm-desktop-tr "No token")))
         (when (string-prefix-p "xoxc" token)
-          (let ((cookie (string-trim (read-passwd "Its cookie d (xoxd-…; d-s=…; lc=…): "))))
+          (let ((cookie (string-trim (read-passwd (lispm-desktop-tr "Its cookie d (xoxd-…; d-s=…; lc=…): ")))))
             (when (string-empty-p cookie)
-              (user-error "A token of the web app's needs its cookie"))
+              (user-error (lispm-desktop-tr "A token of the web app's needs its cookie")))
             (lispm-desktop-app-slack--keep-secret host (concat user "^cookie") cookie)))
         (lispm-desktop-app-slack--keep-secret host user token)))
     (unless (member workspace lispm-desktop-app-slack-workspaces)
       (customize-save-variable 'lispm-desktop-app-slack-workspaces
                                (append lispm-desktop-app-slack-workspaces (list workspace))))
     (let ((team (or (lispm-desktop-app-slack--team workspace)
-                    (user-error "auth-source did not keep the token of %s" host))))
+                    (user-error (lispm-desktop-tr "auth-source did not keep the token of %s") host))))
       (lispm-desktop-app-slack--start team t)))
   (unless (derived-mode-p 'lispm-desktop-app-slack-list-mode)
     (lispm-desktop-app-slack-list))
@@ -297,16 +301,16 @@ asked for unless auth-source keeps them, and kept with it."
 (defun lispm-desktop-app-slack-reconnect ()
   "Sign in again to the workspace of the line point is on, or of this room."
   (interactive)
-  (let ((team (or (lispm-desktop-app-slack--team-here) (user-error "No workspace here"))))
+  (let ((team (or (lispm-desktop-app-slack--team-here) (user-error (lispm-desktop-tr "No workspace here")))))
     (lispm-desktop-app-slack--start team t)))
 
 (defun lispm-desktop-app-slack-sign-out ()
   "Sign out of the workspace of the line point is on, and sign in to it no
 more as Slack's window opens.  Its token stays where auth-source keeps it."
   (interactive)
-  (let* ((team (or (lispm-desktop-app-slack--team-here) (user-error "No workspace here")))
+  (let* ((team (or (lispm-desktop-app-slack--team-here) (user-error (lispm-desktop-tr "No workspace here"))))
          (name (slack-team-name team)))
-    (when (y-or-n-p (format "Sign out of %s? " name))
+    (when (y-or-n-p (lispm-desktop-tr "Sign out of %s? " name))
       (ignore-errors (slack-team-disconnect team))
       (slack-team--delete team)
       (setq lispm-desktop-app-slack--started (delq team lispm-desktop-app-slack--started))
@@ -346,19 +350,20 @@ more as Slack's window opens.  Its token stays where auth-source keeps it."
   "Return what the bottom of Slack's list says: the workspaces signed in
 to, and the conversations with messages unread."
   (let ((connected (seq-count #'lispm-desktop-app-slack--connected-p (lispm-desktop-app-slack--teams))))
-    (delq nil (list (format "%d workspace%s" connected (if (= connected 1) "" "s"))
+    (delq nil (list (lispm-desktop-tr-n "%d workspace" "%d workspaces" connected)
                     (lispm-desktop-app-chat-unread-status (lispm-desktop-app-slack--conversations))))))
 
 (defun lispm-desktop-app-slack--list-menu ()
   "Return the items of Slack's menu over its list."
   (let ((team (lispm-desktop-app-slack--team-here)))
-    `((:label "Add Workspace…" :action lispm-desktop-app-slack-add-workspace)
-      (:label "Sign In Again" :action lispm-desktop-app-slack-reconnect :enabled ,(and team t))
-      (:label "Sign Out…" :action lispm-desktop-app-slack-sign-out :enabled ,(and team t))
+    `((:label ,(lispm-desktop-tr "Add Workspace…") :action lispm-desktop-app-slack-add-workspace)
+      (:label ,(lispm-desktop-tr "Sign In Again") :action lispm-desktop-app-slack-reconnect :enabled ,(and team t))
+      (:label ,(lispm-desktop-tr "Sign Out…") :action lispm-desktop-app-slack-sign-out :enabled ,(and team t))
       separator
-      (:label "Open" :action lispm-desktop-app-slack-open :enabled ,(and (lispm-desktop-app-chat-conversation) t))
+      (:label ,(lispm-desktop-tr "Open") :action lispm-desktop-app-slack-open
+       :enabled ,(and (lispm-desktop-app-chat-conversation) t))
       separator
-      (:label "How to Sign In" :action lispm-desktop-app-slack-help))))
+      (:label ,(lispm-desktop-tr "How to Sign In") :action lispm-desktop-app-slack-help))))
 
 (lispm-desktop-app-ui-define 'lispm-desktop-app-slack-list-mode
   :app 'slack
@@ -366,24 +371,26 @@ to, and the conversations with messages unread."
   :title "Slack"
   :list t
   :status #'lispm-desktop-app-slack--list-status
-  :buttons `(("Add Workspace…" lispm-desktop-app-slack-add-workspace)
-             ("Open" lispm-desktop-app-slack-open
+  :buttons `((,(lispm-desktop-tr-noop "Add Workspace…") lispm-desktop-app-slack-add-workspace)
+             (,(lispm-desktop-tr-noop "Open") lispm-desktop-app-slack-open
               ,(lambda () (plist-get (lispm-desktop-app-chat-conversation) :open)))
-             ("How to Sign In" lispm-desktop-app-slack-help))
+             (,(lispm-desktop-tr-noop "How to Sign In") lispm-desktop-app-slack-help))
   :menu (cons "Slack" #'lispm-desktop-app-slack--list-menu)
   :empty `(,(lambda () (null (lispm-desktop-app-slack--teams)))
-           ,(concat "No Slack workspace yet.\nSign in to one with the token and cookie\n"
-                    "Slack's web app signs in with, which How to Sign In finds.")
-           (("Add Workspace…" lispm-desktop-app-slack-add-workspace)
-            ("How to Sign In" lispm-desktop-app-slack-help)))
-  :keys '(("Return" . "Open the conversation") ("n  p" . "Next and previous conversation")
-          ("a" . "Add a workspace") ("r" . "Sign in again") ("D" . "Sign out")
-          ("?" . "How to sign in") ("g" . "Draw the list again")))
+           ,(lispm-desktop-tr-noop "No Slack workspace yet.\nSign in to one with the token and cookie\n\
+Slack's web app signs in with, which How to Sign In finds.")
+           ((,(lispm-desktop-tr-noop "Add Workspace…") lispm-desktop-app-slack-add-workspace)
+            (,(lispm-desktop-tr-noop "How to Sign In") lispm-desktop-app-slack-help)))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Open the conversation"))
+          ("n  p" . ,(lispm-desktop-tr-noop "Next and previous conversation"))
+          ("a" . ,(lispm-desktop-tr-noop "Add a workspace")) ("r" . ,(lispm-desktop-tr-noop "Sign in again"))
+          ("D" . ,(lispm-desktop-tr-noop "Sign out")) ("?" . ,(lispm-desktop-tr-noop "How to sign in"))
+          ("g" . ,(lispm-desktop-tr-noop "Draw the list again"))))
 
 ;;;; How to sign in
 
 (defconst lispm-desktop-app-slack-help-text
-  "Slack lets emacs-slack in with the token and the cookie its web app signs in with.  To find them, sign in to your workspace in Chrome or Firefox, then:
+  (lispm-desktop-tr-noop "Slack lets emacs-slack in with the token and the cookie its web app signs in with.  To find them, sign in to your workspace in Chrome or Firefox, then:
 
 1.  Open my.slack.com/customize, with Open Slack's Page below.
 
@@ -399,29 +406,32 @@ to, and the conversations with messages unread."
 
 4.  Press Add Workspace…, then give the workspace's name, as in NAME.slack.com, your email there, the token and the cookie.
 
-They are kept with auth-source, in the first of your auth-sources (~/.authinfo, unless you said another); auth-source asks before it writes there.  Anyone who reads them can read and write in Slack as you: keep them in an encrypted ~/.authinfo.gpg, or in the macOS Keychain."
-  "What Slack's window says of signing in.")
+They are kept with auth-source, in the first of your auth-sources (~/.authinfo, unless you said another); auth-source asks before it writes there.  Anyone who reads them can read and write in Slack as you: keep them in an encrypted ~/.authinfo.gpg, or in the macOS Keychain.")
+  "What Slack's window says of signing in, in English, translated where shown.")
 
 (define-derived-mode lispm-desktop-app-slack-help-mode special-mode "How to Sign In"
   "How to find a Slack workspace's token and cookie."
   (let ((inhibit-read-only t))
     (erase-buffer)
-    (insert lispm-desktop-app-slack-help-text "\n")
+    (insert (lispm-desktop-tr lispm-desktop-app-slack-help-text) "\n")
     (goto-char (point-min))))
 
 (lispm-desktop-app-ui-define 'lispm-desktop-app-slack-help-mode
   :app 'slack
-  :title "How to Sign In"
+  :title (lispm-desktop-tr-noop "How to Sign In")
   :prose t
-  :buttons '(("Back" lispm-desktop-app-slack-list) ("Open Slack's Page" lispm-desktop-app-slack-open-customize)
-             ("Add Workspace…" lispm-desktop-app-slack-add-workspace)))
+  :buttons `((,(lispm-desktop-tr-noop "Back") lispm-desktop-app-slack-list)
+             (,(lispm-desktop-tr-noop "Open Slack's Page") lispm-desktop-app-slack-open-customize)
+             (,(lispm-desktop-tr-noop "Add Workspace…") lispm-desktop-app-slack-add-workspace)))
 
 ;;;; A room
 
 (defconst lispm-desktop-app-slack-room-keys
-  '(("Return" . "Send what is typed") ("C-c C-f" . "Attach a file")
-    ("M-p  M-n" . "What was typed before, and after"))
-  "The keys of a room's window.")
+  `(("Return" . ,(lispm-desktop-tr-noop "Send what is typed"))
+    ("C-c C-f" . ,(lispm-desktop-tr-noop "Attach a file"))
+    ("M-p  M-n" . ,(lispm-desktop-tr-noop "What was typed before, and after")))
+  "The keys of a room's window: (KEYS . WHAT), WHAT in English, translated
+where shown.")
 
 (defun lispm-desktop-app-slack--buffer-room ()
   "Return (ROOM . TEAM) of the current room buffer, or nil."
@@ -445,8 +455,10 @@ conversations with messages unread."
 (lispm-desktop-app-ui-define 'slack-mode
   :app 'slack
   :run #'lispm-desktop-app-slack
-  :buttons '(("Back" lispm-desktop-app-slack-list) ("Thread" slack-thread-show-or-create)
-             ("React…" slack-message-add-reaction) ("Attach…" slack-file-attach))
+  :buttons `((,(lispm-desktop-tr-noop "Back") lispm-desktop-app-slack-list)
+             (,(lispm-desktop-tr-noop "Thread") slack-thread-show-or-create)
+             (,(lispm-desktop-tr-noop "React…") slack-message-add-reaction)
+             (,(lispm-desktop-tr-noop "Attach…") slack-file-attach))
   :status #'lispm-desktop-app-slack--status
   :setup #'lispm-desktop-app-slack--setup-room
   :keys lispm-desktop-app-slack-room-keys)
@@ -455,8 +467,9 @@ conversations with messages unread."
 (lispm-desktop-app-ui-define 'slack-buffer-mode
   :app 'slack
   :run #'lispm-desktop-app-slack
-  :buttons '(("Back" lispm-desktop-app-slack-list) ("React…" slack-message-add-reaction)
-             ("Attach…" slack-file-attach))
+  :buttons `((,(lispm-desktop-tr-noop "Back") lispm-desktop-app-slack-list)
+             (,(lispm-desktop-tr-noop "React…") slack-message-add-reaction)
+             (,(lispm-desktop-tr-noop "Attach…") slack-file-attach))
   :status #'lispm-desktop-app-slack--status
   :keys lispm-desktop-app-slack-room-keys)
 

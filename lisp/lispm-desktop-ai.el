@@ -60,6 +60,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-agent-context)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
 (declare-function lispm-desktop-terminal-live-p "lispm-desktop-term" (buffer))
@@ -122,8 +123,9 @@ and these when they apply:
   :worktree    function of a directory returning nil, or where that
                worktree of the agent's belongs: (:root REPOSITORY :label
                LABEL), or (:name NAME :label LABEL) when only the
-               repository's name is known
-  :chats       directories whose sessions are chats, not project work
+               repository's name is known; LABEL is shown as it is,
+               in the language spoken
+  :chats      directories whose sessions are chats, not project work
   :short-id    function of a session's id returning the short form that
                tells it from others; by default its first eight characters
 
@@ -191,7 +193,9 @@ The agents sidebar reads the sessions anew and shows them at once, see
 (defun lispm-desktop-agent--key-binding (agent properties)
   "Return the binding of AGENT's key, of PROPERTIES: its command while it
 can run, nothing otherwise."
-  `(menu-item ,(format "New %s session" (plist-get properties :name))
+  ;; The item's name is a form, evaluated where a menu shows it, so it
+  ;; speaks the language spoken then.
+  `(menu-item (lispm-desktop-tr "New %s session" ,(plist-get properties :name))
               ,(plist-get properties :command)
               :filter ,(lambda (command) (and (lispm-desktop-agent-available-p agent) command))))
 
@@ -228,7 +232,7 @@ command is left to it."
   (when-let* ((key (plist-get properties :key)))
     (if (and (not (assoc key lispm-desktop-agent--keys))
              (lispm-desktop-agent--key-taken-p key))
-        (message "%s gets no key: %s is taken" (plist-get properties :name) key)
+        (message (lispm-desktop-tr "%s gets no key: %s is taken") (plist-get properties :name) key)
       (setf (alist-get key lispm-desktop-agent--keys nil nil #'equal) agent)
       (dolist (map (lispm-desktop-agent--key-maps))
         (keymap-set map key (lispm-desktop-agent--key-binding agent properties))))))
@@ -286,9 +290,9 @@ built in first, then the others in the order they were defined."
 (defun lispm-desktop-agent--check-available (agent)
   "Return the properties of AGENT; signal a `user-error' unless it can run."
   (let ((props (or (lispm-desktop-agent-props agent)
-                   (user-error "There is no agent %s; the App Store adds agents" agent))))
+                   (user-error (lispm-desktop-tr "There is no agent %s; the App Store adds agents") agent))))
     (unless (lispm-desktop-agent-available-p agent)
-      (user-error "%s is not installed: `%s' is not on PATH"
+      (user-error (lispm-desktop-tr "%s is not installed: `%s' is not on PATH")
                   (plist-get props :name) (plist-get props :program)))
     props))
 
@@ -431,7 +435,7 @@ read lists none, and says so."
         (if (and reader (eq sessions 'pending))
             'pending
           (delq nil (copy-sequence sessions))))
-    (error (message "%s sessions unavailable: %s" (plist-get props :name)
+    (error (message (lispm-desktop-tr "%s sessions unavailable: %s") (plist-get props :name)
                     (error-message-string err))
            nil)))
 
@@ -535,13 +539,20 @@ this."
 ;;;; Presentation (pure)
 
 (defun lispm-desktop-agent-age (time now)
-  "Return a short human age for TIME relative to NOW, both float seconds.
-Past a month it is the date, short as Mac OS 9's Finder wrote it: 5/13/26."
+  "Return a short human age for TIME relative to NOW, both float seconds,
+in the language spoken: 2m, 3h or 4d in English.  Past a month it is the
+date, short as Mac OS 9's Finder wrote it: 5/13/26."
   (let ((seconds (- now time)))
-    (cond ((< seconds 3600) (format "%dm" (/ seconds 60)))
-          ((< seconds 86400) (format "%dh" (/ seconds 3600)))
-          ((< seconds (* 30 86400)) (format "%dd" (/ seconds 86400)))
-          (t (format-time-string "%-m/%-d/%y" time)))))
+    (cond ((< seconds 3600)
+           (let ((minutes (truncate seconds 60)))
+             (lispm-desktop-tr-n "%dm" "%dm" minutes)))
+          ((< seconds 86400)
+           (let ((hours (truncate seconds 3600)))
+             (lispm-desktop-tr-n "%dh" "%dh" hours)))
+          ((< seconds (* 30 86400))
+           (let ((days (truncate seconds 86400)))
+             (lispm-desktop-tr-n "%dd" "%dd" days)))
+          (t (lispm-desktop-format-time "%-m/%-d/%y" time)))))
 
 (defun lispm-desktop-agent--short-id (session)
   "Return the short form of SESSION's id that tells sessions apart: what
@@ -574,7 +585,9 @@ The short id suffix keeps labels unique across sessions with equal titles."
                                         (directory-file-name (plist-get session :cwd)))
                                        18))
                       'face 'font-lock-constant-face)
-          (propertize (format "%-10s" (lispm-desktop-agent-age (plist-get session :time) now))
+          ;; Padded by its width: an age may be written in Chinese.
+          (propertize (let ((age (lispm-desktop-agent-age (plist-get session :time) now)))
+                        (concat age (make-string (max 0 (- 10 (string-width age))) ?\s)))
                       'face 'shadow)
           (lispm-desktop-sidebar-one-line (plist-get session :title) lispm-desktop-agent-title-width)
           (propertize (lispm-desktop-agent--short-id session) 'face 'shadow)))
@@ -660,7 +673,7 @@ inherited, and with its :context server showing it Emacs's state and its
 same NAME is returned instead of restarted."
   (let ((props (lispm-desktop-agent--check-available agent)))
     (unless (file-directory-p directory)
-      (user-error "Working directory no longer exists: %s" directory))
+      (user-error (lispm-desktop-tr "Working directory no longer exists: %s") directory))
     (let* ((default-directory (file-name-as-directory directory))
            ;; A new agent gets a server showing it Emacs's state; a running
            ;; terminal returned as is keeps the one it has.
@@ -783,7 +796,7 @@ the next one."
   (let* ((waiting (lispm-desktop-term-waiting-buffers))
          (next (or (cadr (memq (current-buffer) waiting)) (car waiting))))
     (unless next
-      (user-error "No terminal is waiting for you"))
+      (user-error (lispm-desktop-tr "No terminal is waiting for you")))
     (if (lispm-desktop-agent-buffer-p next)
         (lispm-desktop-agent-show next)
       (lispm-desktop-sidebar-show-in-main next))))
@@ -819,7 +832,7 @@ window's buffer."
 (defun lispm-desktop-agent--session-at (label)
   "Return the session plist listed under LABEL."
   (or (and lispm-desktop-agent--candidates (gethash label lispm-desktop-agent--candidates))
-      (user-error "Unknown agent session: %s" label)))
+      (user-error (lispm-desktop-tr "Unknown agent session: %s") label)))
 
 (defun lispm-desktop-agent--read-session (prompt)
   "Read a recorded agent session with PROMPT and return its plist."
@@ -863,7 +876,7 @@ again would run a second agent on the same session."
 (defun lispm-desktop-agent-sessions ()
   "Choose a recorded session of any agent and resume it."
   (interactive)
-  (lispm-desktop-agent-resume-session (lispm-desktop-agent--read-session "Agent session: ")))
+  (lispm-desktop-agent-resume-session (lispm-desktop-agent--read-session (lispm-desktop-tr "Agent session: "))))
 
 (defun lispm-desktop-agent-new (agent &optional directory)
   "Start a new AGENT session in DIRECTORY.
@@ -877,8 +890,8 @@ DIRECTORY defaults to the project root of the main window's buffer."
                                      (funcall new-arguments))))
          (lispm-desktop-agent--launch agent directory (lispm-desktop-agent-fresh-name agent directory)
                                       args id
-                                      (format "New %s · %s" (plist-get props :name)
-                                              (file-name-nondirectory (directory-file-name directory)))))))))
+                                      (lispm-desktop-tr "New %s · %s" (plist-get props :name)
+                                                        (file-name-nondirectory (directory-file-name directory)))))))))
 
 (defun lispm-desktop-agent--pick-terminal ()
   "Return the agent terminal to send to, preferring the current project.
@@ -894,14 +907,15 @@ Ask when several running agent terminals qualify."
                             running))
          (candidates (or local running)))
     (pcase candidates
-      ('nil (user-error "No running agent; start one from the λ menu%s"
-                        (mapconcat (lambda (entry)
-                                     (if-let* ((key (plist-get (cdr entry) :key)))
-                                         (format " or with C-c a %s" key)
-                                       ""))
-                                   (lispm-desktop-agent-available) "")))
+      ('nil (if-let* ((keys (delq nil (mapcar (lambda (entry)
+                                                 (when-let* ((key (plist-get (cdr entry) :key)))
+                                                   (concat "C-c a " key)))
+                                               (lispm-desktop-agent-available)))))
+                (user-error (lispm-desktop-tr "No running agent; start one from the λ menu or with %s")
+                            (string-join keys ", "))
+              (user-error (lispm-desktop-tr "No running agent; start one from the λ menu"))))
       (`(,only) only)
-      (_ (get-buffer (completing-read "Send to agent: "
+      (_ (get-buffer (completing-read (lispm-desktop-tr "Send to agent: ")
                                       (mapcar #'buffer-name candidates) nil t))))))
 
 (defun lispm-desktop-agent--region-reference (beg end)
@@ -969,7 +983,7 @@ A file holding no such plist is moved aside, to the same name ending in
             state
           (let ((aside (concat file ".unreadable")))
             (rename-file file aside t)
-            (message "Cannot read %s; moved to %s"
+            (message (lispm-desktop-tr "Cannot read %s; moved to %s")
                      (abbreviate-file-name file) (abbreviate-file-name aside)))
           nil)))))
 
@@ -1003,7 +1017,7 @@ A file holding no such plist is moved aside, to the same name ending in
 :rename of `lispm-desktop-agent-define'.  This list then shows TITLE."
   (let ((agent (plist-get session :agent)))
     (funcall (or (plist-get (lispm-desktop-agent-props agent) :rename)
-                 (user-error "%s sessions cannot be renamed" (lispm-desktop-agent-name agent)))
+                 (user-error (lispm-desktop-tr "%s sessions cannot be renamed") (lispm-desktop-agent-name agent)))
              session title)))
 
 (defun lispm-desktop-agent--session-files (session)
@@ -1025,10 +1039,10 @@ makes, else its :file."
 
 (defun lispm-desktop-agent-rename-session (session)
   "Prompt for a new title of SESSION and rename it."
-  (let ((title (string-trim (read-string "Rename session: "
+  (let ((title (string-trim (read-string (lispm-desktop-tr "Rename session: ")
                                          (plist-get session :title)))))
     (when (string-empty-p title)
-      (user-error "Title must not be empty"))
+      (user-error (lispm-desktop-tr "Title must not be empty")))
     (lispm-desktop-agent--rename session title)
     (run-hooks 'lispm-desktop-agent-sessions-changed-hook)))
 
@@ -1044,7 +1058,7 @@ sessions in a store of its own deletes it there itself, see the :delete of
 `lispm-desktop-agent-define'.  A session that is running in a terminal
 cannot be deleted."
   (when (lispm-desktop-agent--session-running-p session)
-    (user-error "Session is running; exit its terminal first"))
+    (user-error (lispm-desktop-tr "Session is running; exit its terminal first")))
   (let* ((agent (plist-get session :agent))
          (name (lispm-desktop-agent-name agent))
          (delete (plist-get (lispm-desktop-agent-props agent) :delete))
@@ -1054,14 +1068,14 @@ cannot be deleted."
               (lispm-desktop-popup-alert
                'stop
                (if delete
-                   (format "Delete the %s session “%s”?" name title)
-                 (format "Move the %s session “%s” to the Trash?" name title))
-               `(("Cancel" cancel cancel)
-                 (,(if delete "Delete" "Move to Trash") delete default))
+                   (lispm-desktop-tr "Delete the %s session “%s”?" name title)
+                 (lispm-desktop-tr "Move the %s session “%s” to the Trash?" name title))
+               `((,(lispm-desktop-tr "Cancel") cancel cancel)
+                 (,(if delete (lispm-desktop-tr "Delete") (lispm-desktop-tr "Move to Trash")) delete default))
                (if delete
-                   (format "%s removes it from its store; this cannot be undone." name)
-                 (format "Its %d file%s go%s to the Trash." (length files)
-                         (if (cdr files) "s" "") (if (cdr files) "" "es")))))
+                   (lispm-desktop-tr "%s removes it from its store; this cannot be undone." name)
+                 (lispm-desktop-tr-n "Its %d file goes to the Trash." "Its %d files go to the Trash."
+                                     (length files)))))
       (if delete
           (funcall delete session)
         (dolist (file files)
@@ -1083,7 +1097,7 @@ cannot be deleted."
     ('archive (lispm-desktop-agent-toggle-archive-session session))
     ('delete (lispm-desktop-agent-delete-session session))
     ('copy (kill-new (plist-get session :id))
-           (message "Copied %s" (plist-get session :id)))
+           (message (lispm-desktop-tr "Copied %s") (plist-get session :id)))
     ('transcript (lispm-desktop-agent--in-main-window #'find-file (lispm-desktop-agent--session-transcript session)))
     ('directory (lispm-desktop-agent--in-main-window #'dired (plist-get session :cwd)))))
 

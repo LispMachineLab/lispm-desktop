@@ -46,6 +46,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-websocket)
 (require 'lispm-desktop-agent-context)
+(require 'lispm-desktop-i18n)
 
 (declare-function diff-no-select "diff" (old new &optional switches no-async buf))
 
@@ -213,12 +214,16 @@ Once Claude reports itself connected, it is sent the current selection."
       (with-current-buffer buffer
         (setq lispm-desktop-agent-ide--diff (list session tab id contents))
         (setq header-line-format
-              (concat (format " Claude proposes a change to %s.  " (abbreviate-file-name file))
-                      (substitute-command-keys
-                       "\\<lispm-desktop-agent-ide-diff-mode-map>\\[lispm-desktop-agent-ide-accept-diff] accept, \
-\\[lispm-desktop-agent-ide-reject-diff] reject")
+              (concat " " (lispm-desktop-tr "Claude proposes a change to %s." (abbreviate-file-name file))
+                      "  "
+                      (lispm-desktop-tr "%s accept, %s reject"
+                                        (substitute-command-keys
+                                         "\\<lispm-desktop-agent-ide-diff-mode-map>\\[lispm-desktop-agent-ide-accept-diff]")
+                                        (substitute-command-keys
+                                         "\\<lispm-desktop-agent-ide-diff-mode-map>\\[lispm-desktop-agent-ide-reject-diff]"))
                       (if (and visiting (buffer-modified-p visiting))
-                          (propertize "  (the file has unsaved changes in Emacs)" 'face 'warning)
+                          (concat "  " (propertize (lispm-desktop-tr "(the file has unsaved changes in Emacs)")
+                                                   'face 'warning))
                         "")))
         (lispm-desktop-agent-ide-diff-mode 1)
         (add-hook 'kill-buffer-hook #'lispm-desktop-agent-ide--diff-killed nil t))
@@ -237,13 +242,13 @@ Once Claude reports itself connected, it is sent the current selection."
 (defun lispm-desktop-agent-ide-accept-diff ()
   "Accept the proposed change; Claude writes it."
   (interactive)
-  (unless lispm-desktop-agent-ide--diff (user-error "No change is waiting here"))
+  (unless lispm-desktop-agent-ide--diff (user-error (lispm-desktop-tr "No change is waiting here")))
   (lispm-desktop-agent-ide--answer-diff (list "FILE_SAVED" (nth 3 lispm-desktop-agent-ide--diff))))
 
 (defun lispm-desktop-agent-ide-reject-diff ()
   "Reject the proposed change."
   (interactive)
-  (unless lispm-desktop-agent-ide--diff (user-error "No change is waiting here"))
+  (unless lispm-desktop-agent-ide--diff (user-error (lispm-desktop-tr "No change is waiting here")))
   (lispm-desktop-agent-ide--answer-diff (list "DIFF_REJECTED" (nth 1 lispm-desktop-agent-ide--diff))))
 
 (defun lispm-desktop-agent-ide--diff-killed ()

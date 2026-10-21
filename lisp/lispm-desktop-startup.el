@@ -53,6 +53,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'xml)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop-apps)
 (declare-function lispm-desktop-apps-activate "lispm-desktop-apps" (app))
@@ -199,12 +200,13 @@ percent signs doubled, its backslashes escaped as the key's string."
       (lispm-desktop-startup--autostart-entry command))))
 
 (defun lispm-desktop-startup-login-description ()
-  "Return what opens at login, as the Startup control panel tells it:
-the application, or the Emacs, and its init directory."
-  (format "%s with %s"
-          (abbreviate-file-name (or (lispm-desktop-startup--bundle)
-                                    (expand-file-name invocation-name invocation-directory)))
-          (abbreviate-file-name (expand-file-name user-emacs-directory))))
+  "Return what opens at login, as the Startup control panel tells it, in
+the language LispM speaks: the application, or the Emacs, and its init
+directory."
+  (lispm-desktop-tr "%s with %s"
+                    (abbreviate-file-name (or (lispm-desktop-startup--bundle)
+                                              (expand-file-name invocation-name invocation-directory)))
+                    (abbreviate-file-name (expand-file-name user-emacs-directory))))
 
 (defun lispm-desktop-open-at-login (open)
   "Have the computer open LispM when you log in, when OPEN, else not.
@@ -213,7 +215,7 @@ macOS it is a launch agent, which System Settings lists in its Login
 Items; on GNU/Linux an autostart entry."
   (interactive (list (not (lispm-desktop-startup-login-p))))
   (let ((file (or (lispm-desktop-startup-login-file)
-                  (user-error "LispM cannot open at login on this system"))))
+                  (user-error (lispm-desktop-tr "LispM cannot open at login on this system")))))
     (if open
         (let ((text (lispm-desktop-startup--login-text)))
           ;; Written only when it changed: macOS tells of every new one.
@@ -227,7 +229,9 @@ Items; on GNU/Linux an autostart entry."
       (when (file-exists-p file)
         (delete-file file)))
     (when (called-interactively-p 'interactive)
-      (message (if open "LispM opens when you log in" "LispM no longer opens when you log in")))
+      (message (if open
+                   (lispm-desktop-tr "LispM opens when you log in")
+                 (lispm-desktop-tr "LispM no longer opens when you log in"))))
     open))
 
 ;;;; Startup items
@@ -259,18 +263,20 @@ out when VALUE is nil.  ITEM itself is left as it is."
     (if value (append copy (list key value)) copy)))
 
 (defun lispm-desktop-startup-item-name (item)
-  "Return ITEM's name: its :name, else that of what it opens."
+  "Return ITEM's name: its :name, else that of what it opens, an
+application's in the language LispM speaks."
   (or (plist-get item :name)
       (pcase (lispm-desktop-startup-item-kind item)
         ('app (let ((app (plist-get item :app)))
-                (or (plist-get (alist-get app (bound-and-true-p lispm-desktop-apps)) :name)
-                    (capitalize (symbol-name app)))))
+                (if-let* ((name (plist-get (alist-get app (bound-and-true-p lispm-desktop-apps)) :name)))
+                    (lispm-desktop-tr name)
+                  (capitalize (symbol-name app)))))
         ('file (let* ((file (directory-file-name (plist-get item :file)))
                       (name (file-name-nondirectory file)))
                  (if (string-empty-p name) file name)))
         ('program (lispm-desktop-startup-program-name (plist-get item :program)))
         ('command (symbol-name (plist-get item :command))))
-      "Unknown"))
+      (lispm-desktop-tr "Unknown")))
 
 (defvar-local lispm-desktop-startup--exit-code nil
   "The exit code of the program whose output the buffer holds, once it
@@ -318,7 +324,7 @@ and it reaches the network as LispM's own programs do."
          (directory (file-name-as-directory (expand-file-name (or (plist-get item :directory) "~"))))
          (buffer (get-buffer-create (lispm-desktop-startup-program-buffer-name item))))
     (unless (file-directory-p directory)
-      (error "No directory %s" (abbreviate-file-name directory)))
+      (error (lispm-desktop-tr "No directory %s") (abbreviate-file-name directory)))
     (with-current-buffer buffer
       (setq default-directory directory
             lispm-desktop-startup--exit-code nil)
@@ -348,13 +354,13 @@ running or just started.  Signal an error when ITEM cannot be opened."
     ('app
      (let ((app (plist-get item :app)))
        (unless (assq app (bound-and-true-p lispm-desktop-apps))
-         (error "No application %s is installed" app))
+         (error (lispm-desktop-tr "No application %s is installed") app))
        (lispm-desktop-apps-activate app)))
     ('file
      (let ((file (expand-file-name (plist-get item :file))))
        (cond ((file-directory-p file) (lispm-desktop-finder-open-directory file))
              ((file-exists-p file) (lispm-desktop-editor-activate) (find-file file))
-             (t (error "No file %s" (abbreviate-file-name file))))))
+             (t (error (lispm-desktop-tr "No file %s") (abbreviate-file-name file))))))
     ('program
      (unless (lispm-desktop-startup-program-process item)
        (lispm-desktop-startup--start-program item))
@@ -363,9 +369,9 @@ running or just started.  Signal an error when ITEM cannot be opened."
     ('command
      (let ((command (plist-get item :command)))
        (unless (commandp command)
-         (error "No command %s" command))
+         (error (lispm-desktop-tr "No command %s") command))
        (call-interactively command)))
-    (_ (error "It names nothing to open: %S" item))))
+    (_ (error (lispm-desktop-tr "It names nothing to open: %S") item))))
 
 (defun lispm-desktop-startup-open-items ()
   "Open the startup items not turned off, in their order, as at a start.
@@ -376,10 +382,11 @@ An item that cannot be opened is passed over, and told of."
       (unless (plist-get item :disabled)
         (condition-case err
             (lispm-desktop-startup-open-item item)
-          (error (push (format "%s (%s)" (lispm-desktop-startup-item-name item) (error-message-string err))
+          (error (push (lispm-desktop-tr "%s (%s)" (lispm-desktop-startup-item-name item)
+                                         (error-message-string err))
                        failed)))))
     (when failed
-      (message "Startup items not opened: %s" (string-join (nreverse failed) "; ")))))
+      (message (lispm-desktop-tr "Startup items not opened: %s") (string-join (nreverse failed) "; ")))))
 
 (defun lispm-desktop-startup--after-start ()
   "Open the startup items once Emacs is up and waits for input, so that

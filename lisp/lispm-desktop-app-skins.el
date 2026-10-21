@@ -37,6 +37,9 @@
 ;;               no feeds
 ;;
 ;; EMMS has a file of its own, lispm-desktop-app-emms.el.
+;;
+;; What they say is in English, marked as words to translate; the
+;; interface translates it where it shows it, see lispm-desktop-app-ui.el.
 
 ;;; Code:
 
@@ -47,6 +50,7 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-app-board)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-i18n)
 
 ;; The applications' own variables and functions, read once they run.
 (defvar calc-angle-mode)
@@ -156,7 +160,7 @@ showing the number being typed, over its keys."
   (let ((window lispm-desktop-app-skins--calc-window))
     (if (window-live-p window)
         (with-selected-window window (call-interactively command))
-      (user-error "The Calculator's stack is closed"))))
+      (user-error (lispm-desktop-tr "The Calculator's stack is closed")))))
 
 (defun lispm-desktop-app-skins--calc-push ()
   "Push the number typed on the keypad onto Calc's stack, if any; return
@@ -225,8 +229,8 @@ non-nil when one was."
   (when-let* ((window lispm-desktop-app-skins--calc-window)
               ((window-live-p window)))
     (with-current-buffer (window-buffer window)
-      (list (if (eq calc-angle-mode 'rad) "Radians" "Degrees")
-            (format "%d digits" calc-internal-prec)))))
+      (list (if (eq calc-angle-mode 'rad) (lispm-desktop-tr "Radians") (lispm-desktop-tr "Degrees"))
+            (lispm-desktop-tr-n "%d digit" "%d digits" calc-internal-prec)))))
 
 (defun lispm-desktop-app-skins-calculator ()
   "Open Calc in the selected window, its stack over a keypad, without the
@@ -262,14 +266,17 @@ trail: the stack and the display are where the numbers are."
   :app 'calculator
   :run #'lispm-desktop-app-skins-calculator
   :bottom nil
-  :buttons `(("Undo" calc-undo) ("Redo" calc-redo)
-             (,(lambda () (if (eq calc-angle-mode 'rad) "Radians" "Degrees"))
+  :buttons `((,(lispm-desktop-tr-noop "Undo") calc-undo) (,(lispm-desktop-tr-noop "Redo") calc-redo)
+             (,(lambda ()
+                 (if (eq calc-angle-mode 'rad) (lispm-desktop-tr "Radians") (lispm-desktop-tr "Degrees")))
               ,(lambda () (interactive)
                  (call-interactively (if (eq calc-angle-mode 'rad) 'calc-degrees-mode 'calc-radians-mode)))))
-  :keys '(("0 … 9  ." . "Type a number") ("Return" . "Push it onto the stack")
-          ("+ − * /" . "Add, subtract, multiply, divide the two last")
-          ("Delete" . "Drop the last number") ("n" . "Change the sign") ("Q" . "Square root")
-          ("U" . "Undo") ("D" . "Redo")))
+  :keys `(("0 … 9  ." . ,(lispm-desktop-tr-noop "Type a number"))
+          ("Return" . ,(lispm-desktop-tr-noop "Push it onto the stack"))
+          ("+ − * /" . ,(lispm-desktop-tr-noop "Add, subtract, multiply, divide the two last"))
+          ("Delete" . ,(lispm-desktop-tr-noop "Drop the last number"))
+          ("n" . ,(lispm-desktop-tr-noop "Change the sign")) ("Q" . ,(lispm-desktop-tr-noop "Square root"))
+          ("U" . ,(lispm-desktop-tr-noop "Undo")) ("D" . ,(lispm-desktop-tr-noop "Redo"))))
 
 (lispm-desktop-app-ui-define 'lispm-desktop-app-skins-calc-keypad-mode
   :board `(:draw lispm-desktop-app-skins--calc-draw
@@ -396,45 +403,59 @@ holidays."
   :board `(:draw lispm-desktop-app-skins--calendar-draw :model lispm-desktop-app-skins--calendar-model)
   :fit t
   :status #'lispm-desktop-app-skins--calendar-status
-  :buttons '(("Today" calendar-goto-today) ("◀" calendar-scroll-right) ("▶" calendar-scroll-left))
-  :keys '(("C-f  C-b" . "Next and previous day") ("C-n  C-p" . "Next and previous week")
-          ("{  }" . "Previous and next month") ("[  ]" . "Previous and next year")
-          ("<  >" . "Show earlier and later months") ("." . "Today") ("g d" . "Go to a date")
-          ("h" . "Holidays of the day") ("a" . "Holidays of the months shown")))
+  :buttons `((,(lispm-desktop-tr-noop "Today") calendar-goto-today)
+             ("◀" calendar-scroll-right) ("▶" calendar-scroll-left))
+  :keys `(("C-f  C-b" . ,(lispm-desktop-tr-noop "Next and previous day"))
+          ("C-n  C-p" . ,(lispm-desktop-tr-noop "Next and previous week"))
+          ("{  }" . ,(lispm-desktop-tr-noop "Previous and next month"))
+          ("[  ]" . ,(lispm-desktop-tr-noop "Previous and next year"))
+          ("<  >" . ,(lispm-desktop-tr-noop "Show earlier and later months"))
+          ("." . ,(lispm-desktop-tr-noop "Today")) ("g d" . ,(lispm-desktop-tr-noop "Go to a date"))
+          ("h" . ,(lispm-desktop-tr-noop "Holidays of the day"))
+          ("a" . ,(lispm-desktop-tr-noop "Holidays of the months shown"))))
 
 ;;;; Elfeed
 
 (defun lispm-desktop-app-skins--elfeed-status ()
   "Return what Elfeed's bottom says: its entries, those unread, its update."
   (when (boundp 'elfeed-search-entries)
-    (list (format "%d entries" (length elfeed-search-entries))
-          (format "%d unread" (seq-count (lambda (entry) (elfeed-tagged-p 'unread entry))
-                                         elfeed-search-entries))
+    (list (lispm-desktop-tr-n "%d entry" "%d entries" (length elfeed-search-entries))
+          (lispm-desktop-tr-n "%d unread" "%d unread"
+                              (seq-count (lambda (entry) (elfeed-tagged-p 'unread entry)) elfeed-search-entries))
           (let ((time (elfeed-db-last-update)))
-            (if (zerop time) "Never updated" (format-time-string "Updated %b %e, %H:%M" time))))))
+            (if (zerop time)
+                (lispm-desktop-tr "Never updated")
+              (lispm-desktop-format-time "Updated %b %e, %H:%M" time))))))
 
 (defun lispm-desktop-app-skins--elfeed-empty-text ()
-  "Return what Elfeed's page says while it has no entries."
+  "Return what Elfeed's page says while it has no entries, its lines
+broken where they are to break."
   (if (bound-and-true-p elfeed-feeds)
-      "Your feeds have not been read yet.\nUpdate them to fetch their entries."
-    "No feeds yet.\nAdd the address of a blog's or a site's feed,\nor import a list of feeds from another reader."))
+      (lispm-desktop-tr "Your feeds have not been read yet.\nUpdate them to fetch their entries.")
+    (lispm-desktop-tr
+     "No feeds yet.\nAdd the address of a blog's or a site's feed,\nor import a list of feeds from another reader.")))
 
 (lispm-desktop-app-ui-define 'elfeed-search-mode
   :list t
   :status #'lispm-desktop-app-skins--elfeed-status
   :label (lambda () (and (boundp 'elfeed-search-filter) elfeed-search-filter))
-  :buttons '(("Update" elfeed-update) ("Add Feed…" elfeed-add-feed) ("Filter…" elfeed-search-set-filter)
-             ("Open" elfeed-search-show-entry))
+  :buttons `((,(lispm-desktop-tr-noop "Update") elfeed-update)
+             (,(lispm-desktop-tr-noop "Add Feed…") elfeed-add-feed)
+             (,(lispm-desktop-tr-noop "Filter…") elfeed-search-set-filter)
+             (,(lispm-desktop-tr-noop "Open") elfeed-search-show-entry))
   :empty `(,(lambda () (zerop (elfeed-db-last-update)))
            lispm-desktop-app-skins--elfeed-empty-text
            ,(lambda () (if (bound-and-true-p elfeed-feeds)
-                           '(("Update" elfeed-update))
-                         '(("Add Feed…" elfeed-add-feed) ("Import OPML…" elfeed-load-opml))))))
+                           `((,(lispm-desktop-tr "Update") elfeed-update))
+                         `((,(lispm-desktop-tr "Add Feed…") elfeed-add-feed)
+                           (,(lispm-desktop-tr "Import OPML…") elfeed-load-opml))))))
 
 (lispm-desktop-app-ui-define 'elfeed-show-mode
   :prose t
-  :buttons '(("Back" elfeed-kill-buffer) ("Previous" elfeed-show-prev) ("Next" elfeed-show-next)
-             ("Open in Browser" elfeed-show-visit)))
+  :buttons `((,(lispm-desktop-tr-noop "Back") elfeed-kill-buffer)
+             (,(lispm-desktop-tr-noop "Previous") elfeed-show-prev)
+             (,(lispm-desktop-tr-noop "Next") elfeed-show-next)
+             (,(lispm-desktop-tr-noop "Open in Browser") elfeed-show-visit)))
 
 (provide 'lispm-desktop-app-skins)
 ;;; lispm-desktop-app-skins.el ends here

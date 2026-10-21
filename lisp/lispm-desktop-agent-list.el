@@ -37,6 +37,7 @@
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
@@ -94,7 +95,7 @@ its program says it is doing, see `lispm-desktop-term-status', else
   (if-let* ((record (and buffer (fboundp 'lispm-desktop-term-status)
                          (lispm-desktop-term-status buffer))))
       (lispm-desktop-term-status-label record t)
-    (propertize "running" 'face 'success)))
+    (propertize (lispm-desktop-tr "running") 'face 'success)))
 
 (defvar-keymap lispm-desktop-agent-list-entry-map
   :doc "Keymap on session entries: button keys plus the context menu."
@@ -113,11 +114,13 @@ Finder list; its sessions are rows one level in, newest first."
          (sessions (plist-get group :sessions)))
     (lispm-desktop-sidebar-insert-group
      (not folded)
-     (if chats "Chats" (file-name-nondirectory directory))
+     (if chats (lispm-desktop-tr "Chats") (file-name-nondirectory directory))
      (lispm-desktop-agent-age (plist-get group :time) now)
      (apply-partially #'lispm-desktop-agent-list--toggle-fold group)
-     (format "%s %s" (if folded "Open" "Close")
-             (if chats "project-less conversations" directory))
+     (cond ((and folded chats) (lispm-desktop-tr "Open project-less conversations"))
+           (folded (lispm-desktop-tr "Open %s" directory))
+           (chats (lispm-desktop-tr "Close project-less conversations"))
+           (t (lispm-desktop-tr "Close %s" directory)))
      (unless chats directory))
     (unless folded
       ;; A terminal whose session is already listed shows as that session's
@@ -133,7 +136,7 @@ Finder list; its sessions are rows one level in, newest first."
          (lispm-desktop-agent-buffer-label buffer)
          (lispm-desktop-agent-list--running-label buffer)
          (apply-partially #'lispm-desktop-agent-show buffer)
-         "Show this terminal"
+         (lispm-desktop-tr "Show this terminal")
          nil 1))
       (let* ((expanded (member (plist-get group :key) lispm-desktop-agent-list--expanded))
              (shown (if expanded sessions
@@ -153,21 +156,29 @@ Finder list; its sessions are rows one level in, newest first."
                  (lispm-desktop-agent-list--running-label (lispm-desktop-agent-session-buffer id))
                (lispm-desktop-agent-age (plist-get session :time) now))
              (apply-partially #'lispm-desktop-agent-resume-session session)
-             (format "Resume %s session %s%s%s (right-click for more)"
-                     (plist-get session :agent) id
-                     (if location (format ", in %s" location) "")
-                     (if archived ", archived" ""))
+             (let ((agent (plist-get session :agent)))
+               (cond ((and location archived)
+                      (lispm-desktop-tr "Resume %s session %s, in %s, archived (right-click for more)"
+                                        agent id location))
+                     (location
+                      (lispm-desktop-tr "Resume %s session %s, in %s (right-click for more)"
+                                        agent id location))
+                     (archived
+                      (lispm-desktop-tr "Resume %s session %s, archived (right-click for more)" agent id))
+                     (t (lispm-desktop-tr "Resume %s session %s (right-click for more)" agent id))))
              (list 'lispm-desktop-agent-session session 'keymap lispm-desktop-agent-list-entry-map)
              1)))
         (when (or expanded (> (length sessions) (length shown)))
           (lispm-desktop-sidebar-insert-entry
            ""
-           (propertize (if expanded "Fewer"
-                         (format "%d more…" (- (length sessions) (length shown))))
+           (propertize (if expanded
+                           (lispm-desktop-tr "Fewer")
+                         (let ((more (- (length sessions) (length shown))))
+                           (lispm-desktop-tr-n "%d more…" "%d more…" more)))
                        'face '(:inherit (shadow lispm-desktop-platinum-list)))
            nil
            (apply-partially #'lispm-desktop-agent-list--toggle-expanded (plist-get group :key))
-           "Toggle the full session list of this project"
+           (lispm-desktop-tr "Toggle the full session list of this project")
            nil 1))))))
 
 (defvar-local lispm-desktop-agent-list--show-archived nil
@@ -183,11 +194,11 @@ Finder list; its sessions are rows one level in, newest first."
 (defun lispm-desktop-agent-list--info (sessions running reading)
   "Return the count on the sidebar's bottom edge: SESSIONS listed, RUNNING
 terminals, and, when READING, that sessions are still being read."
-  (lispm-desktop-sidebar-count
-   sessions "session"
-   (when-let* ((details (delq nil (list (when (> running 0) (format "%d running" running))
-                                        (when reading "still reading…")))))
-     (string-join details ", "))))
+  (seq-reduce (lambda (shown detail) (lispm-desktop-tr "%s, %s" shown detail))
+              (delq nil (list (when (> running 0)
+                                (lispm-desktop-tr-n "%d running" "%d running" running))
+                              (when reading (lispm-desktop-tr "still reading…"))))
+              (lispm-desktop-tr-n "%d session" "%d sessions" sessions)))
 
 (defun lispm-desktop-agent-list--render ()
   "Render the agent sidebar, grouped by working directory, into this buffer.
@@ -216,20 +227,21 @@ sessions are still being read."
      ;; in first.
      (mapcar (pcase-lambda (`(,agent . ,props))
                (list (concat (lispm-desktop-agent-icon agent) "+") (plist-get props :command)
-                     (format "New %s session in the current project"
-                             (plist-get props :name))))
+                     (lispm-desktop-tr "New %s session in the current project"
+                                       (plist-get props :name))))
              (lispm-desktop-agent-available))
      ;; The archive toggle shows the archived count, pressed while archived
      ;; sessions are listed.
      (when (> archived 0)
-       `((,(format "%d Archived" archived)
+       `((,(lispm-desktop-tr-n "%d Archived" "%d Archived" archived)
           lispm-desktop-agent-list-toggle-show-archived
-          ,(if lispm-desktop-agent-list--show-archived "Hide archived sessions"
-             "Show archived sessions")
+          ,(if lispm-desktop-agent-list--show-archived
+               (lispm-desktop-tr "Hide archived sessions")
+             (lispm-desktop-tr "Show archived sessions"))
           ,lispm-desktop-agent-list--show-archived))))
     (setq lispm-desktop-platinum-info
           (lispm-desktop-agent-list--info (length sessions) (length running) reading))
-    (lispm-desktop-sidebar-insert-columns "Name" "Modified")
+    (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
     (dolist (group (lispm-desktop-agent-group-by-directory sessions running))
       (lispm-desktop-agent-list--insert-project group now running-ids))))
 
@@ -301,20 +313,23 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
                        entry
                      (list :label (car entry)
                            :action (lambda () (lispm-desktop-agent-session-act (cdr entry) session)))))
-                 `(("Resume" . resume)
-                   ("Rename…" . rename)
-                   (,(if (lispm-desktop-agent-archived-p session) "Unarchive" "Archive") . archive)
-                   ("Delete…" . delete)
+                 `((,(lispm-desktop-tr "Resume") . resume)
+                   (,(lispm-desktop-tr "Rename…") . rename)
+                   (,(if (lispm-desktop-agent-archived-p session)
+                         (lispm-desktop-tr "Unarchive")
+                       (lispm-desktop-tr "Archive"))
+                    . archive)
+                   (,(lispm-desktop-tr "Delete…") . delete)
                    separator
-                   ("Copy Session ID" . copy)
-                   ("Open Transcript" . transcript)
-                   ("Open Directory" . directory)))
+                   (,(lispm-desktop-tr "Copy Session ID") . copy)
+                   (,(lispm-desktop-tr "Open Transcript") . transcript)
+                   (,(lispm-desktop-tr "Open Directory") . directory)))
          (1+ x) (1+ y))))))
 
 (defun lispm-desktop-agent-list--session-at-point ()
   "Return the session of the sidebar entry at point."
   (or (get-text-property (point) 'lispm-desktop-agent-session)
-      (user-error "No session at point")))
+      (user-error (lispm-desktop-tr "No session at point"))))
 
 (defun lispm-desktop-agent-list-rename ()
   "Rename the session at point."
@@ -359,8 +374,8 @@ Each agent adds the key starting it, see `lispm-desktop-agent-define'.
   (lispm-desktop-sidebar-setup-buffer))
 
 (lispm-desktop-sidebar-define-view
- 'agents :title "Agents" :icon "robot" :command 'lispm-desktop-sidebar-agents
- :help "Agent sessions"
+ 'agents :title (lispm-desktop-tr-noop "Agents") :icon "robot" :command 'lispm-desktop-sidebar-agents
+ :help (lispm-desktop-tr-noop "Agent sessions")
  :buffer lispm-desktop-agent-list-buffer-name
  :mode #'lispm-desktop-agent-list-mode
  :render #'lispm-desktop-agent-list--render)

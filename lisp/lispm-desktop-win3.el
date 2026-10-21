@@ -57,11 +57,12 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-surface)
+(require 'lispm-desktop-i18n)
 
 (lispm-desktop-look-define
  'win3
  :title "Windows 3.2"
- :description "Windows 3.2's look: navy captions, the control-menu box, sizing borders"
+ :description (lispm-desktop-tr-noop "Windows 3.2's look: navy captions, the control-menu box, sizing borders")
  :theme 'win3
  :icons '("win3")
  :system-families '("Microsoft Sans Serif" "MS Sans Serif" "Arial" "Helvetica")
@@ -180,14 +181,15 @@ Restore, Minimize, Maximize and Close, those WINDOW cannot do disabled."
                (`(,left ,top ,_ ,_) (window-pixel-edges window))
                (margins (lispm-desktop-platinum-window-box-margins window)))
     (lispm-desktop-popup-menu
-     (list (list :label "Restore" :enabled (and zoom (frame-parameter nil 'lispm-desktop-platinum-unzoom) t)
+     (list (list :label (lispm-desktop-tr-in "Windows 3.2" "Restore")
+                 :enabled (and zoom (frame-parameter nil 'lispm-desktop-platinum-unzoom) t)
                  :action (lambda () (lispm-desktop-platinum-zoom-window window)))
-           (list :label "Minimize" :enabled (and collapse t)
+           (list :label (lispm-desktop-tr-in "Windows 3.2" "Minimize") :enabled (and collapse t)
                  :action (lambda () (lispm-desktop-platinum-collapse-window window)))
-           (list :label "Maximize" :enabled (and zoom t)
+           (list :label (lispm-desktop-tr-in "Windows 3.2" "Maximize") :enabled (and zoom t)
                  :action (lambda () (lispm-desktop-platinum-zoom-window window)))
            'separator
-           (list :label "Close"
+           (list :label (lispm-desktop-tr-in "Windows 3.2" "Close")
                  :action (lambda () (lispm-desktop-platinum-close-window window))))
      (+ left (lispm-desktop-look-box-margin (car margins)))
      (+ top (window-tab-line-height window)))))
@@ -210,6 +212,7 @@ did.  MODIFIED marks the title with a star; STATUS follows it."
                (label (let ((label (copy-sequence label)))
                         (add-face-text-property 0 (length label) face t label)
                         (lispm-desktop-platinum-fit label (plist-get layout :title))))
+               (title-help (lispm-desktop-platinum-title-help))
                (palette lispm-desktop-platinum-current-palette))
     (cl-flet ((caption (from to &optional text)
                 (propertize " " 'display
@@ -221,7 +224,7 @@ did.  MODIFIED marks the title with a star; STATUS follows it."
                                (lispm-desktop-win3-draw-caption palette (- to from) active text
                                                                 (- (plist-get layout :label-x) from))))
                             'keymap lispm-desktop-platinum-title-map
-                            'help-echo lispm-desktop-platinum-title-help))
+                            'help-echo title-help))
               (button (kind box command help)
                 (lispm-desktop-platinum-box-button
                  (propertize " " 'display
@@ -236,12 +239,15 @@ did.  MODIFIED marks the title with a star; STATUS follows it."
       (concat
        (when (> lead 0) (caption 0 lead))
        (when close
-         (button 'control 'close #'lispm-desktop-win3-control-menu "Control menu: restore, minimize, maximize, close"))
+         (button 'control 'close #'lispm-desktop-win3-control-menu
+                 (lispm-desktop-tr "Control menu: restore, minimize, maximize, close")))
        (caption start end label)
        (when collapse
-         (button 'minimize 'collapse #'lispm-desktop-platinum-collapse-window "Minimize: roll up to the caption"))
+         (button 'minimize 'collapse #'lispm-desktop-platinum-collapse-window
+                 (lispm-desktop-tr "Minimize: roll up to the caption")))
        (when zoom
-         (button 'maximize 'zoom #'lispm-desktop-platinum-zoom-window "Maximize, or restore"))
+         (button 'maximize 'zoom #'lispm-desktop-platinum-zoom-window
+                 (lispm-desktop-tr-in "Windows 3.2" "Maximize, or restore")))
        (when (> trail 0) (caption 0 trail))))))
 
 ;;;; Sizing borders and the size box
@@ -882,14 +888,15 @@ SELECTED, in the caption's colours.  See `lispm-desktop--draw-icon'."
                   (plist-get palette :title-text)
                 (lispm-desktop-platinum-legible ground (plist-get palette :text) (plist-get palette :content))))
          (center (+ x (/ lispm-desktop-column 2)))
-         (label-left (- center (/ label-width 2)))
+         (label-center (lispm-desktop--label-center spec x))
+         (label-left (- label-center (/ label-width 2)))
          (label-top (+ y lispm-desktop-icon-size 4)))
     (concat
      (lispm-desktop--nest (lispm-desktop--item-icon spec) nil (- center (/ lispm-desktop-icon-size 2)) y)
      (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
              label-left label-top label-width (+ size 4) ground)
      (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
-             center (+ label-top 2 ascent) (lispm-desktop--escape family) size ink
+             label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size ink
              (lispm-desktop--escape (plist-get spec :label))))))
 
 ;;;; Faces

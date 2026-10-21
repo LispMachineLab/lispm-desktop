@@ -42,6 +42,7 @@
 (require 'lispm-browser-places)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-browser)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-sidebar-toolbar-button "lispm-desktop-sidebar" (label command help row &optional state))
@@ -52,10 +53,10 @@
   "Return the items of the Bookmarks menu: Add Bookmark and Edit Bookmarks,
 then a bookmark each, as Netscape's Bookmarks menu had them."
   (let ((bookmarks (lispm-browser-bookmarks)))
-    `((:label "Add Bookmark" :action lispm-browser-add-bookmark
+    `((:label ,(lispm-desktop-tr "Add Bookmark") :action lispm-browser-add-bookmark
               :enabled ,(and (lispm-browser-shown-buffer) t)
               :key ,(lispm-desktop-browser--key 'lispm-browser-add-bookmark))
-      (:label "Edit Bookmarks…" :action lispm-desktop-browser-edit-bookmarks
+      (:label ,(lispm-desktop-tr "Edit Bookmarks…") :action lispm-desktop-browser-edit-bookmarks
               :checked ,(eq (lispm-desktop-browser--places-shown) 'bookmarks)
               :key ,(lispm-desktop-browser--key 'lispm-desktop-browser-edit-bookmarks))
       separator
@@ -64,7 +65,7 @@ then a bookmark each, as Netscape's Bookmarks menu had them."
                       (list :label (truncate-string-to-width name 48 nil nil "…")
                             :action (lambda () (lispm-browser-open-url url))))
                     bookmarks)
-          '((:label "No Bookmarks" :action ignore :enabled nil))))))
+          `((:label ,(lispm-desktop-tr "No Bookmarks") :action ignore :enabled nil))))))
 
 ;;;; The personal toolbar
 
@@ -94,7 +95,7 @@ per bookmark, as Netscape's personal toolbar held them."
                        (lambda () (interactive) (lispm-browser-open-url url))
                        url 'mode-line 'lispm-desktop-platinum-button))
                     bookmarks " ")
-       (propertize "Bookmarks you add show here." 'face 'lispm-desktop-platinum-toolbar-label)))))
+       (propertize (lispm-desktop-tr "Bookmarks you add show here.") 'face 'lispm-desktop-platinum-toolbar-label)))))
 
 ;;;; The pane
 
@@ -132,21 +133,23 @@ per bookmark, as Netscape's personal toolbar held them."
         (setq lispm-desktop-browser--places-view view)
         (lispm-desktop-browser--render-places)))))
 
-(defun lispm-desktop-browser--places-tab (view label)
-  "Return the pane's tab for VIEW named LABEL, in front when shown, as
-`lispm-desktop-platinum-tabs' takes it."
+(defun lispm-desktop-browser--places-tab (view label help)
+  "Return the pane's tab for VIEW named LABEL, in front when shown, HELP
+saying what it shows, as `lispm-desktop-platinum-tabs' takes it."
   (list label (eq view lispm-desktop-browser--places-view)
         'lispm-desktop-browser-view view 'keymap lispm-desktop-browser-places-tab-map
-        'pointer 'arrow 'help-echo (format "Show the %s" label)))
+        'pointer 'arrow 'help-echo help))
 
 (defun lispm-desktop-browser--places-tabs ()
   "Return the pane's tab line: a tab each for Bookmarks and History, and a
 button closing the pane."
   (let ((close (lispm-desktop-sidebar-toolbar-button "✕" #'lispm-desktop-browser-hide-places
-                                                      "Close the pane" 'tab-line)))
+                                                      (lispm-desktop-tr "Close the pane") 'tab-line)))
     (concat (lispm-desktop-platinum-tabs
-             (list (lispm-desktop-browser--places-tab 'bookmarks "Bookmarks")
-                   (lispm-desktop-browser--places-tab 'history "History"))
+             (list (lispm-desktop-browser--places-tab 'bookmarks (lispm-desktop-tr "Bookmarks")
+                                                      (lispm-desktop-tr "Show the Bookmarks"))
+                   (lispm-desktop-browser--places-tab 'history (lispm-desktop-tr "History")
+                                                      (lispm-desktop-tr "Show the History")))
              (- (window-pixel-width) (window-right-divider-width) (string-pixel-width close) 6))
             (propertize " " 'display '(space :width (3)))
             close)))
@@ -157,9 +160,20 @@ button closing the pane."
          'lispm-desktop-browser-url url 'mouse-face 'highlight 'help-echo url
          properties))
 
-(defun lispm-desktop-browser--places-count (count noun)
-  "Return COUNT NOUNs in words."
-  (format "%d %s%s" count noun (if (= count 1) "" "s")))
+(defun lispm-desktop-browser--places-note (text)
+  "Return TEXT, a remark in the pane where it lists nothing, dimmed and
+broken between words, or the characters of Chinese and Japanese, into
+indented lines as wide as the pane."
+  (let ((width (- lispm-desktop-browser-places-width 24)))
+    (propertize (concat "\n"
+                        (mapconcat (lambda (line) (concat "  " line "\n"))
+                                   (lispm-desktop-i18n-wrap
+                                    text (lambda (line)
+                                           (<= (lispm-desktop-platinum-content-width
+                                                (concat "  " line) 'lispm-desktop-platinum-list)
+                                               width)))
+                                   ""))
+                'face 'shadow)))
 
 (defun lispm-desktop-browser--render-places ()
   "List the bookmarks or the history in the pane's buffer."
@@ -176,9 +190,12 @@ button closing the pane."
                                                           (concat " " (lispm-desktop-browser--ribbon) " " (car bookmark))
                                                           'lispm-desktop-browser-bookmark (car bookmark))))
              (unless bookmarks
-               (insert (propertize "\n  No bookmarks yet: Bookmarks › Add Bookmark\n  keeps the page shown.\n"
-                                   'face 'shadow)))
-             (setq lispm-desktop-platinum-info (lispm-desktop-browser--places-count (length bookmarks) "bookmark"))))
+               (insert (lispm-desktop-browser--places-note
+                        (lispm-desktop-tr "No bookmarks yet: %s keeps the page shown."
+                                          (concat (lispm-desktop-tr "Bookmarks") " › "
+                                                  (lispm-desktop-tr "Add Bookmark"))))))
+             (setq lispm-desktop-platinum-info
+                   (lispm-desktop-tr-n "%d bookmark" "%d bookmarks" (length bookmarks)))))
           (_
            (let ((history (lispm-browser-history))
                  (heading nil))
@@ -190,11 +207,12 @@ button closing the pane."
                      (insert (propertize (concat " " day "\n") 'face 'bold)))
                    (insert (lispm-desktop-browser--place-line
                             url (concat "   " (or title url)
-                                        (propertize (format-time-string "  %H:%M" time)
+                                        (propertize (concat "  " (lispm-desktop-format-time "%H:%M" time))
                                                     'face 'shadow)))))))
              (unless history
-               (insert (propertize "\n  No pages visited yet.\n" 'face 'shadow)))
-             (setq lispm-desktop-platinum-info (lispm-desktop-browser--places-count (length history) "page")))))
+               (insert (lispm-desktop-browser--places-note (lispm-desktop-tr "No pages visited yet."))))
+             (setq lispm-desktop-platinum-info
+                   (lispm-desktop-tr-n "%d page" "%d pages" (length history))))))
         (goto-char (point-min))
         (forward-line (1- line))
         (force-mode-line-update)))))
@@ -244,7 +262,7 @@ toolbar."
   (interactive)
   (if-let* ((name (get-text-property (point) 'lispm-desktop-browser-bookmark)))
       (lispm-browser-rename-bookmark name)
-    (user-error "Only a bookmark can be renamed")))
+    (user-error (lispm-desktop-tr "Only a bookmark can be renamed"))))
 
 (defun lispm-desktop-browser-places-context-menu (event)
   "Pop up what can be done with the row EVENT clicked."
@@ -256,16 +274,17 @@ toolbar."
       (when-let* ((url (lispm-desktop-browser--place-at)))
         (let ((bookmark (get-text-property (point) 'lispm-desktop-browser-bookmark)))
           (lispm-desktop-popup-menu
-           `((:label "Open" :action lispm-desktop-browser-places-open)
-             (:label "Open in New Tab" :action lispm-desktop-browser-places-open-new-tab)
+           `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-browser-places-open)
+             (:label ,(lispm-desktop-tr "Open in New Tab") :action lispm-desktop-browser-places-open-new-tab)
              separator
-             (:label "Copy Address" :action ,(lambda () (kill-new url) (message "Copied %s" url)))
+             (:label ,(lispm-desktop-tr "Copy Address")
+                     :action ,(lambda () (kill-new url) (message (lispm-desktop-tr "Copied %s") url)))
              ,@(if bookmark
-                   '((:label "Rename…" :action lispm-desktop-browser-places-rename)
-                     (:label "Delete Bookmark" :action lispm-desktop-browser-places-delete))
-                 '((:label "Forget Page" :action lispm-desktop-browser-places-delete)
+                   `((:label ,(lispm-desktop-tr "Rename…") :action lispm-desktop-browser-places-rename)
+                     (:label ,(lispm-desktop-tr "Delete Bookmark") :action lispm-desktop-browser-places-delete))
+                 `((:label ,(lispm-desktop-tr "Forget Page") :action lispm-desktop-browser-places-delete)
                    separator
-                   (:label "Clear History…" :action lispm-browser-clear-history))))))))))
+                   (:label ,(lispm-desktop-tr "Clear History…") :action lispm-browser-clear-history))))))))))
 
 (defun lispm-desktop-browser-places-switch ()
   "Show the other list, bookmarks or history."
@@ -299,7 +318,7 @@ toolbar."
               header-line-format nil
               truncate-lines t
               cursor-type nil
-              lispm-desktop-platinum-title "Bookmarks")
+              lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Bookmarks")))
   (visual-line-mode -1)
   (setq-local truncate-lines t)
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
@@ -359,8 +378,9 @@ deleted, or close the pane when it shows them."
 
 (defun lispm-desktop-setup-browser-places ()
   "Redraw the pane and the personal toolbar as the history and the
-bookmarks change."
-  (add-hook 'lispm-browser-places-changed-hook #'lispm-desktop-browser--places-changed))
+bookmarks change, and as the language spoken does."
+  (add-hook 'lispm-browser-places-changed-hook #'lispm-desktop-browser--places-changed)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-browser--places-changed))
 
 (provide 'lispm-desktop-browser-places)
 ;;; lispm-desktop-browser-places.el ends here
