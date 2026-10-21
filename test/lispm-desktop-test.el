@@ -6268,6 +6268,54 @@ logs it, and the log is read back at the next start."
               (should (string-match-p "\\`0\\.2\\.0\\+1, [0-9a-f]+\\'" (lispm-desktop-update-version checkout)))))
         (delete-directory root t)))))
 
+(defun lispm-desktop-test--update-install (root tag)
+  "Return a checkout of ROOT's origin made as install.sh makes one: cloned
+shallow at the release TAG, on main following origin's main."
+  (let ((checkout (concat root "installed/")))
+    (lispm-desktop-test--git root "clone" "--quiet" "--depth" "1" "--branch" tag
+                             (concat "file://" root "origin.git") checkout)
+    (lispm-desktop-test--git checkout "remote" "set-branches" "origin" "main")
+    (lispm-desktop-test--git checkout "fetch" "--quiet" "origin")
+    (lispm-desktop-test--git checkout "checkout" "--quiet" "-B" "main")
+    (lispm-desktop-test--git checkout "branch" "--quiet" "--set-upstream-to=origin/main" "main")
+    checkout))
+
+(ert-deftest lispm-desktop-test-update-changes-by-pull-request ()
+  "An update lists what was merged since along the branch's own line: a
+pull request by its title and number, a commit pushed straight by its
+subject.  In a checkout cloned shallow at a release, as install.sh clones,
+a pull request branched before the release brings no older history in."
+  (skip-unless (executable-find "git"))
+  (should (equal (lispm-desktop-update--changes
+                  "Merge pull request #3 from a/b\x1f\x1e\nPlain\x1f\x1e\n\x1f\x1e")
+                 '("Merge pull request #3 from a/b" "Plain")))
+  (should-not (lispm-desktop-update--changes nil))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,_checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let ((first (lispm-desktop-update--git work "rev-parse" "HEAD"))
+                (branch (lispm-desktop-update--git work "rev-parse" "--abbrev-ref" "HEAD")))
+            (lispm-desktop-test--update-push work "b.txt" "Second")
+            (lispm-desktop-test--update-release work "v0.2.0")
+            (let ((installed (lispm-desktop-test--update-install root "v0.2.0")))
+              (should (equal (lispm-desktop-update-version installed) "0.2.0"))
+              ;; A pull request branched from First, before the release.
+              (lispm-desktop-test--git work "checkout" "--quiet" "-b" "fix" first)
+              (lispm-desktop-test--update-commit work "fix.txt" "Mend the box")
+              (lispm-desktop-test--git work "checkout" "--quiet" branch)
+              (lispm-desktop-test--git work "merge" "--quiet" "--no-ff" "fix"
+                                       "-m" "Merge pull request #26 from LispMachineLab/fix"
+                                       "-m" "Stand the boxes clear of the corners")
+              (lispm-desktop-test--update-push work "c.txt" "Straight to main")
+              (lispm-desktop-test--update-release work "v0.2.1")
+              (let ((result (lispm-desktop-test--update-check installed)))
+                (should (eq (plist-get result :state) 'update))
+                (should (equal (plist-get result :changes)
+                               '("Straight to main" "Stand the boxes clear of the corners (#26)")))
+                (should (lispm-desktop-update-install (list result)))
+                (should (equal (lispm-desktop-update-version installed) "0.2.1")))))
+        (delete-directory root t)))))
+
 (ert-deftest lispm-desktop-test-update-leaves-checkouts-alone ()
   "A checkout with changes of its own, commits of its own, or on no branch
 is left as it is; an update found is not installed once the checkout has

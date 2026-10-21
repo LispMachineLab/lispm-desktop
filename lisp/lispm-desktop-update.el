@@ -253,6 +253,28 @@ date, as \"626d068, 2026-10-20\"."
             (format "%s+%d, %s" (lispm-desktop-update--release-version tag) since commit)))
       (lispm-desktop-update--git directory "log" "-1" "--format=%h, %cs"))))
 
+(defun lispm-desktop-update--changes (log)
+  "Return the changes LOG tells of, the newest first; LOG is what
+`git log --first-parent --format=%s%x1f%b%x1e' printed of them.
+The changes are read along the branch's own line, a merged pull request
+being one: its title and number, as \"Mend the close box (#26)\", from a
+GitHub merge commit's body and subject; any other commit is its subject.
+The commits a pull request brought are not listed: in a checkout cloned
+shallow, as install.sh clones them, those of a branch older than the
+checkout's commit would list most of the history again."
+  (delq nil
+        (mapcar (lambda (entry)
+                  (pcase-let* ((`(,subject ,body) (split-string entry "\x1f"))
+                               (subject (string-trim subject))
+                               (number (and (string-match "\\`Merge pull request #\\([0-9]+\\) from "
+                                                          subject)
+                                            (match-string 1 subject)))
+                               (title (car (split-string (or body "") "\n" t "[ \t]+"))))
+                    (cond ((string-empty-p subject) nil)
+                          ((and number title) (format "%s (#%s)" title number))
+                          (t subject))))
+                (split-string (or log "") "\x1e" t "[ \t\n]+"))))
+
 (defun lispm-desktop-update-title (update)
   "Return what UPDATE is called: its project, and the version it brings,
 as \"LispM Desktop 0.3.0\"."
@@ -331,9 +353,9 @@ release yet."
          (("status" "--porcelain" "--untracked-files=no")
           . ,(lambda (output _errors)
                (or (equal output "") (stop 'kept "has changes of its own"))))
-         (,(lambda () (list "log" "--no-merges" "--format=%s" (concat "HEAD.." release)))
+         (,(lambda () (list "log" "--first-parent" "--format=%s%x1f%b%x1e" (concat "HEAD.." release)))
           . ,(lambda (output _errors)
-               (setq result (plist-put result :changes (and output (split-string output "\n" t))))
+               (setq result (plist-put result :changes (lispm-desktop-update--changes output)))
                t))
          (,(lambda () `("diff" "--name-only" "HEAD" ,release "--" ,@lispm-desktop-update-app-files))
           . ,(lambda (output _errors)
