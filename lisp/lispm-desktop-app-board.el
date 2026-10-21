@@ -56,6 +56,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-i18n)
 
 (defvar-local lispm-desktop-app-board nil
   "The board drawn over this buffer, a plist; see `lispm-desktop-app-board-enable'.")
@@ -356,7 +357,8 @@ removed it, and moved over its text when it was written anew."
        ;; A board that cannot be drawn leaves the game's text in sight.
        ((let ((drawn (condition-case err
                          (lispm-desktop-app-board--render model)
-                       (error (message "The board cannot be drawn: %s" (error-message-string err))
+                       (error (message (lispm-desktop-tr "The board cannot be drawn: %s")
+                                       (error-message-string err))
                               nil))))
           (when drawn
             (setq lispm-desktop-app-board--drawn model)

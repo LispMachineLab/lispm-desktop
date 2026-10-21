@@ -54,6 +54,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-app-chat)
+(require 'lispm-desktop-i18n)
 
 ;; ERC's own variables and functions, read once it runs.
 (defvar erc-server-process)
@@ -241,8 +242,8 @@ the network's own, once it said it, else its server's."
 (defun lispm-desktop-app-erc--state (server)
   "Return what the line of the network of buffer SERVER says of it: nil
 once connected."
-  (cond ((not (process-live-p (buffer-local-value 'erc-server-process server))) "disconnected")
-        ((not (buffer-local-value 'erc-server-connected server)) "connecting…")))
+  (cond ((not (process-live-p (buffer-local-value 'erc-server-process server))) (lispm-desktop-tr "disconnected"))
+        ((not (buffer-local-value 'erc-server-connected server)) (lispm-desktop-tr "connecting…"))))
 
 (defun lispm-desktop-app-erc--unread (buffer)
   "Return (UNREAD . MENTIONS) of BUFFER, as ERC tracks them: how many
@@ -298,7 +299,7 @@ where the line point is on does not say."
       (let ((live (mapcar (lambda (server) (cons (lispm-desktop-app-erc-network-name server) server))
                           (lispm-desktop-app-erc--live-servers))))
         (unless live
-          (user-error "ERC is connected to no network"))
+          (user-error (lispm-desktop-tr "ERC is connected to no network")))
         (cdr (assoc (completing-read prompt live nil t) live)))))
 
 ;;;; Commands
@@ -331,13 +332,14 @@ its buffer opened but not shown, nor left current, as ERC leaves it."
   "Connect to the IRC SERVER at PORT, with TLS but on 6667, as NICK; and
 keep them, to connect again as ERC's window opens."
   (interactive
-   (let* ((server (string-trim (completing-read (format-prompt "Connect to the IRC server" (car lispm-desktop-app-erc-servers))
+   (let* ((server (string-trim (completing-read (format-prompt (lispm-desktop-tr "Connect to the IRC server")
+                                                               (car lispm-desktop-app-erc-servers))
                                                 lispm-desktop-app-erc-servers nil nil nil nil
                                                 (car lispm-desktop-app-erc-servers))))
           (kept (lispm-desktop-app-erc--network server))
-          (port (read-number "Port: " (or (plist-get kept :port) 6697)))
+          (port (read-number (lispm-desktop-tr "Port: ") (or (plist-get kept :port) 6697)))
           (default (or (plist-get kept :nick) (bound-and-true-p erc-nick) (user-login-name)))
-          (nick (string-trim (read-string (format-prompt "Nickname" default) nil nil default))))
+          (nick (string-trim (read-string (format-prompt (lispm-desktop-tr "Nickname") default) nil nil default))))
      (list server port nick)))
   (lispm-desktop-app-erc--set-up)
   (let ((network (list :server server :port port :tls (/= port 6667) :nick nick)))
@@ -351,14 +353,14 @@ keep them, to connect again as ERC's window opens."
 with a channel's prefix already, as #emacs, &local or ##lispm."
   (let ((name (string-trim name)))
     (when (string-empty-p name)
-      (user-error "No channel"))
+      (user-error (lispm-desktop-tr "No channel")))
     (if (string-match-p "\\`[#&+!]" name) name (concat "#" name))))
 
 (defun lispm-desktop-app-erc-join (channel)
   "Join CHANNEL on the network of the line point is on, or of the current
 channel, and show it in this window once joined."
-  (interactive (list (lispm-desktop-app-erc-channel-name (read-string "Join the channel: "))))
-  (let ((server (lispm-desktop-app-erc--read-server "Join on the network: ")))
+  (interactive (list (lispm-desktop-app-erc-channel-name (read-string (lispm-desktop-tr "Join the channel: ")))))
+  (let ((server (lispm-desktop-app-erc--read-server (lispm-desktop-tr "Join on the network: "))))
     (setq lispm-desktop-app-erc--opening (cons channel (selected-window)))
     (with-current-buffer server
       (erc-cmd-JOIN channel))))
@@ -369,7 +371,7 @@ back to the list."
   (interactive)
   (let ((buffer (current-buffer)))
     (unless (and (derived-mode-p 'erc-mode) (not (lispm-desktop-app-erc--server-p)))
-      (user-error "This is no channel"))
+      (user-error (lispm-desktop-tr "This is no channel")))
     (lispm-desktop-app-erc-list)
     ;; Killing a channel's buffer leaves the channel.
     (kill-buffer buffer)
@@ -384,7 +386,7 @@ back to the list."
   "Disconnect from the network of the line point is on, or of this window.
 It stays kept, to connect to again as ERC's window opens."
   (interactive)
-  (let ((server (lispm-desktop-app-erc--read-server "Disconnect from the network: ")))
+  (let ((server (lispm-desktop-app-erc--read-server (lispm-desktop-tr "Disconnect from the network: "))))
     (with-current-buffer server
       (erc-cmd-QUIT ""))))
 
@@ -400,7 +402,7 @@ and to every network kept where it cannot tell."
                        (with-current-buffer buffer (and (derived-mode-p 'erc-mode) (erc-server-buffer)))))))
     (cond ((and server (not (erc-server-process-alive server)))
            (with-current-buffer server (erc-cmd-RECONNECT)))
-          (server (message "Already connected to %s" (lispm-desktop-app-erc-network-name server)))
+          (server (message (lispm-desktop-tr "Already connected to %s") (lispm-desktop-app-erc-network-name server)))
           (t (dolist (network lispm-desktop-app-erc-networks)
                (unless (seq-some (lambda (buffer)
                                    (and (string-equal-ignore-case (buffer-local-value 'erc-session-server buffer)
@@ -415,10 +417,10 @@ and to every network kept where it cannot tell."
   "Forget the network of the line point is on: disconnect from it, close
 its channels, and connect to it no more as ERC's window opens."
   (interactive)
-  (let* ((server (or (lispm-desktop-app-erc--server-here) (user-error "No network here")))
+  (let* ((server (or (lispm-desktop-app-erc--server-here) (user-error (lispm-desktop-tr "No network here"))))
          (name (lispm-desktop-app-erc-network-name server))
          (host (buffer-local-value 'erc-session-server server)))
-    (when (y-or-n-p (format "Forget %s, closing its channels? " name))
+    (when (y-or-n-p (lispm-desktop-tr "Forget %s, closing its channels? " name))
       (lispm-desktop-app-erc--keep (seq-remove (lambda (network)
                                                  (string-equal-ignore-case (plist-get network :server) host))
                                                lispm-desktop-app-erc-networks))
@@ -462,34 +464,36 @@ one of its conversations."
   "Return what the bottom of ERC's list says: the networks it is on, and the
 conversations with messages unread."
   (let ((live (length (lispm-desktop-app-erc--live-servers))))
-    (delq nil (list (format "%d network%s" live (if (= live 1) "" "s"))
+    (delq nil (list (lispm-desktop-tr-n "%d network" "%d networks" live)
                     (lispm-desktop-app-chat-unread-status (lispm-desktop-app-erc--conversations))))))
 
 (defun lispm-desktop-app-erc--list-empty-text ()
   "Return what ERC's page says while it is on no network."
   (if lispm-desktop-app-erc-networks
-      "Not connected.\nConnect again to the networks you were on, or to another."
-    "Not on IRC yet.\nConnect to a network, Libera.Chat or another,\nthen join its channels."))
+      (lispm-desktop-tr "Not connected.\nConnect again to the networks you were on, or to another.")
+    (lispm-desktop-tr "Not on IRC yet.\nConnect to a network, Libera.Chat or another,\nthen join its channels.")))
 
 (defun lispm-desktop-app-erc--list-empty-buttons ()
   "Return the buttons of ERC's page while it is on no network."
   (if lispm-desktop-app-erc-networks
-      '(("Connect" lispm-desktop-app-erc-reconnect) ("Connect to Another…" lispm-desktop-app-erc-connect))
-    '(("Connect…" lispm-desktop-app-erc-connect))))
+      `((,(lispm-desktop-tr "Connect") lispm-desktop-app-erc-reconnect)
+        (,(lispm-desktop-tr "Connect to Another…") lispm-desktop-app-erc-connect))
+    `((,(lispm-desktop-tr "Connect…") lispm-desktop-app-erc-connect))))
 
 (defun lispm-desktop-app-erc--list-menu ()
   "Return the items of ERC's menu over its list."
   (let ((network (lispm-desktop-app-erc--on-network-p))
         (here (lispm-desktop-app-erc--server-here)))
-    `((:label "Connect…" :action lispm-desktop-app-erc-connect)
-      (:label "Connect Again" :action lispm-desktop-app-erc-reconnect
+    `((:label ,(lispm-desktop-tr "Connect…") :action lispm-desktop-app-erc-connect)
+      (:label ,(lispm-desktop-tr "Connect Again") :action lispm-desktop-app-erc-reconnect
        :enabled ,(and lispm-desktop-app-erc-networks (not network) t))
-      (:label "Disconnect" :action lispm-desktop-app-erc-disconnect :enabled ,(and network t))
-      (:label "Forget Network…" :action lispm-desktop-app-erc-forget :enabled ,(and here t))
+      (:label ,(lispm-desktop-tr "Disconnect") :action lispm-desktop-app-erc-disconnect :enabled ,(and network t))
+      (:label ,(lispm-desktop-tr "Forget Network…") :action lispm-desktop-app-erc-forget :enabled ,(and here t))
       separator
-      (:label "Join Channel…" :action lispm-desktop-app-erc-join
+      (:label ,(lispm-desktop-tr "Join Channel…") :action lispm-desktop-app-erc-join
        :enabled ,(and (lispm-desktop-app-erc--live-servers) t))
-      (:label "Open" :action lispm-desktop-app-erc-open :enabled ,(and (lispm-desktop-app-chat-conversation) t)))))
+      (:label ,(lispm-desktop-tr "Open") :action lispm-desktop-app-erc-open
+       :enabled ,(and (lispm-desktop-app-chat-conversation) t)))))
 
 (lispm-desktop-app-ui-define 'lispm-desktop-app-erc-list-mode
   :app 'erc
@@ -497,17 +501,22 @@ conversations with messages unread."
   :title "ERC"
   :list t
   :status #'lispm-desktop-app-erc--list-status
-  :buttons `(("Connect…" lispm-desktop-app-erc-connect)
-             ("Join…" lispm-desktop-app-erc-join ,(lambda () (lispm-desktop-app-erc--live-servers)))
-             ("Open" lispm-desktop-app-erc-open ,#'lispm-desktop-app-chat-conversation)
-             ("Disconnect" lispm-desktop-app-erc-disconnect ,#'lispm-desktop-app-erc--on-network-p))
+  :buttons `((,(lispm-desktop-tr-noop "Connect…") lispm-desktop-app-erc-connect)
+             (,(lispm-desktop-tr-noop "Join…") lispm-desktop-app-erc-join
+              ,(lambda () (lispm-desktop-app-erc--live-servers)))
+             (,(lispm-desktop-tr-noop "Open") lispm-desktop-app-erc-open ,#'lispm-desktop-app-chat-conversation)
+             (,(lispm-desktop-tr-noop "Disconnect") lispm-desktop-app-erc-disconnect
+              ,#'lispm-desktop-app-erc--on-network-p))
   :menu (cons "IRC" #'lispm-desktop-app-erc--list-menu)
   :empty `(,(lambda () (null (lispm-desktop-app-erc--servers)))
            lispm-desktop-app-erc--list-empty-text
            lispm-desktop-app-erc--list-empty-buttons)
-  :keys '(("Return" . "Open the conversation") ("n  p" . "Next and previous conversation")
-          ("c" . "Connect to a network") ("j" . "Join a channel") ("d" . "Disconnect")
-          ("r" . "Connect again") ("D" . "Forget the network") ("g" . "Draw the list again")))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Open the conversation"))
+          ("n  p" . ,(lispm-desktop-tr-noop "Next and previous conversation"))
+          ("c" . ,(lispm-desktop-tr-noop "Connect to a network")) ("j" . ,(lispm-desktop-tr-noop "Join a channel"))
+          ("d" . ,(lispm-desktop-tr-noop "Disconnect")) ("r" . ,(lispm-desktop-tr-noop "Connect again"))
+          ("D" . ,(lispm-desktop-tr-noop "Forget the network"))
+          ("g" . ,(lispm-desktop-tr-noop "Draw the list again"))))
 
 ;;;; A conversation
 
@@ -515,12 +524,12 @@ conversations with messages unread."
   "Return the buttons over an ERC buffer: Back, then Join… and what leaves."
   (let ((server (lispm-desktop-app-erc--server-p))
         (live (erc-server-process-alive)))
-    `(("Back" lispm-desktop-app-erc-list)
-      ("Join…" lispm-desktop-app-erc-join ,(lambda () live))
-      ,(cond ((and server live) '("Disconnect" lispm-desktop-app-erc-disconnect))
-             (server '("Connect Again" lispm-desktop-app-erc-reconnect))
-             ((erc-query-buffer-p) '("Close" lispm-desktop-app-erc-leave))
-             (t '("Leave" lispm-desktop-app-erc-leave))))))
+    `((,(lispm-desktop-tr "Back") lispm-desktop-app-erc-list)
+      (,(lispm-desktop-tr "Join…") lispm-desktop-app-erc-join ,(lambda () live))
+      ,(cond ((and server live) (list (lispm-desktop-tr "Disconnect") 'lispm-desktop-app-erc-disconnect))
+             (server (list (lispm-desktop-tr "Connect Again") 'lispm-desktop-app-erc-reconnect))
+             ((erc-query-buffer-p) (list (lispm-desktop-tr "Close") 'lispm-desktop-app-erc-leave))
+             (t (list (lispm-desktop-tr "Leave") 'lispm-desktop-app-erc-leave))))))
 
 (defun lispm-desktop-app-erc--topic ()
   "Return the current channel's topic, as the strip says it, or nil."
@@ -537,9 +546,8 @@ messages unread."
                   (and (erc-server-process-alive) (erc-current-nick))
                   (when (and (bound-and-true-p erc-channel-users) (erc-default-target)
                              (erc-channel-p (erc-default-target)))
-                    (let ((count (hash-table-count erc-channel-users)))
-                      (format "%d %s" count (if (= count 1) "person" "people"))))
-                  (unless (erc-server-process-alive) "Disconnected")
+                    (lispm-desktop-tr-n "%d person" "%d people" (hash-table-count erc-channel-users)))
+                  (unless (erc-server-process-alive) (lispm-desktop-tr "Disconnected"))
                   (lispm-desktop-app-chat-unread-status (lispm-desktop-app-erc--conversations)))))
 
 (defun lispm-desktop-app-erc--setup-conversation ()
@@ -555,10 +563,14 @@ network for a network's own buffer."
   :label #'lispm-desktop-app-erc--topic
   :status #'lispm-desktop-app-erc--status
   :setup #'lispm-desktop-app-erc--setup-conversation
-  :keys '(("Return" . "Send what is typed") ("Tab" . "Complete a nickname or a command")
-          ("M-p  M-n" . "What was typed before, and after") ("/join #channel" . "Join a channel")
-          ("/query nick" . "Talk with one person") ("/me does" . "Say what you do")
-          ("/part" . "Leave the channel") ("/quit" . "Disconnect")))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Send what is typed"))
+          ("Tab" . ,(lispm-desktop-tr-noop "Complete a nickname or a command"))
+          ("M-p  M-n" . ,(lispm-desktop-tr-noop "What was typed before, and after"))
+          ("/join #channel" . ,(lispm-desktop-tr-noop "Join a channel"))
+          ("/query nick" . ,(lispm-desktop-tr-noop "Talk with one person"))
+          ("/me does" . ,(lispm-desktop-tr-noop "Say what you do"))
+          ("/part" . ,(lispm-desktop-tr-noop "Leave the channel"))
+          ("/quit" . ,(lispm-desktop-tr-noop "Disconnect"))))
 
 (provide 'lispm-desktop-app-erc)
 ;;; lispm-desktop-app-erc.el ends here

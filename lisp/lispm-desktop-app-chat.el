@@ -49,6 +49,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-i18n)
 
 (defface lispm-desktop-app-chat-heading '((t :weight bold))
   "Face of a network's or a workspace's line in a list of conversations."
@@ -75,7 +76,8 @@ Each is a plist:
 :name      its name, a string
 :heading   non-nil for a network's or a workspace's line, over its
            conversations
-:state     what its line says after its name, as \"connecting\", or nil
+:state     what its line says after its name, as \"connecting\", in the
+           language LispM speaks, or nil
 :unread    how many messages it has unread, 0 for none, t for some
 :mentions  how many of those name you, or t when some do and how many
            is not known, or nil
@@ -206,7 +208,7 @@ EVENT, in the selected window."
     (select-window (posn-window (event-end event)))
     (goto-char (posn-point (event-end event))))
   (let ((open (plist-get (lispm-desktop-app-chat-conversation) :open)))
-    (if open (funcall open) (user-error "Nothing to open here"))))
+    (if open (funcall open) (user-error (lispm-desktop-tr "Nothing to open here")))))
 
 (defun lispm-desktop-app-chat-next (&optional count)
   "Go to the next conversation, or COUNT conversations on."
@@ -254,7 +256,7 @@ or nil when none are."
                            (seq-remove (lambda (conversation) (plist-get conversation :heading))
                                        conversations))))
     (when (> unread 0)
-      (format "%d unread" unread))))
+      (lispm-desktop-tr-n "%d unread" "%d unread" unread))))
 
 (defun lispm-desktop-app-chat-set-options (options)
   "Set OPTIONS of a chat application as its window on the desktop wants

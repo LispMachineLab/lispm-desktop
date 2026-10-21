@@ -59,6 +59,7 @@
 (require 'subr-x)
 (require 'cl-lib)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
@@ -181,7 +182,9 @@ what it printed, trimmed, or nil when it failed, and what it said then."
                          (kill-buffer buffer)
                          (if (eql (process-exit-status process) 0)
                              (funcall callback output nil)
-                           (funcall callback nil (if (string-empty-p output) "git failed" output)))))))
+                           (funcall callback nil (if (string-empty-p output)
+                                                     (lispm-desktop-tr-noop "git failed")
+                                                     output)))))))
       (error (kill-buffer buffer)
              (funcall callback nil (error-message-string err))))))
 
@@ -313,7 +316,8 @@ plist:
   :directory  DIRECTORY
   :state      `current', up to date; `update', a release is ready;
               `kept', left as it is; `failed', the check failed
-  :reason     why it was kept, or what failed
+  :reason     why it was kept, or what failed: in English, translated
+              where shown, or as git said it
   :release    the tag of the branch's latest release
   :from, :to  the commit the checkout holds, and the release's
   :changes    the subjects of the commits the update brings
@@ -330,7 +334,8 @@ release yet."
       (lispm-desktop-update--git-steps
        directory
        `((("rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{upstream}")
-          . ,(lambda (output _errors) (or (and output t) (stop 'kept "follows no branch"))))
+          . ,(lambda (output _errors)
+               (or (and output t) (stop 'kept (lispm-desktop-tr-noop "follows no branch")))))
          (("fetch" "--quiet" "--tags")
           . ,(lambda (output errors)
                (or (and output t)
@@ -348,15 +353,16 @@ release yet."
                  (`(,from ,to)
                   (setq result (plist-put (plist-put result :from from) :to to))
                   (or (not (equal from to)) result))
-                 (_ (stop 'failed "its commits do not read")))))
+                 (_ (stop 'failed (lispm-desktop-tr-noop "its commits do not read"))))))
          ;; Newer than the release, as a developer's checkout is.
          (,(lambda () (list "merge-base" "--is-ancestor" release "HEAD"))
           . ,(lambda (output _errors) (or (not output) result)))
          (,(lambda () (list "merge-base" "--is-ancestor" "HEAD" release))
-          . ,(lambda (output _errors) (or (and output t) (stop 'kept "has commits of its own"))))
+          . ,(lambda (output _errors)
+               (or (and output t) (stop 'kept (lispm-desktop-tr-noop "has commits of its own")))))
          (("status" "--porcelain" "--untracked-files=no")
           . ,(lambda (output _errors)
-               (or (equal output "") (stop 'kept "has changes of its own"))))
+               (or (equal output "") (stop 'kept (lispm-desktop-tr-noop "has changes of its own")))))
          (,(lambda () (list "log" "--first-parent" "--format=%s%x1f%b%x1e" (concat "HEAD.." release)))
           . ,(lambda (output _errors)
                (setq result (plist-put result :changes (lispm-desktop-update--changes output)))
@@ -396,7 +402,7 @@ a check runs already, once it ends."
     (setq lispm-desktop-update--waiting (append lispm-desktop-update--waiting (list callback))))
   (if lispm-desktop-update--checking
       (when (called-interactively-p 'any)
-        (message "Software Update is checking already"))
+        (message (lispm-desktop-tr "Software Update is checking already")))
     (let* ((checkouts (lispm-desktop-update-checkouts))
            (left (length checkouts))
            (results (make-vector left nil)))
@@ -449,11 +455,12 @@ what was found.  This runs from `lispm-desktop-update--timer'."
     (lispm-desktop-update-check #'lispm-desktop-update--announce)))
 
 (defun lispm-desktop-update--summary (updates)
-  "Return a line telling what UPDATES bring, by project."
+  "Return a line telling what UPDATES bring, by project, in the language
+LispM speaks."
   (mapconcat (lambda (update)
                (let ((count (length (plist-get update :changes))))
-                 (format "%s, %d %s" (lispm-desktop-update-title update) count
-                         (if (= count 1) "change" "changes"))))
+                 (lispm-desktop-tr-n "%s, %d change" "%s, %d changes" count
+                                     (lispm-desktop-update-title update) count)))
              updates "; "))
 
 (defun lispm-desktop-update--announce (updates)
@@ -464,7 +471,7 @@ otherwise an alert asks, once Emacs is idle."
     (when (and updates (not (equal commits lispm-desktop-update--announced)))
       (setq lispm-desktop-update--announced commits)
       (if (lispm-desktop-update-installs-on-quit-p)
-          (message "Software Update: %s; installed when LispM quits."
+          (message (lispm-desktop-tr "Software Update: %s; installed when LispM quits.")
                    (lispm-desktop-update--summary updates))
         (run-with-idle-timer 2 nil #'lispm-desktop-update--offer nil)))))
 
@@ -568,7 +575,7 @@ Emacs never does.  This runs from `kill-emacs-hook'."
 An update to LispM.app quits LispM; install.sh opens it again when done."
   (interactive)
   (unless (lispm-desktop-update-updates)
-    (user-error "No update is ready; check first"))
+    (user-error (lispm-desktop-tr "No update is ready; check first")))
   (setq lispm-desktop-update--requested t)
   (if (lispm-desktop-update-needs-installer-p)
       (progn (setq lispm-desktop-update--reopen t)
@@ -588,19 +595,21 @@ C-g is let quit the alert."
               ;; Without its window, the alert asks in the minibuffer, where
               ;; a key typed meanwhile would answer.
               (and (not asked) (not (lispm-desktop-popup-available-p))))
-          (message "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart)."
+          (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
                    (lispm-desktop-update--summary updates))
         (when (eq 'restart
                   (lispm-desktop-popup-alert
-                   'note (if (cdr updates) "Updates to LispM are ready." "An update to LispM is ready.")
-                   `(("Later" later cancel)
-                     ("Restart" restart ,(and asked 'default)))
-                   (concat (lispm-desktop-update--summary updates) ".  "
-                           (if (lispm-desktop-update-needs-installer-p)
-                               (concat "LispM quits for install.sh to make LispM.app again, "
-                                       "and opens when it is done.")
-                             (format "Restarting installs %s; terminals and agents stop, and their sessions can be resumed."
-                                     (if (cdr updates) "them" "it"))))))
+                   'note (lispm-desktop-tr-n "An update to LispM is ready." "Updates to LispM are ready."
+                                             (length updates))
+                   `((,(lispm-desktop-tr "Later") later cancel)
+                     (,(lispm-desktop-tr "Restart") restart ,(and asked 'default)))
+                   (if (lispm-desktop-update-needs-installer-p)
+                       (lispm-desktop-tr "%s.  LispM quits for install.sh to make LispM.app again, and opens when it is done."
+                                         (lispm-desktop-update--summary updates))
+                     (lispm-desktop-tr-n
+                      "%s.  Restarting installs it; terminals and agents stop, and their sessions can be resumed."
+                      "%s.  Restarting installs them; terminals and agents stop, and their sessions can be resumed."
+                      (length updates) (lispm-desktop-update--summary updates)))))
           (lispm-desktop-update-restart))))))
 
 (defun lispm-desktop-update-now ()
@@ -613,8 +622,8 @@ C-g is let quit the alert."
          (run-at-time 0 nil #'lispm-desktop-update--offer t)
        (message (if (seq-find (lambda (result) (eq (plist-get result :state) 'failed))
                               lispm-desktop-update--results)
-                    "Software Update could not check every part of LispM"
-                  "LispM is up to date"))))))
+                    (lispm-desktop-tr "Software Update could not check every part of LispM")
+                  (lispm-desktop-tr "LispM is up to date")))))))
 
 ;;;; The log
 
@@ -628,7 +637,7 @@ C-g is let quit the alert."
           (prin1 (list :checked lispm-desktop-update--checked :log lispm-desktop-update--log)
                  (current-buffer))
           (insert "\n")))
-    (error (message "Software Update could not write %s: %s"
+    (error (message (lispm-desktop-tr "Software Update could not write %s: %s")
                     lispm-desktop-update-file (error-message-string err)))))
 
 (defun lispm-desktop-update--load ()
@@ -654,7 +663,7 @@ Update installed, the latest first."
     (let ((inhibit-read-only t))
       (erase-buffer)
       (when-let* ((updates (lispm-desktop-update-updates)))
-        (insert (propertize "Ready to install\n\n" 'face 'bold))
+        (insert (propertize (concat (lispm-desktop-tr "Ready to install") "\n\n") 'face 'bold))
         (dolist (update updates)
           (insert (propertize (format "%s  %s..%s\n" (lispm-desktop-update-title update)
                                       (substring (plist-get update :from) 0 7)
@@ -663,9 +672,9 @@ Update installed, the latest first."
           (dolist (change (plist-get update :changes))
             (insert "  " change "\n"))
           (insert "\n"))
-        (insert (propertize "Installed\n\n" 'face 'bold)))
+        (insert (propertize (concat (lispm-desktop-tr "Installed") "\n\n") 'face 'bold)))
       (if (null lispm-desktop-update--log)
-          (insert "Software Update has installed nothing yet.\n")
+          (insert (lispm-desktop-tr "Software Update has installed nothing yet.") "\n")
         (pcase-dolist (`(,time ,name ,from ,to ,changes) lispm-desktop-update--log)
           (insert (propertize (format "%s  %s  %s..%s\n" (format-time-string "%Y-%m-%d %H:%M" time)
                                       name (substring from 0 (min 7 (length from)))

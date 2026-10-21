@@ -52,6 +52,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-needs)
+(require 'lispm-desktop-i18n)
 
 ;; Telega's own variables and functions, read once it runs.
 (defvar telega-directory)
@@ -154,15 +155,15 @@ not built, the page saying what it needs."
   "Look again for what Telega needs, and start it once it has it all."
   (interactive)
   (if (lispm-desktop-app-telega-missing)
-      (message "Telega still needs %s" (lispm-desktop-app-telega--missing-name))
+      (message "%s" (lispm-desktop-app-telega--still-needs))
     (lispm-desktop-app-telega)))
 
 (defun lispm-desktop-app-telega-build ()
   "Build telega-server from the TDLib installed, then start Telega."
   (interactive)
   (let ((telega-server-libs-prefix (or (lispm-desktop-app-telega--tdlib-prefix)
-                                       (user-error "TDLib is not installed"))))
-    (message "Building telega-server; it takes a minute…")
+                                       (user-error (lispm-desktop-tr "TDLib is not installed")))))
+    (message (lispm-desktop-tr "Building telega-server; it takes a minute…"))
     (redisplay t)
     (telega-server-build ""))
   (lispm-desktop-app-telega))
@@ -170,7 +171,7 @@ not built, the page saying what it needs."
 (defun lispm-desktop-app-telega--copy (command)
   "Copy COMMAND, to paste in Terminal."
   (kill-new command)
-  (message "Copied: %s" command))
+  (message (lispm-desktop-tr "Copied: %s") command))
 
 (defun lispm-desktop-app-telega--needs ()
   "Return what Telega's catalog declares it needs and is missing here, of
@@ -187,7 +188,8 @@ what its page says it lacks, and the Installer can install."
 once asked; then look again."
   (interactive)
   (let ((buffer (current-buffer)))
-    (lispm-desktop-needs-ask (or (lispm-desktop-app-telega--needs) (user-error "Nothing to install here"))
+    (lispm-desktop-needs-ask (or (lispm-desktop-app-telega--needs)
+                                 (user-error (lispm-desktop-tr "Nothing to install here")))
                              "Telega"
                              (lambda (_installed)
                                (when (buffer-live-p buffer)
@@ -205,49 +207,49 @@ once asked; then look again."
 
 ;;;; The page while it cannot start
 
-(defun lispm-desktop-app-telega--missing-name ()
-  "Return what Telega lacks, in words."
+(defun lispm-desktop-app-telega--still-needs ()
+  "Return what Telega still needs, as Check Again says it: a sentence, or
+nil when it lacks nothing."
   (pcase (lispm-desktop-app-telega-missing)
-    ('tdlib "TDLib")
-    ('old-tdlib (format "TDLib %s or later" telega-tdlib-min-version))
-    ('compiler "a C compiler")
-    ('server "telega-server built")
-    (_ "nothing")))
+    ('tdlib (lispm-desktop-tr "Telega still needs TDLib"))
+    ('old-tdlib (lispm-desktop-tr "Telega still needs TDLib %s or later" telega-tdlib-min-version))
+    ('compiler (lispm-desktop-tr "Telega still needs a C compiler"))
+    ('server (lispm-desktop-tr "Telega still needs telega-server built"))))
 
 (defun lispm-desktop-app-telega--page-text ()
   "Return what Telega's page says it lacks, and how to get it."
   (pcase (lispm-desktop-app-telega-missing)
     ('tdlib
-     (format (concat "Telega talks to Telegram through TDLib, Telegram's library,\n"
-                     "of version %s or later, which Homebrew installs:\n\n%s\n\n"
-                     "It builds it from its latest sources, which takes a while.")
-             telega-tdlib-min-version lispm-desktop-app-telega-tdlib-command))
+     (lispm-desktop-tr "Telega talks to Telegram through TDLib, Telegram's library,\n\
+of version %s or later, which Homebrew installs:\n\n%s\n\n\
+It builds it from its latest sources, which takes a while."
+                       telega-tdlib-min-version lispm-desktop-app-telega-tdlib-command))
     ('old-tdlib
      (let ((prefix (lispm-desktop-app-telega--tdlib-prefix)))
-       (format (concat "The TDLib installed, %s, is older than the %s Telega needs.\n"
-                       "Install its latest sources over it, in Terminal:\n\n%s\n\nThen check again.")
-               (lispm-desktop-app-telega-tdlib-version prefix) telega-tdlib-min-version
-               lispm-desktop-app-telega-tdlib-upgrade-command)))
+       (lispm-desktop-tr "The TDLib installed, %s, is older than the %s Telega needs.\n\
+Install its latest sources over it, in Terminal:\n\n%s\n\nThen check again."
+                         (lispm-desktop-app-telega-tdlib-version prefix) telega-tdlib-min-version
+                         lispm-desktop-app-telega-tdlib-upgrade-command)))
     ('compiler
-     (format (concat "Telega builds telega-server, its program talking to Telegram,\n"
-                     "with a C compiler, which Apple's command line tools install:\n\n%s")
-             lispm-desktop-app-telega-compiler-command))
+     (lispm-desktop-tr "Telega builds telega-server, its program talking to Telegram,\n\
+with a C compiler, which Apple's command line tools install:\n\n%s"
+                       lispm-desktop-app-telega-compiler-command))
     (_
-     (concat "TDLib is installed.  Telega now builds telega-server,\n"
-             "its program talking to Telegram, once: it takes a minute.\n"
-             "Then it signs in with your phone number."))))
+     (lispm-desktop-tr "TDLib is installed.  Telega now builds telega-server,\n\
+its program talking to Telegram, once: it takes a minute.\n\
+Then it signs in with your phone number."))))
 
 (defun lispm-desktop-app-telega--page-buttons ()
   "Return the buttons of Telega's page: copying the command it needs, and
 looking again; or building telega-server."
   (cond ((eq (lispm-desktop-app-telega-missing) 'server)
-         '(("Build telega-server" lispm-desktop-app-telega-build)))
+         `((,(lispm-desktop-tr "Build telega-server") lispm-desktop-app-telega-build)))
         ((lispm-desktop-app-telega--needs)
-         `((,(format "Install %s…" (lispm-desktop-needs-name (car (lispm-desktop-app-telega--needs))))
+         `((,(lispm-desktop-tr "Install %s…" (lispm-desktop-needs-name (car (lispm-desktop-app-telega--needs))))
             lispm-desktop-app-telega-install)
-           ("Check Again" lispm-desktop-app-telega-check-again)))
-        (t '(("Copy Command" lispm-desktop-app-telega-copy-command)
-             ("Check Again" lispm-desktop-app-telega-check-again)))))
+           (,(lispm-desktop-tr "Check Again") lispm-desktop-app-telega-check-again)))
+        (t `((,(lispm-desktop-tr "Copy Command") lispm-desktop-app-telega-copy-command)
+             (,(lispm-desktop-tr "Check Again") lispm-desktop-app-telega-check-again)))))
 
 (define-derived-mode lispm-desktop-app-telega-setup-mode special-mode "Telega"
   "Telega's window while telega-server is not built.")
@@ -257,7 +259,7 @@ looking again; or building telega-server."
   :run #'lispm-desktop-app-telega
   :title "Telega"
   :cursor nil
-  :buttons '(("Check Again" lispm-desktop-app-telega-check-again))
+  :buttons `((,(lispm-desktop-tr-noop "Check Again") lispm-desktop-app-telega-check-again))
   :empty `(,(lambda () t) lispm-desktop-app-telega--page-text lispm-desktop-app-telega--page-buttons))
 
 ;;;; The list of chats and a chat
@@ -269,7 +271,7 @@ messages unread."
                        (not (string-empty-p telega--status)) telega--status)
                   (when-let* ((count (plist-get (bound-and-true-p telega--unread-chat-count) :unread_count))
                               ((> count 0)))
-                    (format "%d unread" count)))))
+                    (lispm-desktop-tr-n "%d unread" "%d unread" count)))))
 
 (defun lispm-desktop-app-telega--chat-label ()
   "Return what Telega shows over a chat, its header line, for the strip
@@ -286,25 +288,33 @@ of buttons that takes the header line's place."
   :app 'telega
   :run #'lispm-desktop-app-telega
   :title "Telega"
-  :buttons '(("Search…" telega-view-search) ("New Chat…" telega-chat-create)
-             ("Join by Link…" telega-chat-join-by-link))
+  :buttons `((,(lispm-desktop-tr-noop "Search…") telega-view-search)
+             (,(lispm-desktop-tr-noop "New Chat…") telega-chat-create)
+             (,(lispm-desktop-tr-noop "Join by Link…") telega-chat-join-by-link))
   :status #'lispm-desktop-app-telega--status
-  :keys '(("Return" . "Open the chat") ("n  p" . "Next and previous chat") ("s" . "Search")
-          ("/" . "Filter the chats") ("\\" . "Sort the chats") ("N" . "New chat")
-          ("J" . "Join by a link") ("R" . "Mark the chats read") ("Q" . "Quit Telega")))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Open the chat"))
+          ("n  p" . ,(lispm-desktop-tr-noop "Next and previous chat"))
+          ("s" . ,(lispm-desktop-tr-noop "Search")) ("/" . ,(lispm-desktop-tr-noop "Filter the chats"))
+          ("\\" . ,(lispm-desktop-tr-noop "Sort the chats")) ("N" . ,(lispm-desktop-tr-noop "New chat"))
+          ("J" . ,(lispm-desktop-tr-noop "Join by a link")) ("R" . ,(lispm-desktop-tr-noop "Mark the chats read"))
+          ("Q" . ,(lispm-desktop-tr-noop "Quit Telega"))))
 
 (lispm-desktop-app-ui-define 'telega-chat-mode
   :app 'telega
   :run #'lispm-desktop-app-telega
-  :buttons '(("Back" lispm-desktop-app-telega-list) ("Attach…" telega-chatbuf-attach)
-             ("Mark Read" telega-chatbuf-read-all))
+  :buttons `((,(lispm-desktop-tr-noop "Back") lispm-desktop-app-telega-list)
+             (,(lispm-desktop-tr-noop "Attach…") telega-chatbuf-attach)
+             (,(lispm-desktop-tr-noop "Mark Read") telega-chatbuf-read-all))
   :label #'lispm-desktop-app-telega--chat-label
   :status #'lispm-desktop-app-telega--status
   :setup #'lispm-desktop-app-telega--setup-chat
-  :keys '(("Return" . "Send what is typed") ("C-c C-a" . "Attach a file, a photo…")
-          ("C-c C-v" . "Attach what is copied") ("Tab" . "Complete a name, or go to the next link")
-          ("M-p  M-n" . "Edit your previous, next message") ("C-c C-k" . "Cancel the reply or edit")
-          ("C-c /" . "Filter the messages")))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Send what is typed"))
+          ("C-c C-a" . ,(lispm-desktop-tr-noop "Attach a file, a photo…"))
+          ("C-c C-v" . ,(lispm-desktop-tr-noop "Attach what is copied"))
+          ("Tab" . ,(lispm-desktop-tr-noop "Complete a name, or go to the next link"))
+          ("M-p  M-n" . ,(lispm-desktop-tr-noop "Edit your previous, next message"))
+          ("C-c C-k" . ,(lispm-desktop-tr-noop "Cancel the reply or edit"))
+          ("C-c /" . ,(lispm-desktop-tr-noop "Filter the messages"))))
 
 (provide 'lispm-desktop-app-telega)
 ;;; lispm-desktop-app-telega.el ends here

@@ -36,6 +36,9 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-draw)
 (require 'lispm-desktop-modal)
+(require 'lispm-desktop-i18n)
+
+(declare-function lispm-desktop-platinum-fit "lispm-desktop-platinum-titlebar" (string width))
 
 
 ;;;; Header strips, header buttons and group boxes
@@ -1015,6 +1018,26 @@ them left out: the narrowest the row fits in."
     (apply #'+ lispm-desktop-platinum--tabs-lead
            (mapcar (lambda (label) (+ (lispm-desktop-platinum--tab-width label face) 2)) labels))))
 
+(defun lispm-desktop-platinum--fit-tabs (labels width face)
+  "Return LABELS shortened so that a row of tabs reading them in FACE fits
+WIDTH pixels: the widest cut, an ellipsis ending them, no narrower than
+the widest the row allows, the others whole.  As they are where the row
+fits, or where no tab could be narrower than 48 pixels."
+  (let* ((padding (* 2 lispm-desktop-platinum-tab-padding))
+         (widths (mapcar (lambda (label) (lispm-desktop-platinum--tab-width label face)) labels))
+         (room (- width lispm-desktop-platinum--tabs-lead (* 2 (length labels))))
+         (cap (apply #'max 0 widths)))
+    (while (and (> (apply #'+ (mapcar (lambda (w) (min w cap)) widths)) room)
+                (> cap 48))
+      (setq cap (1- cap)))
+    (if (= cap (apply #'max 0 widths))
+        labels
+      (seq-mapn (lambda (label w)
+                  (if (<= w cap)
+                      label
+                    (lispm-desktop-platinum-fit (propertize label 'face face) (- cap padding))))
+                labels widths))))
+
 (defconst lispm-desktop-platinum--tab-close-gap 4
   "Pixels between a tab's cross and its label.")
 
@@ -1051,7 +1074,7 @@ runs CLOSE once pressed and let go on it, as a title bar's box does, see
       (concat (apply #'propertize " " 'display (slice 0 from) properties)
               (lispm-desktop-platinum-box-button
                (propertize " " 'display (slice from (- to from)) 'pointer 'arrow)
-               target (lambda (_window) (funcall close)) "Close this tab")
+               target (lambda (_window) (funcall close)) (lispm-desktop-tr "Close this tab"))
               (apply #'propertize " " 'display (slice to (- width to)) properties)))))
 
 (defun lispm-desktop-platinum--plist-without (plist key)
@@ -1072,21 +1095,30 @@ keymap and help.  A `:close' among PROPERTIES is no text property but a
 function closing the tab: the tab then shows a cross before its label,
 which calls it, see `lispm-desktop-platinum-draw-tab-close'.
 The row opens with a short run of the pane's edge and runs it on to
-WIDTH, as Mac OS 9 drew a tab control along its pane."
+WIDTH, as Mac OS 9 drew a tab control along its pane.  A row too wide
+for WIDTH, as in a longer language, cuts its widest labels short, see
+`lispm-desktop-platinum--fit-tabs'."
   (let* ((face (or face 'lispm-desktop-platinum-title))
          (lead lispm-desktop-platinum--tabs-lead)
          (used lead)
+         ;; The labels as shown, a cross before each that closes its
+         ;; tab, cut short where the row would not fit.
+         (labels (lispm-desktop-platinum--fit-tabs
+                  (seq-map-indexed (pcase-lambda (`(,label ,_ . ,properties) index)
+                                     (if (plist-get properties :close)
+                                         (concat (lispm-desktop-platinum--tab-close
+                                                  (lispm-desktop-platinum-pressed-p (list 'tab-close index)))
+                                                 label)
+                                       label))
+                                   tabs)
+                  width face))
          (parts
           (seq-map-indexed
-           (pcase-lambda (`(,label ,front . ,properties) index)
+           (pcase-lambda (`(,_ ,front . ,properties) index)
              (let* ((close (plist-get properties :close))
                     (properties (lispm-desktop-platinum--plist-without properties :close))
                     (target (list 'tab-close index))
-                    (label (if close
-                               (concat (lispm-desktop-platinum--tab-close
-                                        (lispm-desktop-platinum-pressed-p target))
-                                       label)
-                             label))
+                    (label (nth index labels))
                     (tab-width (lispm-desktop-platinum--tab-width label face))
                     (image (lispm-desktop-platinum-image
                             (list 'tab (lispm-desktop-platinum--content-key label) front face tab-width)

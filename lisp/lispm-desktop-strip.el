@@ -70,6 +70,7 @@
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-settings)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -123,7 +124,8 @@ Dragging its tab sets it, for the next start too."
 
 (defun lispm-desktop-strip--panel-item (panel)
   "Return the menu item opening the control panel PANEL, as \"Open PANEL…\"."
-  (list :label (format "Open %s…" (nth 1 (assq panel lispm-desktop-settings-panels)))
+  (list :label (lispm-desktop-tr "Open %s…"
+                                 (lispm-desktop-settings-panel-label (assq panel lispm-desktop-settings-panels)))
         :action (lambda () (lispm-desktop-settings-show panel))))
 
 (defun lispm-desktop-strip--appearance-items ()
@@ -139,28 +141,31 @@ Dragging its tab sets it, for the next start too."
                       :checked (eq lispm-desktop-theme theme)
                       :action (lambda () (lispm-desktop-set-theme theme))))
               (delete-dups (delq nil (list 'dracula 'platinum 'win3 'os2 lispm-desktop-theme))))
-    (:label "Other Theme…" :action lispm-desktop-settings--other-theme)
+    (:label ,(lispm-desktop-tr "Other Theme…") :action lispm-desktop-settings--other-theme)
     separator
     ,(lispm-desktop-strip--panel-item 'themes)))
 
 (defun lispm-desktop-strip--desktop-items ()
   "Return the Desktop module's menu: the colour, the picture and how it
 covers the desktop, Arrange Icons, and the panel."
-  `((:label "Colour from the Theme" :checked ,(null lispm-desktop-color)
+  `((:label ,(lispm-desktop-tr "Colour from the Theme") :checked ,(null lispm-desktop-color)
             :action ,(lambda () (lispm-desktop-settings--save 'lispm-desktop-color nil)))
-    (:label "Your Own Colour…" :checked ,(and lispm-desktop-color t)
+    (:label ,(lispm-desktop-tr "Your Own Colour…") :checked ,(and lispm-desktop-color t)
             :action lispm-desktop-settings--choose-color)
     separator
-    (:label "Choose Picture…" :action ,(lambda () (call-interactively #'lispm-desktop-choose-picture)))
-    (:label "No Picture" :enabled ,(and lispm-desktop-picture t) :action lispm-desktop-remove-picture)
+    (:label ,(lispm-desktop-tr "Choose Picture…")
+            :action ,(lambda () (call-interactively #'lispm-desktop-choose-picture)))
+    (:label ,(lispm-desktop-tr "No Picture") :enabled ,(and lispm-desktop-picture t)
+            :action lispm-desktop-remove-picture)
     separator
     ,@(mapcar (pcase-lambda (`(,position . ,label))
                 (list :label label :checked (eq lispm-desktop-picture-position position)
                       :action (lambda ()
                                 (lispm-desktop-settings--save 'lispm-desktop-picture-position position))))
-              '((fill . "Fill") (fit . "Fit") (center . "Center") (tile . "Tile")))
+              `((fill . ,(lispm-desktop-tr "Fill")) (fit . ,(lispm-desktop-tr "Fit"))
+                (center . ,(lispm-desktop-tr "Center")) (tile . ,(lispm-desktop-tr "Tile"))))
     separator
-    (:label "Arrange Icons" :action lispm-desktop-arrange-icons)
+    (:label ,(lispm-desktop-tr "Arrange Icons") :action lispm-desktop-arrange-icons)
     separator
     ,(lispm-desktop-strip--panel-item 'desktop)))
 
@@ -169,17 +174,18 @@ covers the desktop, Arrange Icons, and the panel."
   `(,@(mapcar (pcase-lambda (`(,style . ,label))
                 (list :label label :checked (eq lispm-desktop-editing-style style)
                       :action (lambda () (lispm-desktop-settings--save 'lispm-desktop-editing-style style))))
-              '((vim . "Vim Keys") (emacs . "Emacs Keys")))
+              `((vim . ,(lispm-desktop-tr "Vim Keys")) (emacs . ,(lispm-desktop-tr "Emacs Keys"))))
     separator
     ,(lispm-desktop-strip--panel-item 'keyboard)))
 
 (defun lispm-desktop-strip--internet-items ()
   "Return the Internet module's menu: the home page, the history, the
 bookmarks, and the panel."
-  `((:label "Change Home Page…"
-            :action ,(lambda () (lispm-desktop-settings--change 'lispm-browser-home-url "Home page: ")))
-    (:label "Clear History…" :action lispm-browser-clear-history)
-    (:label "Edit Bookmarks…" :action lispm-desktop-browser-edit-bookmarks)
+  `((:label ,(lispm-desktop-tr "Change Home Page…")
+            :action ,(lambda () (lispm-desktop-settings--change 'lispm-browser-home-url
+                                                                (lispm-desktop-tr "Home page: "))))
+    (:label ,(lispm-desktop-tr "Clear History…") :action lispm-browser-clear-history)
+    (:label ,(lispm-desktop-tr "Edit Bookmarks…") :action lispm-desktop-browser-edit-bookmarks)
     separator
     ,(lispm-desktop-strip--panel-item 'browser)))
 
@@ -203,25 +209,31 @@ bookmarks, and the panel."
   (bound-and-true-p display-time-mode))
 
 (defvar lispm-desktop-strip-module-alist
-  `((appearance :icon "appearance" :help "Appearance" :items lispm-desktop-strip--appearance-items)
-    (desktop :icon "desktop-picture" :help "Desktop" :items lispm-desktop-strip--desktop-items)
-    (keyboard :icon "keyboard" :help "Keyboard" :items lispm-desktop-strip--keyboard-items)
-    (internet :icon "globe" :help "Internet" :items lispm-desktop-strip--internet-items
+  `((appearance :icon "appearance" :help ,(lispm-desktop-tr-noop "Appearance")
+                :items lispm-desktop-strip--appearance-items)
+    (desktop :icon "desktop-picture" :help ,(lispm-desktop-tr-noop "Desktop")
+             :items lispm-desktop-strip--desktop-items)
+    (keyboard :icon "keyboard" :help ,(lispm-desktop-tr-noop "Keyboard")
+              :items lispm-desktop-strip--keyboard-items)
+    (internet :icon "globe" :help ,(lispm-desktop-tr-noop "Internet") :items lispm-desktop-strip--internet-items
               :visible lispm-desktop-settings--browser-p)
     (battery :icon lispm-desktop-strip--battery-icon :help lispm-desktop-strip--battery-help
              :items lispm-desktop-platinum-battery-items :visible lispm-desktop-platinum-battery-percent)
     (load :icon lispm-desktop-strip--load-icon
-          :help ,(lambda () (format "Load average %s" (lispm-desktop-platinum-load)))
+          :help ,(lambda () (lispm-desktop-tr "Load average %s" (lispm-desktop-platinum-load)))
           :items lispm-desktop-platinum-load-items :visible lispm-desktop-strip--time-p)
     (mail :icon ,(lambda () (if (lispm-desktop-platinum-new-mail-p) "mail-new" "mail"))
-          :help ,(lambda () (if (lispm-desktop-platinum-new-mail-p) "You have new mail" "Mail"))
+          :help ,(lambda () (if (lispm-desktop-platinum-new-mail-p)
+                                (lispm-desktop-tr "You have new mail")
+                              (lispm-desktop-tr "Mail")))
           :items lispm-desktop-platinum-mail-items :visible lispm-desktop-strip--time-p))
   "The Control Strip's modules: (KEY :icon ICON :help HELP :items ITEMS
 [:visible VISIBLE]).  ICON names an icon of icons/os9, or is a function
 returning such a name or an SVG drawing sixteen pixels square; HELP is
-the module's Balloon Help, a string or a function returning one; ITEMS
-returns its menu, as `lispm-desktop-popup-menu' takes it; VISIBLE, when
-given, decides whether it shows.")
+the module's Balloon Help, a string in English, translated where shown,
+or a function returning one in the language LispM speaks; ITEMS returns
+its menu, as `lispm-desktop-popup-menu' takes it, in that language;
+VISIBLE, when given, decides whether it shows.")
 
 (defun lispm-desktop-strip--value (value)
   "Return VALUE, or what it returns when it is a function."
@@ -312,16 +324,17 @@ or the tab alone while the strip is collapsed."
       ('right (and (>= (+ lispm-desktop-strip--first shown) modules) 'disabled)))))
 
 (defun lispm-desktop-strip--help (part)
-  "Return the Balloon Help of PART."
+  "Return the Balloon Help of PART, in the language LispM speaks."
   (pcase part
     (`(module . ,key)
-     (lispm-desktop-strip--value (plist-get (alist-get key lispm-desktop-strip-module-alist) :help)))
-    ('collapse "Collapse the Control Strip to its tab")
-    ('left "Scroll the modules to the left")
-    ('right "Scroll the modules to the right")
+     (let ((help (plist-get (alist-get key lispm-desktop-strip-module-alist) :help)))
+       (if (stringp help) (lispm-desktop-tr help) (lispm-desktop-strip--value help))))
+    ('collapse (lispm-desktop-tr "Collapse the Control Strip to its tab"))
+    ('left (lispm-desktop-tr "Scroll the modules to the left"))
+    ('right (lispm-desktop-tr "Scroll the modules to the right"))
     ('tab (if lispm-desktop-strip-collapsed
-              "Show the Control Strip; Command-drag to move it"
-            "Drag to show more or fewer modules, Command-drag to move the strip; click to collapse"))))
+              (lispm-desktop-tr "Show the Control Strip; Command-drag to move it")
+            (lispm-desktop-tr "Drag to show more or fewer modules, Command-drag to move the strip; click to collapse")))))
 
 (defun lispm-desktop-strip--segment (part)
   "Return the image of PART, memoized."
@@ -786,13 +799,15 @@ leaves the strip and does what it does."
 
 (defun lispm-desktop-setup-strip ()
   "Show the Control Strip once the first frame is up, keep it above the
-floating windows and on its edge, go to it with C-c b, and hide it and
-show it again with C-c B, C-c keys, which terminals leave to Emacs too."
+floating windows and on its edge, its Balloon Help in the language
+spoken, go to it with C-c b, and hide it and show it again with C-c B,
+C-c keys, which terminals leave to Emacs too."
   (dolist (function '(raise-frame make-frame-visible))
     (advice-add function :after #'lispm-desktop-strip--follow))
   (add-hook 'window-selection-change-functions #'lispm-desktop-strip--selected)
   (add-hook 'window-size-change-functions #'lispm-desktop-strip--screen-changed)
   (add-hook 'enable-theme-functions #'lispm-desktop-strip-refresh 95)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-strip-refresh)
   (add-hook 'display-time-hook #'lispm-desktop-strip-refresh 90)
   (add-hook 'battery-update-functions #'lispm-desktop-strip-refresh 90)
   (add-variable-watcher 'lispm-desktop-color #'lispm-desktop-strip--desktop-changed)

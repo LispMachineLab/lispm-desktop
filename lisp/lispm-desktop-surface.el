@@ -58,6 +58,7 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
 (declare-function lispm-desktop-settings-open-folder "lispm-desktop-settings" ())
@@ -89,29 +90,35 @@ A workspace's main area shows it where it holds nothing else.")
   (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
 
 (defvar lispm-desktop-items
-  '((home :label "Home" :icon "hard-disk-32" :command lispm-desktop-finder-home
-          :help "Your home folder, in a Finder window")
+  `((home :label ,(lispm-desktop-tr-noop "Home") :icon "hard-disk-32" :command lispm-desktop-finder-home
+          :help ,(lispm-desktop-tr-noop "Your home folder, in a Finder window"))
     (editor :label "Emacs" :icon emacs :command lispm-desktop-editor-activate
-            :help "The editor: your projects, agents and shells")
-    (browser :label "Browser" :icon "netscape" :command lispm-desktop-browser-show
-             :visible lispm-desktop--browser-p :help "The web browser")
-    (applications :label "Applications" :icon "applications-32"
+            :help ,(lispm-desktop-tr-noop "The editor: your projects, agents and shells"))
+    (browser :label ,(lispm-desktop-tr-noop "Browser") :icon "netscape" :command lispm-desktop-browser-show
+             :visible lispm-desktop--browser-p :help ,(lispm-desktop-tr-noop "The web browser"))
+    (applications :label ,(lispm-desktop-tr-noop "Applications") :icon "applications-32"
                   :command lispm-desktop-store-open-applications
-                  :help "The applications installed, and the App Store installing more")
+                  :help ,(lispm-desktop-tr-noop "The applications installed, and the App Store installing more"))
     (store :label "App Store" :icon "app-store-32" :command lispm-desktop-store-show
-           :help "Applications and extensions to install")
-    (control-panels :label "Control Panels" :icon "control-panels-32"
+           :help ,(lispm-desktop-tr-noop "Applications and extensions to install"))
+    (control-panels :label ,(lispm-desktop-tr-noop "Control Panels") :icon "control-panels-32"
                     :command lispm-desktop-settings-open-folder
-                    :help "The control panels: appearance, desktop, keyboard, Internet")
-    (trash :label "Trash" :icon-function lispm-desktop--trash-icon
-           :command lispm-desktop-open-trash :bottom t :help "What was thrown away"))
+                    :help ,(lispm-desktop-tr-noop "The control panels: appearance, desktop, keyboard, Internet"))
+    (trash :label ,(lispm-desktop-tr-noop "Trash") :icon-function lispm-desktop--trash-icon
+           :command lispm-desktop-open-trash :bottom t :help ,(lispm-desktop-tr-noop "What was thrown away")))
   "The desktop's icons, from the top: (KEY . PROPERTIES).
 :label names an icon, :icon is as `lispm-desktop-platinum-icon-file' takes it
 \(the 32-pixel drawing, or Emacs's own scalable icon), or :icon-function
 returns it as it changes, as the Trash's does; :command opens it
-and :help describes it.  :visible, when given, is a function deciding
-whether the icon shows; :bottom puts it in the bottom corner, as Mac OS 9
-kept the Trash there.")
+and :help describes it.  :label and :help are in English, translated
+where shown, see `lispm-desktop--item-label'.  :visible, when given, is a
+function deciding whether the icon shows; :bottom puts it in the bottom
+corner, as Mac OS 9 kept the Trash there.")
+
+(defun lispm-desktop--item-label (spec)
+  "Return the name of the desktop icon whose properties are SPEC, in the
+language LispM speaks."
+  (lispm-desktop-tr (plist-get spec :label)))
 
 (defconst lispm-desktop-icon-size 32
   "Side in pixels of a desktop icon.")
@@ -144,7 +151,7 @@ Finder window."
         (lispm-desktop-finder-open-directory directory)
       (if (lispm-desktop-macos-p)
           (call-process "open" nil 0 nil directory)
-        (user-error "The Trash cannot be read: %s" directory)))))
+        (user-error (lispm-desktop-tr "The Trash cannot be read: %s") directory)))))
 
 ;;;; The Trash
 
@@ -221,7 +228,7 @@ Dragging an icon sets this."
 
 (defun lispm-desktop-choose-picture (file)
   "Cover the desktop with picture FILE, now and at every later start."
-  (interactive (list (read-file-name "Desktop picture: " "~/Pictures/" nil t)))
+  (interactive (list (read-file-name (lispm-desktop-tr "Desktop picture: ") "~/Pictures/" nil t)))
   (customize-save-variable 'lispm-desktop-picture (and file (abbreviate-file-name file))))
 
 (defun lispm-desktop-remove-picture ()
@@ -570,22 +577,31 @@ first cells of the column no put icon covers."
         (append (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items)
                 (reverse (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items))))))))
 
+(defun lispm-desktop--label-center (spec x)
+  "Return where the name of the icon SPEC, its cell's left at X, is
+centred: under the icon, unless SPEC's :label-center moved it, as for a
+name too wide to stand whole there, see `lispm-desktop--svg'."
+  (or (plist-get spec :label-center) (+ x (/ lispm-desktop-column 2))))
+
 (cl-defgeneric lispm-desktop--draw-icon (spec x y selected label-width family size ascent)
   "Return SVG of the icon SPEC with its name, its cell's top left at X, Y,
-darkened and its name inverted when SELECTED.  LABEL-WIDTH, FAMILY, SIZE
-and ASCENT measure and set its name."
+darkened and its name inverted when SELECTED.  SPEC's :label is the name
+as shown, in the language LispM speaks.  LABEL-WIDTH, FAMILY, SIZE and
+ASCENT measure and set its name, centred as `lispm-desktop--label-center'
+says."
   (let* ((text (or (lispm-desktop-platinum-color :text) "#000000"))
          (content (or (lispm-desktop-platinum-color :content) "#FFFFFF"))
          (center (+ x (/ lispm-desktop-column 2)))
          (icon-left (- center (/ lispm-desktop-icon-size 2)))
-         (label-left (- center (/ label-width 2)))
+         (label-center (lispm-desktop--label-center spec x))
+         (label-left (- label-center (/ label-width 2)))
          (label-top (+ y lispm-desktop-icon-size 4)))
     (concat
      (lispm-desktop--nest (lispm-desktop--item-icon spec) selected icon-left y)
      (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
              label-left label-top label-width (+ size 4) (if selected text content))
      (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
-             center (+ label-top 2 ascent) (lispm-desktop--escape family) size
+             label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size
              (if selected content text) (lispm-desktop--escape (plist-get spec :label))))))
 
 (defun lispm-desktop--coach-mark (width height origin)
@@ -630,13 +646,19 @@ default 0, 0."
                (parts nil))
     (setq lispm-desktop--hits nil)
     (pcase-dolist (`((,key . ,spec) ,x ,y) (lispm-desktop--layout width height))
-      (let* ((label-width (+ 8 (string-pixel-width
-                                (propertize (plist-get spec :label) 'face 'lispm-desktop-platinum-list))))
-             (center (+ x (/ lispm-desktop-column 2))))
+      (let* ((label (lispm-desktop--item-label spec))
+             (label-width (+ 8 (string-pixel-width
+                                (propertize label 'face 'lispm-desktop-platinum-list))))
+             (center (+ x (/ lispm-desktop-column 2)))
+             ;; A name wider than its column, as in a longer language,
+             ;; is kept whole on the desktop.
+             (label-center (max (+ 2 (/ label-width 2))
+                                (min (- width 2 (/ label-width 2)) center)))
+             (spec (plist-put (plist-put (copy-sequence spec) :label label) :label-center label-center)))
         (push (list key
-                    (min (- center (/ lispm-desktop-icon-size 2)) (- center (/ label-width 2)))
+                    (min (- center (/ lispm-desktop-icon-size 2)) (- label-center (/ label-width 2)))
                     y
-                    (max (+ center (/ lispm-desktop-icon-size 2)) (+ center (/ label-width 2)))
+                    (max (+ center (/ lispm-desktop-icon-size 2)) (+ label-center (/ label-width 2)))
                     (+ y lispm-desktop-icon-size 4 size 4))
               lispm-desktop--hits)
         (push (lispm-desktop--draw-icon spec x y (eq key lispm-desktop--selected)
@@ -662,7 +684,7 @@ Drag Manager dragged an image of the two, translucent, without the
 desktop between them."
   (pcase-let* ((`(,family ,size ,ascent) (lispm-desktop--font))
                (spec (alist-get key lispm-desktop-items))
-               (label (plist-get spec :label))
+               (label (lispm-desktop--item-label spec))
                (label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
                (label-height (+ size 4))
                (s lispm-desktop-icon-size))
@@ -712,7 +734,7 @@ Where images cannot be shown, its icons are listed by name."
                 (setq lispm-desktop--image image))
             (dolist (item (lispm-desktop--items))
               (insert (if (eq (car item) lispm-desktop--selected) " ▶ " "   ")
-                      (plist-get (cdr item) :label) "\n")))
+                      (lispm-desktop--item-label (cdr item)) "\n")))
           (goto-char (point-min))
           (set-window-start window (point-min) t)
           (set-window-point window (point-min)))))))
@@ -859,8 +881,8 @@ there would: onto the nearest free cell of the grid, see
 would land back on the icon's own cell."
   (let* ((buffer (lispm-desktop-buffer))
          (key (or (buffer-local-value 'lispm-desktop--selected buffer)
-                  (user-error "No icon is selected")))
-         (window (or (get-buffer-window buffer) (user-error "The desktop is not shown")))
+                  (user-error (lispm-desktop-tr "No icon is selected"))))
+         (window (or (get-buffer-window buffer) (user-error (lispm-desktop-tr "The desktop is not shown"))))
          (here (lispm-desktop--cell-at key window)))
     (pcase-let ((`(,cell-width . ,cell-height) (lispm-desktop--cell-size)))
       (let ((pitch (+ cell-height lispm-desktop-gap))
@@ -928,7 +950,7 @@ piece of the desktop over the icons and windows it passes."
 at X, Y: ((ICON-X . ICON-Y) (NAME-X . NAME-Y)), in the desktop's pixels.
 The icon is centred at the top of the cell, its name under it, as the
 icon itself is drawn, see `lispm-desktop--draw-icon'."
-  (let* ((label (plist-get (alist-get key lispm-desktop-items) :label))
+  (let* ((label (lispm-desktop--item-label (alist-get key lispm-desktop-items)))
          (label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
          (center (+ x (/ lispm-desktop-column 2))))
     (list (cons (- center (/ lispm-desktop-icon-size 2)) y)
@@ -1027,7 +1049,7 @@ dragged about, this puts them back."
 
 (defun lispm-desktop--arrange-items ()
   "Return the menu items arranging the desktop's icons."
-  `((:label "Arrange Icons" :action lispm-desktop-arrange-icons
+  `((:label ,(lispm-desktop-tr "Arrange Icons") :action lispm-desktop-arrange-icons
             :enabled ,(and lispm-desktop-icon-places t))))
 
 (defun lispm-desktop--menu (x y &optional align)
@@ -1038,12 +1060,12 @@ the icon selected, then Arrange Icons and the desktop picture, as Mac OS
   (let ((selected (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer))))
     (lispm-desktop-popup-menu
      `(,@(when selected
-           '((:label "Open" :action lispm-desktop-open :key "M-o")
+           `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-open :key "M-o")
              separator))
        ,@(lispm-desktop--arrange-items)
        separator
-       (:label "Desktop Picture…" :action lispm-desktop-choose-picture)
-       (:label "No Desktop Picture" :action lispm-desktop-remove-picture
+       (:label ,(lispm-desktop-tr "Desktop Picture…") :action lispm-desktop-choose-picture)
+       (:label ,(lispm-desktop-tr "No Desktop Picture") :action lispm-desktop-remove-picture
                :enabled ,(and lispm-desktop-picture t)))
      x y align)))
 
@@ -1298,27 +1320,27 @@ on the Finder window when it had the keyboard last, else on the desktop."
   (let* ((finder (and (fboundp 'lispm-desktop-finder-shown-p) (lispm-desktop-finder-shown-p)))
          (in-finder (and finder (bound-and-true-p lispm-desktop-finder--had-focus)))
          (selected (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer))))
-    `((:label "New Folder…" :action lispm-desktop-finder-new-folder
+    `((:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder
               :enabled ,(and finder (lispm-desktop-finder-real-p) t))
-      (:label "Open" :action ,(if in-finder 'lispm-desktop-finder-open 'lispm-desktop-open)
+      (:label ,(lispm-desktop-tr "Open") :action ,(if in-finder 'lispm-desktop-finder-open 'lispm-desktop-open)
               :enabled ,(and (or in-finder selected) t))
-      (:label "Close Window" :action lispm-desktop-finder-close :enabled ,(and finder t))
+      (:label ,(lispm-desktop-tr "Close Window") :action lispm-desktop-finder-close :enabled ,(and finder t))
       separator
-      (:label "Move to Trash" :action lispm-desktop-finder-move-to-trash :key "M-DEL"
+      (:label ,(lispm-desktop-tr "Move to Trash") :action lispm-desktop-finder-move-to-trash :key "M-DEL"
               :enabled ,(and in-finder (lispm-desktop-finder-real-p)
                              (with-current-buffer (lispm-desktop-finder--buffer) lispm-desktop-finder--selected)
                              t))
       separator
       ,@(mapcar (lambda (item)
-                  (list :label (plist-get (cdr item) :label)
+                  (list :label (lispm-desktop--item-label (cdr item))
                         :action (plist-get (cdr item) :command)))
                 (lispm-desktop--items)))))
 
 (defun lispm-desktop--special-items ()
   "Return the items of the desktop's Special menu, Mac OS 9's last ones."
   `(,@(when (fboundp 'restart-emacs)
-        '((:label "Restart" :action restart-emacs)))
-    (:label "Shut Down" :action save-buffers-kill-emacs)))
+        `((:label ,(lispm-desktop-tr "Restart") :action restart-emacs)))
+    (:label ,(lispm-desktop-tr "Shut Down") :action save-buffers-kill-emacs)))
 
 (defun lispm-desktop--view-items ()
   "Return the items of the desktop's View menu."
@@ -1336,12 +1358,12 @@ on the Finder window when it had the keyboard last, else on the desktop."
   "Return the desktop's menus, for the menu bar while it is in front: as
 the Finder's, File, View, Go and Special, and Help last, when there is
 help to give, see `lispm-desktop-help-items-function'."
-  `((lispm-desktop-menu-file "File" lispm-desktop--file-items)
-    (lispm-desktop-menu-view "View" lispm-desktop--view-items)
-    (lispm-desktop-menu-go "Go" lispm-desktop-finder--go-items)
-    (lispm-desktop-menu-special "Special" lispm-desktop--special-items)
+  `((lispm-desktop-menu-file ,(lispm-desktop-tr "File") lispm-desktop--file-items)
+    (lispm-desktop-menu-view ,(lispm-desktop-tr "View") lispm-desktop--view-items)
+    (lispm-desktop-menu-go ,(lispm-desktop-tr "Go") lispm-desktop-finder--go-items)
+    (lispm-desktop-menu-special ,(lispm-desktop-tr "Special") lispm-desktop--special-items)
     ,@(when lispm-desktop-help-items-function
-        '((lispm-desktop-menu-help "Help" lispm-desktop--help-items)))))
+        `((lispm-desktop-menu-help ,(lispm-desktop-tr "Help") lispm-desktop--help-items)))))
 
 (defun lispm-desktop--scroll-bar (buffer)
   "Say no scroll bar for BUFFER, the desktop or its empty window.
@@ -1354,7 +1376,8 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 (defun lispm-desktop-setup-desktop ()
   "Put the desktop behind every window, and start Emacs on it.
 Its settings take effect when changed however they are, a `setq' in
-personal.el included, and the Trash is looked at every few seconds."
+personal.el included, its icons' names follow a change of language, and
+the Trash is looked at every few seconds."
   (setq initial-buffer-choice #'lispm-desktop-empty-buffer
         tab-bar-new-tab-choice #'lispm-desktop--new-tab-empty)
   (dolist (setting '(lispm-desktop-color lispm-desktop-picture lispm-desktop-picture-position
@@ -1370,6 +1393,8 @@ personal.el included, and the Trash is looked at every few seconds."
         lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop--paint)) 90)
+  ;; The icons' names are drawn in the language LispM speaks.
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop--paint)
   (add-hook 'lispm-desktop-platinum-coach-mark-functions (lambda (_) (lispm-desktop--render)))
   (add-hook 'window-setup-hook #'lispm-desktop-activate 95))
 

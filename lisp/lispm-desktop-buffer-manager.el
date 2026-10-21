@@ -40,6 +40,7 @@
 (require 'svg)
 (require 'tabulated-list)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-agent-buffer-p "lispm-desktop-ai" (buffer))
@@ -92,14 +93,17 @@ PROCESSES and CHILDREN are the tables of
 ;;;; Rows
 
 (defun lispm-desktop-buffer-manager--kind (buffer)
-  "Return what kind of buffer BUFFER is, in words."
+  "Return what kind of buffer BUFFER is, in words of the language LispM
+speaks, or else its mode's name."
   (with-current-buffer buffer
-    (cond ((and (fboundp 'lispm-desktop-agent-buffer-p) (lispm-desktop-agent-buffer-p buffer)) "Agent")
-          ((and (fboundp 'lispm-desktop-terminal-buffer-p) (lispm-desktop-terminal-buffer-p buffer)) "Terminal")
-          ((derived-mode-p 'xwidget-webkit-mode) "Web Page")
-          ((derived-mode-p 'dired-mode) "Folder")
-          (buffer-file-name "Document")
-          ((derived-mode-p 'help-mode) "Help")
+    (cond ((and (fboundp 'lispm-desktop-agent-buffer-p) (lispm-desktop-agent-buffer-p buffer))
+           (lispm-desktop-tr "Agent"))
+          ((and (fboundp 'lispm-desktop-terminal-buffer-p) (lispm-desktop-terminal-buffer-p buffer))
+           (lispm-desktop-tr "Terminal"))
+          ((derived-mode-p 'xwidget-webkit-mode) (lispm-desktop-tr "Web Page"))
+          ((derived-mode-p 'dired-mode) (lispm-desktop-tr "Folder"))
+          (buffer-file-name (lispm-desktop-tr "Document"))
+          ((derived-mode-p 'help-mode) (lispm-desktop-tr "Help"))
           (t (let ((name (format-mode-line mode-name nil nil buffer)))
                (if (string-empty-p name) (symbol-name major-mode) name))))))
 
@@ -164,8 +168,8 @@ PROCESSES and CHILDREN are the tables of
                 (lispm-desktop-buffer-manager--kind buffer)
                 (lispm-desktop-buffer-manager--number (lispm-desktop-buffer-manager--size bytes) bytes)
                 (cond ((and pid process) (format "%s (%d)" (process-name process) pid))
-                      (pid (format "terminal (%d)" pid))
-                      (process (format "%s (network)" (process-name process)))
+                      (pid (lispm-desktop-tr "terminal (%d)" pid))
+                      (process (lispm-desktop-tr "%s (network)" (process-name process)))
                       (t ""))
                 (lispm-desktop-buffer-manager--number (if cost (format "%.1f%%" (car cost)) "")
                                                       (or (car cost) -1))
@@ -182,11 +186,13 @@ PROCESSES and CHILDREN are the tables of
   (let* ((attributes (ignore-errors (process-attributes (emacs-pid))))
          (cpu (alist-get 'pcpu attributes))
          (memory (alist-get 'rss attributes)))
-    (concat (format "%d buffers" (length (lispm-desktop-buffer-manager--buffers)))
-            (when memory
-              (format " · Emacs %s%s"
-                      (lispm-desktop-buffer-manager--size (* 1024 memory))
-                      (if cpu (format ", %.1f%% CPU" cpu) ""))))))
+    (let ((count (length (lispm-desktop-buffer-manager--buffers))))
+      (concat (lispm-desktop-tr-n "%d buffer" "%d buffers" count)
+              (when memory
+                (let ((size (lispm-desktop-buffer-manager--size (* 1024 memory))))
+                  (concat " · " (if cpu
+                                    (lispm-desktop-tr "Emacs %s, %.1f%% CPU" size cpu)
+                                  (lispm-desktop-tr "Emacs %s" size)))))))))
 
 (defun lispm-desktop-buffer-manager--by (column)
   "Return a predicate sorting rows by the number in COLUMN."
@@ -242,9 +248,10 @@ The refresh timer stops once the list is no longer shown."
   "g" #'lispm-desktop-buffer-manager-refresh)
 
 (defun lispm-desktop-buffer-manager--columns (width)
-  "Return the manager's column headings as (LABEL PIXELS SORTED), WIDTH wide.
-They line up with the columns `tabulated-list-format' sets, the first
-taking the padding, the last running on to the sort-direction button."
+  "Return the manager's column headings as (NAME PIXELS SORTED), WIDTH wide,
+NAME the column's English name.  They line up with the columns
+`tabulated-list-format' sets, the first taking the padding, the last
+running on to the sort-direction button."
   (let* ((char (frame-char-width))
          (columns (append tabulated-list-format nil))
          (sorted (car tabulated-list-sort-key))
@@ -265,19 +272,21 @@ taking the padding, the last running on to the sort-direction button."
 (defun lispm-desktop-buffer-manager--header ()
   "Return the manager's header line: Mac OS 9's column headings, the column
 sorted by pushed in.  Clicking a heading sorts by its column, again to
-turn the order over."
+turn the order over.  The headings are drawn in the language LispM
+speaks; the columns keep their English names, which sorting goes by."
   (let* ((width (window-body-width nil t))
-         (columns (lispm-desktop-buffer-manager--columns width)))
+         (columns (lispm-desktop-buffer-manager--columns width))
+         (shown (mapcar (pcase-lambda (`(,name . ,rest)) (cons (lispm-desktop-tr name) rest)) columns)))
     (propertize " " 'display
                 (lispm-desktop-platinum-image
-                 (list 'manager-header columns)
+                 (list 'manager-header shown)
                  (lambda () (lispm-desktop-platinum-draw-list-header lispm-desktop-platinum-current-palette
-                                                                     columns
+                                                                     shown
                                                                      (* (frame-char-width)
                                                                         (1+ tabulated-list-padding)))))
                 'lispm-desktop-buffer-manager-columns columns
                 'keymap lispm-desktop-buffer-manager-header-map
-                'pointer 'hand 'help-echo "Sort by this column")))
+                'pointer 'hand 'help-echo (lispm-desktop-tr "Sort by this column"))))
 
 (defun lispm-desktop-buffer-manager-header-click (event)
   "Sort the manager by the column whose heading EVENT clicked."
@@ -306,16 +315,18 @@ turn the order over."
 (define-derived-mode lispm-desktop-buffer-manager-mode tabulated-list-mode "Buffer Manager"
   "List the open buffers with what each costs: text, CPU and memory.
 \\{lispm-desktop-buffer-manager-mode-map}"
+  ;; The columns' names are English, translated where the header draws
+  ;; them, see `lispm-desktop-buffer-manager--header'.
   (setq tabulated-list-format
-        (vector '("Name" 34 t)
-                '("Kind" 11 t)
-                (list "Text" 9 (lispm-desktop-buffer-manager--by 2) :right-align t)
-                '("Process" 20 t)
-                (list "CPU" 7 (lispm-desktop-buffer-manager--by 4) :right-align t)
-                (list "Memory" 18 (lispm-desktop-buffer-manager--by 5)))
+        (vector (list (lispm-desktop-tr-noop "Name") 34 t)
+                (list (lispm-desktop-tr-noop "Kind") 11 t)
+                (list (lispm-desktop-tr-noop "Text") 9 (lispm-desktop-buffer-manager--by 2) :right-align t)
+                (list (lispm-desktop-tr-noop "Process") 20 t)
+                (list (lispm-desktop-tr-noop "CPU") 7 (lispm-desktop-buffer-manager--by 4) :right-align t)
+                (list (lispm-desktop-tr-noop "Memory") 18 (lispm-desktop-buffer-manager--by 5)))
         tabulated-list-padding 1
         tabulated-list-sort-key '("Memory" . t))
-  (setq-local lispm-desktop-platinum-title "Buffer Manager"
+  (setq-local lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Buffer Manager"))
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "computer"))
   ;; One line per buffer, cut at the window's edge rather than wrapped;
   ;; turning visual line mode off restores the lines it found, so it goes

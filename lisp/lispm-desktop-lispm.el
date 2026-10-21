@@ -46,6 +46,7 @@
 
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-deps)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop-conversation-modes)
 (defvar lispm-interface)
@@ -147,7 +148,7 @@ lispm-desktop-ai reads them."
 (defun lispm-desktop-agent-lispm-new (&optional role)
   "Start a new LispM agent at the current project root.
 With a prefix argument, choose its ROLE."
-  (interactive (list (and current-prefix-arg (lispm--read-role "Role"))))
+  (interactive (list (and current-prefix-arg (lispm--read-role (lispm-desktop-tr "Role")))))
   (if role
       (lispm-desktop-agent-show (lispm-desktop-lispm-new (lispm-desktop-agent-default-directory) role))
     (lispm-desktop-agent-new 'lispm)))

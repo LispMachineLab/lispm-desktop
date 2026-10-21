@@ -34,6 +34,7 @@
 ;;   Desktop     the desktop's colour, its picture and how it covers it,
 ;;               and Arrange Icons
 ;;   Keyboard    Vim or Emacs keys
+;;   Language    the language LispM speaks, see lispm-desktop-i18n.el
 ;;   Internet    the browser's home page and search address, its history
 ;;               and its bookmarks
 ;;   Network     the proxy every connection LispM makes goes through, see
@@ -68,6 +69,7 @@
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-startup)
 (require 'lispm-desktop-loading)
+(require 'lispm-desktop-i18n)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -106,18 +108,22 @@
   "Name of the control panel's window's buffer.")
 
 (defconst lispm-desktop-settings-panels
-  '((themes "Appearance" lispm-desktop-settings--themes "appearance-32")
-    (desktop "Desktop" lispm-desktop-settings--desktop "desktop-picture-32")
-    (keyboard "Keyboard" lispm-desktop-settings--keyboard "keyboard-32")
-    (browser "Internet" lispm-desktop-settings--browser "globe-32" lispm-desktop-settings--browser-p)
-    (network "Network" lispm-desktop-settings--network "network-32")
-    (sandbox "Sandbox" lispm-desktop-settings--sandbox "sandbox-32" lispm-desktop-settings--sandbox-p)
-    (startup "Startup" lispm-desktop-settings--startup "startup-32")
-    (update "Software Update" lispm-desktop-settings--update "software-update-32"))
+  `((themes ,(lispm-desktop-tr-noop "Appearance") lispm-desktop-settings--themes "appearance-32")
+    (desktop ,(lispm-desktop-tr-noop "Desktop") lispm-desktop-settings--desktop "desktop-picture-32")
+    (keyboard ,(lispm-desktop-tr-noop "Keyboard") lispm-desktop-settings--keyboard "keyboard-32")
+    (language ,(lispm-desktop-tr-noop "Language") lispm-desktop-settings--language "language-32")
+    (browser ,(lispm-desktop-tr-noop "Internet") lispm-desktop-settings--browser "globe-32"
+             lispm-desktop-settings--browser-p)
+    (network ,(lispm-desktop-tr-noop "Network") lispm-desktop-settings--network "network-32")
+    (sandbox ,(lispm-desktop-tr-noop "Sandbox") lispm-desktop-settings--sandbox "sandbox-32"
+             lispm-desktop-settings--sandbox-p)
+    (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
+    (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
-INSERT fills the window with the panel, ICON is its large icon in the
-Control Panels folder; VISIBLE, when given, is a function deciding whether
-the panel shows.")
+LABEL is in English, translated where shown, see
+`lispm-desktop-settings-panel-label'.  INSERT fills the window with the
+panel, ICON is its large icon in the Control Panels folder; VISIBLE, when
+given, is a function deciding whether the panel shows.")
 
 (defvar-local lispm-desktop-settings--panel 'themes
   "The panel the control panel's window shows.")
@@ -137,6 +143,11 @@ settings: LispM Agent 0.3.0 or later is loaded."
                 (let ((visible (nth 4 panel)))
                   (or (not visible) (funcall visible))))
               lispm-desktop-settings-panels))
+
+(defun lispm-desktop-settings-panel-label (panel)
+  "Return the name of PANEL, an entry of `lispm-desktop-settings-panels',
+in the language LispM speaks."
+  (lispm-desktop-tr (nth 1 panel)))
 
 (defun lispm-desktop-settings-open-p ()
   "Return non-nil while the control panel's window is open."
@@ -179,7 +190,7 @@ HELP describes it."
   "Insert a radio button named LABEL, ON or off, running ACTION when pressed,
 NOTE after it in the dimmed text."
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--radio-button label on action (format "Choose %s" label))
+  (lispm-desktop-settings--radio-button label on action (lispm-desktop-tr "Choose %s" label))
   (when note
     (insert "  " (propertize note 'face 'shadow)))
   (insert "\n"))
@@ -196,7 +207,8 @@ pressed, NOTE after it in the dimmed text."
                          'lispm-desktop-platinum-focused (funcall box t))
              " " label)
      'action (lambda (_) (funcall action) (lispm-desktop-settings--render))
-     'face 'default 'follow-link t 'help-echo (format "%s %s" (if on "Turn off:" "Turn on:") label))
+     'face 'default 'follow-link t
+     'help-echo (if on (lispm-desktop-tr "Turn off: %s" label) (lispm-desktop-tr "Turn on: %s" label)))
     (when note
       (insert "  " (propertize note 'face 'shadow)))
     (insert "\n")))
@@ -325,22 +337,17 @@ inside its group box."
        indent (* 4 lispm-desktop-settings--group-margin))))
 
 (defun lispm-desktop-settings--wrap (text width)
-  "Return TEXT broken between words into lines at most WIDTH pixels wide
-when dimmed; a word wider than that stands alone, cut short."
-  (let ((lines nil) (line nil)
-        (fit (lambda (word)
-               (let ((wide (lispm-desktop-platinum-content-width word 'shadow)))
-                 (if (<= wide width)
-                     word
-                   (lispm-desktop-settings--truncate
-                    word (max 2 (1- (/ (* (length word) width) wide)))))))))
-    (dolist (word (split-string text "[ \t\n]+" t))
-      (let ((longer (if line (concat line " " word) word)))
-        (if (and line (<= (lispm-desktop-platinum-content-width longer 'shadow) width))
-            (setq line longer)
-          (when line (push line lines))
-          (setq line (funcall fit word)))))
-    (nreverse (if line (cons line lines) lines))))
+  "Return TEXT broken between words, or the characters of Chinese and
+Japanese, into lines at most WIDTH pixels wide when dimmed; a word wider
+than that stands alone, cut short."
+  (mapcar (lambda (line)
+            (let ((wide (lispm-desktop-platinum-content-width line 'shadow)))
+              (if (<= wide width)
+                  line
+                (lispm-desktop-settings--truncate
+                 line (max 2 (1- (/ (* (length line) width) wide)))))))
+          (lispm-desktop-i18n-wrap
+           text (lambda (line) (<= (lispm-desktop-platinum-content-width line 'shadow) width)))))
 
 (defun lispm-desktop-settings--paragraph (text &optional indent)
   "Insert TEXT, a remark about the settings above, dimmed and wrapped to
@@ -359,39 +366,44 @@ indent of a row of settings."
 
 (defun lispm-desktop-settings--other-theme ()
   "Ask for any theme installed, and switch to it now and for later starts."
-  (let ((theme (completing-read "Theme: " (mapcar #'symbol-name (custom-available-themes))
+  (let ((theme (completing-read (lispm-desktop-tr "Theme: ") (mapcar #'symbol-name (custom-available-themes))
                                 nil t)))
     (unless (string-empty-p theme)
       (lispm-desktop-set-theme (intern theme)))))
 
 (defun lispm-desktop-settings--themes ()
   "Insert the Themes panel: the look, and the colour theme."
-  (lispm-desktop-settings--heading "Look")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Look"))
   (pcase-dolist (`(,look . ,properties) lispm-desktop-looks)
     (lispm-desktop-settings--radio (lispm-desktop-look-title look) (eq lispm-desktop-look look)
                                    (lambda () (lispm-desktop-set-look look))
-                                   (plist-get properties :description)))
+                                   (when-let* ((description (plist-get properties :description)))
+                                     (lispm-desktop-tr description))))
   (insert "\n")
-  (lispm-desktop-settings--note "Choosing a look takes its own colours with it, unless you chose")
-  (lispm-desktop-settings--note "a theme of your own.")
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Choosing a look takes its own colours with it, unless you chose a theme of your own."))
   (insert "\n")
-  (lispm-desktop-settings--heading "Theme")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Theme"))
   (lispm-desktop-settings--radio "Dracula" (eq lispm-desktop-theme 'dracula)
-                                 (lambda () (lispm-desktop-set-theme 'dracula)) "dark, Dracula's colours")
+                                 (lambda () (lispm-desktop-set-theme 'dracula))
+                                 (lispm-desktop-tr "dark, Dracula's colours"))
   (lispm-desktop-settings--radio "Platinum" (eq lispm-desktop-theme 'platinum)
-                                 (lambda () (lispm-desktop-set-theme 'platinum)) "Mac OS 9's greys")
+                                 (lambda () (lispm-desktop-set-theme 'platinum))
+                                 (lispm-desktop-tr "Mac OS 9's greys"))
   (lispm-desktop-settings--radio "Windows 3.2" (eq lispm-desktop-theme 'win3)
-                                 (lambda () (lispm-desktop-set-theme 'win3)) "navy and VGA grey")
+                                 (lambda () (lispm-desktop-set-theme 'win3))
+                                 (lispm-desktop-tr "navy and VGA grey"))
   (lispm-desktop-settings--radio "OS/2 2.0" (eq lispm-desktop-theme 'os2)
-                                 (lambda () (lispm-desktop-set-theme 'os2)) "teal, pale yellow, pale grey")
+                                 (lambda () (lispm-desktop-set-theme 'os2))
+                                 (lispm-desktop-tr "teal, pale yellow, pale grey"))
   (when (and lispm-desktop-theme (not (memq lispm-desktop-theme '(dracula platinum win3 os2))))
     (lispm-desktop-settings--radio (capitalize (symbol-name lispm-desktop-theme)) t #'ignore))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Other Theme…" #'lispm-desktop-settings--other-theme
-                                  "Choose any other theme installed")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Other Theme…") #'lispm-desktop-settings--other-theme
+                                  (lispm-desktop-tr "Choose any other theme installed"))
   (insert "\n\n")
-  (lispm-desktop-settings--note "The menu bar, the title bars and the lists take their colours")
-  (lispm-desktop-settings--note "from the theme."))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "The menu bar, the title bars and the lists take their colours from the theme.")))
 
 (defun lispm-desktop-settings--swatch (color)
   "Return a swatch of COLOR, one icon wide."
@@ -407,7 +419,7 @@ indent of a row of settings."
   "Ask for the desktop's colour and keep it, written #RRGGBB.
 `read-color' returns a colour typed by name as #RRRRGGGGBBBB, which the
 desktop's SVG cannot read."
-  (let ((color (lispm-desktop--hex-color (read-color "Desktop colour: " t))))
+  (let ((color (lispm-desktop--hex-color (read-color (lispm-desktop-tr "Desktop colour: ") t))))
     (when color
       (lispm-desktop-settings--save 'lispm-desktop-color color))))
 
@@ -422,53 +434,77 @@ desktop's SVG cannot read."
 
 (defun lispm-desktop-settings--desktop ()
   "Insert the Desktop panel: its colour, its picture, its icons."
-  (lispm-desktop-settings--heading "Colour")
-  (lispm-desktop-settings--radio "From the theme" (null lispm-desktop-color)
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Colour"))
+  (lispm-desktop-settings--radio (lispm-desktop-tr "From the theme") (null lispm-desktop-color)
                                  (lambda () (lispm-desktop-settings--save 'lispm-desktop-color nil)))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--radio-button "Your own" (and lispm-desktop-color t)
-                                        #'lispm-desktop-settings--choose-color "Choose a colour")
+  (lispm-desktop-settings--radio-button (lispm-desktop-tr "Your own") (and lispm-desktop-color t)
+                                        #'lispm-desktop-settings--choose-color
+                                        (lispm-desktop-tr "Choose a colour"))
   (insert " " (lispm-desktop-settings--swatch (lispm-desktop--color)) " ")
-  (lispm-desktop-settings--button "Choose…" #'lispm-desktop-settings--choose-color "Choose the desktop's colour")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Choose…") #'lispm-desktop-settings--choose-color
+                                  (lispm-desktop-tr "Choose the desktop's colour"))
   (insert "\n")
-  (lispm-desktop-settings--heading "Picture")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Picture"))
   (lispm-desktop-settings--picture-preview)
   (lispm-desktop-settings--note (if lispm-desktop-picture
                                     (abbreviate-file-name lispm-desktop-picture)
-                                  "None: the desktop shows its colour."))
+                                  (lispm-desktop-tr "None: the desktop shows its colour.")))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Choose…" (lambda () (call-interactively #'lispm-desktop-choose-picture))
-                                  "Choose a picture for the desktop")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Choose…")
+                                  (lambda () (call-interactively #'lispm-desktop-choose-picture))
+                                  (lispm-desktop-tr "Choose a picture for the desktop"))
   (insert " ")
   (when lispm-desktop-picture
-    (lispm-desktop-settings--button "None" #'lispm-desktop-remove-picture "Show the desktop's colour alone"))
+    (lispm-desktop-settings--button (lispm-desktop-tr "None") #'lispm-desktop-remove-picture
+                                    (lispm-desktop-tr "Show the desktop's colour alone")))
   (insert "\n\n")
-  (pcase-dolist (`(,position ,label ,note) '((fill "Fill" "cropped to the desktop")
-                                             (fit "Fit" "whole, the colour around")
-                                             (center "Center" "at its own size")
-                                             (tile "Tile" "repeated")))
+  (pcase-dolist (`(,position ,label ,note)
+                 `((fill ,(lispm-desktop-tr "Fill") ,(lispm-desktop-tr "cropped to the desktop"))
+                   (fit ,(lispm-desktop-tr "Fit") ,(lispm-desktop-tr "whole, the colour around"))
+                   (center ,(lispm-desktop-tr "Center") ,(lispm-desktop-tr "at its own size"))
+                   (tile ,(lispm-desktop-tr "Tile") ,(lispm-desktop-tr "repeated"))))
     (lispm-desktop-settings--radio label (eq lispm-desktop-picture-position position)
                                    (lambda () (lispm-desktop-settings--save 'lispm-desktop-picture-position position))
                                    note))
-  (lispm-desktop-settings--heading "Icons")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Icons"))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Arrange Icons" #'lispm-desktop-arrange-icons
-                                  "Put the desktop's icons back where they stood at first")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Arrange Icons") #'lispm-desktop-arrange-icons
+                                  (lispm-desktop-tr "Put the desktop's icons back where they stood at first"))
   (insert "\n")
-  (lispm-desktop-settings--note "Dragged icons land on the grid; this puts every one back."))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Dragged icons land on the grid; this puts every one back.")))
 
 (defun lispm-desktop-settings--keyboard ()
   "Insert the Keyboard panel: Vim or Emacs keys."
-  (lispm-desktop-settings--heading "Editing")
-  (lispm-desktop-settings--radio "Vim keys" (eq lispm-desktop-editing-style 'vim)
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Editing"))
+  (lispm-desktop-settings--radio (lispm-desktop-tr "Vim keys") (eq lispm-desktop-editing-style 'vim)
                                  (lambda () (lispm-desktop-settings--save 'lispm-desktop-editing-style 'vim))
-                                 "Evil in files; Emacs keys elsewhere")
-  (lispm-desktop-settings--radio "Emacs keys" (eq lispm-desktop-editing-style 'emacs)
+                                 (lispm-desktop-tr "Evil in files; Emacs keys elsewhere"))
+  (lispm-desktop-settings--radio (lispm-desktop-tr "Emacs keys") (eq lispm-desktop-editing-style 'emacs)
                                  (lambda () (lispm-desktop-settings--save 'lispm-desktop-editing-style 'emacs)))
   (insert "\n")
-  (lispm-desktop-settings--note "Takes effect at the next start.")
+  (lispm-desktop-settings--note (lispm-desktop-tr "Takes effect at the next start."))
   (when (eq system-type 'darwin)
-    (lispm-desktop-settings--note "Command is Meta: Command-C and Command-V copy and paste.")))
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "Command is Meta: Command-C and Command-V copy and paste."))))
+
+(defun lispm-desktop-settings--language ()
+  "Insert the Language panel: the language LispM speaks, the computer's
+or one of its own, each named in itself, and in the language spoken."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Language"))
+  (lispm-desktop-settings--radio (lispm-desktop-tr "The computer's language") (null lispm-desktop-language)
+                                 (lambda () (lispm-desktop-set-language nil))
+                                 (lispm-desktop-language-name (lispm-desktop-system-language)))
+  (pcase-dolist (`(,language ,english) lispm-desktop-languages)
+    (let ((name (lispm-desktop-language-name language))
+          (translated (lispm-desktop-tr english)))
+      (lispm-desktop-settings--radio name (eq lispm-desktop-language language)
+                                     (lambda () (lispm-desktop-set-language language))
+                                     (unless (equal translated name) translated))))
+  (insert "\n")
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Menus, windows and messages change at once. Documents, web pages, and what programs and agents say keep their own language.")))
 
 (defun lispm-desktop-settings--change (variable prompt)
   "Ask with PROMPT for a new value of the string VARIABLE, and keep it."
@@ -478,44 +514,48 @@ desktop's SVG cannot read."
 
 (defun lispm-desktop-settings--browser ()
   "Insert the Browser panel: home page, search, history and bookmarks."
-  (lispm-desktop-settings--heading "Home Page")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Home Page"))
   (lispm-desktop-settings--note lispm-browser-home-url)
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Change…"
-                                  (lambda () (lispm-desktop-settings--change 'lispm-browser-home-url "Home page: "))
-                                  "Change the page Home goes to")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Change…")
+                                  (lambda () (lispm-desktop-settings--change 'lispm-browser-home-url
+                                                                             (lispm-desktop-tr "Home page: ")))
+                                  (lispm-desktop-tr "Change the page Home goes to"))
   (insert "\n")
-  (lispm-desktop-settings--heading "Search")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Search"))
   (lispm-desktop-settings--note lispm-browser-search-url)
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Change…"
-                                  (lambda () (lispm-desktop-settings--change 'lispm-browser-search-url
-                                                                             "Search address (%s for the words): "))
-                                  "Change where what is typed in the location field is searched")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Change…")
+                                  (lambda () (lispm-desktop-settings--change
+                                              'lispm-browser-search-url
+                                              (lispm-desktop-tr "Search address (%s for the words): ")))
+                                  (lispm-desktop-tr "Change where what is typed in the location field is searched"))
   (insert "\n")
-  (lispm-desktop-settings--heading "History")
-  (lispm-desktop-settings--note (format "%d pages visited are kept, of at most %d."
-                                        (length (lispm-browser-history)) lispm-browser-history-size))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "History"))
+  (let ((visited (length (lispm-browser-history))))
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr-n "%d page visited is kept, of at most %d." "%d pages visited are kept, of at most %d."
+                         visited visited lispm-browser-history-size)))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Clear History…" #'lispm-browser-clear-history
-                                  "Forget every page visited")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Clear History…") #'lispm-browser-clear-history
+                                  (lispm-desktop-tr "Forget every page visited"))
   (insert "\n")
-  (lispm-desktop-settings--heading "Bookmarks")
-  (lispm-desktop-settings--note (format "%d bookmarks." (length (lispm-browser-bookmarks))))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Bookmarks"))
+  (lispm-desktop-settings--note (lispm-desktop-tr-n "%d bookmark." "%d bookmarks." (length (lispm-browser-bookmarks))))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Edit Bookmarks…" #'lispm-desktop-browser-edit-bookmarks
-                                  "List the bookmarks in the browser")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Edit Bookmarks…") #'lispm-desktop-browser-edit-bookmarks
+                                  (lispm-desktop-tr "List the bookmarks in the browser"))
   (insert "\n"))
 
 (defun lispm-desktop-settings--proxy-server ()
   "Ask for the proxy's address, HOST:PORT, and keep it; return non-nil
 when one is kept."
-  (let ((server (string-trim (read-string "Proxy server (host:port): " lispm-desktop-proxy-server))))
+  (let ((server (string-trim (read-string (lispm-desktop-tr "Proxy server (host:port): ") lispm-desktop-proxy-server))))
     (cond ((string-empty-p server) nil)
           ((lispm-desktop-proxy-parse-server server)
            (lispm-desktop-settings--save 'lispm-desktop-proxy-server server)
            t)
-          (t (user-error "Write the proxy server as host:port, as 127.0.0.1:7890")))))
+          (t (user-error (lispm-desktop-tr "Write the proxy server as host:port, as 127.0.0.1:7890"))))))
 
 (defun lispm-desktop-settings--proxy-type (type)
   "Send LispM's connections through a proxy of TYPE, `http' or `socks5', or
@@ -530,45 +570,45 @@ none is known yet."
   "Ask for the hosts reached directly, not through the proxy, and keep them."
   (lispm-desktop-settings--save
    'lispm-desktop-proxy-exceptions
-   (split-string (read-string "Hosts reached directly (separated by commas): "
+   (split-string (read-string (lispm-desktop-tr "Hosts reached directly (separated by commas): ")
                               (string-join lispm-desktop-proxy-exceptions ", "))
                  "[, ]+" t)))
 
 (defun lispm-desktop-settings--network ()
   "Insert the Network panel: the proxy, none, HTTP or SOCKS5, its address,
 and the hosts reached directly."
-  (lispm-desktop-settings--heading "Proxy")
-  (pcase-dolist (`(,type ,label ,note) '((nil "None" "the system's own, if any")
-                                         (http "HTTP" "HTTPS goes through it too")
-                                         (socks5 "SOCKS5" "it looks the names up too")))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Proxy"))
+  (pcase-dolist (`(,type ,label ,note) `((nil ,(lispm-desktop-tr "None") ,(lispm-desktop-tr "the system's own, if any"))
+                                         (http "HTTP" ,(lispm-desktop-tr "HTTPS goes through it too"))
+                                         (socks5 "SOCKS5" ,(lispm-desktop-tr "it looks the names up too"))))
     (lispm-desktop-settings--radio label (eq lispm-desktop-proxy-type type)
                                    (lambda () (lispm-desktop-settings--proxy-type type))
                                    note))
   (insert "\n")
   (lispm-desktop-settings--note (if lispm-desktop-proxy-server
-                                    (format "Server: %s" lispm-desktop-proxy-server)
-                                  "No server yet."))
+                                    (lispm-desktop-tr "Server: %s" lispm-desktop-proxy-server)
+                                  (lispm-desktop-tr "No server yet.")))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Change…" #'lispm-desktop-settings--proxy-server
-                                  "Change the proxy's address, host:port")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Change…") #'lispm-desktop-settings--proxy-server
+                                  (lispm-desktop-tr "Change the proxy's address, host:port"))
   (insert "\n\n")
-  (lispm-desktop-settings--note "Emacs, the browser's pages and the programs Emacs starts")
-  (lispm-desktop-settings--note "all connect through it.")
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Emacs, the browser's pages and the programs Emacs starts all connect through it."))
   (when (and lispm-desktop-proxy-type (lispm-desktop-settings--browser-p)
              (fboundp 'lispm-browser-proxy-followed-p)
              (not (lispm-browser-proxy-followed-p)))
-    (lispm-desktop-settings--note "The browser's pages follow once its module is built."))
-  (lispm-desktop-settings--heading "Direct Connections")
+    (lispm-desktop-settings--paragraph (lispm-desktop-tr "The browser's pages follow once its module is built.")))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Direct Connections"))
   (lispm-desktop-settings--note
    (if lispm-desktop-proxy-exceptions
        (lispm-desktop-settings--truncate (string-join lispm-desktop-proxy-exceptions ", ") 58)
-     "None but this computer's own addresses."))
+     (lispm-desktop-tr "None but this computer's own addresses.")))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Change…" #'lispm-desktop-settings--proxy-exceptions
-                                  "Change the hosts reached directly, not through the proxy")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Change…") #'lispm-desktop-settings--proxy-exceptions
+                                  (lispm-desktop-tr "Change the hosts reached directly, not through the proxy"))
   (insert "\n\n")
-  (lispm-desktop-settings--note "Hosts reached directly, not through the proxy, and their")
-  (lispm-desktop-settings--note "subdomains; this computer's own addresses always are."))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Hosts reached directly, not through the proxy, and their subdomains; this computer's own addresses always are.")))
 
 (defun lispm-desktop-settings--sandbox-level (level)
   "Run agents' shell commands and MCP servers at sandbox LEVEL, now and at
@@ -592,8 +632,10 @@ deny every domain, *."
                                   (and deny (equal domain "*"))))
                             domains)))
     (when wrong
-      (user-error "srt cannot %s %s: write a domain as example.com, *.example.com or example.com:443"
-                  (if deny "deny" "allow") (string-join wrong ", ")))
+      (user-error (if deny
+                      (lispm-desktop-tr "srt cannot deny %s: write a domain as example.com, *.example.com or example.com:443")
+                    (lispm-desktop-tr "srt cannot allow %s: write a domain as example.com, *.example.com or example.com:443"))
+                  (string-join wrong ", ")))
     domains))
 
 (defun lispm-desktop-settings--sandbox-domains ()
@@ -602,7 +644,8 @@ keep them."
   (lispm-desktop-settings--save
    'lispm-sandbox-allowed-domains
    (lispm-desktop-settings--sandbox-read-domains
-    "Domains sandboxed commands may reach (separated by commas): " lispm-sandbox-allowed-domains)))
+    (lispm-desktop-tr "Domains sandboxed commands may reach (separated by commas): ")
+    lispm-sandbox-allowed-domains)))
 
 (defun lispm-desktop-settings--sandbox-custom-p ()
   "Return non-nil when LispM Agent has the sandbox level Custom, of rules
@@ -617,24 +660,33 @@ of the user's own: LispM Agent 0.4.0 or later."
     (concat (upcase (substring description 0 1)) (substring description 1) ".")))
 
 (defconst lispm-desktop-settings--sandbox-lists
-  '((:deny-read "Not readable" file "the files and directories commands may not read")
-    (:allow-read "Readable after all" file "the places inside those that commands may read after all")
-    (:allow-write "Writable" file "where commands may write, and nowhere else")
-    (:deny-write "Not writable" file "the places inside those that commands may not write")
-    (:allowed-domains "Reachable domains" allow "the domains commands may reach, and no others")
-    (:denied-domains "Refused domains" deny "the domains refused even when allowed")
-    (:unix-sockets "Unix sockets" file "the Unix sockets commands may connect to"))
+  `((:deny-read ,(lispm-desktop-tr-noop "Not readable") file
+                ,(lispm-desktop-tr-noop "Change the files and directories commands may not read"))
+    (:allow-read ,(lispm-desktop-tr-noop "Readable after all") file
+                 ,(lispm-desktop-tr-noop "Change the places inside those that commands may read after all"))
+    (:allow-write ,(lispm-desktop-tr-noop "Writable") file
+                  ,(lispm-desktop-tr-noop "Change where commands may write, and nowhere else"))
+    (:deny-write ,(lispm-desktop-tr-noop "Not writable") file
+                 ,(lispm-desktop-tr-noop "Change the places inside those that commands may not write"))
+    (:allowed-domains ,(lispm-desktop-tr-noop "Reachable domains") allow
+                      ,(lispm-desktop-tr-noop "Change the domains commands may reach, and no others"))
+    (:denied-domains ,(lispm-desktop-tr-noop "Refused domains") deny
+                     ,(lispm-desktop-tr-noop "Change the domains refused even when allowed"))
+    (:unix-sockets ,(lispm-desktop-tr-noop "Unix sockets") file
+                   ,(lispm-desktop-tr-noop "Change the Unix sockets commands may connect to")))
   "The Custom level's rules that are lists, as the Sandbox panel shows them:
-\(KEY LABEL KIND HELP).  KIND is `file' for file names, `allow' or `deny'
-for domains to allow or deny.  See `lispm-sandbox-custom'.")
+\(KEY LABEL KIND HELP), LABEL and HELP in English, translated where shown.
+KIND is `file' for file names, `allow' or `deny' for domains to allow or
+deny.  See `lispm-sandbox-custom'.")
 
 (defconst lispm-desktop-settings--sandbox-switches
-  '((:local-binding "Serve on local ports, and reach this computer's" nil)
-    (:pty "Use pseudo-terminals" darwin)
-    (:apple-events "Send Apple Events and open applications" darwin))
+  `((:local-binding ,(lispm-desktop-tr-noop "Serve on local ports, and reach this computer's") nil)
+    (:pty ,(lispm-desktop-tr-noop "Use pseudo-terminals") darwin)
+    (:apple-events ,(lispm-desktop-tr-noop "Send Apple Events and open applications") darwin))
   "The Custom level's rules that are on or off, as the Sandbox panel shows
-them: (KEY LABEL SYSTEM).  SYSTEM, when given, is the only `system-type'
-the rule means something on.  See `lispm-sandbox-custom'.")
+them: (KEY LABEL SYSTEM), LABEL in English, translated where shown.
+SYSTEM, when given, is the only `system-type' the rule means something
+on.  See `lispm-sandbox-custom'.")
 
 (defun lispm-desktop-settings--sandbox-rule (key value)
   "Set the Custom level's rule KEY to VALUE, now and for later starts.
@@ -647,7 +699,7 @@ The other rules are kept: Middle's while there were none of the user's."
 them.  File names are separated by commas, domains by commas or spaces."
   (pcase-let* ((`(,label ,kind . ,_) (alist-get key lispm-desktop-settings--sandbox-lists))
                (entries (plist-get (lispm-sandbox-rules 'custom) key))
-               (prompt (format "%s (separated by commas): " label)))
+               (prompt (lispm-desktop-tr "%s (separated by commas): " (lispm-desktop-tr label))))
     (lispm-desktop-settings--sandbox-rule
      key (if (eq kind 'file)
              (split-string (read-string prompt (string-join entries ", ")) "," t "[ \t\n]+")
@@ -658,21 +710,21 @@ them.  File names are separated by commas, domains by commas or spaces."
 Rules of the user's own are replaced only once the user says so."
   (when (or (null lispm-sandbox-custom)
             (lispm-desktop-popup-alert
-             'caution (format "Replace your Custom rules with %s's?" (lispm-sandbox-level-name level))
-             '(("Cancel" nil cancel) ("Replace" t default))
-             "The rules you set are lost."))
+             'caution (lispm-desktop-tr "Replace your Custom rules with %s's?" (lispm-sandbox-level-name level))
+             `((,(lispm-desktop-tr "Cancel") nil cancel) (,(lispm-desktop-tr "Replace") t default))
+             (lispm-desktop-tr "The rules you set are lost.")))
     (lispm-desktop-settings--save 'lispm-sandbox-custom (copy-tree (lispm-sandbox-rules level)))))
 
 (defun lispm-desktop-settings--sandbox-entries (entries width)
   "Return ENTRIES, strings, as a list in WIDTH characters at most: the first
 few, and how many more there are."
   (if (null entries)
-      "none"
+      (lispm-desktop-tr "none")
     (let ((more (lambda (shown)
-                  (concat (string-join (seq-take entries shown) ", ")
-                          (if (< shown (length entries))
-                              (format " and %d more" (- (length entries) shown))
-                            "")))))
+                  (if (< shown (length entries))
+                      (lispm-desktop-tr "%s and %d more" (string-join (seq-take entries shown) ", ")
+                                        (- (length entries) shown))
+                    (string-join (seq-take entries shown) ", ")))))
       (or (seq-some (lambda (shown)
                       (let ((text (funcall more shown)))
                         (and (<= (length text) width) text)))
@@ -683,35 +735,37 @@ few, and how many more there are."
   "Insert the Custom level's rules, each with what changes it: a Change…
 button for each list, a check box for each switch."
   (let ((rules (lispm-sandbox-rules 'custom)))
-    (lispm-desktop-settings--heading "Custom Rules")
-    (insert lispm-desktop-settings--indent (propertize "Start from: " 'face 'shadow))
+    (lispm-desktop-settings--heading (lispm-desktop-tr "Custom Rules"))
+    (insert lispm-desktop-settings--indent (propertize (lispm-desktop-tr "Start from: ") 'face 'shadow))
     (dolist (level '(low middle high))
       (let ((name (lispm-sandbox-level-name level)))
         (lispm-desktop-settings--button name (lambda () (lispm-desktop-settings--sandbox-start-from level))
-                                        (format "Make the Custom rules %s's" name))
+                                        (lispm-desktop-tr "Make the Custom rules %s's" name))
         (insert " ")))
     (insert "\n\n")
     (pcase-dolist (`(,key ,label ,_ ,help) lispm-desktop-settings--sandbox-lists)
-      (insert lispm-desktop-settings--indent)
-      (lispm-desktop-settings--button "Change…" (lambda () (lispm-desktop-settings--sandbox-change-list key))
-                                      (concat "Change " help))
-      (insert "  " label ": "
-              (propertize (lispm-desktop-settings--sandbox-entries
-                           ;; Relative file names are the project's.
-                           (mapcar (lambda (entry) (if (equal entry ".") "the project" entry))
-                                   (plist-get rules key))
-                           (max 12 (- 50 (length label))))
-                          'face 'shadow)
-              "\n"))
+      (let ((label (lispm-desktop-tr "%s: " (lispm-desktop-tr label))))
+        (insert lispm-desktop-settings--indent)
+        (lispm-desktop-settings--button (lispm-desktop-tr "Change…")
+                                        (lambda () (lispm-desktop-settings--sandbox-change-list key))
+                                        (lispm-desktop-tr help))
+        (insert "  " label
+                (propertize (lispm-desktop-settings--sandbox-entries
+                             ;; Relative file names are the project's.
+                             (mapcar (lambda (entry) (if (equal entry ".") (lispm-desktop-tr "the project") entry))
+                                     (plist-get rules key))
+                             (max 12 (- 52 (length label))))
+                            'face 'shadow)
+                "\n")))
     (insert "\n")
     (pcase-dolist (`(,key ,label ,system) lispm-desktop-settings--sandbox-switches)
       (when (or (null system) (eq system system-type))
         (lispm-desktop-settings--check-box
-         label (plist-get rules key)
+         (lispm-desktop-tr label) (plist-get rules key)
          (lambda () (lispm-desktop-settings--sandbox-rule key (not (plist-get (lispm-sandbox-rules 'custom) key)))))
         (when (eq key :apple-events)
           (lispm-desktop-settings--paragraph
-           "Caution: the applications they open run outside the sandbox."
+           (lispm-desktop-tr "Caution: the applications they open run outside the sandbox.")
            (lispm-desktop-settings--under-label 'check-box)))))
     (insert "\n")
     (when-let* ((wrong (condition-case error
@@ -720,11 +774,11 @@ button for each list, a check box for each switch."
       (lispm-desktop-settings--paragraph (concat wrong "."))
       (insert "\n"))
     (lispm-desktop-settings--paragraph
-     "Whatever the rules, commands write their temporary directory, and never where Emacs and LispM keep their files.")
+     (lispm-desktop-tr "Whatever the rules, commands write their temporary directory, and never where Emacs and LispM keep their files."))
     (when (fboundp 'lispm-sandbox-customize)
       (insert lispm-desktop-settings--indent)
-      (lispm-desktop-settings--button "Customize…" #'lispm-sandbox-customize
-                                      "Edit the Custom rules in Customize")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Customize…") #'lispm-sandbox-customize
+                                      (lispm-desktop-tr "Edit the Custom rules in Customize"))
       (insert "\n"))))
 
 (defun lispm-desktop-settings--sandbox-srt (status)
@@ -732,25 +786,25 @@ button for each list, a check box for each switch."
 commands, given its STATUS (see `lispm-sandbox-srt-status'): sentences."
   (cons (pcase status
           ('ready (if lispm-sandbox-srt-program
-                      (format "srt, Anthropic's sandbox runtime, runs from %s."
-                              (abbreviate-file-name lispm-sandbox-srt-program))
-                    (format "srt %s, Anthropic's sandbox runtime, is installed." lispm-sandbox-srt-version)))
-          ('installing (format "Installing srt %s, Anthropic's sandbox runtime, with npm…"
-                               lispm-sandbox-srt-version))
-          (`(failed . ,why) (format "Sandbox unavailable: %s."
-                                    (lispm-desktop-settings--truncate (string-trim why "[ \t\n]+" "[ \t\n.]+")
-                                                                      240)))
-          (_ "Any level but None installs srt, Anthropic's sandbox runtime, with npm first."))
+                      (lispm-desktop-tr "srt, Anthropic's sandbox runtime, runs from %s."
+                                        (abbreviate-file-name lispm-sandbox-srt-program))
+                    (lispm-desktop-tr "srt %s, Anthropic's sandbox runtime, is installed." lispm-sandbox-srt-version)))
+          ('installing (lispm-desktop-tr "Installing srt %s, Anthropic's sandbox runtime, with npm…"
+                                         lispm-sandbox-srt-version))
+          (`(failed . ,why) (lispm-desktop-tr "Sandbox unavailable: %s."
+                                              (lispm-desktop-settings--truncate
+                                               (string-trim why "[ \t\n]+" "[ \t\n.]+") 240)))
+          (_ (lispm-desktop-tr "Any level but None installs srt, Anthropic's sandbox runtime, with npm first.")))
         (unless (or (eq status 'ready) (eq lispm-sandbox-level 'none))
-          (list "Until it runs, agents' commands fail rather than run unconfined."))))
+          (list (lispm-desktop-tr "Until it runs, agents' commands fail rather than run unconfined.")))))
 
 (defun lispm-desktop-settings--sandbox ()
   "Insert the Sandbox panel: how strictly agents' shell commands and MCP
 servers are confined, whether srt is there to confine them, the rules
 of the level Custom while it is chosen, and the domains they may reach.
 LispM Agent's lispm-sandbox.el does the rest."
-  (lispm-desktop-settings--heading "Sandbox Level")
-  (lispm-desktop-settings--note "How far agents' shell commands and MCP servers are confined:")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Sandbox Level"))
+  (lispm-desktop-settings--paragraph (lispm-desktop-tr "How far agents' shell commands and MCP servers are confined:"))
   (pcase-dolist (`(,level . ,_) lispm-sandbox-levels)
     (lispm-desktop-settings--radio (lispm-sandbox-level-name level) (eq lispm-sandbox-level level)
                                    (lambda () (lispm-desktop-settings--sandbox-level level)))
@@ -762,53 +816,57 @@ LispM Agent's lispm-sandbox.el does the rest."
       (mapc #'lispm-desktop-settings--paragraph (lispm-desktop-settings--sandbox-srt status))
       (when (and (eq (car-safe status) 'failed) (not lispm-sandbox-srt-program))
         (insert lispm-desktop-settings--indent)
-        (lispm-desktop-settings--button "Try Again" #'lispm-sandbox-install "Install srt again")
+        (lispm-desktop-settings--button (lispm-desktop-tr "Try Again") #'lispm-sandbox-install
+                                        (lispm-desktop-tr "Install srt again"))
         (insert "\n"))
       (insert "\n")))
   (lispm-desktop-settings--paragraph
-   "Running commands take a new level's network rules at once, its file rules when they start again.")
+   (lispm-desktop-tr "Running commands take a new level's network rules at once, its file rules when they start again."))
   (when (and (eq lispm-sandbox-level 'custom) (lispm-desktop-settings--sandbox-custom-p))
     (lispm-desktop-settings--sandbox-custom))
-  (lispm-desktop-settings--heading "Allowed Domains")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Allowed Domains"))
   (lispm-desktop-settings--note
    (if lispm-sandbox-allowed-domains
        (lispm-desktop-settings--truncate (string-join lispm-sandbox-allowed-domains ", ") 58)
-     "None."))
+     (lispm-desktop-tr "None.")))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Change…" #'lispm-desktop-settings--sandbox-domains
-                                  "Change the domains sandboxed commands may reach")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Change…") #'lispm-desktop-settings--sandbox-domains
+                                  (lispm-desktop-tr "Change the domains sandboxed commands may reach"))
   (insert "\n\n")
   (lispm-desktop-settings--paragraph
-   "Low reaches them besides package registries and code hosts, Middle them alone; High reaches no network."))
+   (lispm-desktop-tr "Low reaches them besides package registries and code hosts, Middle them alone; High reaches no network.")))
 
 (defun lispm-desktop-settings--startup-read-item ()
   "Ask what LispM is to open at startup; return it as a startup item, see
 `lispm-desktop-startup-items'."
-  (let* ((kinds '(("Application" . app) ("Document or folder" . file)
-                  ("Program, run in the background" . program) ("Emacs command" . command)))
-         (kind (or (cdr (assoc (completing-read "Open at startup: " kinds nil t) kinds))
-                   (user-error "Choose what to open"))))
+  (let* ((kinds `((,(lispm-desktop-tr "Application") . app) (,(lispm-desktop-tr "Document or folder") . file)
+                  (,(lispm-desktop-tr "Program, run in the background") . program)
+                  (,(lispm-desktop-tr "Emacs command") . command)))
+         (kind (or (cdr (assoc (completing-read (lispm-desktop-tr "Open at startup: ") kinds nil t) kinds))
+                   (user-error (lispm-desktop-tr "Choose what to open")))))
     (pcase kind
       ('app
-       (let ((apps (mapcar (pcase-lambda (`(,key . ,properties)) (cons (plist-get properties :name) key))
+       (let ((apps (mapcar (pcase-lambda (`(,key . ,properties))
+                             (cons (lispm-desktop-tr (plist-get properties :name)) key))
                            lispm-desktop-apps)))
-         (list :app (or (cdr (assoc (completing-read "Application: " apps nil t) apps))
-                        (user-error "Choose an application")))))
+         (list :app (or (cdr (assoc (completing-read (lispm-desktop-tr "Application: ") apps nil t) apps))
+                        (user-error (lispm-desktop-tr "Choose an application"))))))
       ('file
-       (list :file (abbreviate-file-name (read-file-name "Document or folder: " nil nil t))))
+       (list :file (abbreviate-file-name (read-file-name (lispm-desktop-tr "Document or folder: ") nil nil t))))
       ('program
-       (let ((command (string-trim (read-string "Program, as a shell command: "))))
+       (let ((command (string-trim (read-string (lispm-desktop-tr "Program, as a shell command: ")))))
          (when (string-empty-p command)
-           (user-error "Type the command running the program"))
+           (user-error (lispm-desktop-tr "Type the command running the program")))
          (let* ((directory (abbreviate-file-name
-                            (file-name-as-directory (read-directory-name "Run it in: " "~/" nil t))))
+                            (file-name-as-directory
+                             (read-directory-name (lispm-desktop-tr "Run it in: ") "~/" nil t))))
                 (default (lispm-desktop-startup-program-name command))
-                (name (string-trim (read-string "Name: " default))))
+                (name (string-trim (read-string (lispm-desktop-tr "Name: ") default))))
            `(:program ,command
              ,@(unless (equal directory "~/") (list :directory directory))
              ,@(unless (or (string-empty-p name) (equal name default)) (list :name name))))))
       ('command
-       (list :command (intern (completing-read "Emacs command: " obarray #'commandp t)))))))
+       (list :command (intern (completing-read (lispm-desktop-tr "Emacs command: ") obarray #'commandp t)))))))
 
 (defun lispm-desktop-settings--startup-add ()
   "Ask what LispM is to open at startup, and add it to the startup items,
@@ -816,7 +874,7 @@ after the others."
   (let* ((item (lispm-desktop-settings--startup-read-item))
          (name (lispm-desktop-startup-item-name item)))
     (when (member name (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items))
-      (user-error "There is already a startup item called “%s”" name))
+      (user-error (lispm-desktop-tr "There is already a startup item called “%s”") name))
     (lispm-desktop-settings--save 'lispm-desktop-startup-items
                                   (append lispm-desktop-startup-items (list item)))))
 
@@ -824,13 +882,13 @@ after the others."
   "Ask with PROMPT for one of the startup items, the first by default;
 return its index."
   (let ((names (or (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)
-                   (user-error "There are no startup items"))))
+                   (user-error (lispm-desktop-tr "There are no startup items")))))
     (seq-position names (completing-read prompt names nil t nil nil (car names)))))
 
 (defun lispm-desktop-settings--startup-remove ()
   "Ask for a startup item and take it out of the startup items.  What it
 opened stays open; a program it runs runs on."
-  (let ((index (lispm-desktop-settings--startup-choose "Remove the startup item: ")))
+  (let ((index (lispm-desktop-settings--startup-choose (lispm-desktop-tr "Remove the startup item: "))))
     (lispm-desktop-settings--save 'lispm-desktop-startup-items
                                   (append (seq-take lispm-desktop-startup-items index)
                                           (seq-drop lispm-desktop-startup-items (1+ index))))))
@@ -838,7 +896,7 @@ opened stays open; a program it runs runs on."
 (defun lispm-desktop-settings--startup-open ()
   "Ask for a startup item and open it now; a program's output shows."
   (lispm-desktop-startup-open-item
-   (nth (lispm-desktop-settings--startup-choose "Open the startup item: ") lispm-desktop-startup-items)
+   (nth (lispm-desktop-settings--startup-choose (lispm-desktop-tr "Open the startup item: ")) lispm-desktop-startup-items)
    t))
 
 (defun lispm-desktop-settings--startup-toggle (index)
@@ -854,41 +912,43 @@ opened stays open; a program it runs runs on."
 (defun lispm-desktop-settings--startup-item-note (item)
   "Return what the Startup panel says of ITEM after its name."
   (pcase (lispm-desktop-startup-item-kind item)
-    ('app "application")
-    ('file (let ((file (expand-file-name (plist-get item :file))))
-             (format "%s in %s" (if (file-directory-p file) "folder" "document")
-                     (abbreviate-file-name (file-name-directory (directory-file-name file))))))
+    ('app (lispm-desktop-tr "application"))
+    ('file (let* ((file (expand-file-name (plist-get item :file)))
+                  (in (abbreviate-file-name (file-name-directory (directory-file-name file)))))
+             (if (file-directory-p file)
+                 (lispm-desktop-tr "folder in %s" in)
+               (lispm-desktop-tr "document in %s" in))))
     ;; How it runs first, as the command may be cut short.
-    ('program (format "%s: %s"
-                      (pcase (lispm-desktop-startup-program-status item)
-                        ('running "running")
-                        (`(exited . ,(and code (pred integerp))) (format "stopped, exit %d" code))
-                        (`(exited . ,_) "stopped")
-                        (_ "program"))
-                      (plist-get item :program)))
+    ('program (lispm-desktop-tr "%s: %s"
+                                (pcase (lispm-desktop-startup-program-status item)
+                                  ('running (lispm-desktop-tr "running"))
+                                  (`(exited . ,(and code (pred integerp))) (lispm-desktop-tr "stopped, exit %d" code))
+                                  (`(exited . ,_) (lispm-desktop-tr "stopped"))
+                                  (_ (lispm-desktop-tr "program")))
+                                (plist-get item :program)))
     ('command (let ((command (symbol-name (plist-get item :command))))
                 (if (equal command (lispm-desktop-startup-item-name item))
-                    "Emacs command"
-                  (format "Emacs command %s" command))))
-    (_ "names nothing to open")))
+                    (lispm-desktop-tr "Emacs command")
+                  (lispm-desktop-tr "Emacs command %s" command))))
+    (_ (lispm-desktop-tr "names nothing to open"))))
 
 (defun lispm-desktop-settings--startup ()
   "Insert the Startup panel: whether the computer opens LispM at login,
 and the startup items LispM opens once started."
-  (lispm-desktop-settings--heading "Login")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Login"))
   (if (not (lispm-desktop-startup-login-file))
-      (lispm-desktop-settings--note "This system gives LispM no way to open at login.")
+      (lispm-desktop-settings--paragraph (lispm-desktop-tr "This system gives LispM no way to open at login."))
     (lispm-desktop-settings--check-box
-     "Open LispM when you log in" (lispm-desktop-startup-login-p)
+     (lispm-desktop-tr "Open LispM when you log in") (lispm-desktop-startup-login-p)
      (lambda () (lispm-desktop-open-at-login (not (lispm-desktop-startup-login-p)))))
     (lispm-desktop-settings--note
-     (lispm-desktop-settings--truncate (format "Opens %s." (lispm-desktop-startup-login-description)) 62))
+     (lispm-desktop-settings--truncate (lispm-desktop-tr "Opens %s." (lispm-desktop-startup-login-description)) 62))
     (when (eq system-type 'darwin)
-      (lispm-desktop-settings--note "System Settings lists it in its Login Items.")))
-  (lispm-desktop-settings--heading "Startup Items")
-  (lispm-desktop-settings--note "Opened once LispM has started, in this order:")
+      (lispm-desktop-settings--paragraph (lispm-desktop-tr "System Settings lists it in its Login Items."))))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Startup Items"))
+  (lispm-desktop-settings--paragraph (lispm-desktop-tr "Opened once LispM has started, in this order:"))
   (if (null lispm-desktop-startup-items)
-      (lispm-desktop-settings--note "None.")
+      (lispm-desktop-settings--note (lispm-desktop-tr "None."))
     (seq-do-indexed
      (lambda (item index)
        (let ((name (lispm-desktop-startup-item-name item)))
@@ -899,29 +959,25 @@ and the startup items LispM opens once started."
                                             (max 12 (- 54 (length name)))))))
      lispm-desktop-startup-items))
   (insert "\n" lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Add…" #'lispm-desktop-settings--startup-add
-                                  "Add an application, a document, a program or a command")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Add…") #'lispm-desktop-settings--startup-add
+                                  (lispm-desktop-tr "Add an application, a document, a program or a command"))
   (when lispm-desktop-startup-items
     (insert " ")
-    (lispm-desktop-settings--button "Remove…" #'lispm-desktop-settings--startup-remove
-                                    "Take an item out of the startup items")
+    (lispm-desktop-settings--button (lispm-desktop-tr "Remove…") #'lispm-desktop-settings--startup-remove
+                                    (lispm-desktop-tr "Take an item out of the startup items"))
     (insert " ")
-    (lispm-desktop-settings--button "Open…" #'lispm-desktop-settings--startup-open
-                                    "Open an item now, or show a program's output"))
+    (lispm-desktop-settings--button (lispm-desktop-tr "Open…") #'lispm-desktop-settings--startup-open
+                                    (lispm-desktop-tr "Open an item now, or show a program's output")))
   (insert "\n\n")
-  (lispm-desktop-settings--note "A program runs in the background while LispM runs, and")
-  (lispm-desktop-settings--note "stops as it quits; its output is in its own buffer."))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "A program runs in the background while LispM runs, and stops as it quits; its output is in its own buffer.")))
 
 (defun lispm-desktop-settings--when (time)
   "Return TIME as the Software Update panel tells it: today at 23:50, or
 on a day before, 18 October 2026 at 09:12."
   (if (equal (format-time-string "%F" time) (format-time-string "%F"))
-      (format-time-string "today at %H:%M" time)
-    (format-time-string "%-d %B %Y at %H:%M" time)))
-
-(defun lispm-desktop-settings--plural (count word)
-  "Return COUNT and WORD, made plural when COUNT is not one."
-  (format "%d %s%s" count word (if (= count 1) "" "s")))
+      (lispm-desktop-format-time "today at %H:%M" time)
+    (lispm-desktop-format-time "%-d %B %Y at %H:%M" time)))
 
 (defun lispm-desktop-settings--truncate (text width)
   "Return TEXT cut to WIDTH characters, an ellipsis standing for the rest."
@@ -949,12 +1005,12 @@ or a line an update, Restart to Update after them."
         (checked (lispm-desktop-update-last-check)))
     (cond
      ((lispm-desktop-update-checking-p)
-      (lispm-desktop-settings--note "Checking for updates…"))
+      (lispm-desktop-settings--note (lispm-desktop-tr "Checking for updates…")))
      (updates
       (dolist (update updates)
         (let* ((changes (plist-get update :changes))
-               (head (format "%s, %s" (lispm-desktop-update-title update)
-                             (lispm-desktop-settings--plural (length changes) "change"))))
+               (head (lispm-desktop-tr-n "%s, %d change" "%s, %d changes" (length changes)
+                                         (lispm-desktop-update-title update) (length changes))))
           (insert lispm-desktop-settings--indent (propertize head 'face 'bold))
           (when changes
             (insert (propertize (concat ": " (lispm-desktop-settings--truncate
@@ -962,23 +1018,26 @@ or a line an update, Restart to Update after them."
                                 'face 'shadow)))
           (insert "\n")))
       (insert lispm-desktop-settings--indent)
-      (lispm-desktop-settings--button "Restart to Update" #'lispm-desktop-update-restart
-                                      "Restart LispM, installing the updates as it quits")
-      (insert "  " (propertize (cond ((lispm-desktop-update-needs-installer-p) "install.sh remakes LispM.app")
-                                     ((lispm-desktop-update-installs-on-quit-p) "or as LispM quits")
-                                     (t "or later, from here"))
+      (lispm-desktop-settings--button (lispm-desktop-tr "Restart to Update") #'lispm-desktop-update-restart
+                                      (lispm-desktop-tr "Restart LispM, installing the updates as it quits"))
+      (insert "  " (propertize (cond ((lispm-desktop-update-needs-installer-p)
+                                      (lispm-desktop-tr "install.sh remakes LispM.app"))
+                                     ((lispm-desktop-update-installs-on-quit-p)
+                                      (lispm-desktop-tr "or as LispM quits"))
+                                     (t (lispm-desktop-tr "or later, from here")))
                                'face 'shadow)
               "\n"))
      (failed
       (dolist (result failed)
         (lispm-desktop-settings--note
-         (lispm-desktop-settings--truncate (format "%s could not be checked: %s" (plist-get result :name)
-                                                   (plist-get result :reason))
+         (lispm-desktop-settings--truncate (lispm-desktop-tr "%s could not be checked: %s"
+                                                             (plist-get result :name)
+                                                             (lispm-desktop-tr (plist-get result :reason)))
                                            64))))
      (checked
-      (lispm-desktop-settings--note (format "LispM is up to date; checked %s."
-                                            (lispm-desktop-settings--when checked))))
-     (t (lispm-desktop-settings--note "Not checked yet.")))))
+      (lispm-desktop-settings--paragraph (lispm-desktop-tr "LispM is up to date; checked %s."
+                                                           (lispm-desktop-settings--when checked))))
+     (t (lispm-desktop-settings--note (lispm-desktop-tr "Not checked yet."))))))
 
 (defun lispm-desktop-settings--show-store-updates ()
   "Show the App Store's Updates."
@@ -989,52 +1048,55 @@ or a line an update, Restart to Update after them."
   "Insert the part of the Software Update panel about the App Store's
 applications and extensions: whether their updates install by
 themselves, and which wait."
-  (lispm-desktop-settings--heading "Applications")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Applications"))
   (lispm-desktop-settings--check-box
-   "Update applications automatically" lispm-desktop-store-update-automatically
+   (lispm-desktop-tr "Update applications automatically") lispm-desktop-store-update-automatically
    (lambda () (lispm-desktop-settings--save 'lispm-desktop-store-update-automatically
                                             (not lispm-desktop-store-update-automatically)))
    (if lispm-desktop-store-update-automatically
-       "when LispM is idle, an application once closed"
-     "they wait in the App Store"))
+       (lispm-desktop-tr "when LispM is idle, an application once closed")
+     (lispm-desktop-tr "they wait in the App Store")))
   (if-let* ((updates (lispm-desktop-store-updates)))
       (progn
         (insert lispm-desktop-settings--indent
-                (format "%s can be updated  " (lispm-desktop-store--update-names updates)))
-        (lispm-desktop-settings--button "Show Updates" #'lispm-desktop-settings--show-store-updates
-                                        "Show them in the App Store's Updates")
+                (lispm-desktop-tr "%s can be updated" (lispm-desktop-store--update-names updates)) "  ")
+        (lispm-desktop-settings--button (lispm-desktop-tr "Show Updates") #'lispm-desktop-settings--show-store-updates
+                                        (lispm-desktop-tr "Show them in the App Store's Updates"))
         (insert "\n"))
-    (lispm-desktop-settings--note "The applications from the App Store are up to date.")))
+    (lispm-desktop-settings--paragraph (lispm-desktop-tr "The applications from the App Store are up to date."))))
 
 (defun lispm-desktop-settings--update ()
   "Insert the Software Update panel: Update Now, what it found, how it
 checks and installs by itself, and what is installed."
-  (lispm-desktop-settings--heading "Software Update")
-  (lispm-desktop-settings--note "Checks for new versions of LispM and of the App Store's applications.")
-  (lispm-desktop-settings--icon-button "software-update-32" "Update Now" #'lispm-desktop-update-now
-                                       "Check for updates now")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Software Update"))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Checks for new versions of LispM and of the App Store's applications."))
+  (lispm-desktop-settings--icon-button "software-update-32" (lispm-desktop-tr "Update Now") #'lispm-desktop-update-now
+                                       (lispm-desktop-tr "Check for updates now"))
   (lispm-desktop-settings--update-status)
-  (lispm-desktop-settings--heading "Automatic Updates")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Automatic Updates"))
   (lispm-desktop-settings--check-box
-   "Check for updates automatically" lispm-desktop-update-check-automatically
+   (lispm-desktop-tr "Check for updates automatically") lispm-desktop-update-check-automatically
    (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-check-automatically
                                             (not lispm-desktop-update-check-automatically))))
   (insert lispm-desktop-settings--indent lispm-desktop-settings--indent)
-  (lispm-desktop-settings--radio-button "Every day" (eq lispm-desktop-update-schedule 'daily)
+  (lispm-desktop-settings--radio-button (lispm-desktop-tr "Every day") (eq lispm-desktop-update-schedule 'daily)
                                         (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-schedule 'daily))
-                                        "Check once a day")
+                                        (lispm-desktop-tr "Check once a day"))
   (insert "   ")
-  (lispm-desktop-settings--radio-button "Every week" (eq lispm-desktop-update-schedule 'weekly)
+  (lispm-desktop-settings--radio-button (lispm-desktop-tr "Every week") (eq lispm-desktop-update-schedule 'weekly)
                                         (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-schedule 'weekly))
-                                        "Check once a week")
+                                        (lispm-desktop-tr "Check once a week"))
   (insert "\n")
   (lispm-desktop-settings--check-box
-   "Ask me before installing updates" (not lispm-desktop-update-install-automatically)
+   (lispm-desktop-tr "Ask me before installing updates") (not lispm-desktop-update-install-automatically)
    (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-install-automatically
                                             (not lispm-desktop-update-install-automatically)))
-   (if lispm-desktop-update-install-automatically "else, as LispM quits" "they wait for Restart"))
+   (if lispm-desktop-update-install-automatically
+       (lispm-desktop-tr "else, as LispM quits")
+     (lispm-desktop-tr "they wait for Restart")))
   (lispm-desktop-settings--applications)
-  (lispm-desktop-settings--heading "Installed")
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Installed"))
   (let ((kept (seq-filter (lambda (result) (eq (plist-get result :state) 'kept))
                           (lispm-desktop-update-results))))
     (pcase-dolist (`(,name ,directory ,version) (lispm-desktop-update-installed))
@@ -1042,11 +1104,11 @@ checks and installs by itself, and what is installed."
               (propertize " " 'display '(space :align-to (150)))
               (or version "?"))
       (when-let* ((result (seq-find (lambda (result) (equal (plist-get result :directory) directory)) kept)))
-        (insert "  " (propertize (format "left as it is: %s" (plist-get result :reason)) 'face 'shadow)))
+        (insert "  " (propertize (lispm-desktop-tr "left as it is: %s" (lispm-desktop-tr (plist-get result :reason))) 'face 'shadow)))
       (insert "\n")))
   (insert lispm-desktop-settings--indent)
-  (lispm-desktop-settings--button "Show Log" #'lispm-desktop-update-show-log
-                                  "List the updates ready, and what Software Update installed")
+  (lispm-desktop-settings--button (lispm-desktop-tr "Show Log") #'lispm-desktop-update-show-log
+                                  (lispm-desktop-tr "List the updates ready, and what Software Update installed"))
   (insert "\n"))
 
 ;;;; The window
@@ -1066,10 +1128,11 @@ checks and installs by itself, and what is installed."
 (defun lispm-desktop-settings--tabs ()
   "Return the window's header line: a tab per panel, the shown one in front."
   (lispm-desktop-platinum-tabs
-   (mapcar (pcase-lambda (`(,key ,label . ,_))
-             (list label (eq key lispm-desktop-settings--panel)
-                   'lispm-desktop-settings-panel key 'keymap lispm-desktop-settings-tab-map
-                   'pointer 'arrow 'help-echo (format "Show %s" label)))
+   (mapcar (lambda (panel)
+             (let ((label (lispm-desktop-settings-panel-label panel)))
+               (list label (eq (car panel) lispm-desktop-settings--panel)
+                     'lispm-desktop-settings-panel (car panel) 'keymap lispm-desktop-settings-tab-map
+                     'pointer 'arrow 'help-echo (lispm-desktop-tr "Show %s" label))))
            (lispm-desktop-settings--panels))
    (- (window-pixel-width) (window-right-divider-width))))
 
@@ -1101,7 +1164,7 @@ checks and installs by itself, and what is installed."
               (dotimes (_ (1+ control)) (forward-button 1 nil nil t))
             (forward-line (1- line))))
         (setq lispm-desktop-platinum-focus nil
-              lispm-desktop-platinum-title (nth 1 panel))
+              lispm-desktop-platinum-title (lispm-desktop-settings-panel-label panel))
         (lispm-desktop-platinum-show-focus)
         (force-mode-line-update)))))
 
@@ -1136,6 +1199,30 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
       (setq lispm-desktop-settings--width width)
       (lispm-desktop-settings--render))))
 
+(defun lispm-desktop-settings--widen ()
+  "Widen the control panel's window, while it is open, until its tabs show
+whole, as far as its screen allows; a row of tabs still too wide cuts its
+widest names short.  A language with longer names than the one the
+window opened in needs it.  This is one of
+`lispm-desktop-language-changed-hook'."
+  (when-let* ((frame (lispm-desktop-app-window-frame 'settings))
+              ((frame-live-p frame))
+              ((not (lispm-desktop-app-window-rolled-p frame)))
+              (window (get-buffer-window lispm-desktop-settings-buffer-name frame)))
+    (let ((short (- (+ (lispm-desktop-platinum-tabs-width
+                        (mapcar #'lispm-desktop-settings-panel-label (lispm-desktop-settings--panels)))
+                       12)
+                    (window-pixel-width window)))
+          (most (- (if-let* ((screen (lispm-desktop-apps-window-screen frame)))
+                       (frame-inner-width screen)
+                     (display-pixel-width))
+                   60)))
+      (when (and (> short 0) (< (frame-text-width frame) most))
+        (let ((frame-resize-pixelwise t))
+          (set-frame-size frame (min most (+ (frame-text-width frame) short)) (frame-text-height frame) t))
+        (lispm-desktop-platinum-frame-update frame)
+        (lispm-desktop-apps-keep-on-desktop frame)))))
+
 (defvar-keymap lispm-desktop-settings-mode-map
   :doc "Keymap of the control panel's window."
   :parent button-buffer-map
@@ -1150,9 +1237,9 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
 (define-derived-mode lispm-desktop-settings-mode lispm-desktop-app-window-mode "Control Panels"
   "Major mode of the control panel's window: a panel of settings, a tab each.
 \\{lispm-desktop-settings-mode-map}"
-  (setq-local lispm-desktop-platinum-info "Choices are kept for the next start."
+  (setq-local lispm-desktop-platinum-info (lambda () (lispm-desktop-tr "Choices are kept for the next start."))
               header-line-format '(:eval (lispm-desktop-settings--tabs))
-              lispm-desktop-platinum-title "Control Panels"
+              lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Control Panels"))
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "control-panels")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
@@ -1175,7 +1262,7 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
   "Return where the control panel's window opens first: the middle of
 SCREEN, wide enough for every panel's tab."
   (let ((width (max 520 (+ (lispm-desktop-platinum-tabs-width
-                            (mapcar #'cadr (lispm-desktop-settings--panels)))
+                            (mapcar #'lispm-desktop-settings-panel-label (lispm-desktop-settings--panels)))
                            ;; The window's sides, and a little of the
                            ;; pane's edge after the last tab.
                            24)))
@@ -1185,7 +1272,7 @@ SCREEN, wide enough for every panel's tab."
           width height)))
 
 (lispm-desktop-app-window-define 'settings
-  :name "Control Panels" :geometry #'lispm-desktop-settings--default-geometry
+  :name (lispm-desktop-tr-noop "Control Panels") :geometry #'lispm-desktop-settings--default-geometry
   :buffer #'lispm-desktop-settings--buffer :roll 'chrome)
 
 (defun lispm-desktop-settings-show (&optional panel)
@@ -1208,14 +1295,16 @@ SCREEN, wide enough for every panel's tab."
 (defun lispm-desktop-settings-panel-items ()
   "Return a menu item opening each panel, as the λ menu's Control Panels
 lists them, as Mac OS 9's Apple menu listed its control panels."
-  (mapcar (pcase-lambda (`(,key ,label . ,_))
-            (list :label label :action (lambda () (lispm-desktop-settings-show key))))
+  (mapcar (lambda (panel)
+            (list :label (lispm-desktop-settings-panel-label panel)
+                  :action (lambda () (lispm-desktop-settings-show (car panel)))))
           (lispm-desktop-settings--panels)))
 
 (defun lispm-desktop-settings--folder-items ()
   "Return the Control Panels folder's items, see `lispm-desktop-finder-folders'."
-  (mapcar (pcase-lambda (`(,key ,label ,_ ,icon . ,_))
-            (list label icon (lambda () (lispm-desktop-settings-show key))))
+  (mapcar (lambda (panel)
+            (list (lispm-desktop-settings-panel-label panel) (nth 3 panel)
+                  (lambda () (lispm-desktop-settings-show (car panel)))))
           (lispm-desktop-settings--panels)))
 
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
@@ -1229,21 +1318,22 @@ the Control Panels folder of Mac OS 9's System Folder."
 
 (defun lispm-desktop-settings--file-items ()
   "Return the items of the Control Panels File menu."
-  '((:label "Close Window" :action lispm-desktop-settings-close)))
+  `((:label ,(lispm-desktop-tr "Close Window") :action lispm-desktop-settings-close)))
 
 (defun lispm-desktop-settings--view-items ()
   "Return the items of the Control Panels View menu: a panel each, the shown one
 checked."
   (let ((shown (buffer-local-value 'lispm-desktop-settings--panel (lispm-desktop-settings--buffer))))
-    (mapcar (pcase-lambda (`(,key ,label . ,_))
-              (list :label label :action (lambda () (lispm-desktop-settings-show key))
-                    :checked (eq key shown)))
+    (mapcar (lambda (panel)
+              (list :label (lispm-desktop-settings-panel-label panel)
+                    :action (lambda () (lispm-desktop-settings-show (car panel)))
+                    :checked (eq (car panel) shown)))
             (lispm-desktop-settings--panels))))
 
 (defun lispm-desktop-settings-menus ()
   "Return the Control Panels menus, for the menu bar while they are in front."
-  '((lispm-desktop-settings-file "File" lispm-desktop-settings--file-items)
-    (lispm-desktop-settings-view "View" lispm-desktop-settings--view-items)))
+  `((lispm-desktop-settings-file ,(lispm-desktop-tr "File") lispm-desktop-settings--file-items)
+    (lispm-desktop-settings-view ,(lispm-desktop-tr "View") lispm-desktop-settings--view-items)))
 
 (defun lispm-desktop-setup-settings ()
   "Make Control Panels an application: its folder holds a panel each, and
@@ -1251,8 +1341,10 @@ its window follows the application in front and shows the theme's colours
 when they change, and what is chosen elsewhere: the sandbox level chosen
 with /sandbox in a chat, for one."
   (setf (alist-get 'control-panels lispm-desktop-finder-folders)
-        '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
+        `(:title ,(lispm-desktop-tr-noop "Control Panels") :icon "control-panels"
+                 :items lispm-desktop-settings--folder-items))
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-settings--widen)
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render)
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--update-loading)
   (add-hook 'lispm-desktop-startup-changed-hook #'lispm-desktop-settings--render)

@@ -55,11 +55,12 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-surface)
+(require 'lispm-desktop-i18n)
 
 (lispm-desktop-look-define
  'os2
  :title "OS/2 2.0"
- :description "OS/2 2.0's Workplace Shell: teal title bars, pale yellow borders"
+ :description (lispm-desktop-tr-noop "OS/2 2.0's Workplace Shell: teal title bars, pale yellow borders")
  :theme 'os2
  :icons '("os2")
  :system-families '("Helvetica" "Helv" "Arial")
@@ -196,14 +197,15 @@ Restore, Minimize, Maximize and Close, those WINDOW cannot do disabled."
                (`(,left ,top ,_ ,_) (window-pixel-edges window))
                (margins (lispm-desktop-platinum-window-box-margins window)))
     (lispm-desktop-popup-menu
-     (list (list :label "Restore" :enabled (and zoom (frame-parameter nil 'lispm-desktop-platinum-unzoom) t)
+     (list (list :label (lispm-desktop-tr-in "OS/2 2.0" "Restore")
+                 :enabled (and zoom (frame-parameter nil 'lispm-desktop-platinum-unzoom) t)
                  :action (lambda () (lispm-desktop-platinum-zoom-window window)))
-           (list :label "Minimize" :enabled (and collapse t)
+           (list :label (lispm-desktop-tr-in "OS/2 2.0" "Minimize") :enabled (and collapse t)
                  :action (lambda () (lispm-desktop-platinum-collapse-window window)))
-           (list :label "Maximize" :enabled (and zoom t)
+           (list :label (lispm-desktop-tr-in "OS/2 2.0" "Maximize") :enabled (and zoom t)
                  :action (lambda () (lispm-desktop-platinum-zoom-window window)))
            'separator
-           (list :label "Close"
+           (list :label (lispm-desktop-tr-in "OS/2 2.0" "Close")
                  :action (lambda () (lispm-desktop-platinum-close-window window))))
      (+ left (lispm-desktop-look-box-margin (car margins)))
      (+ top (window-tab-line-height window)))))
@@ -226,6 +228,7 @@ as OS/2's did.  MODIFIED marks the title with a star; STATUS follows it."
                (label (let ((label (copy-sequence label)))
                         (add-face-text-property 0 (length label) face t label)
                         (lispm-desktop-platinum-fit label (plist-get layout :title))))
+               (title-help (lispm-desktop-platinum-title-help))
                (palette lispm-desktop-platinum-current-palette))
     (cl-flet ((caption (from to &optional text)
                 (propertize " " 'display
@@ -237,7 +240,7 @@ as OS/2's did.  MODIFIED marks the title with a star; STATUS follows it."
                                (lispm-desktop-os2-draw-caption palette (- to from) active text
                                                                (- (plist-get layout :label-x) from))))
                             'keymap lispm-desktop-platinum-title-map
-                            'help-echo lispm-desktop-platinum-title-help))
+                            'help-echo title-help))
               (button (kind box command help)
                 (lispm-desktop-platinum-box-button
                  (propertize " " 'display
@@ -252,12 +255,15 @@ as OS/2's did.  MODIFIED marks the title with a star; STATUS follows it."
       (concat
        (when (> lead 0) (caption 0 lead))
        (when close
-         (button 'system 'close #'lispm-desktop-os2-system-menu "System menu: restore, minimize, maximize, close"))
+         (button 'system 'close #'lispm-desktop-os2-system-menu
+                 (lispm-desktop-tr "System menu: restore, minimize, maximize, close")))
        (caption start end label)
        (when collapse
-         (button 'minimize 'collapse #'lispm-desktop-platinum-collapse-window "Minimize: roll up to the title bar"))
+         (button 'minimize 'collapse #'lispm-desktop-platinum-collapse-window
+                 (lispm-desktop-tr "Minimize: roll up to the title bar")))
        (when zoom
-         (button 'maximize 'zoom #'lispm-desktop-platinum-zoom-window "Maximize, or restore"))
+         (button 'maximize 'zoom #'lispm-desktop-platinum-zoom-window
+                 (lispm-desktop-tr-in "OS/2 2.0" "Maximize, or restore")))
        (when (> trail 0) (caption 0 trail))))))
 
 ;;;; Borders
@@ -864,7 +870,8 @@ when SELECTED, icon and title set on the highlight colour.  See
                 (lispm-desktop-platinum-legible desktop (plist-get palette :text) (plist-get palette :content))))
          (center (+ x (/ lispm-desktop-column 2)))
          (icon-left (- center (/ lispm-desktop-icon-size 2)))
-         (label-left (- center (/ label-width 2)))
+         (label-center (lispm-desktop--label-center spec x))
+         (label-left (- label-center (/ label-width 2)))
          (label-top (+ y lispm-desktop-icon-size 4)))
     (concat
      (when selected
@@ -876,7 +883,7 @@ when SELECTED, icon and title set on the highlight colour.  See
        (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
                label-left label-top label-width (+ size 4) (plist-get palette :highlight)))
      (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
-             center (+ label-top 2 ascent) (lispm-desktop--escape family) size ink
+             label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size ink
              (lispm-desktop--escape (plist-get spec :label))))))
 
 ;;;; Faces
