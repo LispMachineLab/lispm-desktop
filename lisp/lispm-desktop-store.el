@@ -62,11 +62,12 @@
 ;; the extension take part; unloaded (`unload-feature') it takes part no
 ;; more.  An extension needing a :program can be installed only while
 ;; that program is on PATH; :install says how to install the program.
-;; An app's :programs are those it uses beyond Emacs, as EMMS a player,
-;; each (NAME :for WHAT :install COMMAND :instead STAND-INS :more
-;; WHAT-MORE): one missing does not keep it from being installed, but
-;; its information says so, Copy Install Command copies the command,
-;; and its window tells, see lispm-desktop-app-ui.el.
+;; An app's :needs are the programs, libraries and applications it uses
+;; beyond Emacs, as EMMS a player, each as lispm-desktop-needs.el says:
+;; Get installs those missing with the app, in the Installer, the alert
+;; asking for both; its information says what is missing, Install
+;; Missing installs it, and its window offers it, see
+;; lispm-desktop-app-ui.el; the commands a need names offer it too.
 ;; :icon names icons/NAME.svg and icons/NAME-32.svg of the catalog;
 ;; :category, one of `lispm-desktop-store-categories', and :subtitle, a
 ;; few words, place an application in the window.  :requires names the
@@ -105,6 +106,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-needs)
 (require 'lispm-desktop-update)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
@@ -340,22 +342,6 @@ command to build it."
   "Return non-nil when OBJECT is absent or a string."
   (or (null object) (stringp object)))
 
-(defun lispm-desktop-store--programs-valid-p (programs)
-  "Return non-nil when PROGRAMS, an app's :programs, are well formed: each
-\(NAME :for WHAT :install COMMAND :instead STAND-INS :more WHAT-MORE),
-NAME and the stand-ins programs' names, the rest strings, :for needed."
-  (and (proper-list-p programs)
-       (seq-every-p (lambda (program)
-                      (pcase program
-                        (`(,(and name (pred stringp)) . ,(and props (pred plistp)))
-                         (and (not (string-empty-p name))
-                              (stringp (plist-get props :for))
-                              (lispm-desktop-store--string-p (plist-get props :install))
-                              (lispm-desktop-store--string-p (plist-get props :more))
-                              (let ((instead (plist-get props :instead)))
-                                (and (proper-list-p instead) (seq-every-p #'stringp instead)))))))
-                    programs)))
-
 (defun lispm-desktop-store--item-valid-p (item)
   "Return non-nil when ITEM, (ID . PROPERTIES) of a catalog, is well formed."
   (pcase item
@@ -369,7 +355,7 @@ NAME and the stand-ins programs' names, the rest strings, :for needed."
           (let ((icon (plist-get props :icon)))
             (or (null icon) (lispm-desktop-store--safe-file-p icon)))
           (lispm-desktop-store--package-valid-p (plist-get props :package))
-          (lispm-desktop-store--programs-valid-p (plist-get props :programs))
+          (lispm-desktop-needs-list-valid-p (plist-get props :needs))
           (pcase (plist-get props :kind)
             ('app (let ((command (plist-get props :command))
                         (feature (plist-get props :feature)))
@@ -640,7 +626,23 @@ meanwhile, in a pane of the window, or in a window of its own."
         (format "The package %s, from %s at commit %s.\n"
                 name (plist-get spec :url) (plist-get spec :rev))))
      (when-let* ((program (plist-get props :program)))
-       (format "It runs %s, found at %s.\n" program (executable-find program))))))
+       (format "It runs %s, found at %s.\n" program (executable-find program)))
+     (mapconcat (lambda (need)
+                  (format "With it, %s, for %s: %s.\n" (lispm-desktop-needs-name need)
+                          (lispm-desktop-needs-get need :for) (lispm-desktop-needs-install-command need)))
+                (lispm-desktop-store--needs-to-install props)))))
+
+(defun lispm-desktop-store--items-needs (items)
+  "Return what ITEMS need that is missing and the Installer installs, each
+need once."
+  (seq-uniq (mapcan (lambda (item) (lispm-desktop-store--needs-to-install (cdr item))) items)
+            (lambda (need other) (equal (lispm-desktop-needs-key need) (lispm-desktop-needs-key other)))))
+
+(defun lispm-desktop-store--needs-to-install (props)
+  "Return what the item of PROPS needs that is missing and the Installer
+installs, a stand-in there or not."
+  (seq-filter #'lispm-desktop-needs-installable-p
+              (lispm-desktop-needs-missing (plist-get props :needs) t)))
 
 (defun lispm-desktop-store--built-in-p (props)
   "Return non-nil when PROPS describe an application built into Emacs."
@@ -652,7 +654,9 @@ Applications built into Emacs are only made applications: nothing asks."
   (or (seq-every-p (lambda (item) (lispm-desktop-store--built-in-p (cdr item))) items)
       (lispm-desktop-store--confirm
        (format "Install %s?" (lispm-desktop-store--names items))
-       "Its code will run in Emacs as your own does; where it comes from is shown under the window."
+       (concat "Its code will run in Emacs as your own does; where it comes from is shown under the window."
+               (when-let* ((needs (lispm-desktop-store--items-needs items)))
+                 (concat "  It also installs " (lispm-desktop-needs-detail needs))))
        (mapconcat #'lispm-desktop-store--preview items "\n")
        "Install")))
 
@@ -780,7 +784,12 @@ an application one of the desktop's, an extension loaded."
           (dolist (item items)
             (lispm-desktop-store--install-1 item))
         (lispm-desktop-store--status nil)
-        (lispm-desktop-store--render)))))
+        (lispm-desktop-store--render))
+      ;; What they need beyond Emacs, the alert having asked for it too.
+      (when-let* ((needs (lispm-desktop-store--items-needs items)))
+        (lispm-desktop-needs-install needs (string-join (mapcar (lambda (item) (plist-get (cdr item) :name)) items)
+                                                        ", ")
+                                     (lambda (_) (lispm-desktop-store--render)))))))
 
 (defun lispm-desktop-store--delete-package (package)
   "Delete PACKAGE, an item's :package, as package.el deletes one.
@@ -822,7 +831,8 @@ what cannot be unloaded is said, and stays until Emacs restarts."
 (defun lispm-desktop-store--remove-1 (id props)
   "Remove the item ID, of PROPS, unasked, and forget it."
   (pcase (plist-get props :kind)
-    ('app (lispm-desktop-store--unload (plist-get props :feature))
+    ('app (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs id))
+          (lispm-desktop-store--unload (plist-get props :feature))
           (lispm-desktop-app-window-close id)
           (lispm-desktop-remove-app id))
     ('extension (lispm-desktop-store--unload (plist-get props :feature))))
@@ -1093,14 +1103,16 @@ pinned to its newest commit."
        id :name (plist-get props :name)
        :setup (lambda () (lispm-desktop-app-ui-run id (plist-get props :command)))))))
 
-(defun lispm-desktop-store--programs (id)
-  "Return the programs the app ID uses, as its catalog declares them now,
-else as it was installed with: a catalog may come to declare them after
-the app was installed.  The catalogs are read from their clones, if they
-were not yet."
+(defun lispm-desktop-store--needs (id)
+  "Return what the app ID needs beyond Emacs, as its catalog declares it
+now, else as it was installed with: a catalog may come to declare it
+after the app was installed.  The catalogs are read from their clones,
+if they were not yet."
   (unless lispm-desktop-store--catalogs
     (ignore-errors (lispm-desktop-store-read-catalogs)))
-  (plist-get (cdr (assq id (lispm-desktop-store-items))) :programs))
+  (plist-get (or (cdr (assq id (lispm-desktop-store-items)))
+                 (lispm-desktop-store--installed id))
+             :needs))
 
 (defun lispm-desktop-store--register-app (id props)
   "Make the installed application ID, of PROPS, one of the desktop's: its
@@ -1111,10 +1123,11 @@ menus with it."
     (lispm-desktop-define-app
      id :name (plist-get props :name) :icon (lispm-desktop-store--icon props)
      :category (lispm-desktop-store--category-of props) :description (plist-get props :description)
-     :programs (lambda () (lispm-desktop-store--programs id)) :store t
+     :needs (lambda () (lispm-desktop-store--needs id)) :store t
      :menus (lambda () (lispm-desktop-app-ui-menus id))
      :activate (lambda () (lispm-desktop-store-open id))
-     :visible (lambda () (lispm-desktop-app-window-open-p id)))))
+     :visible (lambda () (lispm-desktop-app-window-open-p id))))
+  (lispm-desktop-needs-guard-all (plist-get props :needs) (plist-get props :name)))
 
 (defun lispm-desktop-store--register (id props)
   "Make the installed item ID, of PROPS, take part: an application one of
@@ -1494,14 +1507,17 @@ shown match, and Check for Updates."
 
 (defun lispm-desktop-store--insert-buttons (width)
   "Insert the push buttons under the grid, flush with its right edge:
-Install from URL…, Copy Install Command for an extension whose program
-is missing, Remove, and the selected item's button, Get, Open or Update."
+Install from URL…, Install Missing for an item whose needs the Installer
+installs, Copy Install Command for one whose program it does not, Remove,
+and the selected item's button, Get, Open or Update."
   (let* ((id lispm-desktop-store--selected)
          (props (and id (cdr (assq id (lispm-desktop-store-items)))))
          (action (and props (lispm-desktop-store--action id props)))
          (buttons `(("Install from URL…" lispm-desktop-store-install-from-url nil)
-                    ,@(when (and props (lispm-desktop-store--install-commands props))
-                        '(("Copy Install Command" lispm-desktop-store-copy-install-command nil)))
+                    ,@(cond ((and props (lispm-desktop-store--needs-to-install props))
+                             '(("Install Missing" lispm-desktop-store-install-missing nil)))
+                            ((and props (lispm-desktop-store--install-commands props))
+                             '(("Copy Install Command" lispm-desktop-store-copy-install-command nil))))
                     ("Remove" lispm-desktop-store-remove-selected
                      ,(not (and id (lispm-desktop-store-installed-p id))))
                     (,(or (car action) "Get") lispm-desktop-store-act-selected
@@ -1565,19 +1581,20 @@ is missing, Remove, and the selected item's button, Get, Open or Update."
 
 (defun lispm-desktop-store--description (props)
   "Return the description of the item of PROPS, with how to install the
-program it needs when PATH lacks it, and what of the programs an app uses
-is missing."
+program it needs when PATH lacks it, and what of an app's needs is
+missing."
   (concat (or (plist-get props :description) "")
           (when-let* ((program (lispm-desktop-store--missing-program props)))
             (format "  It needs %s, which is not on PATH%s" program
                     (if-let* ((install (plist-get props :install)))
                         (format "; install it with: %s" install)
                       ".")))
-          (mapconcat (pcase-lambda (`(,name ,state ,properties))
-                       (unless (eq state 'present)
-                         (concat "  " (lispm-desktop-app-ui-program-text "It" name state properties))))
-                     (lispm-desktop-app-ui-program-states (plist-get props :programs)))
+          (mapconcat (lambda (need)
+                       (unless (lispm-desktop-needs-present-p need)
+                         (concat "  " (lispm-desktop-needs-text "It" need))))
+                     (plist-get props :needs))
           (when-let* (((not (lispm-desktop-store--missing-program props)))
+                      ((not (lispm-desktop-store--needs-to-install props)))
                       (install (lispm-desktop-store--install-commands props)))
             (format "  Install them with: %s" install))))
 
@@ -1829,14 +1846,22 @@ an empty TEXT shows every item again."
     (user-error "Select an item first")))
 
 (defun lispm-desktop-store--install-commands (props)
-  "Return the command installing what the item of PROPS uses and PATH lacks,
-or nil: an extension's program, an app's programs, theirs joined."
+  "Return the command installing what the item of PROPS uses and lacks,
+or nil: an extension's program, an app's needs, theirs joined."
   (let ((commands (if (lispm-desktop-store--missing-program props)
                       (ensure-list (plist-get props :install))
-                    (delq nil (mapcar (pcase-lambda (`(,_ ,state ,properties))
-                                        (unless (eq state 'present) (plist-get properties :install)))
-                                      (lispm-desktop-app-ui-program-states (plist-get props :programs)))))))
+                    (delq nil (mapcar #'lispm-desktop-needs-install-command
+                                      (lispm-desktop-needs-missing (plist-get props :needs) t))))))
     (and commands (string-join commands " && "))))
+
+(defun lispm-desktop-store-install-missing ()
+  "Install what the item selected needs and lacks, once confirmed."
+  (interactive)
+  (let* ((id (or (lispm-desktop-store--selected-id) (user-error "Select an item first")))
+         (props (cdr (assq id (lispm-desktop-store-items))))
+         (needs (or (lispm-desktop-store--needs-to-install props)
+                    (user-error "Nothing %s needs is missing" (plist-get props :name)))))
+    (lispm-desktop-needs-ask needs (plist-get props :name) (lambda (_) (lispm-desktop-store--render)))))
 
 (defun lispm-desktop-store-copy-install-command ()
   "Copy the command installing what the item selected uses and PATH lacks."
@@ -1948,6 +1973,7 @@ hides it, as Return does, rather than pressing the item's button."
   "u" #'lispm-desktop-store-update-selected
   "D" #'lispm-desktop-store-remove-selected
   "w" #'lispm-desktop-store-copy-install-command
+  "I" #'lispm-desktop-store-install-missing
   "+" #'lispm-desktop-store-install-from-url
   "g" #'lispm-desktop-store-check-for-updates
   "q" #'lispm-desktop-store-close
@@ -1994,8 +2020,10 @@ The catalogs are fetched the first time it opens after Emacs starts."
               :enabled ,(and (cdr action) t))
       (:label "Remove" :action lispm-desktop-store-remove-selected :key "D"
               :enabled ,(and id (lispm-desktop-store-installed-p id)))
+      (:label "Install Missing" :action lispm-desktop-store-install-missing :key "I"
+              :enabled ,(and props (lispm-desktop-store--needs-to-install props) t))
       (:label "Copy Install Command" :action lispm-desktop-store-copy-install-command :key "w"
-              :enabled ,(and props (plist-get props :install) t))
+              :enabled ,(and props (lispm-desktop-store--install-commands props) t))
       separator
       (:label "Install from URL…" :action lispm-desktop-store-install-from-url :key "+")
       (:label "Check for Updates" :action lispm-desktop-store-check-for-updates :key "g"

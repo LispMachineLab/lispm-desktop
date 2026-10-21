@@ -176,8 +176,12 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   plays with macOS's own afplay and reads tags through Spotlight where mpv and exiftool are not
   installed, and imports the Music app's library and playlists, read-only, through Apple's
   iTunesLibrary, by a small application built the first time (=native/lispm-music-library=).
-  The programs an app uses are declared in its catalog: the App Store and the app's Help menu
-  say which are missing and copy the commands installing them.  A
+  What an app uses beyond Emacs, programs, libraries and applications, its catalog declares
+  as its needs (=lisp/lispm-desktop-needs.el=): Get installs those missing with the app, the
+  alert asking for both, in the *Installer*, a window of its own, one install at a time with
+  Homebrew (offered first where it is not installed, its installer asking for the password in
+  a terminal), saying what fails and trying it again; the app's window offers what is missing
+  as it opens, its Help menu too, and a command needing a program offers it before it runs.  A
   package can describe itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
   application installed in turn and lists what of this it finds missing.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
