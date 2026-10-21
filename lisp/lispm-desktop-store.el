@@ -965,22 +965,32 @@ the desktop's, an extension loaded."
         (error (message "App Store: %s: %s" id (error-message-string err)))))))
 
 (defun lispm-desktop-store-application-items ()
-  "Return a menu item opening each application installed, for the λ menu."
-  (mapcan (pcase-lambda (`(,id . ,props))
-            (when (eq (plist-get props :kind) 'app)
-              (list (list :label (plist-get props :name)
-                          :action (lambda () (lispm-desktop-apps-activate id))))))
-          lispm-desktop-store-installed))
+  "Return a menu item opening each application built in, see
+`lispm-desktop-apps-built-in', then each installed, for the λ menu."
+  (append
+   (mapcar (pcase-lambda (`(,id . ,props))
+             (list :label (plist-get props :name) :action (lambda () (lispm-desktop-apps-activate id))))
+           (lispm-desktop-apps-built-in))
+   (mapcan (pcase-lambda (`(,id . ,props))
+             (when (eq (plist-get props :kind) 'app)
+               (list (list :label (plist-get props :name)
+                           :action (lambda () (lispm-desktop-apps-activate id))))))
+           lispm-desktop-store-installed)))
 
 (defun lispm-desktop-store--folder-items ()
-  "Return the Applications folder's items: the App Store, then the
-applications installed, see `lispm-desktop-finder-folders'."
-  (cons (list "App Store" "app-store-32" #'lispm-desktop-store-show)
-        (mapcan (pcase-lambda (`(,id . ,props))
-                  (when (eq (plist-get props :kind) 'app)
-                    (list (list (plist-get props :name) (lispm-desktop-store--icon props t)
-                                (lambda () (lispm-desktop-apps-activate id))))))
-                lispm-desktop-store-installed)))
+  "Return the Applications folder's items: the App Store, the applications
+built in, see `lispm-desktop-apps-built-in', then those installed, see
+`lispm-desktop-finder-folders'."
+  `(("App Store" "app-store-32" lispm-desktop-store-show)
+    ,@(mapcar (pcase-lambda (`(,id . ,props))
+                (list (plist-get props :name) (plist-get props :folder)
+                      (lambda () (lispm-desktop-apps-activate id))))
+              (lispm-desktop-apps-built-in))
+    ,@(mapcan (pcase-lambda (`(,id . ,props))
+                (when (eq (plist-get props :kind) 'app)
+                  (list (list (plist-get props :name) (lispm-desktop-store--icon props t)
+                              (lambda () (lispm-desktop-apps-activate id))))))
+              lispm-desktop-store-installed)))
 
 (defun lispm-desktop-store-open-applications ()
   "Open the Applications folder in the Finder window."

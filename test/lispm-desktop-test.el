@@ -829,6 +829,45 @@ is.  The keys go from step to step."
         (should (eq (keymap-lookup lispm-desktop-guide-mode-map key) 'lispm-desktop-guide-previous)))
       (should (eq (keymap-lookup lispm-desktop-guide-mode-map "q") 'lispm-desktop-guide-close)))))
 
+(ert-deftest lispm-desktop-test-guide-is-an-application ()
+  "The guide is an application built in: the Applications folder holds it
+after the App Store, the λ menu's Applications lists it, and the
+Application menu while it is open; in front, its menus are File and Go,
+Go listing every step, the one the guide is on checked."
+  (let ((lispm-desktop-apps lispm-desktop-apps)
+        (lispm-desktop-store-installed '((calculator :kind app :name "Calculator" :command calc)))
+        (lispm-desktop-guide--index 1))
+    (lispm-desktop-guide--define-app)
+    (should (equal (mapcar #'car (lispm-desktop-apps-built-in)) '(guide)))
+    (should (equal (seq-take (lispm-desktop-store--folder-items) 3)
+                   (list '("App Store" "app-store-32" lispm-desktop-store-show)
+                         (list "LispM Guide" "guide-32" (nth 2 (nth 1 (lispm-desktop-store--folder-items))))
+                         (nth 2 (lispm-desktop-store--folder-items)))))
+    (should (equal (mapcar #'car (lispm-desktop-store--folder-items)) '("App Store" "LispM Guide" "Calculator")))
+    (should (equal (mapcar (lambda (item) (plist-get item :label)) (lispm-desktop-store-application-items))
+                   '("LispM Guide" "Calculator")))
+    (should (file-readable-p (lispm-desktop-platinum-icon-file "guide-32")))
+    (cl-letf (((symbol-function 'lispm-desktop-guide-open-p) #'ignore))
+      (should-not (assq 'guide (lispm-desktop-apps--available))))
+    (cl-letf (((symbol-function 'lispm-desktop-guide-open-p) #'always))
+      (should (assq 'guide (lispm-desktop-apps--available))))
+    (let ((lispm-desktop-apps--frontmost 'guide))
+      (should (equal (mapcar #'cadr (lispm-desktop-apps-menus)) '("File" "Go")))
+      (should (equal (cdr (lispm-desktop-apps-application)) "LispM Guide")))
+    (let* ((items (lispm-desktop-guide--go-items))
+           (steps (seq-filter #'consp (cdr (memq 'separator items)))))
+      (should (= (length steps) (length (lispm-desktop-guide--steps))))
+      (should (equal (seq-keep (lambda (item) (plist-get item :checked)) steps) '(t)))
+      (should (plist-get (nth 1 steps) :checked))
+      (should (plist-get (car items) :enabled)))))
+
+(ert-deftest lispm-desktop-test-guide-opens-centred ()
+  "The guide's window stands in the middle of the desktop, its frame's
+margins counted, and never past the desktop's top left."
+  (should (equal (lispm-desktop-guide--centre '(0 20 1000 620) 400 300 '(6 1 7 7))
+                 (cons (+ 6 (/ (- 1000 400 13) 2)) (+ 20 1 (/ (- 600 300 8) 2)))))
+  (should (equal (lispm-desktop-guide--centre '(0 20 300 200) 400 300 '(6 1 7 7)) '(6 . 21))))
+
 (ert-deftest lispm-desktop-test-guide-first-time ()
   "The guide shows itself once, and says so for every later start; where
 it cannot be drawn, a line says how to start instead.  A batch Emacs

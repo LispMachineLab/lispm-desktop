@@ -123,7 +123,7 @@ whenever asked."
      :title "The application in front"
      :icon "applications-32"
      :mark (menu . lispm-desktop-application)
-     :text "The menus after the λ are those of the application in front, the desktop's now.  The Application menu, at the right end, names it and lists the others."
+     :text "The menus after the λ are those of the application in front, this guide's now: File and Go.  The Application menu, at the right end, names it and lists the others, to bring one forward."
      :keys (("C-c o" "brings the next application forward"))
      :show lispm-desktop-guide--show-application-menu)
     (desktop
@@ -180,7 +180,7 @@ whenever asked."
     (keys
      :title "Emacs, as ever"
      :icon "keyboard-32"
-     :text "Emacs's own keys work everywhere, as they always did.  This guide waits in the desktop's Help menu whenever you want it again."
+     :text "Emacs's own keys work everywhere, as they always did.  This guide is an application of its own: it waits in the Applications folder, the λ menu and the desktop's Help menu whenever you want it again."
      :keys (("C-x C-f" "opens a file")
             ("C-x b" "switches to a buffer")
             ("M-x" "runs any command")
@@ -285,12 +285,31 @@ says no left out."
     (pcase-let ((`(,x . ,y) (frame-position outer)))
       (list x y (frame-pixel-width outer) (frame-pixel-height outer)))))
 
+(defun lispm-desktop-guide--centre (edges width height margins)
+  "Return where a window WIDTH by HEIGHT pixels goes, (X . Y) as
+`lispm-desktop-platinum-move-window' takes it, for its frame, MARGINS
+\(LEFT TOP RIGHT BOTTOM) about it, to stand in the middle of a desktop
+lying at EDGES, (LEFT TOP RIGHT BOTTOM)."
+  (pcase-let ((`(,left ,top ,right ,bottom) edges)
+              (`(,ml ,mt ,mr ,mb) margins))
+    (cons (+ left ml (max 0 (/ (- right left width ml mr) 2)))
+          (+ top mt (max 0 (/ (- bottom top height mt mb) 2))))))
+
 (defun lispm-desktop-guide--geometry (screen)
-  "Return where the guide's window opens first over SCREEN: at the left,
-over the Control Strip, out of the way of the menu bar and the icons."
-  (pcase-let ((`(,width . ,height) lispm-desktop-guide-size)
-              (`(,_ ,top ,_ ,bottom) (lispm-desktop-apps-desktop-edges screen)))
-    (list 48 (max (+ top 40) (- bottom height 96)) width height)))
+  "Return where the guide's window opens over SCREEN: in the middle of
+the desktop, as an alert stands."
+  (pcase-let* ((`(,width . ,height) lispm-desktop-guide-size)
+               (`(,x . ,y) (lispm-desktop-guide--centre (lispm-desktop-apps-desktop-edges screen)
+                                                         width height (lispm-desktop-platinum-frame-margins))))
+    (list x y width height)))
+
+(defun lispm-desktop-guide--place (frame)
+  "Put FRAME, the guide's window, in the middle of its screen's desktop."
+  (when-let* ((screen (lispm-desktop-platinum-window-parent frame)))
+    (pcase-let ((`(,x . ,y) (lispm-desktop-guide--centre (lispm-desktop-apps-desktop-edges screen)
+                                                          (frame-pixel-width frame) (frame-pixel-height frame)
+                                                          (lispm-desktop-platinum-window-margins frame))))
+      (lispm-desktop-platinum-move-window frame x y))))
 
 ;;;; Drawing
 
@@ -657,12 +676,16 @@ playing and take the coach mark away."
   (lispm-desktop-platinum-set-coach-mark nil))
 
 (lispm-desktop-app-window-define 'guide
-  ;; The guide belongs to no application: selecting it leaves the one in
-  ;; front there.  It hides from the full-screen editor and browser, as
-  ;; every floating window does.
-  :app nil :name "LispM Guide" :size lispm-desktop-guide-size
+  ;; An application's window: selected, it brings the guide in front, its
+  ;; menus in the menu bar.  It hides from the full-screen editor and
+  ;; browser, as every floating window does.
+  :name "LispM Guide" :size lispm-desktop-guide-size
   :geometry #'lispm-desktop-guide--geometry :buffer #'lispm-desktop-guide--buffer
   :roll 'chrome :on-close #'lispm-desktop-guide--closed)
+
+(defun lispm-desktop-guide-open-p ()
+  "Return non-nil while the guide's window is open."
+  (lispm-desktop-app-window-open-p 'guide))
 
 (defun lispm-desktop-guide (&optional again play)
   "Show the guide, or give it the keyboard back while it is shown.
@@ -681,13 +704,14 @@ a full-screen editor or browser in front gives way to it."
   (when (and (lispm-desktop-apps-full-screen-p (lispm-desktop-apps-frontmost))
              (fboundp 'lispm-desktop-activate))
     (lispm-desktop-activate))
-  (let ((frame (or (lispm-desktop-app-window-frame 'guide)
-                   (lispm-desktop-app-window-ensure 'guide))))
+  (let* ((open (lispm-desktop-guide-open-p))
+         (frame (lispm-desktop-app-window-ensure 'guide)))
     (lispm-desktop-platinum-show-window frame)
-    (lispm-desktop-guide--fit frame)
-    (lispm-desktop-apps-keep-on-desktop frame)
-    (lispm-desktop-platinum-raise-window frame)
-    (select-frame-set-input-focus frame)
+    ;; Opening, it stands in the middle of the desktop, wherever it was.
+    (unless open
+      (lispm-desktop-guide--fit frame)
+      (lispm-desktop-guide--place frame))
+    (lispm-desktop-app-window-present 'guide)
     (lispm-desktop-guide--go lispm-desktop-guide--index)
     frame))
 
@@ -724,6 +748,44 @@ Strip.  This is one of `lispm-desktop-platinum-frame-moved-functions'."
   (when (lispm-desktop-guide--frame)
     (lispm-desktop-guide--render)))
 
+;;;; The application
+
+(defun lispm-desktop-guide--file-items ()
+  "Return the items of the guide's File menu."
+  '((:label "Close Guide" :action lispm-desktop-guide-close :key "q")
+    (:label "Skip Guide" :action lispm-desktop-guide-skip)))
+
+(defun lispm-desktop-guide--go-items ()
+  "Return the items of the guide's Go menu: back, on and Show Me, then
+every step, the one the guide is on checked, as Apple Guide listed its
+topics."
+  (let* ((steps (lispm-desktop-guide--steps))
+         (index (seq-position steps (lispm-desktop-guide--step))))
+    `((:label "Previous Step" :action lispm-desktop-guide-previous :key "p" :enabled ,(> index 0))
+      (:label "Next Step" :action lispm-desktop-guide-next :key "n"
+              :enabled ,(< index (1- (length steps))))
+      (:label "Show Me" :action lispm-desktop-guide-show-me :key "s"
+              :enabled ,(and (plist-get (cdr (lispm-desktop-guide--step)) :show) t))
+      separator
+      ,@(seq-map-indexed (lambda (step i)
+                           (list :label (plist-get (cdr step) :title)
+                                 :action (lambda () (lispm-desktop-guide--go i))
+                                 :checked (= i index)))
+                         steps))))
+
+(defun lispm-desktop-guide-menus ()
+  "Return the guide's menus, for the menu bar while it is in front."
+  '((lispm-desktop-guide-file "File" lispm-desktop-guide--file-items)
+    (lispm-desktop-guide-go "Go" lispm-desktop-guide--go-items)))
+
+(defun lispm-desktop-guide--define-app ()
+  "Make the guide an application built in: in the Applications folder, the
+λ menu's Applications and, while it is open, the Application menu."
+  (lispm-desktop-define-app 'guide :name "LispM Guide" :icon "guide" :folder "guide-32"
+                            :menus #'lispm-desktop-guide-menus
+                            :activate #'lispm-desktop-guide
+                            :visible #'lispm-desktop-guide-open-p))
+
 ;;;; The first time
 
 (defun lispm-desktop-guide--welcome ()
@@ -752,9 +814,10 @@ neither."
   '((:label "LispM Guide" :action lispm-desktop-guide :key "C-c ?")))
 
 (defun lispm-desktop-setup-guide ()
-  "Offer the guide in the desktop's Help menu and with C-c ?, keep it over
-the other windows and its coach mark on what moves, and show it the
-first time LispM starts."
+  "Make the guide an application built in, offer it in the desktop's Help
+menu and with C-c ?, keep it over the other windows and its coach mark
+on what moves, and show it the first time LispM starts."
+  (lispm-desktop-guide--define-app)
   (setq lispm-desktop-help-items-function #'lispm-desktop-guide-help-items)
   (keymap-global-set "C-c ?" #'lispm-desktop-guide)
   (add-hook 'window-selection-change-functions #'lispm-desktop-guide--keep-above 90)

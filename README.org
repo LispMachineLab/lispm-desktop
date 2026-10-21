@@ -56,8 +56,10 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   the desktop so the guide stays in sight, and puts them back as the guide goes on.  The first
   time, the guide plays by itself: each step does its Show Me a moment after it comes, and a
   menu it opened closes again.  =n= or Return goes on, =p= or DEL back, =s= shows, =q= puts it
-  away and Skip leaves it; the desktop's Help menu and =C-c ?= bring it back on the step it was
-  left on, and =C-u C-c ?= from the start.
+  away and Skip leaves it.  It is an application built in, its window opening in the middle of
+  the desktop: the Applications folder, the λ menu's Applications, the desktop's Help menu and
+  =C-c ?= bring it back on the step it was left on, =C-u C-c ?= from the start, and its Go menu
+  lists every step.
 - *A Finder window*, opened by the home disk: a folder's items as large icons, floating over
   the desktop, the items and the room left counted in a header under its title bar, as Mac OS
   9's was, opened by a button reading the enclosing folder's name that goes up to it;
