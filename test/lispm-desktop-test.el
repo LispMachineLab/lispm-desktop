@@ -7481,75 +7481,249 @@ found out of it is not enough, each board's functions defined."
             (when (and function (symbolp function))
               (should (fboundp function)))))))))
 
-(defconst lispm-desktop-test--programs
-  '(("lispm-test-player" :for "playing music" :install "brew install lispm-test-player"
-     :instead ("lispm-test-stand-in") :more "seeking")
-    ("lispm-test-tagger" :for "reading tags" :install "brew install lispm-test-tagger"))
-  "Programs an app's catalog declares, for the tests.")
+;;;; Needs
 
-(ert-deftest lispm-desktop-test-app-programs-declared ()
-  "A catalog declares the programs an app uses, each with what it is for,
-how to install it and what may stand in for it; those malformed are not
-taken."
-  (should (lispm-desktop-store--programs-valid-p lispm-desktop-test--programs))
-  (should (lispm-desktop-store--programs-valid-p nil))
-  (should-not (lispm-desktop-store--programs-valid-p '(("mpv" :install "brew install mpv"))))
-  (should-not (lispm-desktop-store--programs-valid-p '((mpv :for "playing"))))
-  (should-not (lispm-desktop-store--programs-valid-p '(("mpv" :for "playing" :instead "afplay"))))
+(defconst lispm-desktop-test--needs
+  '((program "lispm-test-player" :for "playing music" :brew "lispm-test-player"
+             :instead ("lispm-test-stand-in") :more "seeking")
+    (program "lispm-test-tagger" :for "reading tags" :brew "lispm-test-tagger"))
+  "What an app's catalog says it needs, for the tests.")
+
+(ert-deftest lispm-desktop-test-needs-declared ()
+  "A catalog declares what an app needs: each of a kind, with what it is
+for, what installs it and what may stand in for it; those malformed are
+not taken."
+  (should (lispm-desktop-needs-list-valid-p lispm-desktop-test--needs))
+  (should (lispm-desktop-needs-list-valid-p nil))
+  (should (lispm-desktop-needs-valid-p '(application "Spotify" :for "playing" :cask "spotify"
+                                                     :bundle "com.spotify.client")))
+  (should (lispm-desktop-needs-valid-p '(library "libvterm" :for "terminals" :brew "libvterm"
+                                                 :file "lib/libvterm.dylib")))
+  (should-not (lispm-desktop-needs-valid-p '(program "mpv" :brew "mpv")))
+  (should-not (lispm-desktop-needs-valid-p '(widget "mpv" :for "playing")))
+  (should-not (lispm-desktop-needs-valid-p '("mpv" :for "playing")))
+  (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :instead "afplay")))
+  (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :commands ("play"))))
   (should-not (lispm-desktop-store--item-valid-p
-               '(emms :kind app :name "EMMS" :command emms :programs (("mpv"))))))
+               '(emms :kind app :name "EMMS" :command emms :needs (("mpv"))))))
 
-(ert-deftest lispm-desktop-test-app-programs-stand ()
-  "A program an app uses is present, missing with a stand-in installed,
-or missing; what is said of it says which, and the App Store copies the
-commands installing those missing."
+(ert-deftest lispm-desktop-test-needs-stand ()
+  "A need is present, missing with a stand-in installed, or missing; what
+is said of it says which, and the App Store installs those missing or
+copies the commands installing them."
   (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in"))))
-    (let ((states (lispm-desktop-app-ui-program-states lispm-desktop-test--programs)))
-      (should (equal (mapcar (lambda (state) (take 2 state)) states)
-                     '(("lispm-test-player" instead) ("lispm-test-tagger" missing))))
-      (should (equal (apply #'lispm-desktop-app-ui-program-text "EMMS" (car states))
+    (pcase-let ((`(,player ,tagger) lispm-desktop-test--needs))
+      (should (eq (lispm-desktop-needs-state player) 'instead))
+      (should (eq (lispm-desktop-needs-state tagger) 'missing))
+      (should (equal (lispm-desktop-needs-missing lispm-desktop-test--needs) (list tagger)))
+      (should (equal (lispm-desktop-needs-missing lispm-desktop-test--needs t) lispm-desktop-test--needs))
+      (should (equal (lispm-desktop-needs-text "EMMS" player)
                      "EMMS uses lispm-test-stand-in for playing music; lispm-test-player would add seeking."))
-      (should (equal (apply #'lispm-desktop-app-ui-program-text "EMMS" (cadr states))
-                     "EMMS needs lispm-test-tagger for reading tags.")))
-    (let ((props `(:kind app :name "EMMS" :description "Music." :programs ,lispm-desktop-test--programs)))
+      (should (equal (lispm-desktop-needs-text "EMMS" tagger) "EMMS needs lispm-test-tagger for reading tags."))
+      (should (equal (lispm-desktop-needs-install-command tagger) "brew install lispm-test-tagger")))
+    (let ((props `(:kind app :name "EMMS" :description "Music." :needs ,lispm-desktop-test--needs)))
       (should (equal (lispm-desktop-store--install-commands props)
                      "brew install lispm-test-player && brew install lispm-test-tagger"))
+      (should (equal (lispm-desktop-store--needs-to-install props) lispm-desktop-test--needs))
       (should (string-search "It needs lispm-test-tagger for reading tags." (lispm-desktop-store--description props)))
-      (should (string-suffix-p
-               "Install them with: brew install lispm-test-player && brew install lispm-test-tagger"
-               (lispm-desktop-store--description props)))))
+      (should (string-search "With it, lispm-test-tagger, for reading tags: brew install lispm-test-tagger."
+                             (lispm-desktop-store--preview (cons 'emms props))))))
   (cl-letf (((symbol-function 'executable-find) #'always))
     (should-not (lispm-desktop-store--install-commands
-                 `(:kind app :name "EMMS" :programs ,lispm-desktop-test--programs)))))
+                 `(:kind app :name "EMMS" :needs ,lispm-desktop-test--needs)))))
 
-(ert-deftest lispm-desktop-test-store-programs-from-the-catalog ()
-  "An installed app uses the programs its catalog declares now, though it
-was installed before the catalog declared them."
+(ert-deftest lispm-desktop-test-needs-command-line-tools ()
+  "A program of Apple's command line tools is missing while they are,
+though its name on PATH is found: it is Apple's, offering the tools."
+  (cl-letf (((symbol-function 'executable-find) #'always)
+            ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
+    (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
+    (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
+  (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
+                 "xcode-select --install")))
+
+(ert-deftest lispm-desktop-test-store-needs-from-the-catalog ()
+  "An installed app needs what its catalog declares now, though it was
+installed before the catalog declared it; the commands a need names are
+guarded while the app is installed."
   (let ((lispm-desktop-store-installed '((emms :kind app :name "EMMS" :command emms-browser)))
         (lispm-desktop-store--catalogs
          `((:url "https://example.org/store"
             :items ((emms :kind app :name "EMMS" :command emms-browser
-                          :programs ,lispm-desktop-test--programs)))))
-        (lispm-desktop-apps nil))
-    (lispm-desktop-store--register-app 'emms (lispm-desktop-store--installed 'emms))
-    (should (equal (mapcar #'car (lispm-desktop-app-ui-programs 'emms))
-                   '("lispm-test-player" "lispm-test-tagger")))))
+                          :needs ((program "lispm-test-player" :for "playing music" :brew "lispm-test-player"
+                                           :commands (lispm-desktop-test--play))))))))
+        (lispm-desktop-apps nil)
+        (lispm-desktop-needs--guards nil))
+    (defalias 'lispm-desktop-test--play #'ignore)
+    (unwind-protect
+        (progn
+          (lispm-desktop-store--register-app 'emms (cdr (assq 'emms (lispm-desktop-store-items))))
+          (should (equal (mapcar #'lispm-desktop-needs-name (lispm-desktop-app-ui-needs 'emms))
+                         '("lispm-test-player")))
+          (should (assq 'lispm-desktop-test--play lispm-desktop-needs--guards))
+          (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs 'emms))
+          (should-not (assq 'lispm-desktop-test--play lispm-desktop-needs--guards)))
+      (lispm-desktop-needs-unguard 'lispm-desktop-test--play)
+      (fmakunbound 'lispm-desktop-test--play))))
 
-(ert-deftest lispm-desktop-test-app-programs-in-help ()
-  "An app's Help menu offers to install each program it uses that is
-missing; one it needs with nothing standing in is said as it opens, once."
-  (let ((lispm-desktop-apps (list (list 'emms :name "EMMS" :programs (lambda () lispm-desktop-test--programs))))
+(ert-deftest lispm-desktop-test-app-needs-in-help ()
+  "An app's Help menu offers to install each need missing; one with
+nothing standing in is offered as it opens, once a session."
+  (let ((lispm-desktop-apps (list (list 'emms :name "EMMS" :needs (lambda () lispm-desktop-test--needs))))
         (lispm-desktop-app-ui--told nil)
-        (told nil))
+        (asked nil))
     (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in")))
               ((symbol-function 'lispm-desktop-popup-alert)
-               (lambda (_icon message &rest _) (push message told) 'ok)))
+               (lambda (_icon message &rest _) (push message asked) 'cancel)))
       (should (equal (seq-filter #'stringp (mapcar (lambda (item) (and (consp item) (plist-get item :label)))
                                                    (lispm-desktop-app-ui--help-items 'emms)))
                      '("EMMS Keys" "About EMMS" "Install lispm-test-player…" "Install lispm-test-tagger…")))
-      (lispm-desktop-app-ui--tell-missing 'emms)
-      (lispm-desktop-app-ui--tell-missing 'emms)
-      (should (equal told '("EMMS needs lispm-test-tagger for reading tags."))))))
+      (lispm-desktop-app-ui--offer-missing 'emms)
+      (lispm-desktop-app-ui--offer-missing 'emms)
+      (should (equal asked '("EMMS needs lispm-test-tagger.  Install it?"))))))
+
+(ert-deftest lispm-desktop-test-needs-guard ()
+  "A guarded command run while its need is missing offers to install it,
+then runs once it is; called from code, it runs as it is."
+  (let ((lispm-desktop-needs--guards nil)
+        (ran 0)
+        (installs nil))
+    (defalias 'lispm-desktop-test--guarded (lambda () (interactive) (cl-incf ran)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'executable-find) #'ignore)
+                  ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) 'install))
+                  ((symbol-function 'lispm-desktop-needs-install)
+                   (lambda (needs who then) (push (list (mapcar #'lispm-desktop-needs-name needs) who) installs)
+                     (funcall then t))))
+          (lispm-desktop-needs-guard 'lispm-desktop-test--guarded "EMMS" (list (cadr lispm-desktop-test--needs)))
+          (lispm-desktop-test--guarded)
+          (should (= ran 1))
+          (should-not installs)
+          (call-interactively #'lispm-desktop-test--guarded)
+          (should (equal installs '((("lispm-test-tagger") "EMMS"))))
+          (should (= ran 2)))
+      (lispm-desktop-needs-unguard 'lispm-desktop-test--guarded)
+      (fmakunbound 'lispm-desktop-test--guarded))))
+
+;; A package's option set from what it found as it loaded, for the test.
+(defvar lispm-desktop-test--found nil)
+
+(ert-deftest lispm-desktop-test-needs-refresh ()
+  "Once a need is there, the options holding it that a package left nil
+as it loaded are set again from their definitions; others are left."
+  (let ((need '(program "lispm-test-player" :for "playing music" :brew "lispm-test-player"
+                        :variables (lispm-desktop-test--option lispm-desktop-test--found))))
+    (cl-letf (((symbol-function 'executable-find) #'ignore))
+      (custom-declare-variable 'lispm-desktop-test--option
+                               '(and (executable-find "lispm-test-player") "lispm-test-player")
+                               "An option holding a program." :type 'sexp :group 'lispm-desktop))
+    (unwind-protect
+        (progn
+          (should-not lispm-desktop-test--option)
+          (lispm-desktop-needs-refresh (list need))
+          (should-not lispm-desktop-test--option)
+          (cl-letf (((symbol-function 'executable-find) #'always))
+            (lispm-desktop-needs-refresh (list need)))
+          (should (equal lispm-desktop-test--option "lispm-test-player"))
+          (should (equal lispm-desktop-test--found "lispm-test-player")))
+      (setq lispm-desktop-test--found nil)
+      (makunbound 'lispm-desktop-test--option))))
+
+(defmacro lispm-desktop-test--with-brew (script &rest body)
+  "Run BODY with a brew of SCRIPT, a shell script, alone on PATH beside the
+programs it installs; BIN is its directory.  A program it installs is a
+script it writes into BIN."
+  (declare (indent 1))
+  `(let* ((bin (make-temp-file "lispm-test-brew" t))
+          (exec-path (list bin))
+          (process-environment (cons (concat "PATH=" bin ":/bin:/usr/bin") process-environment))
+          (lispm-desktop-needs--jobs nil)
+          (lispm-desktop-needs--requests nil)
+          (lispm-desktop-needs--homebrew nil)
+          (lispm-desktop-needs--process nil))
+     (ignore bin)
+     (with-temp-file (expand-file-name "brew" bin)
+       (insert "#!/bin/sh\nBIN=" (shell-quote-argument bin) "\n" ,script))
+     (set-file-modes (expand-file-name "brew" bin) #o755)
+     (unwind-protect
+         (cl-letf (((symbol-function 'lispm-desktop-app-window-close) #'ignore))
+           ,@body)
+       (when (process-live-p lispm-desktop-needs--process)
+         (delete-process lispm-desktop-needs--process))
+       (delete-directory bin t))))
+
+(defun lispm-desktop-test--wait (predicate)
+  "Wait until PREDICATE returns non-nil, ten seconds at most."
+  (let ((deadline (+ (float-time) 10)))
+    (while (and (not (funcall predicate)) (< (float-time) deadline))
+      (accept-process-output nil 0.05))))
+
+(ert-deftest lispm-desktop-test-needs-install-one-at-a-time ()
+  "Installs run one at a time, in order, with Homebrew; once they all
+end, what waited for them is called back."
+  (lispm-desktop-test--with-brew
+      "echo \"start $3\" >> $BIN/log; sleep 0.2
+printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3; echo \"end $3\" >> $BIN/log; echo \"Pouring $3\"\n"
+    (let (answer)
+      (lispm-desktop-needs-install lispm-desktop-test--needs "EMMS" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(t)))
+      (should (equal (with-temp-buffer (insert-file-contents (expand-file-name "log" bin))
+                                       (split-string (buffer-string) "\n" t))
+                     '("start lispm-test-player" "end lispm-test-player"
+                       "start lispm-test-tagger" "end lispm-test-tagger")))
+      (should (equal (lispm-desktop-needs--status) "Installed lispm-test-player and lispm-test-tagger."))
+      (should-not (lispm-desktop-needs-running-p)))))
+
+(ert-deftest lispm-desktop-test-needs-install-waits-for-locks ()
+  "An install another brew's lock stops tries again after a while."
+  (lispm-desktop-test--with-brew
+      "if [ ! -e $BIN/tried ]; then touch $BIN/tried
+echo 'Error: A `brew install` process has already locked /opt/homebrew/Cellar/openssl@3.'; exit 1; fi
+printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
+    (let ((lispm-desktop-needs-lock-wait 0.1)
+          answer)
+      (lispm-desktop-needs-install (list (cadr lispm-desktop-test--needs)) "EMMS"
+                                   (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(t))))))
+
+(ert-deftest lispm-desktop-test-needs-install-fails-and-retries ()
+  "An install that fails says Homebrew's error and answers nil; tried
+again, it installs."
+  (lispm-desktop-test--with-brew
+      "if [ ! -e $BIN/tried ]; then touch $BIN/tried; echo 'Error: No available formula'; exit 1; fi
+printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
+    (let (answer)
+      (lispm-desktop-needs-install (list (cadr lispm-desktop-test--needs)) "EMMS"
+                                   (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(nil)))
+      (should (equal (lispm-desktop-needs--job-error (car lispm-desktop-needs--jobs)) "Error: No available formula"))
+      (should (equal (lispm-desktop-needs--status) "lispm-test-tagger could not be installed."))
+      (lispm-desktop-needs-retry)
+      (lispm-desktop-test--wait (lambda () (not (lispm-desktop-needs-running-p))))
+      (should (eq (lispm-desktop-needs--job-state (car lispm-desktop-needs--jobs)) 'installed)))))
+
+(ert-deftest lispm-desktop-test-needs-without-homebrew ()
+  "Without Homebrew, installing offers it first; declined, what Homebrew
+would install fails, and what waited is answered nil."
+  (let ((exec-path nil)
+        (lispm-desktop-needs-brew-places nil)
+        (lispm-desktop-needs--jobs nil)
+        (lispm-desktop-needs--requests nil)
+        (lispm-desktop-needs--homebrew nil)
+        (asked nil)
+        answer)
+    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message &rest _) (push message asked) 'cancel))
+              ((symbol-function 'lispm-desktop-app-window-close) #'ignore))
+      (lispm-desktop-needs-install lispm-desktop-test--needs "EMMS" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal asked '("Install Homebrew first?")))
+      (should (equal answer '(nil)))
+      (should (seq-every-p (lambda (job) (equal (lispm-desktop-needs--job-error job) "Homebrew is not installed."))
+                           lispm-desktop-needs--jobs)))))
 
 (ert-deftest lispm-desktop-test-app-emms-mdls ()
   "Spotlight's tags, as mdls prints them, are read: strings, the first of

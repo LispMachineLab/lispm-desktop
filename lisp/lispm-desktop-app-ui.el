@@ -42,9 +42,10 @@
 ;;   window     no line numbers, fringes nor wrapped lines; a game's
 ;;              window takes the size of its board; the arrows it binds
 ;;              also on C-f, C-b, C-n and C-p, as the HHKB has none
-;;   programs   those it uses that are missing, as its catalog declares
-;;              them: an alert says what one is for and copies the
-;;              command installing it, as does its Help menu
+;;   needs      the programs, libraries and applications it uses beyond
+;;              Emacs, as its catalog declares them: one missing, an
+;;              alert offers to install it as the application opens, and
+;;              its Help menu does, see lispm-desktop-needs.el
 ;;
 ;; All of it is found out from the application itself, from its mode's
 ;; keymap, menus and variables, so an application nobody described gets
@@ -69,6 +70,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-app-board)
+(require 'lispm-desktop-needs)
 
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
@@ -555,17 +557,16 @@ and Close Window."
     ,@(lispm-desktop-app-window-file-items app)))
 
 (defun lispm-desktop-app-ui--help-items (app)
-  "Return the items of APP's Help menu: its keys, what it is, and the
-programs it uses that are missing."
+  "Return the items of APP's Help menu: its keys, what it is, and
+installing what it uses beyond Emacs that is missing."
   (let ((name (lispm-desktop-app-ui-name app)))
     `((:label ,(format "%s Keys" name) :action ,(lambda () (lispm-desktop-app-ui-show-keys app)))
       (:label ,(format "About %s" name) :action ,(lambda () (lispm-desktop-app-ui-about app)))
-      ,@(when-let* ((missing (seq-remove (lambda (program) (eq (nth 1 program) 'present))
-                                         (lispm-desktop-app-ui-programs app))))
+      ,@(when-let* ((missing (lispm-desktop-needs-missing (lispm-desktop-app-ui-needs app) t)))
           (cons 'separator
-                (mapcar (pcase-lambda (`(,program ,_ ,_))
-                          (list :label (format "Install %s…" program)
-                                :action (lambda () (lispm-desktop-app-ui-tell-program app program))))
+                (mapcar (lambda (need)
+                          (list :label (format "Install %s…" (lispm-desktop-needs-name need))
+                                :action (lambda () (lispm-desktop-needs-ask (list need) name))))
                         missing))))))
 
 (defun lispm-desktop-app-ui--skin-menus (app window)
@@ -930,71 +931,30 @@ This is one of `after-change-major-mode-hook'."
     (when (lispm-desktop-app-ui-app window)
       (lispm-desktop-app-ui-dress window))))
 
-;;;; The programs an application uses
+;;;; What an application needs
 ;;
-;; An application may use programs beyond Emacs, as EMMS a player: its
-;; catalog declares them, each as (NAME :for WHAT :install COMMAND
-;; :instead STAND-INS :more WHAT-MORE), and the App Store passes them on
-;; as its :programs.  A program missing whose stand-in is installed, as
-;; macOS's afplay for mpv, is said once asked; one missing with nothing
-;; standing in is said as the application opens, once a session.
+;; An application may use programs, libraries and applications beyond
+;; Emacs, as EMMS a player: its catalog declares them as its needs (see
+;; lispm-desktop-needs.el), and the App Store passes them on as its
+;; :needs.  One missing whose stand-in is installed, as macOS's afplay
+;; for mpv, is offered from the Help menu; one missing with nothing
+;; standing in is offered as the application opens, once a session.
 
-(defun lispm-desktop-app-ui-program-states (programs)
-  "Return how PROGRAMS, as a catalog declares them, stand here: a list of
-\(NAME STATE PROPERTIES), STATE `present', `instead' when missing but one
-of its :instead programs is installed, or `missing'."
-  (mapcar (pcase-lambda (`(,name . ,properties))
-            (list name
-                  (cond ((executable-find name) 'present)
-                        ((seq-find #'executable-find (plist-get properties :instead)) 'instead)
-                        (t 'missing))
-                  properties))
-          programs))
-
-(defun lispm-desktop-app-ui-programs (app)
-  "Return how the programs APP uses stand here, see
-`lispm-desktop-app-ui-program-states'.  APP's :programs may be a function
+(defun lispm-desktop-app-ui-needs (app)
+  "Return what APP needs beyond Emacs.  APP's :needs may be a function
 returning them, as the App Store's are, read from its catalog."
-  (let ((programs (lispm-desktop-app-ui--app-property app :programs)))
-    (lispm-desktop-app-ui-program-states (if (functionp programs) (funcall programs) programs))))
-
-(defun lispm-desktop-app-ui-program-text (application name state properties)
-  "Return what is said of program NAME of APPLICATION, a name, in STATE
-with PROPERTIES, see `lispm-desktop-app-ui-programs'."
-  (pcase state
-    ('present (format "%s uses %s for %s." application name (plist-get properties :for)))
-    ('instead (format "%s uses %s for %s; %s would add %s." application
-                      (seq-find #'executable-find (plist-get properties :instead))
-                      (plist-get properties :for) name
-                      (or (plist-get properties :more) "more")))
-    (_ (format "%s needs %s for %s." application name (plist-get properties :for)))))
-
-(defun lispm-desktop-app-ui-tell-program (app program)
-  "Say in an alert what APP's PROGRAM is for and how to install it, and
-copy the command installing it if asked."
-  (when-let* ((entry (assoc program (lispm-desktop-app-ui-programs app))))
-    (pcase-let* ((`(,name ,state ,properties) entry)
-                 (install (plist-get properties :install)))
-      (when (eq (lispm-desktop-popup-alert
-                 (if (eq state 'missing) 'caution 'note)
-                 (lispm-desktop-app-ui-program-text (lispm-desktop-app-ui-name app) name state properties)
-                 (if install '(("Copy Command" copy) ("OK" ok default)) '(("OK" ok default)))
-                 (when install (format "Install it with: %s" install)))
-                'copy)
-        (kill-new install)
-        (message "Copied: %s" install)))))
+  (let ((needs (lispm-desktop-app-ui--app-property app :needs)))
+    (if (functionp needs) (funcall needs) needs)))
 
 (defvar lispm-desktop-app-ui--told nil
-  "The applications told this session of programs they need and lack.")
+  "The applications offered this session what they need and lack.")
 
-(defun lispm-desktop-app-ui--tell-missing (app)
-  "Say once a session which programs APP needs and lacks, with nothing
-standing in for them."
+(defun lispm-desktop-app-ui--offer-missing (app)
+  "Offer once a session to install what APP needs and lacks, with nothing
+standing in for it."
   (unless (memq app lispm-desktop-app-ui--told)
     (push app lispm-desktop-app-ui--told)
-    (pcase-dolist (`(,name ,state ,_) (lispm-desktop-app-ui-programs app))
-      (when (eq state 'missing)
-        (lispm-desktop-app-ui-tell-program app name)))))
+    (lispm-desktop-needs-ensure (lispm-desktop-app-ui-needs app) (lispm-desktop-app-ui-name app))))
 
 ;;;; Opening an application
 
@@ -1003,10 +963,11 @@ standing in for them."
 when its window was closed, if still there, as a Mac OS 9 application
 kept its documents while its windows were closed; else as its :run
 says, or by COMMAND, as typed.  A game is so found as it was left,
-rather than asked whether to abandon it.  A program it needs and lacks
-is said first."
+rather than asked whether to abandon it.  What it needs and lacks is
+offered first."
+  (lispm-desktop-needs-refresh (lispm-desktop-app-ui-needs app))
   (unless noninteractive
-    (lispm-desktop-app-ui--tell-missing app))
+    (lispm-desktop-app-ui--offer-missing app))
   (let ((buffer (alist-get app lispm-desktop-app-ui--buffers)))
     (cond ((buffer-live-p buffer) (switch-to-buffer buffer))
           ((plist-get (lispm-desktop-app-ui--app-skin app) :run)
