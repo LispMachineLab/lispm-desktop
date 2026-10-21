@@ -200,26 +200,50 @@ frame carrying it moves, see `lispm-desktop-platinum-window-outer'."
 
 (declare-function lispm-desktop-coherence-take-out "lispm-desktop-coherence" (frame))
 
+(defun lispm-desktop-apps--in-order (windows frames)
+  "Return those of WINDOWS among FRAMES, in the order of FRAMES, front
+first; a frame drawing a window's frame stands for the window."
+  (seq-uniq (seq-filter (lambda (frame) (memq frame windows))
+                        (mapcar (lambda (frame) (or (lispm-desktop-platinum-window-frame-p frame) frame))
+                                frames))))
+
 (defun lispm-desktop-apps-windows-out-in-order (screen)
   "Return the windows of SCREEN out on the computer's screen, the one in
 front first.  The window system orders the frames carrying them."
-  (let ((windows (lispm-desktop-apps-windows screen)))
-    (seq-filter (lambda (frame) (memq frame windows))
-                (mapcar (lambda (frame) (or (lispm-desktop-platinum-window-frame-p frame) frame))
-                        (frame-list-z-order)))))
+  (lispm-desktop-apps--in-order (lispm-desktop-apps-windows screen) (frame-list-z-order)))
+
+(defun lispm-desktop-apps-windows-in-order (screen)
+  "Return the windows floating over SCREEN, the one in front first.
+The window system orders the frames carrying them."
+  (lispm-desktop-apps--in-order
+   (seq-filter (lambda (frame) (eq (lispm-desktop-platinum-window-parent frame) screen))
+               (lispm-desktop-apps-windows screen))
+   (frame-list-z-order screen)))
 
 (defun lispm-desktop-apps-focus-after (frame)
   "Give the keyboard to what comes after FRAME, a floating window going
-away: its screen, or while the screen is hidden, the window over the
-others out on the computer's screen."
+away: the window shown right behind it, as on Mac OS 9 the next window
+came active as the one in front closed, its application in front with
+it; with no window left, the screen.  While the screen is hidden, the
+windows are those out on the computer's screen, and with none left the
+keyboard stays where it is.  Return the window given the keyboard, or
+nil."
   (let ((screen (lispm-desktop-apps-window-screen frame)))
-    (cond ((not (frame-live-p screen)))
-          ((lispm-desktop-apps-hidden-p screen)
-           (when-let* ((next (seq-find (lambda (other)
-                                         (and (not (eq other frame)) (frame-visible-p other)))
-                                       (lispm-desktop-apps-windows-out-in-order screen))))
-             (select-frame-set-input-focus next)))
-          (t (select-frame-set-input-focus screen)))))
+    (when (frame-live-p screen)
+      (let* ((hidden (lispm-desktop-apps-hidden-p screen))
+             (next (seq-find (lambda (other)
+                               (and (not (eq other frame)) (frame-visible-p other)))
+                             (if hidden
+                                 (lispm-desktop-apps-windows-out-in-order screen)
+                               (lispm-desktop-apps-windows-in-order screen)))))
+        (cond (next
+               (select-frame-set-input-focus next)
+               (when-let* ((app (frame-parameter next 'lispm-desktop-app)))
+                 (lispm-desktop-apps-set-frontmost app))
+               next)
+              ((not hidden)
+               (select-frame-set-input-focus screen)
+               nil))))))
 
 (defun lispm-desktop-apps-desktop-edges (screen)
   "Return where SCREEN's desktop lies, (LEFT TOP RIGHT BOTTOM) in pixels,

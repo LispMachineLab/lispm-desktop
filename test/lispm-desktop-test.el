@@ -5381,9 +5381,10 @@ others share the application's frame, else the application's window."
 each a floating window of the kind its parameter `lispm-desktop-window-kind'
 names, registered as open.  In BODY, `selected' is the frame selected,
 `focused' the frames given the keyboard, the latest first, `after' the
-frames whose keyboard went on, `activated' how often the desktop came in
-front, and `hidden' whether the desktop is hidden in the Dock.  A window
-is at (1 2 300 200), or at its parameter `geometry'."
+frames whose keyboard went on, `behind' the window it went on to, its
+application in front, or nil for the screen, `activated' how often the
+desktop came in front, and `hidden' whether the desktop is hidden in the
+Dock.  A window is at (1 2 300 200), or at its parameter `geometry'."
   (declare (indent 1))
   `(lispm-desktop-test--with-frames ,frames
        (let ((lispm-desktop-app-window--frames nil)
@@ -5393,6 +5394,7 @@ is at (1 2 300 200), or at its parameter `geometry'."
              (selected 'screen)
              (focused nil)
              (after nil)
+             (behind nil)
              (activated 0)
              (hidden nil))
          (dolist (frame (mapcar #'car parameters))
@@ -5403,7 +5405,12 @@ is at (1 2 300 200), or at its parameter `geometry'."
                    ((symbol-function 'select-frame-set-input-focus)
                     (lambda (frame &rest _) (setq selected frame) (push frame focused)))
                    ((symbol-function 'lispm-desktop-apps-focus-after)
-                    (lambda (frame) (push frame after) (setq selected 'screen)))
+                    (lambda (frame)
+                      (push frame after)
+                      (setq selected (or behind 'screen))
+                      (when behind
+                        (lispm-desktop-apps-set-frontmost (frame-parameter behind 'lispm-desktop-app)))
+                      behind))
                    ((symbol-function 'lispm-desktop-activate)
                     (lambda () (cl-incf activated) (lispm-desktop-apps-set-frontmost 'desktop)))
                    ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&optional _) hidden))
@@ -5491,6 +5498,131 @@ window's application was in front.  A window closed twice is closed once."
     (lispm-desktop-app-window--retire 'store)
     (should (equal after '(store)))))
 
+(defconst lispm-desktop-test--windows-behind
+  '((screen (visibility . t))
+    (outer-a (lispm-desktop-platinum-frames . a) (parent-frame . screen) (visibility . t))
+    (a (lispm-desktop-window . t) (parent-frame . outer-a) (lispm-desktop-platinum-frame . outer-a)
+       (lispm-desktop-app . settings) (visibility . t))
+    (b (lispm-desktop-window . t) (parent-frame . screen) (lispm-desktop-app . editor))
+    (outer-c (lispm-desktop-platinum-frames . c) (parent-frame . screen) (visibility . t))
+    (c (lispm-desktop-window . t) (parent-frame . outer-c) (lispm-desktop-platinum-frame . outer-c)
+       (lispm-desktop-app . desktop) (visibility . t)))
+  "Floating windows over the screen for `lispm-desktop-test--with-frames':
+A framed in front, B hidden, C framed at the back.")
+
+(ert-deftest lispm-desktop-test-focus-after-goes-to-the-window-behind ()
+  "A floating window going away gives the keyboard to the window shown
+right behind it, as Mac OS 9 made the next window active, and puts that
+window's application in front; with none behind, the screen takes the
+keyboard.  While the screen is hidden in the Dock, the window after is
+the one in front of those out on the computer's screen, and with none
+left the keyboard stays where it is."
+  (lispm-desktop-test--with-frames lispm-desktop-test--windows-behind
+    (let ((lispm-desktop-apps--frontmost 'settings)
+          (lispm-desktop-apps-frontmost-functions nil)
+          (order '(outer-a a b outer-c c))
+          (top '(screen))
+          (focused nil))
+      (cl-letf (((symbol-function 'frame-list-z-order)
+                 (lambda (&optional parent) (if (eq parent 'screen) order top)))
+                ((symbol-function 'select-frame-set-input-focus)
+                 (lambda (frame &rest _) (push frame focused))))
+        (should (equal (lispm-desktop-apps-windows-in-order 'screen) '(a b c)))
+        (should (eq (lispm-desktop-apps-focus-after 'a) 'c))
+        (should (equal focused '(c)))
+        (should (eq (lispm-desktop-apps-frontmost) 'desktop))
+        (setq order '(outer-c c) lispm-desktop-apps--frontmost 'settings)
+        (should-not (lispm-desktop-apps-focus-after 'c))
+        (should (equal focused '(screen c)))
+        (should (eq (lispm-desktop-apps-frontmost) 'settings))
+        ;; Hidden in the Dock, with C out on the computer's screen.
+        (set-frame-parameter 'screen 'lispm-desktop-hidden t)
+        (set-frame-parameter 'outer-c 'parent-frame nil)
+        (set-frame-parameter 'c 'lispm-desktop-out 'screen)
+        (setq top '(outer-c c screen) focused nil)
+        (should (eq (lispm-desktop-apps-focus-after 'a) 'c))
+        (should (equal focused '(c)))
+        (should (eq (lispm-desktop-apps-frontmost) 'desktop))
+        (should-not (lispm-desktop-apps-focus-after 'c))
+        (should (equal focused '(c)))))))
+
+(ert-deftest lispm-desktop-test-app-window-close-focuses-the-window-behind ()
+  "A window closed with the keyboard gives it to the window behind, whose
+application comes in front rather than the desktop.  A window closed from
+its application's menu had the keyboard, which the menu bar holds only
+for the menu; the Finder window only when it had it last."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (let ((lispm-desktop-browser-floating t)
+          (lispm-desktop-finder--had-focus nil))
+      (cl-letf (((symbol-function 'lispm-desktop-editor-floating-p) #'always))
+        ;; The App Store in front, closed by its close box.
+        (lispm-desktop-apps-set-frontmost 'store)
+        (setq selected 'store behind 'editor)
+        (lispm-desktop-app-window-close 'store)
+        (should (equal after '(store)))
+        (should (eq selected 'editor))
+        (should (eq (lispm-desktop-apps-frontmost) 'editor))
+        ;; Control Panels in front, closed from its File menu.
+        (lispm-desktop-apps-set-frontmost 'settings)
+        (setq selected 'screen behind 'browser)
+        (lispm-desktop-app-window-close 'settings)
+        (should (equal after '(settings store)))
+        (should (eq selected 'browser))
+        (should (eq (lispm-desktop-apps-frontmost) 'browser))
+        ;; The Finder window, closed from the desktop's File menu while the
+        ;; desktop had the keyboard.
+        (lispm-desktop-apps-set-frontmost 'desktop)
+        (setq selected 'screen)
+        (lispm-desktop-app-window-close 'finder)
+        (should (equal after '(settings store)))
+        (should (eq selected 'screen))))))
+
+(ert-deftest lispm-desktop-test-editor-close-focuses-the-window-behind ()
+  "The floating editor closed gives the keyboard to the window behind it,
+the desktop left behind; with no window behind, the desktop comes in
+front."
+  (let ((lispm-desktop-editor--closed nil)
+        (lispm-desktop-editor--frame 'editor)
+        (behind 'finder)
+        (hidden nil)
+        (activated 0))
+    (cl-letf (((symbol-function 'lispm-desktop-editor-floating-p) #'always)
+              ((symbol-function 'lispm-desktop-apps-focus-after) (lambda (_) behind))
+              ((symbol-function 'lispm-desktop-platinum-hide-window) (lambda (frame) (push frame hidden)))
+              ((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore)
+              ((symbol-function 'lispm-desktop-activate) (lambda () (cl-incf activated))))
+      (lispm-desktop-editor-close)
+      (should lispm-desktop-editor--closed)
+      (should (equal hidden '(editor)))
+      (should (= activated 0))
+      (setq behind nil)
+      (lispm-desktop-editor-close)
+      (should (= activated 1)))))
+
+(ert-deftest lispm-desktop-test-browser-window-passes-the-keyboard ()
+  "The floating browser's window deleted with the keyboard gives it to the
+window behind; going full screen, to the screen it then fills."
+  (lispm-desktop-test--with-window-kinds
+      (cons '(stand-in (lispm-desktop-app . browser) (visibility . t))
+            lispm-desktop-test--window-kinds)
+    (let ((lispm-desktop-browser--frame 'browser)
+          (lispm-desktop-browser-floating t))
+      (cl-letf (((symbol-function 'lispm-desktop-browser-floating-p) (lambda () lispm-desktop-browser--frame))
+                ((symbol-function 'lispm-desktop-browser--unshade) #'ignore)
+                ((symbol-function 'lispm-desktop-apps-window-screen) (lambda (_) 'screen)))
+        (lispm-desktop-apps-set-frontmost 'browser)
+        (setq selected 'browser)
+        (lispm-desktop-browser--delete-frame t)
+        (should-not (frame-live-p 'browser))
+        (should (eq selected 'screen))
+        (should-not after)
+        (setq lispm-desktop-browser--frame 'stand-in selected 'stand-in behind 'finder)
+        (lispm-desktop-browser--delete-frame)
+        (should-not (frame-live-p 'stand-in))
+        (should (equal after '(stand-in)))
+        (should (eq selected 'finder))
+        (should (eq (lispm-desktop-apps-frontmost) 'desktop))))))
+
 (ert-deftest lispm-desktop-test-app-window-released ()
   "The floating editor or browser going full screen is forgotten as its
 kind's window, its place remembered, the application in front and the
@@ -5508,7 +5640,9 @@ keyboard left to its own code."
 (ert-deftest lispm-desktop-test-app-window-opens-out-with-the-desktop-hidden ()
   "A floating window opening brings the desktop in front first, unless the
 desktop is hidden in the Dock: the window then opens out on the computer's
-screen.  So does the browser quitting."
+screen.  So does the browser quitting while in front; once another
+application came in front, as the window behind the floating browser
+took the keyboard, the desktop stays behind."
   (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
     (lispm-desktop-app-window-ensure 'settings)
     (should (= activated 1))
@@ -5516,9 +5650,13 @@ screen.  So does the browser quitting."
     (lispm-desktop-app-window-ensure 'settings)
     (should (= activated 1))
     (cl-letf (((symbol-function 'lispm-desktop-browser--close-workspace) #'ignore))
+      (lispm-desktop-apps-set-frontmost 'browser)
       (lispm-desktop-browser--quit)
       (should (= activated 1))
       (setq hidden nil)
+      (lispm-desktop-browser--quit)
+      (should (= activated 2))
+      (lispm-desktop-apps-set-frontmost 'settings)
       (lispm-desktop-browser--quit)
       (should (= activated 2)))))
 
