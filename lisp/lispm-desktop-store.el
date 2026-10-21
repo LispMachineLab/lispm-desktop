@@ -56,7 +56,8 @@
 ;; of a package of the package archives, or a spec as `package-vc-install'
 ;; takes one, pinned to the commit :rev.  :command opens the application
 ;; in its window; or :feature names a package that makes its application
-;; itself, with `lispm-desktop-define-app' and the item's name as its key.
+;; itself, with `lispm-desktop-define-app' and the item's name as its key,
+;; and that is unloaded (`unload-feature') when the application is removed.
 ;; An extension's :package is required, and its :feature, loaded, makes
 ;; the extension take part; unloaded (`unload-feature') it takes part no
 ;; more.  An extension needing a :program can be installed only while
@@ -764,7 +765,8 @@ what cannot be unloaded is said, and stays until Emacs restarts."
 (defun lispm-desktop-store--remove-1 (id props)
   "Remove the item ID, of PROPS, unasked, and forget it."
   (pcase (plist-get props :kind)
-    ('app (lispm-desktop-app-window-close id)
+    ('app (lispm-desktop-store--unload (plist-get props :feature))
+          (lispm-desktop-app-window-close id)
           (lispm-desktop-remove-app id))
     ('extension (lispm-desktop-store--unload (plist-get props :feature))))
   (when (plist-get props :owned)

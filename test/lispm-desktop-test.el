@@ -2247,6 +2247,22 @@ raised, the latest first."
                  ((symbol-function 'lispm-desktop-platinum-frame-update) #'ignore))
          ,@body))))
 
+(ert-deftest lispm-desktop-test-window-draws-its-own-frame ()
+  "A floating window is framed unless it draws its own frame, as an
+application's window may, Stickies' notes an edge of their colour."
+  (let ((lispm-desktop-platinum-window-frames t)
+        (lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+        (parameters '((window (lispm-desktop-window . t))
+                      (note (lispm-desktop-window . t) (lispm-desktop-platinum-own-frame . t))
+                      (screen))))
+    (cl-letf (((symbol-function 'frame-live-p) #'always)
+              ((symbol-function 'display-graphic-p) #'always)
+              ((symbol-function 'frame-parameter)
+               (lambda (frame parameter) (alist-get parameter (alist-get frame parameters)))))
+      (should (lispm-desktop-platinum--frameable-p 'window))
+      (should-not (lispm-desktop-platinum--frameable-p 'note))
+      (should-not (lispm-desktop-platinum--frameable-p 'screen)))))
+
 (defconst lispm-desktop-test--window-frames
   '((screen (position 0 . 0) (size 1200 . 800) (visibility . t))
     (outer (lispm-desktop-platinum-frames . window) (parent-frame . screen)
@@ -6051,6 +6067,26 @@ when it is removed, which unloads it."
         (should (equal (lispm-desktop-store--version 'ext (cdr (assq 'ext (lispm-desktop-store-items))))
                        "load path"))
         (lispm-desktop-store-remove 'ext)
+        (should-not (featurep 'lispm-desktop-test-ext))
+        (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
+        (should-not lispm-desktop-store-installed)))))
+
+(ert-deftest lispm-desktop-test-store-app-making-itself ()
+  "An application whose package makes it itself, as Stickies does, is
+loaded when installed and unloaded when removed, its windows going with
+it."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-extension 'lispm-desktop-test-ext
+      (setq lispm-desktop-test--extension-events nil)
+      (lispm-desktop-test--write-extension extension-directory 'lispm-desktop-test-ext)
+      (lispm-desktop-test--store-catalog
+       "https://example.org/store"
+       '((notes :kind app :name "Notes" :category productivity :feature lispm-desktop-test-ext
+                :package (lispm-desktop-test-ext :url "u" :rev "abc"))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+        (lispm-desktop-store-install 'notes)
+        (should (featurep 'lispm-desktop-test-ext))
+        (lispm-desktop-store-remove 'notes)
         (should-not (featurep 'lispm-desktop-test-ext))
         (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
         (should-not lispm-desktop-store-installed)))))
