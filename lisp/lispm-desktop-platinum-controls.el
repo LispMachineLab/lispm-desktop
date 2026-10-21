@@ -665,6 +665,76 @@ pixels for the ring."
                     :fill "none" :stroke ink :stroke-width 2 :stroke-linecap "square"))
     svg))
 
+;;;;; Progress bars
+
+(defconst lispm-desktop-platinum-progress-height 14
+  "Height in pixels of a progress bar, its etched edge included.")
+
+(defun lispm-desktop-platinum--progress-ramp (palette)
+  "Return the shades a progress bar is filled with, darkest first, as a
+vector: the variation colour's ramp, in Lavender #000055, #333399,
+#6666CC, #9999FF and #CCCCFF, then Platinum's #EEEEEE."
+  (vector (lispm-desktop-platinum-blend (plist-get palette :highlight-dark) "#000000" 0.375)
+          (plist-get palette :highlight)
+          (plist-get palette :thumb-dark)
+          (plist-get palette :thumb)
+          (plist-get palette :thumb-light)
+          (lispm-desktop-platinum-grey palette #xEE)))
+
+(defun lispm-desktop-platinum-svg-progress-bar (svg x y width fraction palette)
+  "Draw on SVG at X, Y a progress bar WIDTH pixels wide, FRACTION filled.
+It is Mac OS 9's, as its startup screen drew it: etched into the
+platinum and outlined; the part filled is a tube of the variation
+colour lit along its middle and its left, shaded toward its right end,
+which a black line closes; the rest is a groove shaded from its top
+left.  The bar is `lispm-desktop-platinum-progress-height' pixels high."
+  (let* ((grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+         (ramp (lispm-desktop-platinum--progress-ramp palette))
+         (inner (- width 4))
+         (filled (round (* inner (min 1.0 (max 0.0 fraction)))))
+         (left (+ x 2))
+         (top (+ y 2))
+         (bottom (+ top 9)))
+    (cl-flet ((dot (column row shade)
+                (lispm-desktop-platinum-svg-fill svg (+ left column) (+ top row) 1 1 (aref ramp shade))))
+      (lispm-desktop-platinum-svg-row svg x (+ x width -2) y (funcall grey #xAA))
+      (lispm-desktop-platinum-svg-column svg x (1+ y) (+ y 12) (funcall grey #xAA))
+      (lispm-desktop-platinum-svg-row svg (1+ x) (+ x width -1) (+ y 13) (funcall grey #xFF))
+      (lispm-desktop-platinum-svg-column svg (+ x width -1) (1+ y) (+ y 12) (funcall grey #xFF))
+      (lispm-desktop-platinum-svg-fill svg (1+ x) (1+ y) (- width 2) 12 (plist-get palette :outline))
+      (if (< filled 6)
+          ;; Too short a tube to be lit: its darker shade alone.
+          (when (> filled 0)
+            (lispm-desktop-platinum-svg-fill svg left top filled 10 (aref ramp 1)))
+        (seq-do-indexed
+         (lambda (shade row)
+           (lispm-desktop-platinum-svg-row svg left (+ left filled -1) (+ top row) (aref ramp shade))
+           (dot 0 row 2)
+           (dot 1 row (min 5 (1+ shade)))
+           (dot (- filled 3) row (if (= row 4) 4 shade))
+           (dot (- filled 2) row (pcase row (1 2) (9 0) (_ 1)))
+           (dot (- filled 1) row (if (= row 0) 1 0)))
+         [1 2 3 4 5 4 3 2 1 0]))
+      (when (< filled inner)
+        (let ((from (+ left filled (if (> filled 0) 1 0)))
+              (to (+ left inner -1)))
+          (when (> filled 0)
+            (lispm-desktop-platinum-svg-column svg (+ left filled) top bottom (plist-get palette :outline)))
+          (when (<= from to)
+            (lispm-desktop-platinum-svg-fill svg from top (1+ (- to from)) 10 (funcall grey #xBB))
+            (lispm-desktop-platinum-svg-row svg (1+ from) (1- to) top (funcall grey #x88))
+            (lispm-desktop-platinum-svg-column svg to (1+ top) bottom (funcall grey #xDD))
+            (lispm-desktop-platinum-svg-row svg (+ from 2) to bottom (funcall grey #xDD))
+            (lispm-desktop-platinum-svg-column svg (1+ from) top bottom (funcall grey #x88))
+            (lispm-desktop-platinum-svg-column svg from top bottom (funcall grey #x55))))))))
+
+(defun lispm-desktop-platinum-draw-progress-bar (palette width fraction)
+  "Return an SVG of a progress bar WIDTH pixels wide, FRACTION filled, in
+PALETTE; see `lispm-desktop-platinum-svg-progress-bar'."
+  (let ((svg (svg-create width lispm-desktop-platinum-progress-height)))
+    (lispm-desktop-platinum-svg-progress-bar svg 0 0 width fraction palette)
+    svg))
+
 ;;;;; Window frames
 
 (defconst lispm-desktop-platinum-frame-inset '(6 . 1)

@@ -6436,14 +6436,60 @@ crossed from corner to corner; for a group partly on, crossed by a bar."
       (should (equal (at 'mixed 4 3) "#DDDDDD"))
       (should (equal (at 'off 10 6) "#888888")))))
 
+(defun lispm-desktop-test--runs (svg y width)
+  "Return row Y of SVG, WIDTH pixels long, as runs: (COLOR . COUNT)s."
+  (let ((runs nil))
+    (dotimes (x width)
+      (let ((color (lispm-desktop-test--pixel svg x y)))
+        (if (and runs (equal color (caar runs)))
+            (setcdr (car runs) (1+ (cdar runs)))
+          (push (cons color 1) runs))))
+    (nreverse runs)))
+
+(ert-deftest lispm-desktop-test-platinum-progress-bar ()
+  "A progress bar is Mac OS 9's, as its startup screen drew it half full,
+pixel for pixel: etched, outlined, a tube of the variation colour closed
+by a black line, then a groove."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (svg (lispm-desktop-platinum-draw-progress-bar palette 162 0.5)))
+    (should (equal (lispm-desktop-test--size svg) '(162 . 14)))
+    (should (equal (lispm-desktop-test--runs svg 0 162) '(("#AAAAAA" . 161) (nil . 1))))
+    (should (equal (lispm-desktop-test--runs svg 13 162) '((nil . 1) ("#FFFFFF" . 161))))
+    (should (equal (lispm-desktop-test--runs svg 2 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 2) ("#333399" . 77) ("#000000" . 1)
+                     ("#555555" . 1) ("#888888" . 76) ("#BBBBBB" . 1) ("#000000" . 1) ("#FFFFFF" . 1))))
+    (should (equal (lispm-desktop-test--runs svg 3 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 1) ("#9999FF" . 1) ("#6666CC" . 76)
+                     ("#000055" . 1) ("#000000" . 1) ("#555555" . 1) ("#888888" . 1) ("#BBBBBB" . 75)
+                     ("#DDDDDD" . 1) ("#000000" . 1) ("#FFFFFF" . 1))))
+    (should (equal (lispm-desktop-test--runs svg 6 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 1) ("#EEEEEE" . 75) ("#CCCCFF" . 1)
+                     ("#333399" . 1) ("#000055" . 1) ("#000000" . 1) ("#555555" . 1) ("#888888" . 1)
+                     ("#BBBBBB" . 75) ("#DDDDDD" . 1) ("#000000" . 1) ("#FFFFFF" . 1))))
+    (should (equal (lispm-desktop-test--runs svg 11 162)
+                   '(("#AAAAAA" . 1) ("#000000" . 1) ("#6666CC" . 1) ("#333399" . 1) ("#000055" . 77)
+                     ("#000000" . 1) ("#555555" . 1) ("#888888" . 1) ("#DDDDDD" . 76) ("#000000" . 1)
+                     ("#FFFFFF" . 1))))
+    ;; Empty, the groove runs from the outline; full, the tube does.
+    (let ((empty (lispm-desktop-platinum-draw-progress-bar palette 100 0))
+          (full (lispm-desktop-platinum-draw-progress-bar palette 100 1)))
+      (should (equal (lispm-desktop-test--pixel empty 2 5) "#555555"))
+      (should (equal (lispm-desktop-test--pixel empty 97 5) "#DDDDDD"))
+      (should (equal (lispm-desktop-test--pixel full 2 5) "#6666CC"))
+      (should (equal (lispm-desktop-test--pixel full 97 5) "#000055")))))
+
 (defmacro lispm-desktop-test--with-store (&rest body)
   "Run BODY with an App Store of its own: no catalog, nothing installed,
-its clones in a temporary directory, Customize only setting what it saves."
+its clones in a temporary directory, Customize only setting what it saves.
+Packages are installed in this Emacs, unless BODY binds
+`lispm-desktop-store-install-in-background'."
   (declare (indent 0))
   `(let* ((lispm-desktop-store-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-store" t)))
           (lispm-desktop-store-catalogs nil)
           (lispm-desktop-store--catalogs nil)
           (lispm-desktop-store-installed nil)
+          (lispm-desktop-store-install-in-background nil)
+          (lispm-desktop-store--jobs nil)
           (lispm-desktop-store--checking nil)
           (lispm-desktop-store--checked t)
           (lispm-desktop-apps lispm-desktop-apps)
@@ -6454,6 +6500,12 @@ its clones in a temporary directory, Customize only setting what it saves."
                 (lambda (variable value &rest _) (set variable value))))
        (unwind-protect
            (progn ,@body)
+         (when (timerp lispm-desktop-store--redraw-timer)
+           (cancel-timer lispm-desktop-store--redraw-timer)
+           (setq lispm-desktop-store--redraw-timer nil))
+         (dolist (job lispm-desktop-store--jobs)
+           (when (buffer-live-p (lispm-desktop-store-job-log job))
+             (kill-buffer (lispm-desktop-store-job-log job))))
          (when (get-buffer lispm-desktop-store-buffer-name)
            (kill-buffer lispm-desktop-store-buffer-name))
          (delete-directory lispm-desktop-store-directory t)))))
@@ -6736,7 +6788,8 @@ it."
 
 (ert-deftest lispm-desktop-test-store-extension-that-cannot-load ()
   "An extension whose feature cannot be loaded is not kept as installed,
-and the package installed for it is deleted again."
+and the package installed for it is deleted again; its install failed,
+saying why, and its button tries again."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--store-catalog
      "https://example.org/store"
@@ -6747,9 +6800,16 @@ and the package installed for it is deleted again."
                 ((symbol-function 'package-installed-p) (lambda (name &rest _) (memq name packages)))
                 ((symbol-function 'package-vc-install) (lambda (spec _rev) (push (car spec) packages)))
                 ((symbol-function 'lispm-desktop-store--delete-package) (lambda (package) (push package deleted))))
-        (should-error (lispm-desktop-store-install 'ext) :type 'user-error)
+        (lispm-desktop-store-install 'ext)
         (should-not lispm-desktop-store-installed)
-        (should (equal deleted '((lispm-desktop-test-no-such-feature :url "u" :rev "r"))))))))
+        (should (equal deleted '((lispm-desktop-test-no-such-feature :url "u" :rev "r"))))
+        (let ((job (lispm-desktop-store--job 'ext)))
+          (should (eq (lispm-desktop-store-job-state job) 'failed))
+          (should (string-prefix-p "It cannot be loaded" (lispm-desktop-store-job-error job))))
+        (should (equal (lispm-desktop-store--action 'ext (cdr (assq 'ext (lispm-desktop-store-items))))
+                       '("Try Again" . install)))
+        (should (string-prefix-p "It could not be installed: It cannot be loaded"
+                                 (lispm-desktop-store--failure 'ext)))))))
 
 (ert-deftest lispm-desktop-test-store-space-on-the-disclosure ()
   "Space on the disclosure of the item's information shows or hides it,
@@ -6867,6 +6927,317 @@ ready."
                                        '((ext :kind extension :name "Ext" :feature ext
                                               :package ext :requires (elfeed))))
     (should-error (lispm-desktop-store-install 'ext) :type 'user-error)))
+
+;;;;; Installing in the background
+
+(require 'package-vc)
+
+(defmacro lispm-desktop-test--with-packages (&rest body)
+  "Run BODY installing packages in the background into a temporary
+`package-user-dir' of its own, holding none, from no archive."
+  (declare (indent 0))
+  `(let* ((package-user-dir (file-name-as-directory (make-temp-file "lispm-desktop-test-elpa" t)))
+          (package-directory-list nil)
+          (package-archives nil)
+          (package-check-signature nil)
+          (package-alist nil)
+          (package-activated-list nil)
+          (package-selected-packages nil)
+          (package-vc-selected-packages nil)
+          (package-vc-register-as-project nil)
+          (package-quickstart nil)
+          (load-path load-path)
+          (lispm-desktop-store-install-in-background t))
+     (unwind-protect
+         (progn ,@body)
+       (when (featurep 'lispm-desktop-test-pkg)
+         (unload-feature 'lispm-desktop-test-pkg t))
+       (fmakunbound 'lispm-desktop-test-pkg-open)
+       (delete-directory package-user-dir t))))
+
+(defun lispm-desktop-test--package-repository (directory version)
+  "Commit in DIRECTORY, a git repository made the first time, the package
+lispm-desktop-test-pkg at VERSION, its command returning VERSION; return
+the commit."
+  (unless (file-directory-p (expand-file-name ".git" directory))
+    (lispm-desktop-test--git directory "init" "--quiet"))
+  (with-temp-file (expand-file-name "lispm-desktop-test-pkg.el" directory)
+    (insert ";;; lispm-desktop-test-pkg.el --- A package to install  -*- lexical-binding: t; -*-\n"
+            ";; Version: " version "\n;;; Code:\n"
+            ";;;###autoload\n(defun lispm-desktop-test-pkg-open ()\n  \"Return the version.\"\n"
+            "  (interactive)\n  " (prin1-to-string version) ")\n"
+            "(provide 'lispm-desktop-test-pkg)\n;;; lispm-desktop-test-pkg.el ends here\n"))
+  (lispm-desktop-test--git directory "add" "lispm-desktop-test-pkg.el")
+  (lispm-desktop-test--git directory "commit" "--quiet" "-m" version)
+  (lispm-desktop-test--git directory "rev-parse" "HEAD"))
+
+(defun lispm-desktop-test--store-wait ()
+  "Wait until no job of the App Store waits or runs."
+  (with-timeout (60 (error "The App Store's jobs did not end"))
+    (while (seq-some (lambda (job) (memq (lispm-desktop-store-job-state job) '(waiting running)))
+                     lispm-desktop-store--jobs)
+      (accept-process-output nil 0.02))))
+
+(defun lispm-desktop-test--pkg-catalog (url rev)
+  "List in the test catalog the application Pkg, its package from the git
+repository at URL, pinned to REV."
+  (setq lispm-desktop-store-catalogs nil)
+  (lispm-desktop-test--store-catalog
+   "https://example.org/store"
+   `((pkg :kind app :name "Pkg" :command lispm-desktop-test-pkg-open
+          :package (lispm-desktop-test-pkg :url ,url :rev ,rev)))))
+
+(ert-deftest lispm-desktop-test-store-installs-in-the-background ()
+  "A package is installed in an Emacs of its own while this one goes on:
+the item's button gives way to its progress, which goes through the
+stages and only forward; once done, its package is active here, chosen
+as package.el keeps those installed, and the application one of the
+desktop's.  Removed, its package is gone, and getting it again would
+install it again."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (url (concat "file://" source))
+             (rev (lispm-desktop-test--package-repository source "1.0"))
+             (seen nil))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
+                      ((symbol-function 'lispm-desktop-store--redraw-soon)
+                       (lambda ()
+                         (let ((job (lispm-desktop-store--job 'pkg)))
+                           (push (cons (lispm-desktop-store-job-stage job) (lispm-desktop-store-job-fraction job))
+                                 seen)))))
+              (lispm-desktop-test--pkg-catalog url rev)
+              (lispm-desktop-store-install 'pkg)
+              (should (lispm-desktop-store--busy-p 'pkg))
+              (should (equal (lispm-desktop-store--action 'pkg (cdr (assq 'pkg (lispm-desktop-store-items))))
+                             '("Stop" . stop)))
+              (should (plist-get (lispm-desktop-store--tile (assq 'pkg (lispm-desktop-store-items))) :progress))
+              (should-not lispm-desktop-store-installed)
+              (lispm-desktop-test--store-wait)
+              (should-not (lispm-desktop-store--job 'pkg))
+              (let ((stages (mapcar #'car (reverse seen)))
+                    (fractions (mapcar #'cdr (reverse seen))))
+                (should (memq 'download stages))
+                (should (memq 'build stages))
+                (should (equal fractions (sort (copy-sequence fractions) #'<=))))
+              (let ((installed (cdr (assq 'pkg lispm-desktop-store-installed))))
+                (should (equal (plist-get installed :installed) rev))
+                (should (plist-get installed :owned)))
+              (should (file-exists-p (expand-file-name "lispm-desktop-test-pkg/lispm-desktop-test-pkg.elc"
+                                                       package-user-dir)))
+              (should (assq 'lispm-desktop-test-pkg package-alist))
+              (should (memq 'lispm-desktop-test-pkg package-selected-packages))
+              (should (equal (assq 'lispm-desktop-test-pkg package-vc-selected-packages)
+                             `(lispm-desktop-test-pkg :url ,url)))
+              (should (equal (lispm-desktop-test-pkg-open) "1.0"))
+              (should (assq 'pkg lispm-desktop-apps))
+              ;; Removed, it is gone: getting it again installs it again.
+              (lispm-desktop-store-remove 'pkg)
+              (should-not (file-exists-p (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
+              (should-not (lispm-desktop-store--package-present (cdr (assq 'pkg (lispm-desktop-store-items))))))
+          (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-updates-in-the-background ()
+  "An update is made in an Emacs of its own too; once done, the package's
+code loaded here is loaded anew."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (url (concat "file://" source))
+             (old (lispm-desktop-test--package-repository source "1.0")))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+              (lispm-desktop-test--pkg-catalog url old)
+              (lispm-desktop-store-install 'pkg)
+              (lispm-desktop-test--store-wait)
+              (require 'lispm-desktop-test-pkg)
+              (should (equal (lispm-desktop-test-pkg-open) "1.0"))
+              (let ((new (lispm-desktop-test--package-repository source "2.0")))
+                (lispm-desktop-test--pkg-catalog url new)
+                (should (lispm-desktop-store-update-available-p 'pkg))
+                (lispm-desktop-store-update 'pkg)
+                (should (eq (lispm-desktop-store-job-action (lispm-desktop-store--job 'pkg)) 'update))
+                (lispm-desktop-test--store-wait)
+                (should-not (lispm-desktop-store--job 'pkg))
+                (should (equal (plist-get (cdr (assq 'pkg lispm-desktop-store-installed)) :installed) new))
+                (should-not (lispm-desktop-store-update-available-p 'pkg))
+                (should (equal (package-desc-version (cadr (assq 'lispm-desktop-test-pkg package-alist)))
+                               '(2 0)))
+                (should (= (length (cdr (assq 'lispm-desktop-test-pkg package-alist))) 1))
+                (should (equal (lispm-desktop-test-pkg-open) "2.0"))))
+          (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-failed-install-undone ()
+  "An install that fails in the background leaves nothing installed: what
+its Emacs put in the packages' directory is gone, the item says why and
+offers to try again, its log is kept, and what was asked for with it is
+not installed."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let ((missing (concat "file://" (expand-file-name "lispm-desktop-test-nowhere" temporary-file-directory))))
+        (lispm-desktop-test--store-catalog
+         "https://example.org/store"
+         `((broken :kind app :name "Broken" :command ignore
+                   :package (lispm-desktop-test-broken :url ,missing :rev "0123456789abcdef"))
+           (needy :kind app :name "Needy" :command ignore :requires (broken)
+                  :package (lispm-desktop-test-needy :url ,missing :rev "0123456789abcdef"))))
+        (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+          (lispm-desktop-store-install 'needy)
+          (should (equal (mapcar #'lispm-desktop-store-job-id lispm-desktop-store--jobs) '(broken needy)))
+          (lispm-desktop-test--store-wait))
+        (let ((job (lispm-desktop-store--job 'broken)))
+          (should (eq (lispm-desktop-store-job-state job) 'failed))
+          (should (string-match-p "clone" (lispm-desktop-store-job-error job)))
+          (should (buffer-live-p (lispm-desktop-store-job-log job))))
+        (should-not (lispm-desktop-store--job 'needy))
+        (should-not lispm-desktop-store-installed)
+        (should-not (directory-files package-user-dir nil "lispm-desktop-test"))
+        (should (equal (lispm-desktop-store--action 'broken (cdr (assq 'broken (lispm-desktop-store-items))))
+                       '("Try Again" . install)))
+        (should (equal (plist-get (lispm-desktop-store--tile (assq 'broken (lispm-desktop-store-items))) :subtitle)
+                       "Could not install"))))))
+
+(ert-deftest lispm-desktop-test-store-stop ()
+  "An install stopped in the background is undone: nothing of it stays."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (rev (lispm-desktop-test--package-repository source "1.0")))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+              (lispm-desktop-test--pkg-catalog (concat "file://" source) rev)
+              (lispm-desktop-store-install 'pkg)
+              (lispm-desktop-store-stop 'pkg)
+              (lispm-desktop-test--store-wait)
+              (with-timeout (10 (error "The stopped job stayed"))
+                (while (lispm-desktop-store--job 'pkg)
+                  (accept-process-output nil 0.02)))
+              (should-not lispm-desktop-store-installed)
+              (should-not (file-exists-p (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
+              (should (equal (lispm-desktop-store--action 'pkg (cdr (assq 'pkg (lispm-desktop-store-items))))
+                             '("Get" . install))))
+          (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-progress-shown ()
+  "What the installing Emacs says moves the item's progress, only forward,
+whatever lines its output is cut in; the tile, the information, the
+placard and the button say it, and a click on the progress bar selects
+the item; one that failed says why."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((pkg :kind app :name "Pkg" :command ignore :package (p :url "u" :rev "r"))))
+    (let* ((item (assq 'pkg (lispm-desktop-store-items)))
+           (job (lispm-desktop-store--make-job :id 'pkg :item item :action 'install :group (list 'install)
+                                               :state 'running :stage 'preparing :process t
+                                               :log (generate-new-buffer " *lispm-desktop-test log*")))
+           (redrawn 0))
+      (cl-letf (((symbol-function 'lispm-desktop-store--redraw-soon) (lambda () (cl-incf redrawn))))
+        (push job lispm-desktop-store--jobs)
+        (lispm-desktop-store--heard job "Cloning into it...\nLISPM-STORE (stage download)\nLISPM-STORE (progr")
+        (should (eq (lispm-desktop-store-job-stage job) 'download))
+        (should (< (abs (- (lispm-desktop-store-job-fraction job) 0.1)) 1e-9))
+        (lispm-desktop-store--heard job "ess 0.5)\n")
+        (should (< (abs (- (lispm-desktop-store-job-fraction job) 0.35)) 1e-9))
+        (lispm-desktop-store--heard job "LISPM-STORE (stage archives)\n")
+        (should (< (abs (- (lispm-desktop-store-job-fraction job) 0.35)) 1e-9))
+        (should (= redrawn 3))
+        (should (equal (with-current-buffer (lispm-desktop-store-job-log job) (buffer-string))
+                       "Cloning into it...\n"))
+        (let ((tile (lispm-desktop-store--tile item)))
+          (should (= (plist-get tile :progress) 0.35))
+          (should (equal (plist-get tile :subtitle) "Reading the archives…")))
+        (should (equal (cadr (assoc "Status:" (lispm-desktop-store--fields 'pkg)))
+                       "Installing: reading the archives, 35%"))
+        (should (equal (lispm-desktop-store--placard) "Installing “Pkg”… 35%"))
+        (should (equal (lispm-desktop-store--action 'pkg (cdr item)) '("Stop" . stop)))
+        (pcase-let* ((`(,gx ,_ ,tw) (lispm-desktop-store--grid 640))
+                     (`(,px ,py ,_) (lispm-desktop-store--progress-box gx tw)))
+          (should (equal (lispm-desktop-store--hit 640 0 (+ px 2) (+ py 2) '((all "All" 1)) (list item))
+                         '(item . pkg))))
+        (lispm-desktop-store--fail job "git clone failed: nope.")
+        (should-not (plist-get (lispm-desktop-store--tile item) :progress))
+        (should (equal (plist-get (lispm-desktop-store--tile item) :subtitle) "Could not install"))
+        (should (equal (lispm-desktop-store--failure 'pkg) "It could not be installed: git clone failed: nope.  "))
+        (should (equal (cadr (assoc "Status:" (lispm-desktop-store--fields 'pkg))) "Could not be installed"))))))
+
+(ert-deftest lispm-desktop-test-store-wrap-cuts-long-words ()
+  "The information's text is broken between words, and a word too long
+for a line, as a file name an error names, after its slashes."
+  (let* ((text "It failed: /private/tmp/claude/scratchpad/elpa/yeetube is in the way")
+         (width (string-pixel-width "/private/tmp/claude/"))
+         (lines (lispm-desktop-store--wrap text width 'default)))
+    (should (seq-every-p (lambda (line) (<= (string-pixel-width line) width)) lines))
+    (should (member "/private/tmp/claude/" lines))
+    (should (equal (string-replace " " "" (string-join lines ""))
+                   (string-replace " " "" text)))))
+
+(ert-deftest lispm-desktop-test-store-installer-upgrade-keeps-the-old ()
+  "An update from the package archives installs the newest package beside
+the one installed and deletes that one only then: one that fails leaves
+it as it was."
+  (let* ((old (package-desc-create :name 'emms :version '(1)))
+         (new (package-desc-create :name 'emms :version '(2)))
+         (package-alist (list (list 'emms old)))
+         (package-archive-contents (list (list 'emms new)))
+         (calls nil))
+    (cl-letf (((symbol-function 'package-install) (lambda (desc &rest _) (push (list 'install desc) calls)))
+              ((symbol-function 'package-delete) (lambda (desc &rest _) (push (list 'delete desc) calls))))
+      (should (equal (lispm-desktop-store-installer--upgrade 'emms) "2"))
+      (should (equal (nreverse calls) (list (list 'install new) (list 'delete old)))))
+    (setq calls nil)
+    (cl-letf (((symbol-function 'package-install) (lambda (&rest _) (error "No network")))
+              ((symbol-function 'package-delete) (lambda (desc &rest _) (push (list 'delete desc) calls))))
+      (should-error (lispm-desktop-store-installer--upgrade 'emms))
+      (should-not calls))))
+
+(ert-deftest lispm-desktop-test-store-update-tasks ()
+  "In the background, a package from git is updated to the commit its
+catalog pins, from the one installed; one from the package archives to
+their newest."
+  (lispm-desktop-test--with-store
+    (let ((lispm-desktop-store-install-in-background t)
+          (tasks nil))
+      (setq lispm-desktop-store-installed
+            '((elfeed :kind app :name "Elfeed" :command elfeed :installed "old"
+                      :package (elfeed :url "u" :rev "old"))
+              (emms :kind app :name "EMMS" :command emms :package emms :installed "1")))
+      (cl-letf (((symbol-function 'lispm-desktop-store--spawn) (lambda (_job task) (push task tasks))))
+        (lispm-desktop-store--queue
+         (list '(elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "new")))
+         'update)
+        (setq lispm-desktop-store--jobs nil)
+        (lispm-desktop-store--queue (list '(emms :kind app :name "EMMS" :command emms :package emms)) 'update))
+      (should (equal (nreverse tasks) '((update elfeed "new" "old") (upgrade emms)))))))
+
+(ert-deftest lispm-desktop-test-store-stoppable ()
+  "A job waiting can be stopped, an install in the background all along,
+an update only until it builds; one in this Emacs cannot."
+  (cl-flet ((job (&rest args) (apply #'lispm-desktop-store--make-job :id 'x :item '(x) args)))
+    (should (lispm-desktop-store--stoppable-p (job :action 'install)))
+    (should (lispm-desktop-store--stoppable-p (job :action 'install :state 'running :stage 'build :process t)))
+    (should (lispm-desktop-store--stoppable-p (job :action 'update :state 'running :stage 'download :process t)))
+    (should-not (lispm-desktop-store--stoppable-p (job :action 'update :state 'running :stage 'build :process t)))
+    (should-not (lispm-desktop-store--stoppable-p (job :action 'install :state 'running :stage 'build)))
+    (should-not (lispm-desktop-store--stoppable-p (job :action 'install :state 'failed)))))
+
+(ert-deftest lispm-desktop-test-store-job-program ()
+  "The Emacs installing in the background gets this one's settings for
+packages, those that read back alone, and runs the installer on its task."
+  (let ((package-user-dir "/tmp/elpa/")
+        (package-archives '(("gnu" . "https://elpa.gnu.org/packages/")))
+        (exec-path (list "/opt/bin" (current-buffer))))
+    (let ((program (lispm-desktop-store--job-program '(install (p :url "u" :rev "r")))))
+      (should (member '(setq package-user-dir '"/tmp/elpa/") program))
+      (should (member '(setq package-archives '(("gnu" . "https://elpa.gnu.org/packages/"))) program))
+      (should-not (seq-find (lambda (form) (equal (car-safe (cdr-safe form)) 'exec-path)) program))
+      (should (equal (car (last program))
+                     '(lispm-desktop-store-installer-run '(install (p :url "u" :rev "r"))))))))
 
 (ert-deftest lispm-desktop-test-store-categories ()
   "The categories down the left are All, those holding an item, in their
