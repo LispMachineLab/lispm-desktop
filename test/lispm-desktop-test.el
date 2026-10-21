@@ -7248,6 +7248,22 @@ sources change."
           (should-not (lispm-desktop-app-emms--reader-built-p)))
       (delete-directory lispm-desktop-app-emms-reader-directory t))))
 
+(ert-deftest lispm-desktop-test-app-emms-not-read ()
+  "When the Music library could not be read, the alert says why and its
+Open Privacy Settings opens Media & Apple Music in System Settings."
+  (let ((asked nil) (opened nil))
+    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message buttons &optional detail)
+                 (setq asked (list message (mapcar #'car buttons) detail))
+                 'settings))
+              ((symbol-function 'call-process)
+               (lambda (program &rest arguments) (setq opened (cons program (last arguments))) 0)))
+      (lispm-desktop-app-emms--not-read '(:error "Access denied.")))
+    (should (equal (car asked) "The Music library could not be read."))
+    (should (equal (nth 1 asked) '("Open Privacy Settings" "OK")))
+    (should (string-prefix-p "Access denied." (nth 2 asked)))
+    (should (equal opened (list "open" lispm-desktop-app-emms-media-settings)))))
+
 (ert-deftest lispm-desktop-test-app-emms-players ()
   "EMMS plays with its default players whose programs are installed, mpv
 only when it is, then macOS's afplay where it is."

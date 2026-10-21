@@ -373,6 +373,24 @@ parsed into plists."
            (delete-file output)
            (funcall then data)))))))
 
+(defconst lispm-desktop-app-emms-media-settings
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Media"
+  "Where System Settings lets applications read the media library:
+Privacy & Security, Media & Apple Music.")
+
+(defun lispm-desktop-app-emms--not-read (data)
+  "Say the Music library could not be read, with why, from DATA, what
+the reader wrote, or nil; most often it was not let read the media
+library, so a button opens the settings letting it."
+  (when (eq (lispm-desktop-popup-alert
+             'stop "The Music library could not be read."
+             '(("Open Privacy Settings" settings) ("OK" ok default))
+             (concat (or (plist-get data :error) "LispM Music Library said nothing.")
+                     "  If it was not let read the media library, let LispM Music Library"
+                     " in Privacy & Security, Media & Apple Music, then import again."))
+            'settings)
+    (call-process "open" nil 0 nil lispm-desktop-app-emms-media-settings)))
+
 (defun lispm-desktop-app-emms-import-music ()
   "Read the Music app's library into EMMS: every song Music keeps a file
 of, its tags as Music has them, and its playlists.  It is read, and only
@@ -389,11 +407,7 @@ the first time; macOS asks once whether it may read the media library."
                  (lambda (data)
                    (message nil)
                    (if (or (null data) (plist-get data :error))
-                       (lispm-desktop-popup-alert
-                        'stop "The Music library could not be read." '(("OK" ok default))
-                        (concat (or (plist-get data :error) "LispM Music Library said nothing.")
-                                "  If it was not let read the media library, let it in System Settings,"
-                                " Privacy & Security, Media & Apple Music."))
+                       (lispm-desktop-app-emms--not-read data)
                      (lispm-desktop-app-emms--imported window (lispm-desktop-app-emms--import data)))))))
       (if (lispm-desktop-app-emms--reader-built-p)
           (read-library)
