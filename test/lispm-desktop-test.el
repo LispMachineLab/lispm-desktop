@@ -7481,6 +7481,213 @@ found out of it is not enough, each board's functions defined."
             (when (and function (symbolp function))
               (should (fboundp function)))))))))
 
+(defconst lispm-desktop-test--programs
+  '(("lispm-test-player" :for "playing music" :install "brew install lispm-test-player"
+     :instead ("lispm-test-stand-in") :more "seeking")
+    ("lispm-test-tagger" :for "reading tags" :install "brew install lispm-test-tagger"))
+  "Programs an app's catalog declares, for the tests.")
+
+(ert-deftest lispm-desktop-test-app-programs-declared ()
+  "A catalog declares the programs an app uses, each with what it is for,
+how to install it and what may stand in for it; those malformed are not
+taken."
+  (should (lispm-desktop-store--programs-valid-p lispm-desktop-test--programs))
+  (should (lispm-desktop-store--programs-valid-p nil))
+  (should-not (lispm-desktop-store--programs-valid-p '(("mpv" :install "brew install mpv"))))
+  (should-not (lispm-desktop-store--programs-valid-p '((mpv :for "playing"))))
+  (should-not (lispm-desktop-store--programs-valid-p '(("mpv" :for "playing" :instead "afplay"))))
+  (should-not (lispm-desktop-store--item-valid-p
+               '(emms :kind app :name "EMMS" :command emms :programs (("mpv"))))))
+
+(ert-deftest lispm-desktop-test-app-programs-stand ()
+  "A program an app uses is present, missing with a stand-in installed,
+or missing; what is said of it says which, and the App Store copies the
+commands installing those missing."
+  (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in"))))
+    (let ((states (lispm-desktop-app-ui-program-states lispm-desktop-test--programs)))
+      (should (equal (mapcar (lambda (state) (take 2 state)) states)
+                     '(("lispm-test-player" instead) ("lispm-test-tagger" missing))))
+      (should (equal (apply #'lispm-desktop-app-ui-program-text "EMMS" (car states))
+                     "EMMS uses lispm-test-stand-in for playing music; lispm-test-player would add seeking."))
+      (should (equal (apply #'lispm-desktop-app-ui-program-text "EMMS" (cadr states))
+                     "EMMS needs lispm-test-tagger for reading tags.")))
+    (let ((props `(:kind app :name "EMMS" :description "Music." :programs ,lispm-desktop-test--programs)))
+      (should (equal (lispm-desktop-store--install-commands props)
+                     "brew install lispm-test-player && brew install lispm-test-tagger"))
+      (should (string-search "It needs lispm-test-tagger for reading tags." (lispm-desktop-store--description props)))
+      (should (string-suffix-p
+               "Install them with: brew install lispm-test-player && brew install lispm-test-tagger"
+               (lispm-desktop-store--description props)))))
+  (cl-letf (((symbol-function 'executable-find) #'always))
+    (should-not (lispm-desktop-store--install-commands
+                 `(:kind app :name "EMMS" :programs ,lispm-desktop-test--programs)))))
+
+(ert-deftest lispm-desktop-test-store-programs-from-the-catalog ()
+  "An installed app uses the programs its catalog declares now, though it
+was installed before the catalog declared them."
+  (let ((lispm-desktop-store-installed '((emms :kind app :name "EMMS" :command emms-browser)))
+        (lispm-desktop-store--catalogs
+         `((:url "https://example.org/store"
+            :items ((emms :kind app :name "EMMS" :command emms-browser
+                          :programs ,lispm-desktop-test--programs)))))
+        (lispm-desktop-apps nil))
+    (lispm-desktop-store--register-app 'emms (lispm-desktop-store--installed 'emms))
+    (should (equal (mapcar #'car (lispm-desktop-app-ui-programs 'emms))
+                   '("lispm-test-player" "lispm-test-tagger")))))
+
+(ert-deftest lispm-desktop-test-app-programs-in-help ()
+  "An app's Help menu offers to install each program it uses that is
+missing; one it needs with nothing standing in is said as it opens, once."
+  (let ((lispm-desktop-apps (list (list 'emms :name "EMMS" :programs (lambda () lispm-desktop-test--programs))))
+        (lispm-desktop-app-ui--told nil)
+        (told nil))
+    (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in")))
+              ((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message &rest _) (push message told) 'ok)))
+      (should (equal (seq-filter #'stringp (mapcar (lambda (item) (and (consp item) (plist-get item :label)))
+                                                   (lispm-desktop-app-ui--help-items 'emms)))
+                     '("EMMS Keys" "About EMMS" "Install lispm-test-player…" "Install lispm-test-tagger…")))
+      (lispm-desktop-app-ui--tell-missing 'emms)
+      (lispm-desktop-app-ui--tell-missing 'emms)
+      (should (equal told '("EMMS needs lispm-test-tagger for reading tags."))))))
+
+(ert-deftest lispm-desktop-test-app-emms-mdls ()
+  "Spotlight's tags, as mdls prints them, are read: strings, the first of
+a list, numbers as written, nothing for null."
+  (with-temp-buffer
+    (insert "kMDItemAlbum            = \"Abbey Road\"\n"
+            "kMDItemAudioTrackNumber = 3\n"
+            "kMDItemAuthors          = (\n    \"The Beatles\",\n    \"Someone\"\n)\n"
+            "kMDItemComposer         = (null)\n"
+            "kMDItemTitle            = \"Say \\\"Something\\\"\"\n")
+    (should (equal (lispm-desktop-app-emms--mdls-value "kMDItemAlbum") "Abbey Road"))
+    (should (equal (lispm-desktop-app-emms--mdls-value "kMDItemAudioTrackNumber") "3"))
+    (should (equal (lispm-desktop-app-emms--mdls-value "kMDItemAuthors") "The Beatles"))
+    (should-not (lispm-desktop-app-emms--mdls-value "kMDItemComposer"))
+    (should (equal (lispm-desktop-app-emms--mdls-value "kMDItemTitle") "Say \"Something\""))
+    (should-not (lispm-desktop-app-emms--mdls-value "kMDItemGenre"))))
+
+(ert-deftest lispm-desktop-test-app-emms-import-music ()
+  "The Music library's songs kept as files are cached with Music's tags,
+its playlists kept of them; songs without a file, or protected, are
+counted as left to Music."
+  (let* ((file (make-temp-file "lispm-music-playlists"))
+         (lispm-desktop-app-emms-music-playlists-file file)
+         (lispm-desktop-app-emms--music-playlists 'unread)
+         (cache nil)
+         (emms-cache-dirty nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'emms-track) (lambda (type name) (list type name)))
+                  ((symbol-function 'emms-track-set)
+                   (lambda (track field value) (nconc track (list (cons field value)))))
+                  ((symbol-function 'emms-cache-set) (lambda (_type path track) (push (cons path track) cache)))
+                  ((symbol-function 'emms-cache-save) #'ignore))
+          (let ((result (lispm-desktop-app-emms--import
+                         '(:total 5
+                           :tracks ((:id "A" :path "/m/a.m4a" :name "Song A" :artist "Band" :trackNumber 2
+                                     :year 0 :duration 181.6 :kind "AAC audio file")
+                                    (:id "B" :path "/m/b.m4p" :name "Song B" :kind "Protected AAC audio file")
+                                    (:id "C" :path nil :name "Song C" :kind "MPEG audio file")
+                                    (:id "D" :path "/m/d.mp3" :name "Song D" :kind "MPEG audio file")
+                                    (:id "E" :path "/m/e.m4a" :name "Song E" :kind "AAC audio file"
+                                     :protected t))
+                           :playlists ((:name "Mix" :ids ("D" "B" "A")) (:name "Gone" :ids ("C")))))))
+            (should (equal (take 3 result) '(2 1 3)))
+            (should (equal (sort (copy-sequence (nth 3 result)) #'string<) '("/m/a.m4a" "/m/d.mp3"))))
+          (let ((a (cdr (assoc "/m/a.m4a" cache))))
+            (should (equal (alist-get 'info-title (cddr a)) "Song A"))
+            (should (equal (alist-get 'info-tracknumber (cddr a)) "2"))
+            (should (= (alist-get 'info-playing-time (cddr a)) 182))
+            (should-not (assq 'info-year (cddr a))))
+          (should (equal (lispm-desktop-app-emms-music-playlists) '(("Mix" "/m/d.mp3" "/m/a.m4a"))))
+          (setq lispm-desktop-app-emms--music-playlists 'unread)
+          (should (equal (lispm-desktop-app-emms-music-playlists) '(("Mix" "/m/d.mp3" "/m/a.m4a")))))
+      (delete-file file))))
+
+(ert-deftest lispm-desktop-test-app-emms-reader-rebuilt ()
+  "The reader of the Music library is built once, and again only when its
+sources change."
+  (let ((lispm-desktop-app-emms-reader-directory (make-temp-file "lispm-music-library" t)))
+    (unwind-protect
+        (let ((stamp (lispm-desktop-app-emms--reader-stamp)))
+          (should-not (lispm-desktop-app-emms--reader-built-p))
+          (make-directory (file-name-directory stamp) t)
+          (with-temp-file stamp (insert (lispm-desktop-app-emms--reader-sources-hash)))
+          (should (lispm-desktop-app-emms--reader-built-p))
+          (with-temp-file stamp (insert "sources of before"))
+          (should-not (lispm-desktop-app-emms--reader-built-p)))
+      (delete-directory lispm-desktop-app-emms-reader-directory t))))
+
+(ert-deftest lispm-desktop-test-app-emms-not-read ()
+  "When the Music library could not be read, the alert says why and its
+Open Privacy Settings opens Media & Apple Music in System Settings."
+  (let ((asked nil) (opened nil))
+    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message buttons &optional detail)
+                 (setq asked (list message (mapcar #'car buttons) detail))
+                 'settings))
+              ((symbol-function 'call-process)
+               (lambda (program &rest arguments) (setq opened (cons program (last arguments))) 0)))
+      (lispm-desktop-app-emms--not-read '(:error "Access denied.")))
+    (should (equal (car asked) "The Music library could not be read."))
+    (should (equal (nth 1 asked) '("Open Privacy Settings" "OK")))
+    (should (string-prefix-p "Access denied." (nth 2 asked)))
+    (should (equal opened (list "open" lispm-desktop-app-emms-media-settings)))))
+
+(ert-deftest lispm-desktop-test-app-emms-readable ()
+  "Emacs may read the files imported, or macOS keeps them from it, as it
+keeps ~/Music from an application not let read the media library, or
+none of them is there."
+  (let ((file (make-temp-file "lispm-song")))
+    (unwind-protect
+        (progn
+          (should (eq (lispm-desktop-app-emms-readable-p (list "/no/such/song.m4a" file)) t))
+          (should-not (lispm-desktop-app-emms-readable-p (list "/no/such/song.m4a")))
+          (cl-letf (((symbol-function 'insert-file-contents-literally)
+                     (lambda (name &rest _)
+                       (signal 'file-error (list "Opening input file" "Operation not permitted" name)))))
+            (should (eq (lispm-desktop-app-emms-readable-p (list file)) 'denied))))
+      (delete-file file)))
+  (should (equal (lispm-desktop-app-emms--application "/Applications/LispM.app/Contents/MacOS/") "LispM"))
+  (should (equal (lispm-desktop-app-emms--application "/usr/local/bin/") "Emacs")))
+
+(ert-deftest lispm-desktop-test-app-emms-imported-unreadable ()
+  "Songs imported that Emacs may not read are said so, naming the
+application to let read the media library, and Open Privacy Settings
+opens Media & Apple Music; songs it may read are counted."
+  (let ((asked nil) (opened nil) (readable 'denied))
+    (cl-letf (((symbol-function 'lispm-desktop-app-emms-readable-p) (lambda (_) readable))
+              ((symbol-function 'lispm-desktop-app-emms--application) (lambda (&rest _) "LispM"))
+              ((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon message buttons &optional detail)
+                 (setq asked (list message (mapcar #'car buttons) detail))
+                 'settings))
+              ((symbol-function 'call-process)
+               (lambda (program &rest arguments) (setq opened (cons program (last arguments))) 0)))
+      (lispm-desktop-app-emms--imported nil '(426 9 31 ("/m/a.m4a")))
+      (should (equal (car asked) "426 songs and 9 playlists came from Music, but LispM may not read them."))
+      (should (equal (nth 1 asked) '("Open Privacy Settings" "OK")))
+      (should (string-search "Turn LispM on in Privacy & Security, Media & Apple Music" (nth 2 asked)))
+      (should (equal opened (list "open" lispm-desktop-app-emms-media-settings)))
+      (setq readable t opened nil)
+      (lispm-desktop-app-emms--imported nil '(426 9 31 ("/m/a.m4a")))
+      (should (equal (car asked) "426 songs and 9 playlists came from Music."))
+      (should (equal (nth 1 asked) '("OK"))))))
+
+(ert-deftest lispm-desktop-test-app-emms-players ()
+  "EMMS plays with its default players whose programs are installed, mpv
+only when it is, then macOS's afplay where it is."
+  (skip-unless (locate-library "emms-setup"))
+  (require 'emms-setup)
+  (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "afplay"))))
+    (let ((players (lispm-desktop-app-emms-players)))
+      (should-not (memq 'emms-player-mpv players))
+      (should (eq (car (last players)) 'emms-player-afplay))
+      (should (fboundp 'emms-player-afplay-playable-p))))
+  (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "mpv"))))
+    (should (memq 'emms-player-mpv (lispm-desktop-app-emms-players)))
+    (should-not (memq 'emms-player-afplay (lispm-desktop-app-emms-players)))))
+
 (ert-deftest lispm-desktop-test-platinum-check-box-focus ()
   "A check box the keyboard is on is ringed, in the room left about it."
   (let* ((focus "#6666CC")
