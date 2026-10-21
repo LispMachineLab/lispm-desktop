@@ -94,6 +94,7 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-needs)
 (require 'lispm-desktop-store)
+(require 'lispm-desktop-app-yeetube)
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
 (require 'lispm-desktop-app-emms)

@@ -526,7 +526,8 @@ or Game for a game."
                                   ,@(mapcar item others))))))))
       (when items
         (list (list (intern (format "lispm-desktop-app-ui-%s-own" app)) title
-                    (lambda () (lispm-desktop-app-ui--in-window window (funcall items)))))))))
+                    (lambda () (lispm-desktop-app-ui--in-window
+                                window (with-selected-window window (funcall items))))))))))
 
 (defun lispm-desktop-app-ui--mode-menus (app window)
   "Return the menus of APP's window: its mode's own menus of the menu bar,
