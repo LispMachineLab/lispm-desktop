@@ -7283,5 +7283,240 @@ asked for, and keeps the hosts in its `hosts' property."
         (advice-remove 'url-open-stream #'lispm-desktop-proxy--url-open-stream)
         (delete-process server)))))
 
+;;;; Startup
+
+(ert-deftest lispm-desktop-test-startup-login-command ()
+  "LispM opens at login as it runs now: its application through open(1)
+where it runs in one, else its Emacs, with its init directory either way."
+  (let ((user-emacs-directory "/Users/u/.lispm/lispm-desktop/")
+        (invocation-name "Emacs"))
+    (let ((system-type 'darwin)
+          (invocation-directory "/Applications/LispM.app/Contents/MacOS/"))
+      (should (equal (lispm-desktop-startup-login-command)
+                     '("/usr/bin/open" "-a" "/Applications/LispM.app"
+                       "--args" "--init-directory=/Users/u/.lispm/lispm-desktop/"))))
+    (let ((system-type 'gnu/linux)
+          (invocation-name "emacs")
+          (invocation-directory "/usr/local/bin/"))
+      (should (equal (lispm-desktop-startup-login-command)
+                     '("/usr/local/bin/emacs" "--init-directory=/Users/u/.lispm/lispm-desktop/"))))))
+
+(ert-deftest lispm-desktop-test-startup-login-files ()
+  "The launch agent is a property list running the command at load,
+naming the application it opens; the autostart entry quotes and escapes
+the command as the desktop entry specification asks."
+  (let* ((agent (lispm-desktop-startup--launch-agent
+                 '("/usr/bin/open" "-a" "/Applications/A & B.app" "--args" "--init-directory=/x/")
+                 "org.lispmachinelab.lispm"))
+         (plist (with-temp-buffer
+                  (insert agent)
+                  (car (xml-parse-region (point-min) (point-max)))))
+         (dict (car (xml-get-children plist 'dict)))
+         (strings (mapcar (lambda (node) (car (xml-node-children node)))
+                          (xml-get-children (car (xml-get-children dict 'array)) 'string))))
+    (should (eq (xml-node-name plist) 'plist))
+    (should (equal strings '("/usr/bin/open" "-a" "/Applications/A & B.app" "--args" "--init-directory=/x/")))
+    (should (string-search (concat "<string>" lispm-desktop-startup-login-label "</string>") agent))
+    (should (string-search "<key>RunAtLoad</key>\n  <true/>" agent))
+    (should (string-search "<string>org.lispmachinelab.lispm</string>" agent))
+    (should-not (string-search "AssociatedBundleIdentifiers"
+                               (lispm-desktop-startup--launch-agent '("/usr/bin/open" "-a" "/x.app")))))
+  (let ((entry (lispm-desktop-startup--autostart-entry
+                '("/usr/bin/emacs" "--init-directory=/home/u/my dir/" "100%" "a$b\\c"))))
+    (should (string-search "[Desktop Entry]\nType=Application\n" entry))
+    (should (string-search "Exec=/usr/bin/emacs \"--init-directory=/home/u/my dir/\" 100%% \"a\\\\$b\\\\\\\\c\"\n"
+                           entry))))
+
+(ert-deftest lispm-desktop-test-startup-open-at-login ()
+  "Opening at login writes the login file, only when it changed, and
+turning it off deletes it; where there is none, it cannot be turned on."
+  (let* ((directory (make-temp-file "lispm-desktop-test-login" t))
+         (file (expand-file-name "LaunchAgents/lispm.plist" directory))
+         (text "first"))
+    (cl-letf (((symbol-function 'lispm-desktop-startup-login-file) (lambda () file))
+              ((symbol-function 'lispm-desktop-startup--login-text) (lambda () text)))
+      (unwind-protect
+          (progn
+            (should-not (lispm-desktop-startup-login-p))
+            (lispm-desktop-open-at-login t)
+            (should (lispm-desktop-startup-login-p))
+            (should (equal (with-temp-buffer (insert-file-contents file) (buffer-string)) "first"))
+            ;; The same again: left as it is.
+            (set-file-times file 0)
+            (lispm-desktop-open-at-login t)
+            (should (time-equal-p (file-attribute-modification-time (file-attributes file)) 0))
+            (setq text "second")
+            (lispm-desktop-open-at-login t)
+            (should (equal (with-temp-buffer (insert-file-contents file) (buffer-string)) "second"))
+            (lispm-desktop-open-at-login nil)
+            (should-not (file-exists-p file))
+            (should-not (lispm-desktop-startup-login-p))
+            (lispm-desktop-open-at-login nil))
+        (delete-directory directory t))
+      (cl-letf (((symbol-function 'lispm-desktop-startup-login-file) #'ignore))
+        (should-not (lispm-desktop-startup-login-p))
+        (should-error (lispm-desktop-open-at-login t) :type 'user-error)))))
+
+(ert-deftest lispm-desktop-test-startup-item-names ()
+  "A startup item is named by its :name, else after what it opens; a copy
+with a key changed leaves the item as it was."
+  (let ((lispm-desktop-apps '((browser :name "Browser"))))
+    (pcase-dolist (`(,item ,kind ,name)
+                   '(((:app browser) app "Browser")
+                     ((:app stickies) app "Stickies")
+                     ((:file "~/notes/todo.org") file "todo.org")
+                     ((:file "~/projects/") file "projects")
+                     ((:program "OLLAMA_HOST=0.0.0.0 /opt/bin/ollama serve") program "ollama")
+                     ((:program "ollama serve" :name "Models") program "Models")
+                     ((:command magit-status) command "magit-status")
+                     ((:name "Odd") nil "Odd")))
+      (should (eq (lispm-desktop-startup-item-kind item) kind))
+      (should (equal (lispm-desktop-startup-item-name item) name))))
+  (let ((item (list :program "a" :disabled t)))
+    (should (equal (lispm-desktop-startup-item-with item :disabled nil) '(:program "a")))
+    (should (equal (lispm-desktop-startup-item-with item :name "A") '(:program "a" :disabled t :name "A")))
+    (should (equal item '(:program "a" :disabled t)))))
+
+(defvar lispm-desktop-test--startup-opened nil
+  "What the startup items opened in a test, last first.")
+
+(defun lispm-desktop-test-startup-command ()
+  "Note that a startup item called this command."
+  (interactive)
+  (push 'command lispm-desktop-test--startup-opened))
+
+(ert-deftest lispm-desktop-test-startup-items-open ()
+  "The startup items open in their order: applications, documents in the
+editor, folders in the Finder window, commands; those turned off do not,
+and one that cannot open is told of, the others opening still."
+  (let* ((directory (make-temp-file "lispm-desktop-test-startup" t))
+         (document (expand-file-name "todo.org" directory))
+         (lispm-desktop-test--startup-opened nil)
+         (lispm-desktop-apps '((browser :name "Browser")))
+         (told nil)
+         (lispm-desktop-startup-items
+          `((:app browser)
+            (:file ,document)
+            (:app nowhere)
+            (:file ,directory :disabled t)
+            (:file ,directory)
+            (:command lispm-desktop-test-startup-command)
+            (:command lispm-desktop-test-startup-command :disabled t))))
+    (write-region "" nil document nil 'silent)
+    (cl-letf (((symbol-function 'lispm-desktop-apps-activate)
+               (lambda (app) (push (list 'app app) lispm-desktop-test--startup-opened)))
+              ((symbol-function 'lispm-desktop-editor-activate) #'ignore)
+              ((symbol-function 'find-file)
+               (lambda (file) (push (list 'file file) lispm-desktop-test--startup-opened)))
+              ((symbol-function 'lispm-desktop-finder-open-directory)
+               (lambda (folder) (push (list 'folder folder) lispm-desktop-test--startup-opened)))
+              ((symbol-function 'message)
+               (lambda (format &rest args) (setq told (apply #'format-message format args)))))
+      (unwind-protect
+          (lispm-desktop-startup-open-items)
+        (delete-directory directory t)))
+    (should (equal (reverse lispm-desktop-test--startup-opened)
+                   `((app browser) (file ,document) (folder ,directory) command)))
+    (should (string-search "nowhere" told))))
+
+(ert-deftest lispm-desktop-test-startup-program ()
+  "A program runs in the background, in its directory, its output in its
+own buffer; quitting does not ask about it, a second open leaves it
+running alone, and its stop is noted with its exit code."
+  (let* ((directory (make-temp-file "lispm-desktop-test-program" t))
+         (item `(:program "pwd; echo started; read line; exit 3" :name "lispm-test-service"
+                          :directory ,directory))
+         (changes 0)
+         (lispm-desktop-startup-changed-hook (list (lambda () (setq changes (1+ changes))))))
+    (unwind-protect
+        (let ((process (progn (lispm-desktop-startup-open-item item)
+                              (lispm-desktop-startup-program-process item))))
+          (should (process-live-p process))
+          (should-not (process-query-on-exit-flag process))
+          (should (eq (lispm-desktop-startup-program-status item) 'running))
+          (lispm-desktop-startup-open-item item)
+          (should (eq (lispm-desktop-startup-program-process item) process))
+          (process-send-string process "go\n")
+          (while (process-live-p process)
+            (accept-process-output process 1))
+          (with-current-buffer (lispm-desktop-startup-program-buffer-name item)
+            (should (string-search (directory-file-name (file-truename directory))
+                                   (file-truename (buffer-string))))
+            (should (string-search "started" (buffer-string)))
+            (should (string-search "exit code 3" (buffer-string))))
+          (should (equal (lispm-desktop-startup-program-status item) '(exited . 3)))
+          (should (>= changes 2)))
+      (when-let* ((buffer (get-buffer (lispm-desktop-startup-program-buffer-name item))))
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer buffer)))
+      (delete-directory directory t))))
+
+(ert-deftest lispm-desktop-test-startup-after-start ()
+  "The startup items open once Emacs waits for input, never in a batch
+Emacs."
+  (let ((scheduled nil))
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (_time _repeat function &rest _) (setq scheduled function))))
+      (lispm-desktop-startup--after-start)
+      (should-not scheduled)
+      (let ((noninteractive nil))
+        (lispm-desktop-startup--after-start))
+      (should (eq scheduled #'lispm-desktop-startup-open-items)))))
+
+(ert-deftest lispm-desktop-test-settings-startup-panel ()
+  "The Startup panel shows whether LispM opens at login and the startup
+items, each turned on or off by its check box, and adds and removes them."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (let ((saved nil)
+        (login nil)
+        (answers nil)
+        (lispm-desktop-startup-items '((:app browser) (:program "ollama serve" :disabled t))))
+    (cl-letf (((symbol-function 'lispm-desktop-startup-login-file) (lambda () "/nowhere/lispm.plist"))
+              ((symbol-function 'lispm-desktop-open-at-login) (lambda (open) (setq login (list open))))
+              ((symbol-function 'customize-save-variable)
+               (lambda (variable value) (push (cons variable value) saved) (set variable value)))
+              ((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
+              ((symbol-function 'read-string) (lambda (&rest _) (pop answers)))
+              ((symbol-function 'read-directory-name) (lambda (&rest _) (pop answers))))
+      (with-current-buffer (lispm-desktop-settings--buffer)
+        (lispm-desktop-settings-select 'startup)
+        (let ((text (concat (buffer-string)
+                            (mapconcat #'identity
+                                       (delq nil (mapcar (lambda (position)
+                                                           (get-text-property position 'lispm-desktop-platinum-label))
+                                                         (number-sequence (point-min) (1- (point-max)))))
+                                       " ")))
+              (press (lambda (label)
+                       ;; A push button draws its label in its image.
+                       (let ((button (next-button (point-min))))
+                         (while (and button
+                                     (not (string-search label (button-label button)))
+                                     (not (equal label (get-text-property (button-start button)
+                                                                          'lispm-desktop-platinum-label))))
+                           (setq button (next-button (button-end button))))
+                         (should button)
+                         (button-activate button)))))
+          (dolist (label '("Login" "Open LispM when you log in" "Startup Items" "Browser"
+                           "ollama" "ollama serve" "Add…" "Remove…" "Open…"))
+            (should (string-search label text)))
+          (should (equal lispm-desktop-platinum-title "Startup"))
+          (funcall press "Open LispM when you log in")
+          (should (equal login '(t)))
+          ;; The program's check box turns it on.
+          (funcall press "ollama")
+          (should (equal lispm-desktop-startup-items '((:app browser) (:program "ollama serve"))))
+          (setq answers '("Program, run in the background" "make serve" "~/site/" "Site"))
+          (funcall press "Add…")
+          (should (equal (car (last lispm-desktop-startup-items))
+                         '(:program "make serve" :directory "~/site/" :name "Site")))
+          (setq answers '("Program, run in the background" "make serve" "~/" "Site"))
+          (should-error (funcall press "Add…") :type 'user-error)
+          (setq answers '("Browser"))
+          (funcall press "Remove…")
+          (should (equal (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)
+                         '("ollama" "Site")))
+          (should (= (length saved) 3)))))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
