@@ -657,7 +657,7 @@ of the user's own: LispM Agent 0.4.0 or later."
   (let ((description (if (fboundp 'lispm-sandbox-level-description)
                          (lispm-sandbox-level-description level)
                        (alist-get level lispm-sandbox-levels))))
-    (concat (upcase (substring description 0 1)) (substring description 1) ".")))
+    (lispm-desktop-tr "%s." (concat (upcase (substring description 0 1)) (substring description 1)))))
 
 (defconst lispm-desktop-settings--sandbox-lists
   `((:deny-read ,(lispm-desktop-tr-noop "Not readable") file

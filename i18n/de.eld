@@ -805,6 +805,7 @@
   ("srt cannot deny %s: write a domain as example.com, *.example.com or example.com:443" . "srt kann %s nicht sperren: Geben Sie eine Domain als example.com, *.example.com oder example.com:443 an")
   ("srt cannot allow %s: write a domain as example.com, *.example.com or example.com:443" . "srt kann %s nicht erlauben: Geben Sie eine Domain als example.com, *.example.com oder example.com:443 an")
   ("Domains sandboxed commands may reach (separated by commas): " . "Domains, die Befehle in der Sandbox erreichen dürfen (durch Kommas getrennt): ")
+  ("%s." . "%s.")
   ("Not readable" . "Nicht lesbar")
   ("Change the files and directories commands may not read" . "Dateien und Verzeichnisse ändern, die Befehle nicht lesen dürfen")
   ("Readable after all" . "Doch lesbar")
