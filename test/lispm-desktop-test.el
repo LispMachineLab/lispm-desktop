@@ -637,7 +637,7 @@ stays on the desktop.  Setting the mark draws again what shows it."
 (ert-deftest lispm-desktop-test-guide-steps ()
   "Every step of the guide has a title, words, an icon that is there and
 keys Emacs can read; what it circles is a menu bar title, a desktop
-icon or a place a function returns, and what Show Me runs is a command."
+icon or a place a function returns, and what Show Me calls is a function."
   (dolist (step lispm-desktop-guide-steps)
     (let ((properties (cdr step)))
       (should (stringp (plist-get properties :title)))
@@ -650,7 +650,7 @@ icon or a place a function returns, and what Show Me runs is a command."
         (`(area . ,function) (should (fboundp function)))
         (mark (ert-fail (list "Unknown mark" mark))))
       (when-let* ((show (plist-get properties :show)))
-        (should (commandp show)))
+        (should (fboundp show)))
       (dolist (entry (plist-get properties :keys))
         (should (stringp (nth 1 entry)))
         (dolist (keys (split-string (car entry) ", *" t))
@@ -680,6 +680,8 @@ says no; the guide's place stays within the steps left."
 Back does nothing on the first step, and Next on the last puts the guide
 away, to start over the next time."
   (let ((lispm-desktop-guide--index 0)
+        (lispm-desktop-guide--playing nil)
+        (lispm-desktop-guide--undo nil)
         (marks nil)
         (closed nil))
     (cl-letf (((symbol-function 'lispm-desktop-guide--render) #'ignore)
@@ -700,6 +702,94 @@ away, to start over the next time."
       (lispm-desktop-guide-next)
       (should closed)
       (should (= lispm-desktop-guide--index 0)))))
+
+(ert-deftest lispm-desktop-test-guide-plays-by-itself ()
+  "Playing by itself, the guide does a step's Show Me a moment after the
+step comes, if it is still on it; what Show Me opened is put back as the
+guide goes on, is skipped or is closed, and the guide stops playing once
+closed.  Skip starts the guide over the next time."
+  (let ((lispm-desktop-guide--index 0)
+        (lispm-desktop-guide--playing t)
+        (lispm-desktop-guide--undo nil)
+        (lispm-desktop-guide--timer nil)
+        (timers nil)
+        (put-back 0)
+        (closed nil))
+    (cl-letf (((symbol-function 'lispm-desktop-guide--render) #'ignore)
+              ((symbol-function 'lispm-desktop-platinum-set-coach-mark) #'ignore)
+              ((symbol-function 'run-at-time)
+               (lambda (_time _repeat function &rest args) (push (cons function args) timers) nil))
+              ((symbol-function 'lispm-desktop-guide-close)
+               (lambda () (setq closed t) (lispm-desktop-guide--closed))))
+      ;; The welcome shows nothing; the λ menu's step shows its menu.
+      (lispm-desktop-guide--go 0)
+      (should-not timers)
+      (lispm-desktop-guide--go 1)
+      (should (equal (mapcar #'car timers) '(lispm-desktop-guide--play)))
+      (should (eq (car (nth 1 (car timers))) 'lambda-menu))
+      ;; Played once the guide is on another step, it does nothing.
+      (let ((shown nil))
+        (cl-letf (((symbol-function 'lispm-desktop-guide--frame) #'always)
+                  ((symbol-function 'lispm-desktop-guide-show-me) (lambda () (setq shown t))))
+          (lispm-desktop-guide--play (assq 'welcome lispm-desktop-guide-steps))
+          (should-not shown)
+          (lispm-desktop-guide--play (lispm-desktop-guide--step))
+          (should shown)))
+      ;; What was opened is put back as the guide goes on.
+      (setq lispm-desktop-guide--undo (lambda () (cl-incf put-back)))
+      (lispm-desktop-guide-next)
+      (should (= put-back 1))
+      (should-not lispm-desktop-guide--undo)
+      (setq lispm-desktop-guide--undo (lambda () (cl-incf put-back)))
+      (lispm-desktop-guide-skip)
+      (should closed)
+      (should (= put-back 2))
+      (should (= lispm-desktop-guide--index 0))
+      (should-not lispm-desktop-guide--playing))))
+
+(ert-deftest lispm-desktop-test-guide-shows-a-menu-for-a-while ()
+  "A menu Show Me opens gets the keys it is to be typed first; playing by
+itself, the guide closes it after a while with Escape, unless something
+was typed meanwhile, and takes back an Escape left unread."
+  (let ((lispm-desktop-guide--playing t)
+        (unread-command-events nil)
+        (tick nil)
+        (seen nil))
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (_time _repeat function &rest _) (setq tick function) (timer-create))))
+      (defalias 'lispm-desktop-test--modal
+        (lambda ()
+          (interactive)
+          ;; Reading the key typed first counts as an event read.
+          (setq seen (pop unread-command-events))
+          (cl-incf num-nonmacro-input-events)
+          ;; Time passes, nothing typed: Escape is typed into the menu.
+          (funcall tick)
+          (push (copy-sequence unread-command-events) seen)
+          ;; The menu closes otherwise, its Escape unread.
+          ))
+      (unwind-protect
+          (progn
+            (should-not (lispm-desktop-guide--modal 'lispm-desktop-test--modal '(return)))
+            (should (equal seen '((escape) . return)))
+            (should-not unread-command-events)
+            ;; Something typed meanwhile: the menu is left to the user.
+            (setq seen nil)
+            (cl-letf (((symbol-function 'lispm-desktop-test--modal)
+                       (lambda ()
+                         (interactive)
+                         (cl-incf num-nonmacro-input-events 2)
+                         (funcall tick)
+                         (setq seen (copy-sequence unread-command-events)))))
+              (lispm-desktop-guide--modal 'lispm-desktop-test--modal)
+              (should-not seen))
+            ;; Not playing: no Escape at all.
+            (let ((lispm-desktop-guide--playing nil))
+              (setq tick nil)
+              (cl-letf (((symbol-function 'lispm-desktop-test--modal) (lambda () (interactive) nil)))
+                (lispm-desktop-guide--modal 'lispm-desktop-test--modal))
+              (should-not tick)))
+        (fmakunbound 'lispm-desktop-test--modal)))))
 
 (ert-deftest lispm-desktop-test-guide-window ()
   "The guide's window shows the step's title, words and keys as key caps,
@@ -723,13 +813,13 @@ is.  The keys go from step to step."
           (lispm-desktop-guide--render)
           (should (string-search "Welcome to LispM" (buffer-string)))
           (should (string-search "the next step" (buffer-string)))
-          (should (equal (labels) '(("Back") ("Next" . t))))
+          (should (equal (labels) '(("Skip" . t) ("Back") ("Next" . t))))
           (should (equal lispm-desktop-platinum-info
                          (format "Step 1 of %d" (length (lispm-desktop-guide--steps)))))
           (setq lispm-desktop-guide--index 1)
           (lispm-desktop-guide--render)
           (should (string-search "The λ menu" (buffer-string)))
-          (should (equal (labels) '(("Show Me" . t) ("Back" . t) ("Next" . t))))
+          (should (equal (labels) '(("Skip" . t) ("Show Me" . t) ("Back" . t) ("Next" . t))))
           (setq lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
           (lispm-desktop-guide--render)
           (should (equal (labels) '(("Back" . t) ("Done" . t))))))

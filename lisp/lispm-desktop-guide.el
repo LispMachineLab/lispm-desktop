@@ -44,15 +44,22 @@
 ;;   Emacs, as ever    Emacs's own keys
 ;;
 ;; Each step names the keys that do what it shows, drawn as key caps, and
-;; most have a Show Me button that does it.  N, Return, Space, C-f or C-n
-;; go to the next step, P, DEL, C-b or C-p back, S shows, Q or Escape
-;; puts the guide away, and Tab rings its buttons in turn.  The guide
-;; floats over the other windows but takes the keyboard only when it is
-;; clicked or called: what a step shows is tried in the windows
-;; themselves, and C-c ? gives the guide the keyboard back.  It shows
-;; over the desktop, hiding from the full-screen editor and browser as
-;; the other windows do; C-c ? brings the desktop back in front with it,
-;; and so does a step whose coach mark lies on the desktop.
+;; most have a Show Me button that does it, as the user would: it opens
+;; the menu, the window or the application, Emacs and the browser
+;; floating over the desktop so that the guide stays in sight, and
+;; leaves the keyboard with the guide.  What it opened is put back as the
+;; guide goes on.  The first time, the guide plays by itself: each step
+;; does its Show Me a moment after it comes, and a menu it opened closes
+;; again a moment later, unless something is typed or clicked in it.
+;; N, Return, Space, C-f or C-n go to the next step, P, DEL, C-b or C-p
+;; back, S shows, Q or Escape puts the guide away, to come back on the
+;; same step, Skip leaves it, to start over, and Tab rings its buttons in
+;; turn.  The guide floats over the other windows but takes the keyboard
+;; only when it is clicked or called, and C-c ? gives it the keyboard
+;; back.  It shows over the desktop, hiding from the full-screen editor
+;; and browser as the other windows do; C-c ? brings the desktop back in
+;; front with it, and so does a step whose coach mark lies on the
+;; desktop.
 
 ;;; Code:
 
@@ -66,6 +73,25 @@
 
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
 (declare-function lispm-desktop-strip-edges "lispm-desktop-strip" ())
+(declare-function lispm-desktop-strip-select "lispm-desktop-strip" ())
+(declare-function lispm-desktop-finder-home "lispm-desktop-finder" ())
+(declare-function lispm-desktop-finder-close "lispm-desktop-finder" ())
+(declare-function lispm-desktop-finder-shown-p "lispm-desktop-finder" ())
+(declare-function lispm-desktop-store-show "lispm-desktop-store" ())
+(declare-function lispm-desktop-store-close "lispm-desktop-store" ())
+(declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
+(declare-function lispm-desktop-editor-frame "lispm-desktop-editor" ())
+(declare-function lispm-desktop-editor-float "lispm-desktop-editor" ())
+(declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
+(declare-function lispm-desktop-editor-full-screen "lispm-desktop-editor" ())
+(declare-function lispm-desktop-editor-close "lispm-desktop-editor" ())
+(declare-function lispm-desktop-browser-floating-p "lispm-desktop-browser" ())
+(declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
+(declare-function lispm-desktop-browser-float "lispm-desktop-browser" ())
+(declare-function lispm-desktop-browser-full-screen "lispm-desktop-browser" ())
+(declare-function lispm-browser-tabs "lispm-browser" ())
+(declare-function lispm-browser-quit "lispm-browser" ())
+(defvar lispm-desktop-browser-floating)
 (declare-function lispm-desktop-coherence-available-p "lispm-desktop-coherence" (&optional screen))
 (declare-function lispm-browser-available-p "lispm-browser" ())
 (defvar lispm-desktop-help-items-function)
@@ -92,14 +118,14 @@ whenever asked."
      :mark (menu . lispm-desktop-lambda)
      :text "LispM's own menu, at the left end of the menu bar, as the Apple menu was: a new agent session, a shell, the App Store and the control panels."
      :keys (("C-c m" "opens the menu bar from the keyboard; C-f and C-b go to the menu beside"))
-     :show lispm-desktop-platinum-lambda-menu)
+     :show lispm-desktop-guide--show-lambda-menu)
     (application
      :title "The application in front"
      :icon "applications-32"
      :mark (menu . lispm-desktop-application)
      :text "The menus after the λ are those of the application in front, the desktop's now.  The Application menu, at the right end, names it and lists the others."
      :keys (("C-c o" "brings the next application forward"))
-     :show lispm-desktop-platinum-workspace-menu)
+     :show lispm-desktop-guide--show-application-menu)
     (desktop
      :title "The desktop's icons"
      :icon "hard-disk-32"
@@ -107,16 +133,16 @@ whenever asked."
      :text "They stand down the right edge.  A click selects one, a double click opens it, and one dragged stays where it is dropped.  Home is your home folder, in a Finder window."
      :keys (("C-n, C-p" "select the next icon or the one before, while the desktop has the keyboard")
             ("RET" "opens the icon selected"))
-     :show lispm-desktop-finder-home)
+     :show lispm-desktop-guide--show-home)
     (editor
      :title "Emacs"
      :icon emacs
      :mark (icon . editor)
-     :text "Where the work is done: a workspace for each project, with its files, its terminals and its agents, and a sidebar listing them.  It fills the screen, or floats over the desktop from its zoom box; C-c ? comes back here."
+     :text "Where the work is done: a workspace for each project, with its files, its terminals and its agents, and a sidebar listing them.  It fills the screen, or floats over the desktop as Show Me opens it; its zoom box switches."
      :keys (("C-c a l" "starts a LispM agent in the project")
             ("C-c a a" "shows the agents")
             ("C-c t" "opens a terminal"))
-     :show lispm-desktop-editor-activate)
+     :show lispm-desktop-guide--show-editor)
     (browser
      :title "The browser"
      :icon "netscape"
@@ -126,14 +152,14 @@ whenever asked."
      :keys (("M-l" "goes to the location field")
             ("M-t" "opens a new tab")
             ("f" "labels a page's links, to follow the one typed"))
-     :show lispm-desktop-browser-show)
+     :show lispm-desktop-guide--show-browser)
     (store
      :title "The App Store"
      :icon "app-store-32"
      :mark (icon . store)
      :when lispm-desktop-guide--store-p
      :text "Applications and extensions to install: games, news, music and more agents.  The applications installed are in the Applications folder."
-     :show lispm-desktop-store-show)
+     :show lispm-desktop-guide--show-store)
     (strip
      :title "The Control Strip"
      :icon "control-panels-32"
@@ -142,7 +168,7 @@ whenever asked."
      :text "Settings at hand, in the corner: the appearance, the desktop's picture, the keyboard and the Internet.  The Control Panels icon holds every setting."
      :keys (("C-c b" "goes to the strip: C-f and C-b to a module, RET opens it")
             ("C-c B" "hides the strip, or shows it again"))
-     :show lispm-desktop-strip-select)
+     :show lispm-desktop-guide--show-strip)
     (windows
      :title "Windows"
      :icon "document-32"
@@ -168,8 +194,10 @@ coach mark circles meanwhile, see lispm-desktop-platinum-coach.el: (menu
 desktop brings the desktop in front.  :keys are the keys doing what it
 shows, (KEYS TEXT) each, KEYS key sequences as `kbd' reads them, comma
 separated, TEXT what they do; a third element, a function, shows the
-keys only while it returns non-nil.  :show is the command Show Me runs
-to do it.  :when, a function, decides whether the step is shown at all.")
+keys only while it returns non-nil.  :show is the function Show Me calls
+to do it, as the user would; it returns a function putting back what it
+opened, called as the guide leaves the step, or nil.  :when, a
+function, decides whether the step is shown at all.")
 
 (defconst lispm-desktop-guide-buffer-name " *LispM Guide*"
   "Name of the buffer the guide's window shows.")
@@ -181,6 +209,24 @@ made as tall as its tallest step, see `lispm-desktop-guide--fit'.")
 (defvar lispm-desktop-guide--index 0
   "Index of the step the guide is on, among those shown, see
 `lispm-desktop-guide--steps'.")
+
+(defconst lispm-desktop-guide-show-delay 0.8
+  "Seconds a step is on before the guide playing by itself shows what it
+speaks of: time for the coach mark to be seen first.")
+
+(defconst lispm-desktop-guide-show-time 2.5
+  "Seconds a menu shown by the guide playing by itself stays open, unless
+something is typed or clicked in it meanwhile.")
+
+(defvar lispm-desktop-guide--playing nil
+  "Non-nil while the guide plays by itself, as the first time it shows:
+each step does its Show Me on its own, a menu shown closing again.")
+
+(defvar lispm-desktop-guide--timer nil
+  "Timer of the Show Me the guide playing by itself does next.")
+
+(defvar lispm-desktop-guide--undo nil
+  "Function putting back what the last Show Me opened, or nil.")
 
 ;;;; Steps
 
@@ -273,9 +319,13 @@ over the Control Strip, out of the way of the menu bar and the icons."
   (concat (propertize " " 'display `(space :height (,height))) "\n"))
 
 (defun lispm-desktop-guide--insert-buttons (step first last)
-  "Insert the guide's buttons for STEP: Show Me at the left, when STEP
-shows something, and at the right Back, but on the FIRST step, and Next,
-or Done on the LAST, which Return presses."
+  "Insert the guide's buttons for STEP: at the left Skip, but on the LAST
+step, and Show Me, when STEP shows something; at the right Back, but on
+the FIRST step, and Next, or Done on the LAST, which Return presses."
+  (unless last
+    (lispm-desktop-platinum-insert-push-button "Skip" #'lispm-desktop-guide-skip
+                                               :help "Leave the guide; C-c ? starts it over")
+    (insert (propertize " " 'display '(space :width (6)))))
   (when (plist-get (cdr step) :show)
     (lispm-desktop-platinum-insert-push-button "Show Me" #'lispm-desktop-guide-show-me
                                                :help "Do what this step shows"))
@@ -391,19 +441,41 @@ lies there, and the guide keeping the keyboard if it had it."
           (select-frame-set-input-focus guide))))
     (lispm-desktop-platinum-set-coach-mark mark)))
 
+(defun lispm-desktop-guide--tidy ()
+  "Put back what the last Show Me opened, and forget the Show Me to come."
+  (when (timerp lispm-desktop-guide--timer)
+    (cancel-timer lispm-desktop-guide--timer))
+  (setq lispm-desktop-guide--timer nil)
+  (when-let* ((undo lispm-desktop-guide--undo))
+    (setq lispm-desktop-guide--undo nil)
+    (funcall undo)))
+
 (defun lispm-desktop-guide--go (index)
-  "Go to step INDEX of the guide: draw it and circle what it speaks of."
+  "Go to step INDEX of the guide: put back what the step before showed,
+draw the step and circle what it speaks of.  Playing by itself, the
+guide shows it a moment later, see `lispm-desktop-guide--playing'."
+  (lispm-desktop-guide--tidy)
   (setq lispm-desktop-guide--index (max 0 (min index (1- (length (lispm-desktop-guide--steps))))))
   (lispm-desktop-guide--render)
-  (lispm-desktop-guide--mark (lispm-desktop-guide--step)))
+  (let ((step (lispm-desktop-guide--step)))
+    (lispm-desktop-guide--mark step)
+    (when (and lispm-desktop-guide--playing (plist-get (cdr step) :show))
+      (setq lispm-desktop-guide--timer
+            (run-at-time lispm-desktop-guide-show-delay nil #'lispm-desktop-guide--play step)))))
+
+(defun lispm-desktop-guide--play (step)
+  "Show what STEP speaks of, the guide playing by itself, if the guide is
+still on it."
+  (setq lispm-desktop-guide--timer nil)
+  (when (and (lispm-desktop-guide--frame) (equal step (lispm-desktop-guide--step)))
+    (lispm-desktop-guide-show-me)))
 
 (defun lispm-desktop-guide-next ()
   "Go to the guide's next step; after the last, put the guide away."
   (interactive)
   (if (< lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
       (lispm-desktop-guide--go (1+ lispm-desktop-guide--index))
-    (setq lispm-desktop-guide--index 0)
-    (lispm-desktop-guide-close)))
+    (lispm-desktop-guide-skip)))
 
 (defun lispm-desktop-guide-previous ()
   "Go back to the guide's step before."
@@ -413,18 +485,117 @@ lies there, and the guide keeping the keyboard if it had it."
 
 (defun lispm-desktop-guide-show-me ()
   "Do what the guide's step shows, as the user would, from the desktop.
-The guide gets the keyboard back unless a window took it."
+What it opens is put back as the guide leaves the step, and the guide
+keeps the keyboard, so that the steps go on as they did."
   (interactive)
-  (when-let* ((command (plist-get (cdr (lispm-desktop-guide--step)) :show))
-              ((commandp command)))
+  (when-let* ((show (plist-get (cdr (lispm-desktop-guide--step)) :show)))
+    (lispm-desktop-guide--tidy)
     (let ((guide (lispm-desktop-guide--frame))
           (screen (lispm-desktop-apps-screen)))
       (unless (eq (selected-frame) screen)
         (select-frame-set-input-focus screen))
       (unwind-protect
-          (call-interactively command)
-        (when (and guide (frame-visible-p guide) (lispm-desktop-apps-screen-p (selected-frame)))
+          (setq lispm-desktop-guide--undo (funcall show))
+        (when (and guide (frame-visible-p guide))
+          (lispm-desktop-platinum-raise-window guide)
           (select-frame-set-input-focus guide))))))
+
+(defun lispm-desktop-guide-return ()
+  "Press the button point is on, else go to the next step, as the default
+button does."
+  (interactive)
+  (if (button-at (point))
+      (lispm-desktop-platinum-push)
+    (lispm-desktop-guide-next)))
+
+;;;; Showing
+
+(defun lispm-desktop-guide--modal (command &optional keys)
+  "Call COMMAND, which reads events until it is done, as a menu does, the
+events KEYS typed into it first.  While the guide plays by itself, it is
+closed after `lispm-desktop-guide-show-time' seconds, Escape typed into
+it until it returns, unless something was typed or clicked meanwhile;
+an Escape left unread once it returned is taken back.  Return nil:
+nothing is left to put back."
+  ;; Events typed into Emacs from here count as read, as the user's do:
+  ;; KEYS, and each Escape.
+  (let* ((input (+ num-nonmacro-input-events (length keys)))
+         (timer (and lispm-desktop-guide--playing
+                     (run-at-time lispm-desktop-guide-show-time 0.3
+                                  (lambda ()
+                                    (when (and (<= num-nonmacro-input-events input)
+                                               (null unread-command-events))
+                                      (setq unread-command-events (list 'escape)
+                                            input (1+ input))))))))
+    (setq unread-command-events (append unread-command-events keys))
+    (unwind-protect
+        (call-interactively command)
+      (when timer
+        (cancel-timer timer)
+        (setq unread-command-events (delq 'escape unread-command-events))))
+    nil))
+
+(defun lispm-desktop-guide--show-lambda-menu ()
+  "Open the λ menu, as a click on it does."
+  (lispm-desktop-guide--modal #'lispm-desktop-platinum-lambda-menu))
+
+(defun lispm-desktop-guide--show-application-menu ()
+  "Open the Application menu, as a click on it does."
+  (lispm-desktop-guide--modal #'lispm-desktop-platinum-workspace-menu))
+
+(defun lispm-desktop-guide--show-strip ()
+  "Go to the Control Strip from the keyboard and open its first module's
+menu, as \\`C-c b' and Return do."
+  (lispm-desktop-guide--modal #'lispm-desktop-strip-select '(return)))
+
+(defun lispm-desktop-guide--show-home ()
+  "Open Home in a Finder window; return what closes it again, unless it
+was open already."
+  (let ((open (lispm-desktop-finder-shown-p)))
+    (lispm-desktop-finder-home)
+    (unless open #'lispm-desktop-finder-close)))
+
+(defun lispm-desktop-guide--show-store ()
+  "Open the App Store; return what closes it again, unless it was open
+already."
+  (let ((open (lispm-desktop-app-window-open-p 'store)))
+    (lispm-desktop-store-show)
+    (unless open #'lispm-desktop-store-close)))
+
+(defun lispm-desktop-guide--show-editor ()
+  "Open Emacs floating over the desktop, not filling the screen, which
+would cover the guide; return what puts it back as it was: full screen
+behind the desktop, or closed."
+  (let ((floating (lispm-desktop-editor-floating-p))
+        (shown (and (lispm-desktop-editor-floating-p)
+                    (frame-visible-p (lispm-desktop-editor-frame)))))
+    (unless floating
+      (lispm-desktop-editor-float))
+    (lispm-desktop-editor-activate)
+    (cond ((not floating)
+           (lambda ()
+             (when (lispm-desktop-editor-floating-p)
+               (lispm-desktop-editor-full-screen)
+               (lispm-desktop-activate))))
+          ((not shown) #'lispm-desktop-editor-close))))
+
+(defun lispm-desktop-guide--show-browser ()
+  "Open the browser floating over the desktop, not filling the screen,
+which would cover the guide; return what puts it back as it was: quit,
+when it was not running, else full screen behind the desktop."
+  (let ((running (lispm-browser-tabs))
+        (floating lispm-desktop-browser-floating))
+    (if (lispm-desktop-browser-floating-p)
+        (lispm-desktop-browser-show)
+      (lispm-desktop-browser-float))
+    (cond ((not running)
+           (lambda ()
+             (lispm-browser-quit)
+             (setq lispm-desktop-browser-floating floating)))
+          ((not floating)
+           (lambda ()
+             (lispm-desktop-browser-full-screen)
+             (lispm-desktop-activate))))))
 
 (defun lispm-desktop-guide-roll ()
   "Roll the guide's window up into its title bar and down again, as its
@@ -435,15 +606,8 @@ collapse box does."
       (redisplay t)
       (run-at-time 0.8 nil (lambda ()
                              (when (frame-live-p frame)
-                               (lispm-desktop-app-window-roll-down frame)))))))
-
-(defun lispm-desktop-guide-return ()
-  "Press the button point is on, else go to the next step, as the default
-button does."
-  (interactive)
-  (if (button-at (point))
-      (lispm-desktop-platinum-push)
-    (lispm-desktop-guide-next)))
+                               (lispm-desktop-app-window-roll-down frame))))))
+  nil)
 
 ;;;; The window
 
@@ -486,7 +650,10 @@ button does."
         (current-buffer))))
 
 (defun lispm-desktop-guide--closed ()
-  "Take the coach mark away once the guide's window is closed."
+  "Once the guide's window is closed, put back what its Show Me opened, stop
+playing and take the coach mark away."
+  (setq lispm-desktop-guide--playing nil)
+  (lispm-desktop-guide--tidy)
   (lispm-desktop-platinum-set-coach-mark nil))
 
 (lispm-desktop-app-window-define 'guide
@@ -497,17 +664,20 @@ button does."
   :geometry #'lispm-desktop-guide--geometry :buffer #'lispm-desktop-guide--buffer
   :roll 'chrome :on-close #'lispm-desktop-guide--closed)
 
-(defun lispm-desktop-guide (&optional again)
+(defun lispm-desktop-guide (&optional again play)
   "Show the guide, or give it the keyboard back while it is shown.
 It opens on the step it was put away on, or with AGAIN, the prefix
-argument, on its first step; once gone through, it starts over.  The
-guide shows over the desktop: a full-screen editor or browser in front
-gives way to it."
+argument, on its first step; once gone through or skipped, it starts
+over.  PLAY has the guide play by itself, each step doing its Show Me on
+its own, as the first time it shows.  The guide shows over the desktop:
+a full-screen editor or browser in front gives way to it."
   (interactive "P")
   (unless (display-graphic-p)
     (user-error "The guide is drawn on a graphical display only"))
   (when again
     (setq lispm-desktop-guide--index 0))
+  (when play
+    (setq lispm-desktop-guide--playing t))
   (when (and (lispm-desktop-apps-full-screen-p (lispm-desktop-apps-frontmost))
              (fboundp 'lispm-desktop-activate))
     (lispm-desktop-activate))
@@ -522,9 +692,15 @@ gives way to it."
     frame))
 
 (defun lispm-desktop-guide-close ()
-  "Put the guide away; \\[lispm-desktop-guide] shows it again."
+  "Put the guide away; \\[lispm-desktop-guide] shows it again on the same step."
   (interactive)
   (lispm-desktop-app-window-close 'guide))
+
+(defun lispm-desktop-guide-skip ()
+  "Leave the guide: put it away, to start over the next time it shows."
+  (interactive)
+  (setq lispm-desktop-guide--index 0)
+  (lispm-desktop-guide-close))
 
 (defun lispm-desktop-guide--keep-above (&rest _)
   "Keep the guide over the floating window just selected or put in front,
@@ -568,7 +744,7 @@ neither."
       (customize-save-variable 'lispm-desktop-guide-shown t))
     (if (and (display-graphic-p) (image-type-available-p 'svg))
         ;; Once the frame has its size and the desktop is drawn.
-        (run-with-idle-timer 0.3 nil (lambda () (lispm-desktop-guide 'again)))
+        (run-with-idle-timer 0.3 nil (lambda () (lispm-desktop-guide 'again 'play)))
       (lispm-desktop-guide--welcome))))
 
 (defun lispm-desktop-guide-help-items ()

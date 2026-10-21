@@ -51,9 +51,13 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   floating over the desktop goes through it a step at a time (the λ menu, the application in
   front, the desktop's icons, Emacs, the browser, the App Store, the Control Strip, windows and
   Emacs's own keys) while a red loop drawn as if by hand, a coach mark, circles each part it
-  speaks of.  Each step shows its keys as key caps, and Show Me does what it shows.  =n= or
-  Return goes on, =p= or DEL back, =s= shows, =q= puts it away; the desktop's Help menu and
-  =C-c ?= bring it back on the step it was left on, and =C-u C-c ?= from the start.
+  speaks of.  Each step shows its keys as key caps, and Show Me does what it shows: it opens
+  the menu, Home, Emacs, the browser or the App Store, Emacs and the browser in windows over
+  the desktop so the guide stays in sight, and puts them back as the guide goes on.  The first
+  time, the guide plays by itself: each step does its Show Me a moment after it comes, and a
+  menu it opened closes again.  =n= or Return goes on, =p= or DEL back, =s= shows, =q= puts it
+  away and Skip leaves it; the desktop's Help menu and =C-c ?= bring it back on the step it was
+  left on, and =C-u C-c ?= from the start.
 - *A Finder window*, opened by the home disk: a folder's items as large icons, floating over
   the desktop, the items and the room left counted in a header under its title bar, as Mac OS
   9's was, opened by a button reading the enclosing folder's name that goes up to it;
