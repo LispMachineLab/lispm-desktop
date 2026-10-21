@@ -42,7 +42,9 @@
 ;;               startup items LispM opens once started, see
 ;;               lispm-desktop-startup.el
 ;;   Software Update  Update Now, and how LispM checks for updates and
-;;               installs them by itself, see lispm-desktop-update.el
+;;               installs them by itself, see lispm-desktop-update.el;
+;;               whether the App Store's applications update by
+;;               themselves, and which can be
 ;;
 ;; Each choice takes effect at once where it can, and is saved for the next
 ;; start with Customize, as the menus' choices are; personal.el can still
@@ -57,6 +59,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-update)
+(require 'lispm-desktop-store)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-startup)
 
@@ -672,11 +675,37 @@ or a line an update, Restart to Update after them."
                                             (lispm-desktop-settings--when checked))))
      (t (lispm-desktop-settings--note "Not checked yet.")))))
 
+(defun lispm-desktop-settings--show-store-updates ()
+  "Show the App Store's Updates."
+  (lispm-desktop-store-show)
+  (lispm-desktop-store-show-category 'updates))
+
+(defun lispm-desktop-settings--applications ()
+  "Insert the part of the Software Update panel about the App Store's
+applications and extensions: whether their updates install by
+themselves, and which wait."
+  (lispm-desktop-settings--heading "Applications")
+  (lispm-desktop-settings--check-box
+   "Update applications automatically" lispm-desktop-store-update-automatically
+   (lambda () (lispm-desktop-settings--save 'lispm-desktop-store-update-automatically
+                                            (not lispm-desktop-store-update-automatically)))
+   (if lispm-desktop-store-update-automatically
+       "when LispM is idle, an application once closed"
+     "they wait in the App Store"))
+  (if-let* ((updates (lispm-desktop-store-updates)))
+      (progn
+        (insert lispm-desktop-settings--indent
+                (format "%s can be updated  " (lispm-desktop-store--update-names updates)))
+        (lispm-desktop-settings--button "Show Updates" #'lispm-desktop-settings--show-store-updates
+                                        "Show them in the App Store's Updates")
+        (insert "\n"))
+    (lispm-desktop-settings--note "The applications from the App Store are up to date.")))
+
 (defun lispm-desktop-settings--update ()
   "Insert the Software Update panel: Update Now, what it found, how it
 checks and installs by itself, and what is installed."
   (lispm-desktop-settings--heading "Software Update")
-  (lispm-desktop-settings--note "Checks for new versions of LispM: its desktop, agents and browser.")
+  (lispm-desktop-settings--note "Checks for new versions of LispM and of the App Store's applications.")
   (lispm-desktop-settings--icon-button "software-update-32" "Update Now" #'lispm-desktop-update-now
                                        "Check for updates now")
   (lispm-desktop-settings--update-status)
@@ -699,6 +728,7 @@ checks and installs by itself, and what is installed."
    (lambda () (lispm-desktop-settings--save 'lispm-desktop-update-install-automatically
                                             (not lispm-desktop-update-install-automatically)))
    (if lispm-desktop-update-install-automatically "else, as LispM quits" "they wait for Restart"))
+  (lispm-desktop-settings--applications)
   (lispm-desktop-settings--heading "Installed")
   (let ((kept (seq-filter (lambda (result) (eq (plist-get result :state) 'kept))
                           (lispm-desktop-update-results))))

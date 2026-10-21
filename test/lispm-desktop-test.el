@@ -7688,6 +7688,117 @@ only when it is, then macOS's afplay where it is."
     (should (memq 'emms-player-mpv (lispm-desktop-app-emms-players)))
     (should-not (memq 'emms-player-afplay (lispm-desktop-app-emms-players)))))
 
+(ert-deftest lispm-desktop-test-store-archive-updates ()
+  "An item from the package archives can be updated when the archives, as
+last read, hold a newer package than installed; one pinned, when its
+catalog pins another commit; one built in, never."
+  (lispm-desktop-test--with-store
+    (let ((package-alist (list (list 'emms (package-desc-create :name 'emms :version '(20260414 1505)))))
+          (package-archive-contents
+           (list (list 'emms (package-desc-create :name 'emms :version '(20261001 900)))))
+          (lispm-desktop-store-installed
+           '((emms :kind app :name "EMMS" :command emms-browser :package emms :installed "20260414.1505")
+             (elfeed :kind app :name "Elfeed" :command elfeed :installed "aaa"
+                     :package (elfeed :url "https://example.org/elfeed" :rev "aaa"))
+             (calculator :kind app :name "Calculator" :command calc :installed "built-in"))))
+      (should (lispm-desktop-store-update-available-p 'emms))
+      (should-not (lispm-desktop-store-update-available-p 'elfeed))
+      (should-not (lispm-desktop-store-update-available-p 'calculator))
+      (should (equal (lispm-desktop-store-updates) '(emms)))
+      (should (string-search "to the package archives' newest, 20261001.900"
+                             (lispm-desktop-store--changes (lispm-desktop-store--installed 'emms)
+                                                           (lispm-desktop-store--installed 'emms))))
+      (setq package-archive-contents
+            (list (list 'emms (package-desc-create :name 'emms :version '(20260414 1505)))))
+      (should-not (lispm-desktop-store-update-available-p 'emms)))))
+
+(ert-deftest lispm-desktop-test-store-updates-quietly ()
+  "An update installing by itself asks nothing: a pinned package goes to
+the commit its catalog pins now, and is kept as installed so."
+  (lispm-desktop-test--with-store
+    (let ((repinned nil))
+      (setq lispm-desktop-store-installed
+            '((elfeed :kind app :name "Elfeed" :command elfeed :installed "aaa"
+                      :package (elfeed :url "https://example.org/elfeed" :rev "aaa")))
+            lispm-desktop-store--catalogs
+            '((:url "https://example.org/store"
+               :items ((elfeed :kind app :name "Elfeed" :command elfeed
+                               :package (elfeed :url "https://example.org/elfeed" :rev "bbb"))))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
+                 (lambda (&rest _) (error "Asked")))
+                ((symbol-function 'lispm-desktop-store--repin)
+                 (lambda (name rev) (setq repinned (list name rev))))
+                ((symbol-function 'lispm-desktop-store--register) #'ignore))
+        (lispm-desktop-store-update 'elfeed t))
+      (should (equal repinned '(elfeed "bbb")))
+      (should (equal (plist-get (lispm-desktop-store--installed 'elfeed) :installed) "bbb"))
+      (should-not (lispm-desktop-store-update-available-p 'elfeed)))))
+
+(ert-deftest lispm-desktop-test-store-updates-install-by-themselves ()
+  "Updates found install by themselves once LispM is idle, quietly, but an
+application open waits for its window to close; told not to, nothing
+installs and the updates wait."
+  (lispm-desktop-test--with-store
+    (let ((updated nil) (scheduled nil) (lispm-desktop-store--update-timer nil)
+          (lispm-desktop-store-update-automatically t))
+      (cl-letf (((symbol-function 'lispm-desktop-store-updates) (lambda () '(elfeed emms hermes)))
+                ((symbol-function 'lispm-desktop-app-window-open-p) (lambda (id) (eq id 'elfeed)))
+                ((symbol-function 'lispm-desktop-store-update)
+                 (lambda (id &optional quietly) (push (cons id quietly) updated)))
+                ((symbol-function 'run-with-idle-timer)
+                 (lambda (seconds _repeat function) (setq scheduled (list seconds function)) 'timer)))
+        (lispm-desktop-store--checked-updates)
+        (should (equal scheduled '(60 lispm-desktop-store--install-updates)))
+        (setq scheduled nil)
+        (lispm-desktop-store--install-updates)
+        (should (equal (nreverse updated) '((emms . t) (hermes . t))))
+        (should (equal scheduled '(60 lispm-desktop-store--install-updates)))
+        (setq updated nil scheduled nil lispm-desktop-store--update-timer nil
+              lispm-desktop-store-update-automatically nil)
+        (lispm-desktop-store--checked-updates)
+        (lispm-desktop-store--install-updates)
+        (should-not updated)
+        (should-not scheduled)))))
+
+(ert-deftest lispm-desktop-test-store-checks-along-software-update ()
+  "The App Store looks for updates whenever Software Update checks, unless
+it is checking already."
+  (lispm-desktop-test--with-update
+    (let ((checked 0)
+          (lispm-desktop-update-check-hook (list #'lispm-desktop-store--check-along))
+          (lispm-desktop-store--checking nil))
+      (cl-letf (((symbol-function 'lispm-desktop-update-checkouts) #'ignore)
+                ((symbol-function 'lispm-desktop-store-check-for-updates)
+                 (lambda (&rest _) (setq checked (1+ checked)))))
+        (lispm-desktop-update-check)
+        (should (= checked 1))
+        (setq lispm-desktop-store--checking t)
+        (lispm-desktop-update-check)
+        (should (= checked 1))))))
+
+(ert-deftest lispm-desktop-test-settings-applications-updates ()
+  "Software Update's panel says whether the App Store's applications update
+by themselves, with a check box saving the choice, and which can be
+updated, with a button showing them in the App Store."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-store
+    (let ((saved nil) (lispm-desktop-store-update-automatically t))
+      (setq lispm-desktop-store-installed '((elfeed :kind app :name "Elfeed" :command elfeed)))
+      (cl-letf (((symbol-function 'lispm-desktop-store-updates) (lambda () '(elfeed)))
+                ((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (push (cons variable value) saved))))
+        (with-temp-buffer
+          (lispm-desktop-settings--applications)
+          (let ((text (concat (buffer-string)
+                              (mapconcat #'identity
+                                         (delq nil (mapcar (lambda (position)
+                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (number-sequence (point-min) (1- (point-max)))))
+                                         " "))))
+            (dolist (label '("Update applications automatically" "Elfeed" "can be updated" "Show Updates"))
+              (should (string-search label text)))))))))
+
 (ert-deftest lispm-desktop-test-platinum-check-box-focus ()
   "A check box the keyboard is on is ringed, in the room left about it."
   (let* ((focus "#6666CC")
