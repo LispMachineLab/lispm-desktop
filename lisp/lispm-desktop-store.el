@@ -162,6 +162,7 @@ package itself, so that it deletes it too."
   '((all "All")
     (news "News")
     (music "Music")
+    (social "Social")
     (productivity "Productivity")
     (utilities "Utilities")
     (games "Games")
