@@ -145,6 +145,21 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   from icon to icon, =M-n=, =M-p= from category to category, =RET= or =SPC= presses the selected
   item's button, =/= searches, =i= shows its information, =u= updates, =D= removes, =g= checks the
   catalogs, =+= installs from a URL.
+- *The applications* the App Store installs, Emacs packages written for Emacs's own windows, get
+  the desktop's interface in theirs: their name and icon in the title bar, not a buffer's name;
+  a strip of push buttons for their main commands (New Game, Pause, Update); what they report
+  on placards along the window's bottom (the score, the date, what is playing); their own
+  menus in the menu bar, or one listing their commands with their keys, and a Help menu whose
+  /Keys/ window shows every key; their questions in alerts; no line numbers; and a game's
+  window as large as its board.  All of it is found out from the package itself, its mode's
+  keymap, menus and variables, so a package nobody described gets it too, the arrows it binds
+  also on =C-f=, =C-b=, =C-n=, =C-p=.  What cannot be found out is described with
+  ~lispm-desktop-app-ui-define~ (=lisp/lispm-desktop-app-ui.el=): Emacs's games have their boards
+  drawn in Platinum's forms and played with the mouse as with their keys, Tetris, Snake and Pong
+  their cells as Platinum tiles, the Calculator a keypad, the Calendar its months drawn as
+  calendars, Elfeed and EMMS a page saying how to begin while they have nothing to show.  A
+  package can describe itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
+  application installed in turn and lists what of this it finds missing.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
   bottom-left corner at first: a collapse box, scroll arrows, a module each for Appearance, Desktop, Keyboard and
   Internet, and Emacs's own battery, load average and mail flag, then a tab.  Pressing a module

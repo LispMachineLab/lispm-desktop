@@ -6716,6 +6716,321 @@ installed; its check boxes save their choices."
             (button-activate button))
           (should (equal (car saved) '(lispm-desktop-update-install-automatically))))))))
 
+;;;; Applications' interface
+
+(defun lispm-desktop-test-app-start-game () "Start." (interactive))
+(defun lispm-desktop-test-app-pause-game () "Pause." (interactive))
+(defun lispm-desktop-test-app-undo () "Undo." (interactive))
+(defun lispm-desktop-test-app-left () "Left." (interactive))
+(defun lispm-desktop-test-app-click () "Click." (interactive))
+(defvar lispm-desktop-test-app-score 1234)
+
+(defvar-keymap lispm-desktop-test-app-mode-map
+  "n" #'lispm-desktop-test-app-start-game
+  "p" #'lispm-desktop-test-app-pause-game
+  "u" #'lispm-desktop-test-app-undo
+  "<left>" #'lispm-desktop-test-app-left
+  "<mouse-1>" #'lispm-desktop-test-app-click
+  "?" #'describe-mode)
+
+(define-derived-mode lispm-desktop-test-app-mode special-mode "Test App"
+  "A game's mode, for the applications' interface's tests.")
+
+(define-derived-mode lispm-desktop-test-app-derived-mode lispm-desktop-test-app-mode "Derived"
+  "A mode derived from the test game's.")
+
+(ert-deftest lispm-desktop-test-app-ui-finds-commands ()
+  "An application's own commands are found in its keymap, with the keys
+typing them; Emacs's own of its parent keymap and those of the mouse
+alone are not."
+  (with-temp-buffer
+    (lispm-desktop-test-app-mode)
+    (let ((commands (lispm-desktop-app-ui-commands)))
+      (should (seq-set-equal-p (mapcar #'car commands)
+                               '(lispm-desktop-test-app-start-game lispm-desktop-test-app-pause-game
+                                 lispm-desktop-test-app-undo lispm-desktop-test-app-left)))
+      (should (equal (cdr (assq 'lispm-desktop-test-app-start-game commands)) (list [?n])))
+      (should (equal (cdr (assq 'lispm-desktop-test-app-left commands)) '([left]))))))
+
+(ert-deftest lispm-desktop-test-app-ui-labels ()
+  "Commands are named as a menu names them: the application's prefix off,
+words capitalized but the small ones, acronyms in capitals."
+  (with-temp-buffer
+    (lispm-desktop-test-app-mode)
+    (should (equal (lispm-desktop-app-ui-command-label 'lispm-desktop-test-app-start-game) "Start Game")))
+  (should (equal (lispm-desktop-app-ui-label "browse-url") "Browse URL"))
+  (should (equal (lispm-desktop-app-ui-label "move-to-the-left") "Move to the Left"))
+  (should (equal (lispm-desktop-app-ui-label "5x5-new") "5x5 New")))
+
+(ert-deftest lispm-desktop-test-app-ui-found-buttons-and-status ()
+  "Without a skin, an application gets buttons for its commands starting,
+pausing and undoing, and its score on its status, found by their names."
+  (let ((lispm-desktop-app-ui-skins nil))
+    (with-temp-buffer
+      (lispm-desktop-test-app-mode)
+      (should (equal (lispm-desktop-app-ui-buttons)
+                     '(("New Game" lispm-desktop-test-app-start-game t)
+                       ("Pause" lispm-desktop-test-app-pause-game t)
+                       ("Undo" lispm-desktop-test-app-undo t))))
+      (should (equal (lispm-desktop-app-ui-status) '("Score 1,234"))))))
+
+(ert-deftest lispm-desktop-test-app-ui-skins ()
+  "A skin says what is not found out; a mode derived from its mode takes it,
+labels and status are read as the window is drawn, and one failing, as
+before its game is set up, says nothing rather than signalling."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (paused nil))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode
+      :status (lambda () (list "Fine" nil ""))
+      :buttons `((,(lambda () (if paused "Resume" "Pause")) ignore ,(lambda () paused))
+                 (,(lambda () (error "Not yet")) ignore)))
+    (with-temp-buffer
+      (lispm-desktop-test-app-derived-mode)
+      (should (equal (lispm-desktop-app-ui-status) '("Fine")))
+      (should (equal (lispm-desktop-app-ui-buttons) '(("Pause" ignore nil) ("…" ignore t))))
+      (setq paused t)
+      (should (equal (car (lispm-desktop-app-ui-buttons)) '("Resume" ignore t))))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :status (lambda () (error "Not yet")))
+    (with-temp-buffer
+      (lispm-desktop-test-app-mode)
+      (should-not (lispm-desktop-app-ui-status)))))
+
+(ert-deftest lispm-desktop-test-app-ui-skin-of-an-application ()
+  "An application whose buffer has no mode of its own is described by its
+key, and :run, said by a skin naming it with :app, opens it."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (lispm-desktop-app-ui--buffers nil)
+        (ran nil))
+    (lispm-desktop-app-ui-define 'pong :title "Pong!")
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :app 'test :run (lambda () (setq ran 'run)))
+    (with-temp-buffer
+      (setq lispm-desktop-app-ui--app 'pong)
+      (should (equal (lispm-desktop-app-ui-get :title) "Pong!")))
+    (lispm-desktop-app-ui-run 'test 'ignore)
+    (should (eq ran 'run))
+    (setq ran nil)
+    (lispm-desktop-app-ui-run 'other (lambda () (interactive) (setq ran 'command)))
+    (should (eq ran 'command))))
+
+(ert-deftest lispm-desktop-test-app-ui-reopens-on-its-buffer ()
+  "An application opened again shows the buffer its window showed when it
+closed, as a game is found where it was left; once that buffer is gone,
+its command runs again."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (ran nil))
+    (with-temp-buffer
+      (let ((lispm-desktop-app-ui--buffers (list (cons 'test (current-buffer)))))
+        (save-window-excursion
+          (lispm-desktop-app-ui-run 'test (lambda () (interactive) (setq ran t)))
+          (should (eq (window-buffer) (current-buffer))))
+        (should-not ran)))
+    (let ((lispm-desktop-app-ui--buffers (list (cons 'test (generate-new-buffer "gone")))))
+      (kill-buffer (cdar lispm-desktop-app-ui--buffers))
+      (lispm-desktop-app-ui-run 'test (lambda () (interactive) (setq ran t)))
+      (should ran))))
+
+(ert-deftest lispm-desktop-test-app-ui-questions-in-alerts ()
+  "A question asked in an application's window is asked in an alert,
+without its (y or n); asked elsewhere, as Emacs asks it."
+  (let ((asked nil))
+    (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'always)
+              ((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (icon message buttons &optional _detail)
+                 (setq asked (list icon message (mapcar #'car buttons)))
+                 t)))
+      (should (eq (lispm-desktop-app-ui--asking (lambda (&rest _) 'emacs) "Start a new game? (y or n) ")
+                  'emacs))
+      (should-not asked)
+      (cl-letf (((symbol-function 'lispm-desktop-app-ui-app) (lambda (&optional _) 'test)))
+        (should (lispm-desktop-app-ui--asking #'ignore "Start a new game? (y or n) "))))
+    (should (equal asked '(caution "Start a new game?" ("Yes" "No"))))))
+
+(ert-deftest lispm-desktop-test-app-ui-letters-for-arrows ()
+  "Where an application binds the arrows and not C-b, C-f, C-p, C-n, the
+letters do what its arrows do, as an HHKB has no arrows."
+  (with-temp-buffer
+    (lispm-desktop-test-app-mode)
+    (let ((map (lispm-desktop-app-ui--letters-map)))
+      (should (eq (keymap-lookup map "C-b") 'lispm-desktop-test-app-left))
+      (should-not (keymap-lookup map "C-f")))))
+
+(ert-deftest lispm-desktop-test-app-ui-menus ()
+  "An application's menus are File, its own, here one of its commands under
+Game, a game's, and Help; their items run in its window, showing the keys
+typing them there."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (lispm-desktop-apps (list (list 'test :name "Test" :category 'games)))
+        (ran nil))
+    (save-window-excursion
+      (with-temp-buffer
+        (lispm-desktop-test-app-mode)
+        (switch-to-buffer (current-buffer))
+        (let ((window (selected-window)))
+          (cl-letf (((symbol-function 'lispm-desktop-app-ui-window) (lambda (_) window))
+                    ((symbol-function 'lispm-desktop-test-app-start-game)
+                     (lambda () (interactive) (setq ran (current-buffer)))))
+            (let* ((menus (lispm-desktop-app-ui-menus 'test))
+                   (game (funcall (nth 2 (nth 1 menus))))
+                   (file (funcall (nth 2 (nth 0 menus)))))
+              (should (equal (mapcar #'cadr menus) '("File" "Game" "Help")))
+              (should (equal (plist-get (car game) :label) "Start Game"))
+              (should (equal (plist-get (car game) :key) "n"))
+              (should (equal (plist-get (car file) :label) "New Game"))
+              (with-temp-buffer
+                (funcall (plist-get (car game) :action)))
+              (should (eq ran (window-buffer window))))))))))
+
+(ert-deftest lispm-desktop-test-app-ui-store-applications ()
+  "An application the App Store installs gets the interface's menus, its
+category and its description, from which the interface tells a game."
+  (let ((lispm-desktop-apps nil))
+    (lispm-desktop-store--register-app
+     'calc '(:kind app :name "Calculator" :command calc :category utilities :description "Calc."))
+    (let ((app (alist-get 'calc lispm-desktop-apps)))
+      (should (eq (plist-get app :category) 'utilities))
+      (should (equal (plist-get app :description) "Calc."))
+      (should (equal (mapcar #'cadr (funcall (plist-get app :menus))) '("File" "Help"))))
+    (should-not (lispm-desktop-app-ui-game-p 'calc))))
+
+(ert-deftest lispm-desktop-test-platinum-info-placards ()
+  "A window's bottom shows each string its info returns on a placard of its
+own, and none when it returns nil, not the buffer's name."
+  (with-temp-buffer
+    (rename-buffer "lispm-desktop-test-info" t)
+    (setq-local lispm-desktop-platinum-info (lambda () '("Score 1" "Rows 2")))
+    (let ((left (lispm-desktop-platinum-mode-line-left)))
+      (should (string-search "Score 1" left))
+      (should (string-search "Rows 2" left)))
+    (setq-local lispm-desktop-platinum-info #'ignore)
+    (should-not (string-search "lispm-desktop-test-info" (lispm-desktop-platinum-mode-line-left)))))
+
+(ert-deftest lispm-desktop-test-app-board-grid-hits ()
+  "A board's grid is drawn as wide and tall as its cells and edges, and a
+click plays the cell under it, nothing outside the cells."
+  (let* ((played nil)
+         (board (list :size 20 :click (lambda (row column) (setq played (list row column)))))
+         (drawn (lispm-desktop-app-board-draw-grid board lispm-desktop-platinum-current-palette
+                                                   '((a b c) (d e f)) '(1 . 2)))
+         (svg (car drawn))
+         (hit (cdr drawn))
+         (left (+ lispm-desktop-app-board-margin 6)))
+    (should (= (dom-attr svg 'width) (+ (* 2 left) 60)))
+    (should (= (dom-attr svg 'height) (+ (* 2 left) 40)))
+    (funcall (funcall hit (+ left 45) (+ left 25)))
+    (should (equal played '(1 2)))
+    (should-not (funcall hit 2 2))
+    (should-not (funcall hit (+ left 61) (+ left 5)))))
+
+(ert-deftest lispm-desktop-test-app-board-waits-for-its-game ()
+  "A board whose game cannot say yet what it shows is not drawn, and its
+text stays in sight, rather than its commands failing."
+  (with-temp-buffer
+    (insert "text")
+    (setq-local lispm-desktop-app-board (list :cells (lambda () (error "No board yet"))))
+    (should-not (lispm-desktop-app-board--model))
+    (lispm-desktop-app-board-refresh)
+    (should-not lispm-desktop-app-board--overlay)))
+
+(ert-deftest lispm-desktop-test-app-board-reads-text ()
+  "Boards read their games' text by line and column, counted from 0."
+  (with-temp-buffer
+    (insert "abc\n  de\n")
+    (should (eq (lispm-desktop-app-board-char 1 3) ?e))
+    (should-not (lispm-desktop-app-board-char 1 9))
+    (should-not (lispm-desktop-app-board-char 5 0))
+    (should (equal (lispm-desktop-app-board-line-column (lispm-desktop-app-board-position 1 2)) '(1 . 2)))))
+
+(ert-deftest lispm-desktop-test-app-games-5x5-cells ()
+  "5x5's board shows its filled squares, and those a solution presses
+while it holds."
+  (require '5x5)
+  (let ((5x5-grid (vector (vector t nil) (vector nil t)))
+        (5x5-grid-size 2)
+        (5x5-moves 3)
+        (5x5-solver-output nil))
+    (should (equal (lispm-desktop-app-games--5x5-cells) '((on off) (off on))))
+    (setq 5x5-solver-output (list 3 (cons 0 (vector (vector nil t) (vector nil nil)))))
+    (should (equal (lispm-desktop-app-games--5x5-cells) '((on off-hint) (off on))))
+    (setq 5x5-moves 4)
+    (should (equal (lispm-desktop-app-games--5x5-cells) '((on off) (off on))))))
+
+(ert-deftest lispm-desktop-test-app-games-gomoku-cells ()
+  "Gomoku's board shows the stones of both players, the last one marked."
+  (require 'gomoku)
+  (let* ((gomoku-board-width 3)
+         (gomoku-board-height 2)
+         (gomoku-board (make-vector (* 4 4) 0))
+         (gomoku-game-history (list (cons (gomoku-xy-to-index 3 2) 0))))
+    (aset gomoku-board (gomoku-xy-to-index 1 1) 1)
+    (aset gomoku-board (gomoku-xy-to-index 3 2) 6)
+    (should (equal (lispm-desktop-app-games--gomoku-cells) '((x empty empty) (empty empty o-last))))))
+
+(ert-deftest lispm-desktop-test-app-games-blackbox-cells ()
+  "Blackbox's board is its box in its edges: what came out where it was
+shot into, the balls guessed, the corners blank."
+  (require 'blackbox)
+  (with-temp-buffer
+    (let ((bb-board nil) (bb-balls-placed nil))
+      (bb-insert-board)
+      (let ((inhibit-read-only t))
+        (bb-goto '(-1 . 2))
+        (delete-char 1)
+        (insert "H")
+        (bb-goto '(3 . 4))
+        (delete-char 1)
+        (insert "O"))
+      (let ((cells (lispm-desktop-app-games--blackbox-cells)))
+        (should (eq (nth 0 (nth 0 cells)) 'corner))
+        (should (equal (nth 0 (nth 3 cells)) '(edge . "H")))
+        (should (equal (nth 1 (nth 0 cells)) '(edge)))
+        (should (eq (nth 4 (nth 5 cells)) 'ball))
+        (should (eq (nth 1 (nth 1 cells)) 'empty))))))
+
+(ert-deftest lispm-desktop-test-app-games-mpuz-cells ()
+  "Mpuz's multiplication shows each square's letter, or its digit once
+found, the times sign beside the multiplier."
+  (require 'mpuz)
+  (let ((mpuz-board (make-vector 10 nil))
+        (mpuz-digit-to-letter (vector 9 8 7 6 5 4 3 2 1 0))
+        (mpuz-found-digits (make-bool-vector 10 nil))
+        (mpuz-trivial-digits (make-bool-vector 10 nil)))
+    (aset mpuz-board 3 '((2 . 9) (10 . 1)))
+    (aset mpuz-found-digits 5 t)
+    (aset mpuz-board 5 '((4 . 7)))
+    (let ((cells (lispm-desktop-app-games--mpuz-cells)))
+      (should (equal (nth 4 (nth 0 cells)) '("G" unsolved)))
+      (should (equal (nth 0 (nth 4 cells)) '("G" unsolved)))
+      (should (equal (nth 3 (nth 1 cells)) '("5" solved)))
+      (should (equal (nth 2 (nth 1 cells)) '("×" sign))))))
+
+(ert-deftest lispm-desktop-test-app-skins-calculator-entry ()
+  "The Calculator's keypad types a number into its display: one point at
+most, the sign changed in front, the last digit taken back."
+  (with-temp-buffer
+    (dolist (key '("1" "." "." "5"))
+      (lispm-desktop-app-skins-calc-press key))
+    (should (equal lispm-desktop-app-skins--calc-entry "1.5"))
+    (lispm-desktop-app-skins-calc-press 'sign)
+    (should (equal lispm-desktop-app-skins--calc-entry "-1.5"))
+    (lispm-desktop-app-skins-calc-press 'delete)
+    (should (equal lispm-desktop-app-skins--calc-entry "-1."))
+    (lispm-desktop-app-skins-calc-press 'clear)
+    (should (equal lispm-desktop-app-skins--calc-entry ""))))
+
+(ert-deftest lispm-desktop-test-app-ui-every-application-described ()
+  "Every application of the App Store's catalog is described where what is
+found out of it is not enough, each board's functions defined."
+  (dolist (key '(tetris-mode snake-mode pong 5x5-mode gomoku-mode solitaire-mode blackbox-mode
+                 mpuz-mode bubbles-mode life-mode hanoi dun-mode doctor-mode calc-mode calendar-mode
+                 elfeed-search-mode emms-browser-mode))
+    (let ((skin (alist-get key lispm-desktop-app-ui-skins)))
+      (should skin)
+      (when-let* ((board (plist-get skin :board)))
+        (dolist (property '(:cells :tiles :cursor :click :draw :model))
+          (let ((function (plist-get board property)))
+            (when (and function (symbolp function))
+              (should (fboundp function)))))))))
+
 (ert-deftest lispm-desktop-test-platinum-check-box-focus ()
   "A check box the keyboard is on is ringed, in the room left about it."
   (let* ((focus "#6666CC")
