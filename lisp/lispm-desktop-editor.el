@@ -389,18 +389,21 @@ the workspace it showed last."
     (lispm-desktop-platinum-show-window lispm-desktop-editor--frame)))
 
 (defun lispm-desktop-editor-close ()
-  "Close the editor, leaving the desktop in front.  Nothing in it is lost:
-it opens again as it was."
+  "Close the editor, leaving the desktop in front, or the window floating
+behind the floating editor with the keyboard, see
+`lispm-desktop-apps-focus-after'.  Nothing in it is lost: it opens again
+as it was."
   (interactive)
   (setq lispm-desktop-editor--closed t)
-  (if (lispm-desktop-editor-floating-p)
-      (progn (lispm-desktop-apps-focus-after lispm-desktop-editor--frame)
-             (lispm-desktop-platinum-hide-window lispm-desktop-editor--frame))
-    (when-let* ((workspace (lispm-desktop-editor--current-workspace)))
-      (setq lispm-desktop-editor--last-workspace workspace)))
-  ;; With the desktop hidden, the windows left out keep the screen.
-  (unless (lispm-desktop-apps-hidden-p)
-    (lispm-desktop-activate)))
+  (let ((next nil))
+    (if (lispm-desktop-editor-floating-p)
+        (progn (setq next (lispm-desktop-apps-focus-after lispm-desktop-editor--frame))
+               (lispm-desktop-platinum-hide-window lispm-desktop-editor--frame))
+      (when-let* ((workspace (lispm-desktop-editor--current-workspace)))
+        (setq lispm-desktop-editor--last-workspace workspace)))
+    ;; With the desktop hidden, the windows left out keep the screen.
+    (unless (or next (lispm-desktop-apps-hidden-p))
+      (lispm-desktop-activate))))
 
 (defun lispm-desktop-editor--focus ()
   "Bring the editor in front unless it is, and select its frame."

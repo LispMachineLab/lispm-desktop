@@ -318,24 +318,38 @@ its collapse box, as Mac OS 9's WindowShade did."
 
 ;;;; Closing
 
+(defun lispm-desktop-app-window-keyboard-p (frame)
+  "Return non-nil when FRAME, a floating window, has the keyboard: it is
+selected, or a menu bar menu took the keyboard from it, the window of the
+application in front, to give it back as it closes, see
+`lispm-desktop-app-window--refocus'."
+  (or (eq (selected-frame) frame)
+      (and (lispm-desktop-apps-screen-p (selected-frame))
+           (frame-visible-p frame)
+           (eq (frame-parameter frame 'lispm-desktop-app) (lispm-desktop-apps-frontmost))
+           (funcall (lispm-desktop-app-window--get (lispm-desktop-app-window-id frame)
+                                                   :refocus-p #'always)))))
+
 (defun lispm-desktop-app-window--retire (frame)
   "Forget FRAME, a window of a kind going away, as its close box closes it
 or \\[delete-frame] deletes it: rolled down first, its place remembered,
-the keyboard passed on when it had it, the desktop put in front when its
-application was.  A window no longer open is left alone."
+the keyboard passed on when it had it, to the window behind and its
+application, see `lispm-desktop-apps-focus-after'; with no window behind,
+the desktop put in front when FRAME's application was.  A window no
+longer open is left alone."
   (when-let* ((id (lispm-desktop-app-window-id frame))
               ((eq (alist-get id lispm-desktop-app-window--frames) frame)))
     (lispm-desktop-app-window-roll-down frame)
     (setf (alist-get id lispm-desktop-app-window--geometry) (lispm-desktop-apps--geometry frame))
     (setq lispm-desktop-app-window--frames (assq-delete-all id lispm-desktop-app-window--frames))
-    (when (eq (selected-frame) frame)
-      (lispm-desktop-apps-focus-after frame))
-    (when-let* ((on-close (lispm-desktop-app-window--get id :on-close)))
-      (funcall on-close))
-    (let ((app (lispm-desktop-app-window--app id)))
-      (when (and (eq (lispm-desktop-apps-frontmost) app) (not (eq app 'desktop))
-                 (not (lispm-desktop-apps-hidden-p)))
-        (lispm-desktop-apps-set-frontmost 'desktop)))))
+    (let ((next (and (lispm-desktop-app-window-keyboard-p frame)
+                     (lispm-desktop-apps-focus-after frame))))
+      (when-let* ((on-close (lispm-desktop-app-window--get id :on-close)))
+        (funcall on-close))
+      (let ((app (lispm-desktop-app-window--app id)))
+        (when (and (not next) (eq (lispm-desktop-apps-frontmost) app) (not (eq app 'desktop))
+                   (not (lispm-desktop-apps-hidden-p)))
+          (lispm-desktop-apps-set-frontmost 'desktop))))))
 
 (defun lispm-desktop-app-window-release (frame)
   "Forget FRAME as its kind's window, its place remembered, for its own code

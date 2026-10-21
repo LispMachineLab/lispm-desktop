@@ -1020,12 +1020,14 @@ This is on `lispm-browser-before-quit-hook'."
 
 (defun lispm-desktop-browser--quit ()
   "Bring the desktop in front once the browser quit, and close its
-workspace; it opens again full screen or floating, as it was.  This is
-on `lispm-browser-quit-hook'."
+workspace; it opens again full screen or floating, as it was.  The
+desktop stays behind when another application came in front: the window
+behind the floating browser took the keyboard, see
+`lispm-desktop-apps-focus-after'.  This is on `lispm-browser-quit-hook'."
   (when-let* ((address (get-buffer lispm-desktop-browser-address-buffer-name)))
     (kill-buffer address))
   ;; With the desktop hidden, the windows left out keep the screen.
-  (unless (lispm-desktop-apps-hidden-p)
+  (when (and (eq (lispm-desktop-apps-frontmost) 'browser) (not (lispm-desktop-apps-hidden-p)))
     (lispm-desktop-activate))
   (lispm-desktop-browser--close-workspace))
 
@@ -1213,15 +1215,20 @@ desktop show with it."
     (select-window (or (lispm-desktop-browser--window) (frame-first-window lispm-desktop-browser--frame)))
     (lispm-desktop-apps-set-frontmost 'browser)))
 
-(defun lispm-desktop-browser--delete-frame ()
-  "Delete the floating browser's window, remembering where it was."
+(defun lispm-desktop-browser--delete-frame (&optional full-screen)
+  "Delete the floating browser's window, remembering where it was.  The
+keyboard it had goes to the window behind it, see
+`lispm-desktop-apps-focus-after', or with FULL-SCREEN, the browser going
+full screen, to the screen."
   (when (lispm-desktop-browser-floating-p)
     (let ((frame lispm-desktop-browser--frame))
       (lispm-desktop-browser--unshade)
       (lispm-desktop-app-window-release frame)
       (setq lispm-desktop-browser--frame nil)
-      (when (eq (selected-frame) frame)
-        (lispm-desktop-apps-focus-after frame))
+      (when (lispm-desktop-app-window-keyboard-p frame)
+        (if full-screen
+            (select-frame-set-input-focus (lispm-desktop-apps-window-screen frame))
+          (lispm-desktop-apps-focus-after frame)))
       (delete-frame frame))))
 
 (defun lispm-desktop-browser--close-workspace ()
@@ -1252,7 +1259,7 @@ desktop show with it."
     (lispm-desktop-show-desktop))
   (when (lispm-desktop-browser-floating-p)
     (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
-      (lispm-desktop-browser--delete-frame)
+      (lispm-desktop-browser--delete-frame t)
       (lispm-desktop-browser--show-full-screen shown))))
 
 (defun lispm-desktop-browser-toggle-floating ()
