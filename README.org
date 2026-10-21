@@ -143,12 +143,13 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   and is kept for the next start.
 - *The App Store*, laid out as the Mac App Store in Mac OS 9's forms, installs what LispM runs
   beyond what it ships with: applications, Emacs packages each running in a window of its own on
-  the desktop (Elfeed, EMMS, Emacs's own Calculator and its games); and extensions, packages
+  the desktop (Elfeed, EMMS, ERC, Slack and Telega to chat, Emacs's own Calculator and its
+  games); and extensions, packages
   adding to the editor, as Hermes, an agent beside Claude Code and Codex.  It lists them from
   catalogs, git repositories holding a =catalog.eld=,
   [[https://github.com/LispMachineLab/lispm-store][lispm-store]] by default
   (~lispm-desktop-store-catalogs~): the categories down the left (All, News, Music,
-  Productivity, Utilities, Games, Extensions, Updates), the chosen one's items as icons in a
+  Social, Productivity, Utilities, Games, Extensions, Updates), the chosen one's items as icons in a
   grid, each with its button, Get, Open or Update; under the grid Install from URL… and Remove,
   and the selected item's information below.  An extension whose program is not on ~PATH~ is
   greyed out, its information saying how to install the program.  Nothing is installed unasked:
@@ -181,8 +182,15 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   alert asking for both, in the *Installer*, a window of its own, one install at a time with
   Homebrew (offered first where it is not installed, its installer asking for the password in
   a terminal), saying what fails and trying it again; the app's window offers what is missing
-  as it opens, its Help menu too, and a command needing a program offers it before it runs.  A
-  package can describe itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
+  as it opens, its Help menu too, and a command needing a program offers it before it runs.  The
+  applications to chat with (=lisp/lispm-desktop-app-chat.el=) open on the list of their
+  conversations, as chat applications do, each network or workspace over its channels and
+  people, those with messages unread in bold with their count, in red where they name you; a
+  conversation opens in the same window, Back going back.  ERC connects again at its next start
+  to the networks it was on and joins their channels; Slack signs in with the token and cookie
+  of Slack's web app, kept with auth-source; Telega's window says what it lacks, TDLib or a C
+  compiler, installs it, and builds telega-server once it is there.  A package can describe
+  itself the same way.  =M-x lispm-desktop-app-ui-audit= opens every
   application installed in turn and lists what of this it finds missing.
 - *The Control Strip*, as Mac OS 9's, floating over the windows along the desktop's edge, in its
   bottom-left corner at first: a collapse box, scroll arrows, a module each for Appearance, Desktop, Keyboard and
