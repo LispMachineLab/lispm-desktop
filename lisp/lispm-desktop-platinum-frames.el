@@ -279,10 +279,14 @@ where its frame is drawn for it, a pixel of outline where it is not."
   (if lispm-desktop-platinum-window-frames 0 1))
 
 (defun lispm-desktop-platinum--frameable-p (frame)
-  "Return non-nil when FRAME is a floating window to be framed."
+  "Return non-nil when FRAME is a floating window to be framed.
+A window with the frame parameter `lispm-desktop-platinum-own-frame'
+draws its own, as a Mac OS 9 window whose definition function drew a
+structure of its own: Stickies' notes, an edge of their colour."
   (and lispm-desktop-platinum-window-frames lispm-desktop-platinum-current-palette
        (frame-live-p frame) (display-graphic-p frame)
-       (frame-parameter frame 'lispm-desktop-window)))
+       (frame-parameter frame 'lispm-desktop-window)
+       (not (frame-parameter frame 'lispm-desktop-platinum-own-frame))))
 
 (defun lispm-desktop-platinum-window-frame-p (frame)
   "Return the floating window FRAME draws the frame of, or nil when FRAME

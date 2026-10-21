@@ -2247,6 +2247,22 @@ raised, the latest first."
                  ((symbol-function 'lispm-desktop-platinum-frame-update) #'ignore))
          ,@body))))
 
+(ert-deftest lispm-desktop-test-window-draws-its-own-frame ()
+  "A floating window is framed unless it draws its own frame, as an
+application's window may, Stickies' notes an edge of their colour."
+  (let ((lispm-desktop-platinum-window-frames t)
+        (lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+        (parameters '((window (lispm-desktop-window . t))
+                      (note (lispm-desktop-window . t) (lispm-desktop-platinum-own-frame . t))
+                      (screen))))
+    (cl-letf (((symbol-function 'frame-live-p) #'always)
+              ((symbol-function 'display-graphic-p) #'always)
+              ((symbol-function 'frame-parameter)
+               (lambda (frame parameter) (alist-get parameter (alist-get frame parameters)))))
+      (should (lispm-desktop-platinum--frameable-p 'window))
+      (should-not (lispm-desktop-platinum--frameable-p 'note))
+      (should-not (lispm-desktop-platinum--frameable-p 'screen)))))
+
 (defconst lispm-desktop-test--window-frames
   '((screen (position 0 . 0) (size 1200 . 800) (visibility . t))
     (outer (lispm-desktop-platinum-frames . window) (parent-frame . screen)
