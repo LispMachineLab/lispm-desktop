@@ -11,7 +11,6 @@
   ("Move to Trash" . "Move to Bin")
   ("Its %d file goes to the Trash." "Its %d file goes to the Bin." "Its %d files go to the Bin.")
   ("“%s” was moved to the Trash" . "“%s” was moved to the Bin")
-  ("“%s” could not be moved to the Trash." . "“%s” could not be moved to the Bin.")
   ("%-I:%M %p" . "%H:%M")
   ("Center" . "Centre")
   ("Trash" . "Bin")

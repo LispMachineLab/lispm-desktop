@@ -65,9 +65,13 @@ Optional, used when present:
   =C-n= =C-p= =C-f= =C-b=, over a colour or a picture of your own.
 - *A guide* that tours the desktop at the first start, Apple Guide style, with coach marks and
   Show Me (=C-c ?= brings it back).
-- *Finder windows*: folders as large icons, with back, forward, up, rename and Move to Trash.
+- *Finder windows*: folders as large icons, with back, forward, up, rename and Move to Trash;
+  an item dragged onto the desktop's Trash is thrown away.
 - *Applications*, one in front at a time: the desktop, the editor, the browser and whatever the
-  App Store installed, each filling the menu bar with its menus beside the rainbow λ.
+  App Store installed, each filling the menu bar with its menus beside the rainbow λ.  One
+  installed is uninstalled from its right-click menu, in the App Store or the Applications
+  folder, or by dragging it onto the Trash; what it alone brought, Homebrew programs and Emacs
+  packages, goes too when asked.
 - *The editor*, full screen or floating: a sidebar of Files, Agents and Shells, a workspace per
   project (=C-<tab>=, =M-`= for thumbnails), chats and terminals on the left, files on the right.
 - *Platinum windows*: title bars with close, zoom and collapse boxes, scroll bars, placards,

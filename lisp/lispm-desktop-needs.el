@@ -69,6 +69,10 @@
 ;; offers to install it first, in a terminal, where its installer asks
 ;; for the password; Apple's command line tools are installed by Apple's
 ;; window, which the Installer waits for.
+;;
+;; What Homebrew installed is uninstalled the same way, in the same
+;; queue, once an application needing it is uninstalled and nothing else
+;; needs it: `lispm-desktop-needs-uninstall'.
 
 ;;; Code:
 
@@ -298,6 +302,17 @@ macOS and Linux, Apple's command line tools only on macOS."
     (`(cask ,cask) (format "brew install --cask %s" cask))
     ('(xcode) "xcode-select --install")))
 
+(defun lispm-desktop-needs-brewed-p (need)
+  "Return non-nil when Homebrew installed NEED: its formula's keg or its
+cask is there, whoever had Homebrew install it.  Only such a need is
+uninstalled: Apple's command line tools never are."
+  (when-let* ((prefix (lispm-desktop-needs--brew-prefix)))
+    (pcase (lispm-desktop-needs-provider need)
+      (`(brew ,formula)
+       (file-directory-p (expand-file-name (file-name-nondirectory formula) (expand-file-name "Cellar" prefix))))
+      (`(cask ,cask)
+       (file-directory-p (expand-file-name (file-name-nondirectory cask) (expand-file-name "Caskroom" prefix)))))))
+
 (defun lispm-desktop-needs-text (who need)
   "Return what is said of NEED of WHO, a name, or of it when WHO is nil, as
 it stands, in the language LispM speaks."
@@ -439,12 +454,23 @@ install them first, then runs once they are."
   (dolist (need needs)
     (mapc #'lispm-desktop-needs-unguard (lispm-desktop-needs-get need :commands))))
 
+(defun lispm-desktop-needs-guarded-p (need &optional except)
+  "Return non-nil when a command guarded needs NEED, one not of EXCEPT, a
+list of commands: something still uses it."
+  (seq-some (pcase-lambda (`(,command ,_ . ,needs))
+              (and (not (memq command except))
+                   (seq-find (lambda (other) (equal (lispm-desktop-needs-key other) (lispm-desktop-needs-key need)))
+                             needs)))
+            lispm-desktop-needs--guards))
+
 ;;;; Installing
 
 (cl-defstruct (lispm-desktop-needs--job (:constructor lispm-desktop-needs--make-job)
                                          (:copier nil))
-  "An install the Installer runs or has run."
-  need who (state 'waiting) note error (tries 0) since)
+  "An install or uninstall the Installer runs or has run: ACTION is
+`install' or `uninstall'.  STATE is `waiting', `installing' while either
+runs, then `installed' or `removed', `failed' or `cancelled'."
+  need who (action 'install) (state 'waiting) note error (tries 0) since)
 
 (defvar lispm-desktop-needs--jobs nil
   "The installs of the Installer's run, in order.")
@@ -466,20 +492,27 @@ installer runs, or `declined' when the user said not to install it.")
   "The frame of the progress bar's stripes, as they move.")
 
 (defun lispm-desktop-needs--active-p (job)
-  "Return non-nil while JOB waits or installs."
+  "Return non-nil while JOB waits or runs."
   (memq (lispm-desktop-needs--job-state job) '(waiting installing)))
 
+(defun lispm-desktop-needs--done-p (job)
+  "Return non-nil when JOB did what it was for: installed, or uninstalled."
+  (memq (lispm-desktop-needs--job-state job) '(installed removed)))
+
+(defun lispm-desktop-needs--uninstall-p (job)
+  "Return non-nil when JOB uninstalls rather than installs."
+  (eq (lispm-desktop-needs--job-action job) 'uninstall))
+
 (defun lispm-desktop-needs-running-p ()
-  "Return non-nil while the Installer has installs to do."
+  "Return non-nil while the Installer has installs or uninstalls to do."
   (seq-some #'lispm-desktop-needs--active-p lispm-desktop-needs--jobs))
 
-(defun lispm-desktop-needs-install (needs who &optional then)
-  "Install NEEDS, which WHO, a name, uses, unasked: the caller asked.
-Those present or installing already are left; the others wait their turn
-in the Installer.  THEN, if given, is called with non-nil once all of
-NEEDS are present, or with nil once one could not be installed."
-  (let* ((needs (seq-remove #'lispm-desktop-needs-present-p needs))
-         (keys (mapcar #'lispm-desktop-needs-key needs)))
+(defun lispm-desktop-needs--queue (needs who action then)
+  "Queue ACTION, `install' or `uninstall', of each of NEEDS, of WHO, a
+name, in the Installer, and start; THEN is called as
+`lispm-desktop-needs-install' says.  A need that cannot be done fails at
+once; one already waiting or running the same way is left as it is."
+  (let ((keys (mapcar #'lispm-desktop-needs-key needs)))
     (unless (lispm-desktop-needs-running-p)
       ;; A new run: what the last one did is put away.
       (setq lispm-desktop-needs--jobs nil
@@ -487,18 +520,20 @@ NEEDS are present, or with nil once one could not be installed."
                                                lispm-desktop-needs--homebrew)))
     (dolist (need needs)
       (unless (seq-find (lambda (job) (and (lispm-desktop-needs--active-p job)
+                                           (eq (lispm-desktop-needs--job-action job) action)
                                            (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job))
                                                   (lispm-desktop-needs-key need))))
                         lispm-desktop-needs--jobs)
-        (setq lispm-desktop-needs--jobs
-              (append (seq-remove (lambda (job) (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job))
-                                                       (lispm-desktop-needs-key need)))
-                                  lispm-desktop-needs--jobs)
-                      (list (lispm-desktop-needs--make-job
-                             :need need :who who
-                             :state (if (lispm-desktop-needs-installable-p need) 'waiting 'failed)
-                             :error (unless (lispm-desktop-needs-installable-p need)
-                                      (lispm-desktop-tr "Nothing here installs it."))))))))
+        (let ((possible (or (eq action 'uninstall) (lispm-desktop-needs-installable-p need))))
+          (setq lispm-desktop-needs--jobs
+                (append (seq-remove (lambda (job) (and (not (lispm-desktop-needs--active-p job))
+                                                       (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job))
+                                                              (lispm-desktop-needs-key need))))
+                                    lispm-desktop-needs--jobs)
+                        (list (lispm-desktop-needs--make-job
+                               :need need :who who :action action
+                               :state (if possible 'waiting 'failed)
+                               :error (unless possible (lispm-desktop-tr "Nothing here installs it.")))))))))
     (if (null needs)
         (when then (funcall then t))
       (when then (push (cons keys then) lispm-desktop-needs--requests))
@@ -507,23 +542,44 @@ NEEDS are present, or with nil once one could not be installed."
       (lispm-desktop-needs-show)
       (lispm-desktop-needs--next))))
 
+(defun lispm-desktop-needs-install (needs who &optional then)
+  "Install NEEDS, which WHO, a name, uses, unasked: the caller asked.
+Those present or installing already are left; the others wait their turn
+in the Installer.  THEN, if given, is called with non-nil once all of
+NEEDS are present, or with nil once one could not be installed."
+  (lispm-desktop-needs--queue (seq-remove #'lispm-desktop-needs-present-p needs) who 'install then))
+
+(defun lispm-desktop-needs-uninstall (needs who &optional then)
+  "Uninstall NEEDS, which WHO, a name, used, with Homebrew, unasked: the
+caller asked, and made sure nothing else needs them.  Only those Homebrew
+installed are, see `lispm-desktop-needs-brewed-p'; they wait their turn
+in the Installer, as installs do.  THEN, if given, is called with non-nil
+once all of them are gone, or with nil once one could not be."
+  (lispm-desktop-needs--queue (seq-filter #'lispm-desktop-needs-brewed-p needs) who 'uninstall then))
+
 (defun lispm-desktop-needs--next ()
-  "Start the next install waiting, unless one runs; else end the run."
+  "Start the next install or uninstall waiting, unless one runs; else end
+the run."
   (unless (or (process-live-p lispm-desktop-needs--process)
               (seq-find (lambda (job) (eq (lispm-desktop-needs--job-state job) 'installing))
                         lispm-desktop-needs--jobs))
     (if-let* ((job (seq-find (lambda (job) (eq (lispm-desktop-needs--job-state job) 'waiting))
                              lispm-desktop-needs--jobs)))
-        (if (lispm-desktop-needs-present-p (lispm-desktop-needs--job-need job))
-            (lispm-desktop-needs--end job 'installed)
-          (pcase (lispm-desktop-needs-provider (lispm-desktop-needs--job-need job))
-            (`(,(or 'brew 'cask) . ,_) (lispm-desktop-needs--brew-install job))
-            ('(xcode) (lispm-desktop-needs--xcode-install job))))
+        (cond ((lispm-desktop-needs--uninstall-p job)
+               (if (lispm-desktop-needs-brewed-p (lispm-desktop-needs--job-need job))
+                   (lispm-desktop-needs--brew-run job)
+                 (lispm-desktop-needs--end job 'removed)))
+              ((lispm-desktop-needs-present-p (lispm-desktop-needs--job-need job))
+               (lispm-desktop-needs--end job 'installed))
+              (t (pcase (lispm-desktop-needs-provider (lispm-desktop-needs--job-need job))
+                   (`(,(or 'brew 'cask) . ,_) (lispm-desktop-needs--brew-run job))
+                   ('(xcode) (lispm-desktop-needs--xcode-install job)))))
       (lispm-desktop-needs--finish)))
   (lispm-desktop-needs--render))
 
 (defun lispm-desktop-needs--end (job state &optional error)
-  "End JOB in STATE, `installed', `failed' or `cancelled', with ERROR."
+  "End JOB in STATE, `installed', `removed', `failed' or `cancelled', with
+ERROR."
   (setf (lispm-desktop-needs--job-state job) state
         (lispm-desktop-needs--job-error job) error
         (lispm-desktop-needs--job-note job) nil)
@@ -540,15 +596,15 @@ NEEDS are present, or with nil once one could not be installed."
                                   (and (lispm-desktop-needs--active-p job)
                                        (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job)) key)))
                                 lispm-desktop-needs--jobs))))
-        (installed (lambda (key)
-                     (seq-find (lambda (job)
-                                 (and (eq (lispm-desktop-needs--job-state job) 'installed)
-                                      (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job)) key)))
-                               lispm-desktop-needs--jobs))))
+        (done (lambda (key)
+                (seq-find (lambda (job)
+                            (and (lispm-desktop-needs--done-p job)
+                                 (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job)) key)))
+                          lispm-desktop-needs--jobs))))
     (dolist (request lispm-desktop-needs--requests)
       (when (seq-every-p ended (car request))
         (setq lispm-desktop-needs--requests (delq request lispm-desktop-needs--requests))
-        (funcall (cdr request) (seq-every-p installed (car request)))))))
+        (funcall (cdr request) (seq-every-p done (car request)))))))
 
 (defun lispm-desktop-needs--finish ()
   "End the run: say so, and close the Installer after a while when all
@@ -557,13 +613,11 @@ went well, as nothing is left to read."
     (cancel-timer lispm-desktop-needs--timer))
   (setq lispm-desktop-needs--timer nil)
   (when (and lispm-desktop-needs--jobs
-             (seq-every-p (lambda (job) (eq (lispm-desktop-needs--job-state job) 'installed))
-                          lispm-desktop-needs--jobs))
+             (seq-every-p #'lispm-desktop-needs--done-p lispm-desktop-needs--jobs))
     (message "%s" (lispm-desktop-needs--status))
     (run-at-time 4 nil (lambda ()
                          (unless (or (lispm-desktop-needs-running-p)
-                                     (seq-find (lambda (job) (not (eq (lispm-desktop-needs--job-state job) 'installed)))
-                                               lispm-desktop-needs--jobs))
+                                     (seq-remove #'lispm-desktop-needs--done-p lispm-desktop-needs--jobs))
                            (lispm-desktop-app-window-close 'installer))))))
 
 ;;;;; Homebrew
@@ -575,14 +629,18 @@ went well, as nothing is left to read."
       (goto-char (point-max))
       (insert text))))
 
-(defun lispm-desktop-needs--brew-install (job)
-  "Install JOB's need with Homebrew, or Homebrew first."
+(defun lispm-desktop-needs--brew-run (job)
+  "Install or uninstall JOB's need with Homebrew; to install, Homebrew
+first if need be."
   (let ((brew (lispm-desktop-needs-brew)))
     (cond
      (brew
       (pcase-let* ((need (lispm-desktop-needs--job-need job))
                    (`(,provider ,name) (lispm-desktop-needs-provider need))
-                   (head (and (eq provider 'brew) (lispm-desktop-needs-get need :head)))
+                   (uninstall (lispm-desktop-needs--uninstall-p job))
+                   (head (and (not uninstall) (eq provider 'brew) (lispm-desktop-needs-get need :head)))
+                   (arguments `(,(if uninstall "uninstall" "install") ,(if (eq provider 'cask) "--cask" "--formula")
+                                ,@(and head '("--HEAD")) ,name))
                    (process-environment (append '("HOMEBREW_NO_AUTO_UPDATE=1" "HOMEBREW_NO_ENV_HINTS=1"
                                                   "NONINTERACTIVE=1")
                                                 process-environment))
@@ -590,14 +648,14 @@ went well, as nothing is left to read."
                             (point-max))))
         (setf (lispm-desktop-needs--job-state job) 'installing
               (lispm-desktop-needs--job-since job) (float-time)
-              (lispm-desktop-needs--job-note job) (lispm-desktop-tr "Installing with Homebrew…"))
-        (lispm-desktop-needs--log (format "\n$ brew install %s%s%s\n" (if (eq provider 'cask) "--cask " "")
-                                          (if head "--HEAD " "") name))
+              (lispm-desktop-needs--job-note job) (if uninstall
+                                                      (lispm-desktop-tr "Uninstalling with Homebrew…")
+                                                    (lispm-desktop-tr "Installing with Homebrew…")))
+        (lispm-desktop-needs--log (format "\n$ brew %s\n" (string-join arguments " ")))
         (setq lispm-desktop-needs--process
               (make-process
                :name "lispm-desktop-needs" :noquery t :connection-type 'pipe
-               :command `(,brew "install" ,(if (eq provider 'cask) "--cask" "--formula") ,@(and head '("--HEAD"))
-                                ,name)
+               :command (cons brew arguments)
                :filter (lambda (_process output)
                          (lispm-desktop-needs--log output)
                          (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))
@@ -607,6 +665,9 @@ went well, as nothing is left to read."
                            (unless (process-live-p process)
                              (lispm-desktop-needs--brew-ended job process start)))))
         (lispm-desktop-needs--tick)))
+     ;; Without Homebrew, nothing it installed is left to uninstall.
+     ((lispm-desktop-needs--uninstall-p job)
+      (lispm-desktop-needs--end job 'removed))
      ((eq lispm-desktop-needs--homebrew 'declined)
       (lispm-desktop-needs--end job 'failed (lispm-desktop-tr "Homebrew is not installed.")))
      ((consp lispm-desktop-needs--homebrew)
@@ -615,13 +676,15 @@ went well, as nothing is left to read."
      (t (lispm-desktop-needs--offer-homebrew job)))))
 
 (defun lispm-desktop-needs--brew-ended (job process start)
-  "End JOB, whose PROCESS installed it, its log since START."
+  "End JOB, whose PROCESS installed or uninstalled it, its log since START."
   (setq lispm-desktop-needs--process nil)
   (let* ((log (with-current-buffer (get-buffer-create lispm-desktop-needs-log-buffer-name)
                 (buffer-substring-no-properties (min start (point-max)) (point-max))))
          (need (lispm-desktop-needs--job-need job)))
     (cond
      ((eq (lispm-desktop-needs--job-state job) 'cancelled))
+     ((and (eq (process-exit-status process) 0) (lispm-desktop-needs--uninstall-p job))
+      (lispm-desktop-needs--end job 'removed))
      ((and (eq (process-exit-status process) 0) (lispm-desktop-needs-present-p need))
       (lispm-desktop-needs--end job 'installed))
      ((eq (process-exit-status process) 0)
@@ -640,11 +703,12 @@ went well, as nothing is left to read."
      (t (lispm-desktop-needs--end job 'failed (lispm-desktop-needs--error log))))))
 
 (defun lispm-desktop-needs--error (log)
-  "Return what went wrong, as LOG, an install's output, says it."
+  "Return what went wrong, as LOG, an install's or uninstall's output,
+says it."
   (let ((lines (split-string log "\n" t "[ \t\r]+")))
     (or (car (last (seq-filter (lambda (line) (string-prefix-p "Error:" line)) lines)))
         (car (last lines))
-        (lispm-desktop-tr "The install failed."))))
+        (lispm-desktop-tr "Homebrew failed."))))
 
 (defun lispm-desktop-needs--offer-homebrew (job)
   "Ask whether to install Homebrew for JOB; install it in a terminal if so."
@@ -758,7 +822,8 @@ once the installer ended without, or after too long."
   "Try again what failed or was stopped."
   (interactive)
   (let ((jobs (seq-filter (lambda (job) (and (memq (lispm-desktop-needs--job-state job) '(failed cancelled))
-                                             (lispm-desktop-needs-installable-p (lispm-desktop-needs--job-need job))))
+                                             (or (lispm-desktop-needs--uninstall-p job)
+                                                 (lispm-desktop-needs-installable-p (lispm-desktop-needs--job-need job)))))
                           lispm-desktop-needs--jobs)))
     (unless jobs
       (user-error (lispm-desktop-tr "Nothing to try again")))
@@ -801,20 +866,37 @@ once the installer ended without, or after too long."
         (current-buffer))))
 
 (defun lispm-desktop-needs--status ()
-  "Return what the Installer's run has come to, a sentence in the language
-LispM speaks."
+  "Return what the Installer's run has come to, a sentence or two in the
+language LispM speaks."
   (let* ((jobs lispm-desktop-needs--jobs)
          (installing (seq-find (lambda (job) (eq (lispm-desktop-needs--job-state job) 'installing)) jobs))
          (failed (seq-filter (lambda (job) (memq (lispm-desktop-needs--job-state job) '(failed cancelled))) jobs))
-         (done (seq-count (lambda (job) (not (lispm-desktop-needs--active-p job))) jobs)))
-    (cond (installing (lispm-desktop-tr "Installing %s (%d of %d)…"
-                                        (lispm-desktop-needs-name (lispm-desktop-needs--job-need installing))
-                                        (1+ done) (length jobs)))
+         (done (seq-count (lambda (job) (not (lispm-desktop-needs--active-p job))) jobs))
+         (names (lambda (jobs) (lispm-desktop-needs--names (mapcar #'lispm-desktop-needs--job-need jobs))))
+         ;; Installs and uninstalls each said in a sentence of their own.
+         (say (lambda (jobs install uninstall)
+                (let ((removed (seq-filter #'lispm-desktop-needs--uninstall-p jobs))
+                      (installed (seq-remove #'lispm-desktop-needs--uninstall-p jobs)))
+                  (string-join (delq nil (list (and installed (funcall install installed))
+                                               (and removed (funcall uninstall removed))))
+                               "  ")))))
+    (cond (installing (if (lispm-desktop-needs--uninstall-p installing)
+                          (lispm-desktop-tr "Uninstalling %s (%d of %d)…"
+                                            (lispm-desktop-needs-name (lispm-desktop-needs--job-need installing))
+                                            (1+ done) (length jobs))
+                        (lispm-desktop-tr "Installing %s (%d of %d)…"
+                                          (lispm-desktop-needs-name (lispm-desktop-needs--job-need installing))
+                                          (1+ done) (length jobs))))
           ((lispm-desktop-needs-running-p) (lispm-desktop-tr "Waiting…"))
-          (failed (lispm-desktop-tr-n "%s could not be installed." "%s could not be installed." (length failed)
-                                      (lispm-desktop-needs--names (mapcar #'lispm-desktop-needs--job-need failed))))
-          (jobs (lispm-desktop-tr-n "Installed %s." "Installed %s." (length jobs)
-                                    (lispm-desktop-needs--names (mapcar #'lispm-desktop-needs--job-need jobs))))
+          (failed (funcall say failed
+                           (lambda (jobs) (lispm-desktop-tr-n "%s could not be installed." "%s could not be installed."
+                                                              (length jobs) (funcall names jobs)))
+                           (lambda (jobs) (lispm-desktop-tr-n "%s could not be uninstalled." "%s could not be uninstalled."
+                                                              (length jobs) (funcall names jobs)))))
+          (jobs (funcall say jobs
+                         (lambda (jobs) (lispm-desktop-tr-n "Installed %s." "Installed %s." (length jobs) (funcall names jobs)))
+                         (lambda (jobs) (lispm-desktop-tr-n "Uninstalled %s." "Uninstalled %s." (length jobs)
+                                                            (funcall names jobs)))))
           (t (lispm-desktop-tr "Nothing to install.")))))
 
 (defun lispm-desktop-needs--bar (width)
@@ -823,7 +905,7 @@ one: a sunken track filled as far as the installs have come, the part
 installing now striped and moving."
   (let* ((jobs lispm-desktop-needs--jobs)
          (count (max 1 (length jobs)))
-         (done (seq-count (lambda (job) (eq (lispm-desktop-needs--job-state job) 'installed)) jobs))
+         (done (seq-count #'lispm-desktop-needs--done-p jobs))
          (running (lispm-desktop-needs-running-p))
          (frame (if running (mod lispm-desktop-needs--frame 6) 0)))
     (lispm-desktop-platinum-image
@@ -866,7 +948,7 @@ installing now striped and moving."
                 (fit (lambda (text) (truncate-string-to-width text columns nil nil "…"))))
             (insert "  "
                     (pcase (lispm-desktop-needs--job-state job)
-                      ('installed "✓") ('installing "▸") ('waiting "·") (_ "✕"))
+                      ((or 'installed 'removed) "✓") ('installing "▸") ('waiting "·") (_ "✕"))
                     "  "
                     (propertize (lispm-desktop-needs-name need) 'face 'bold)
                     (propertize (concat "  " (funcall fit (lispm-desktop-tr "for %s" (lispm-desktop-needs--job-who job))))

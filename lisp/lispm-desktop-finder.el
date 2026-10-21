@@ -42,6 +42,11 @@
 ;; Command-Shift-N makes a folder, Command-Delete moves the selected item
 ;; to the Trash, Command-W closes the window, and typing a name's first
 ;; letters selects it.
+;;
+;; An item is thrown away from its menu, with Command-Delete, or dragged
+;; out of the window onto the desktop's Trash: a file or folder goes to
+;; the system's Trash, and an application of the Applications folder is
+;; uninstalled, once confirmed, see `lispm-desktop-finder-folders'.
 
 ;;; Code:
 
@@ -102,9 +107,12 @@ stands for the folder where a directory's name would.  :title names the
 folder, in English, translated where shown, see
 `lispm-desktop-finder--title'; :icon gives its small icon as
 `lispm-desktop-platinum-icon-file' takes it, and :items is a function
-returning its items, each (NAME ICON ACTION): NAME as shown, in the
-language LispM speaks, ICON its large icon, ACTION a function opening it.
-Nothing is made, renamed or thrown away in such a folder.")
+returning its items, each (NAME ICON ACTION TRASH): NAME as shown, in
+the language LispM speaks, ICON its large icon, ACTION a function opening
+it, and TRASH, when given, a function throwing it away, returning non-nil
+once it is gone, as an application installed is uninstalled; :trash
+names the menu item doing so, in English, translated where shown, by
+default \"Move to Trash\".  Nothing is made or renamed in such a folder.")
 
 (defun lispm-desktop-finder--folder (directory)
   "Return the properties of DIRECTORY when it is a virtual folder.
@@ -295,8 +303,7 @@ the disk."
               lispm-desktop-platinum-info "")
         ;; The selected item is kept in view.
         (let ((at (or (and lispm-desktop-finder--selected
-                           (text-property-any (point-min) (point-max)
-                                              'lispm-desktop-finder-item lispm-desktop-finder--selected))
+                           (lispm-desktop-finder--item-position lispm-desktop-finder--selected))
                       (point-min))))
           (goto-char at)
           (set-window-point window at))
@@ -385,6 +392,17 @@ the history, as going there by hand does."
   (lispm-desktop-finder--in
     (lispm-desktop-finder--go lispm-desktop-finder--directory nil lispm-desktop-finder--selected)))
 
+(defun lispm-desktop-finder-folder-changed (key)
+  "Read the folder KEY of `lispm-desktop-finder-folders' again if the
+window shows it: its items changed, as the Applications folder's do as
+applications are installed and uninstalled."
+  (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name))
+              ((eq (buffer-local-value 'lispm-desktop-finder--directory buffer) key)))
+    (with-current-buffer buffer
+      (lispm-desktop-finder--go key nil (and (assoc lispm-desktop-finder--selected
+                                                    (lispm-desktop-finder--folder-items key))
+                                             lispm-desktop-finder--selected)))))
+
 (defun lispm-desktop-finder--edit (file)
   "Open FILE in the editor, brought in front."
   (lispm-desktop-editor-activate)
@@ -409,7 +427,7 @@ item of a folder of `lispm-desktop-finder-folders' by its own action."
 (defun lispm-desktop-finder--real-only ()
   "Refuse to change the folder shown unless it is a directory on disk."
   (unless (lispm-desktop-finder-real-p)
-    (user-error (lispm-desktop-tr "Nothing can be made, renamed or thrown away in “%s”")
+    (user-error (lispm-desktop-tr "Nothing can be made or renamed in “%s”")
                 (lispm-desktop-finder--in (lispm-desktop-finder--title lispm-desktop-finder--directory)))))
 
 (defun lispm-desktop-finder-new-folder (name)
@@ -425,27 +443,68 @@ item of a folder of `lispm-desktop-finder-folders' by its own action."
       (make-directory path)
       (lispm-desktop-finder--go lispm-desktop-finder--directory nil name))))
 
+(defun lispm-desktop-finder--trash-action (name)
+  "Return the function throwing the item NAME of the folder shown away,
+returning non-nil once it is gone, or nil when it cannot be thrown away:
+a file or folder goes to the system's own Trash; an item of a folder of
+`lispm-desktop-finder-folders' goes as the folder says, an application
+uninstalled."
+  (lispm-desktop-finder--in
+    (cond ((null name) nil)
+          ((stringp lispm-desktop-finder--directory)
+           (let ((file (expand-file-name name lispm-desktop-finder--directory)))
+             (lambda ()
+               (move-file-to-trash file)
+               (lispm-desktop-check-trash)
+               (message (lispm-desktop-tr "“%s” was moved to the Trash") name)
+               t)))
+          (t (nth 3 (assoc name (lispm-desktop-finder--folder-items lispm-desktop-finder--directory)))))))
+
+(defun lispm-desktop-finder-trash-label ()
+  "Return what the menu item throwing the selected item away reads, in the
+folder shown, in the language LispM speaks: Move to Trash, or as the
+folder names it."
+  (if-let* ((label (plist-get (lispm-desktop-finder--folder (lispm-desktop-finder--in lispm-desktop-finder--directory))
+                              :trash)))
+      (lispm-desktop-tr label)
+    (lispm-desktop-tr "Move to Trash")))
+
+(defun lispm-desktop-finder-trash-p ()
+  "Return non-nil when the item selected can be thrown away."
+  (and (lispm-desktop-finder--trash-action (lispm-desktop-finder--in lispm-desktop-finder--selected)) t))
+
+(defun lispm-desktop-finder--throw-away (name action)
+  "Throw the item NAME away with ACTION, see
+`lispm-desktop-finder--trash-action'; once it is gone, the item after it
+is selected."
+  (pcase-let ((`(,directory . ,next)
+               (lispm-desktop-finder--in
+                 (let* ((names (mapcar #'car lispm-desktop-finder--items))
+                        (index (or (seq-position names name) 0)))
+                   (cons lispm-desktop-finder--directory
+                         (or (nth (1+ index) names) (and (> index 0) (nth (1- index) names))))))))
+    (condition-case err
+        ;; The folder is read before: ACTION may leave another buffer
+        ;; current, as the Installer's, uninstalling what an application
+        ;; brought.
+        (when (funcall action)
+          (lispm-desktop-finder--go directory nil next))
+      (error
+       (lispm-desktop-popup-alert 'stop (lispm-desktop-tr "“%s” could not be thrown away." name)
+                                  `((,(lispm-desktop-tr "OK") ok default))
+                                  (error-message-string err))))))
+
 (defun lispm-desktop-finder-move-to-trash ()
-  "Move the selected item to the Trash, as Command-Delete did in Finder.
-It goes to the system's own Trash, from where it can be put back; the item
-after it is selected."
+  "Throw the selected item away, as Command-Delete did in Finder: a file or
+folder goes to the system's own Trash, from where it can be put back; an
+application of the Applications folder is uninstalled, once confirmed.
+The item after it is selected."
   (interactive)
-  (lispm-desktop-finder--real-only)
   (lispm-desktop-finder--in
     (when-let* ((name lispm-desktop-finder--selected))
-      (let* ((names (mapcar #'car lispm-desktop-finder--items))
-             (index (or (seq-position names name) 0))
-             (next (or (nth (1+ index) names) (and (> index 0) (nth (1- index) names)))))
-        (condition-case err
-            (progn
-              (move-file-to-trash (expand-file-name name lispm-desktop-finder--directory))
-              (lispm-desktop-check-trash)
-              (lispm-desktop-finder--go lispm-desktop-finder--directory nil next)
-              (message (lispm-desktop-tr "“%s” was moved to the Trash") name))
-          (error
-           (lispm-desktop-popup-alert 'stop (lispm-desktop-tr "“%s” could not be moved to the Trash." name)
-                                      `((,(lispm-desktop-tr "OK") ok default))
-                                      (error-message-string err))))))))
+      (lispm-desktop-finder--throw-away
+       name (or (lispm-desktop-finder--trash-action name)
+                (user-error (lispm-desktop-tr "“%s” cannot be thrown away") name))))))
 
 (defun lispm-desktop-finder-rename (name)
   "Rename the selected item to NAME."
@@ -505,10 +564,26 @@ after it is selected."
       (get-text-property point 'lispm-desktop-finder-item (window-buffer (posn-window position))))))
 
 (defun lispm-desktop-finder-mouse-select (event)
-  "Select the item pressed by EVENT, as Finder did on the press."
+  "Select the item pressed by EVENT, as Finder did on the press; one that
+can be thrown away is dragged while the button is held, see
+`lispm-desktop-finder--drag'."
   (interactive "e")
   (select-window (posn-window (event-start event)))
-  (lispm-desktop-finder--select (lispm-desktop-finder--item-at event)))
+  (let ((name (lispm-desktop-finder--item-at event)))
+    (lispm-desktop-finder--select name)
+    (when (and name (eq (car-safe event) 'down-mouse-1))
+      (lispm-desktop-finder--drag name))))
+
+(defun lispm-desktop-finder--drag (name)
+  "Drag the item NAME out of the window while the mouse button is held,
+see `lispm-desktop-drag-to-trash'; let go on the desktop's Trash, it is
+thrown away, as Command-Delete throws it away."
+  (when-let* ((action (lispm-desktop-finder--trash-action name))
+              (icon (lispm-desktop-finder--in
+                      (lispm-desktop-finder--icon-name lispm-desktop-finder--directory
+                                                       (assoc name lispm-desktop-finder--items))))
+              ((lispm-desktop-drag-to-trash icon name)))
+    (lispm-desktop-finder--throw-away name action)))
 
 (defun lispm-desktop-finder-mouse-open (event)
   "Open the item double-clicked by EVENT."
@@ -527,14 +602,29 @@ after it is selected."
   (lispm-desktop-finder-mouse-select event)
   (lispm-desktop-finder--menu (lispm-desktop-popup-frame-xy event)))
 
+(defun lispm-desktop-finder--item-position (name &optional label)
+  "Return where the item NAME is drawn in the window's buffer: its icon, or
+with LABEL its name under it; nil where it is not.  Names are strings,
+which `text-property-any', comparing with `eq', would never find."
+  (let ((position (point-min))
+        (found nil))
+    (while (and position (< position (point-max)) (or label (not found)))
+      (when (equal (get-text-property position 'lispm-desktop-finder-item) name)
+        (setq found position))
+      (setq position (next-single-property-change position 'lispm-desktop-finder-item)))
+    found))
+
 (defun lispm-desktop-finder--keyboard-menu ()
   "Pop up the menu of the item selected, under its name, or of the folder,
 from the keyboard, see `lispm-desktop-context-menu-function'."
   (lispm-desktop-finder--in
-    (let ((item (and lispm-desktop-finder--selected
-                     (text-property-any (point-min) (point-max)
-                                        'lispm-desktop-finder-item lispm-desktop-finder--selected))))
-      (lispm-desktop-finder--menu (lispm-desktop-popup-frame-xy (or item (window-start)))))))
+    (let* ((label (and lispm-desktop-finder--selected
+                       (lispm-desktop-finder--item-position lispm-desktop-finder--selected t)))
+           (xy (lispm-desktop-popup-frame-xy (or label (window-start)))))
+      (lispm-desktop-finder--menu
+       (if-let* ((posn (and label (posn-at-point label))))
+           (cons (car xy) (+ (cdr xy) (cdr (posn-object-width-height posn))))
+         xy)))))
 
 (defun lispm-desktop-finder--menu (xy)
   "Pop up the menu of the item selected, or of the folder, at XY of the frame."
@@ -546,8 +636,8 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
        separator
        (:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder :enabled ,real)
        (:label ,(lispm-desktop-tr "Rename…") :action lispm-desktop-finder-rename :enabled ,file)
-       (:label ,(lispm-desktop-tr "Move to Trash") :action lispm-desktop-finder-move-to-trash :key "M-DEL"
-               :enabled ,file)
+       (:label ,(lispm-desktop-finder-trash-label) :action lispm-desktop-finder-move-to-trash :key "M-DEL"
+               :enabled ,(lispm-desktop-finder-trash-p))
        (:label ,(lispm-desktop-tr "Copy Path") :enabled ,file
                :action ,(lambda ()
                           (lispm-desktop-finder--in

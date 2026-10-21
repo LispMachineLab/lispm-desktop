@@ -1612,6 +1612,51 @@ icon's own cell saves nothing."
           (should-not opened)
           (should-not saved))))))
 
+;; A press of the mouse at the start of a drag, for the tests.
+(defvar lispm-desktop-test--press '(100 . 100))
+
+(ert-deftest lispm-desktop-test-desktop-drag-to-trash ()
+  "An item dragged out of a window over the desktop is let go on the Trash
+when the pointer is on it, the Trash drawn selected meanwhile and the
+icon selected before selected again after; let go elsewhere, given up
+with Escape, or only clicked, it is not."
+  (let* ((pointer lispm-desktop-test--press)
+         (script nil)
+         (selected nil)
+         (placed nil))
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) 'desktop-window))
+              ((symbol-function 'lispm-desktop--pointer) (lambda (_) pointer))
+              ((symbol-function 'lispm-desktop--trash-at-p) (lambda (x _y _window) (> x 700)))
+              ((symbol-function 'lispm-desktop--select) (lambda (key) (push key selected)))
+              ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
+              ((symbol-function 'lispm-desktop--place-copy)
+               (lambda (_frames _label x y _window) (push (cons x y) placed)))
+              ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+              ((symbol-function 'read-event)
+               (lambda (&rest _)
+                 (pcase-let ((`(,dx ,dy . ,event) (pop script)))
+                   (setq pointer (cons (+ (car lispm-desktop-test--press) dx) (+ (cdr lispm-desktop-test--press) dy)))
+                   event))))
+      (with-current-buffer (lispm-desktop-buffer)
+        (setq lispm-desktop--selected 'home))
+      ;; A click, the mouse barely moved: no copy, nothing let go.
+      (setq script '((2 1 mouse-1 (nil))))
+      (should-not (lispm-desktop-drag-to-trash "document-32" "notes.org"))
+      (should-not placed)
+      ;; Onto the Trash: the copy follows, its icon under the pointer.
+      (setq script '((300 0) (650 20) (650 20 drag-mouse-1 (nil) (nil))))
+      (should (lispm-desktop-drag-to-trash "document-32" "notes.org"))
+      (should (equal (car placed) (cons (- 750 40) (- 120 16))))
+      (should (equal selected '(home trash)))
+      ;; Elsewhere, or given up on the Trash: not let go there.
+      (setq script '((300 0) (300 0 drag-mouse-1 (nil) (nil))) selected nil)
+      (should-not (lispm-desktop-drag-to-trash "document-32" "notes.org"))
+      (should-not selected)
+      (setq script '((650 20) (650 20 . escape)))
+      (should-not (lispm-desktop-drag-to-trash "document-32" "notes.org"))
+      (should (equal selected '(home trash))))
+    (kill-buffer lispm-desktop-buffer-name)))
+
 (ert-deftest lispm-desktop-test-desktop-draws-the-dragged-copy ()
   "The dragged copy is the icon alone and its name inverted, as Mac OS 9's
 drag image was, no piece of the desktop about them; the icon stands
@@ -1620,7 +1665,7 @@ centred at the top of its cell, its name under it."
             ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
             ((symbol-function 'string-pixel-width) (lambda (&rest _) 40)))
     (let ((lispm-desktop-picture nil))
-      (pcase-let ((`(,icon . ,name) (lispm-desktop--copy-svgs 'home)))
+      (pcase-let ((`(,icon . ,name) (lispm-desktop--copy-svgs "hard-disk-32" "Home")))
         (should (string-match-p "width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"" icon))
         (should-not (string-match-p (regexp-quote (lispm-desktop--color)) icon))
         (should-not (string-match-p "opacity" icon))
@@ -1630,7 +1675,7 @@ centred at the top of its cell, its name under it."
         (should (string-match-p (format "fill=\"%s\">Home</text></svg>\\'"
                                         (or (lispm-desktop-platinum-color :content) "#FFFFFF"))
                                 name)))
-      (should (equal (lispm-desktop--copy-place 'home 100 50)
+      (should (equal (lispm-desktop--copy-place "Home" 100 50)
                      (list (cons (+ 100 40 -16) 50) (cons (+ 100 40 -24) (+ 50 32 4))))))))
 
 (ert-deftest lispm-desktop-test-desktop-picture-scaled-copy ()
@@ -1888,6 +1933,77 @@ them, up selecting the folder it came from."
           (should-not (assoc "beta.txt" lispm-desktop-finder--items))
           (should (equal lispm-desktop-finder--selected "init.el")))))
     (kill-buffer lispm-desktop-finder-buffer-name)))
+
+(ert-deftest lispm-desktop-test-finder-finds-an-item ()
+  "An item is found where it is drawn by its name, a string: its icon, or
+its name under it."
+  (with-temp-buffer
+    (insert "  " (propertize "I" 'lispm-desktop-finder-item (copy-sequence "notes.org"))
+            " " (propertize "J" 'lispm-desktop-finder-item (copy-sequence "zeta"))
+            "\n " (propertize " notes.org " 'lispm-desktop-finder-item (copy-sequence "notes.org")) "\n")
+    (should (= (lispm-desktop-finder--item-position "notes.org") 3))
+    (should (= (lispm-desktop-finder--item-position "zeta") 5))
+    (should (= (lispm-desktop-finder--item-position "notes.org" t) 8))
+    (should-not (lispm-desktop-finder--item-position "beta.txt"))))
+
+(ert-deftest lispm-desktop-test-finder-drags-to-trash ()
+  "An item dragged out of the window onto the desktop's Trash is thrown
+away, the next one selected; one let go elsewhere stays."
+  (lispm-desktop-test--with-folder
+    (let ((trashed nil)
+          (on-trash nil)
+          (dragged nil))
+      (cl-letf (((symbol-function 'move-file-to-trash)
+                 (lambda (file) (push file trashed) (delete-file file)))
+                ((symbol-function 'lispm-desktop-drag-to-trash)
+                 (lambda (icon label) (push (cons icon label) dragged) on-trash)))
+        (lispm-desktop-finder--go folder)
+        (lispm-desktop-finder--select "beta.txt")
+        (lispm-desktop-finder--drag "beta.txt")
+        (should-not trashed)
+        (should (equal (car dragged) '("document-32" . "beta.txt")))
+        (setq on-trash t)
+        (lispm-desktop-finder--drag "beta.txt")
+        (should (equal trashed (list (expand-file-name "beta.txt" folder))))
+        (lispm-desktop-finder--in
+          (should-not (assoc "beta.txt" lispm-desktop-finder--items))
+          (should (equal lispm-desktop-finder--selected "init.el")))))
+    (kill-buffer lispm-desktop-finder-buffer-name)))
+
+(ert-deftest lispm-desktop-test-finder-uninstalls-applications ()
+  "In the Applications folder, an application installed is thrown away by
+uninstalling it, the menu item reading Uninstall…, and the folder shows
+what is installed then; the App Store cannot be thrown away."
+  (lispm-desktop-test--with-store
+    (setq lispm-desktop-store-installed
+          '((calculator :kind app :name "Calculator" :command calc :installed "built-in")))
+    (let ((lispm-desktop-finder-folders
+           '((applications :title "Applications" :icon "applications"
+                           :items lispm-desktop-store--folder-items :trash "Uninstall…")))
+          (uninstalled nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store-uninstall)
+                 (lambda (id)
+                   (push id uninstalled)
+                   (lispm-desktop-store--forget id)
+                   ;; As the Installer's window, shown, leaves its buffer
+                   ;; current.
+                   (set-buffer (get-buffer-create " *lispm-test-other*"))
+                   t))
+                ((symbol-function 'lispm-desktop-popup-alert)
+                 (lambda (_icon message &rest _) (error "Alert: %s" message))))
+        (lispm-desktop-finder--go 'applications)
+        (should (equal (lispm-desktop-finder-trash-label) "Uninstall…"))
+        (lispm-desktop-finder--select "App Store")
+        (should-not (lispm-desktop-finder-trash-p))
+        (should-error (lispm-desktop-finder-move-to-trash) :type 'user-error)
+        (lispm-desktop-finder--select "Calculator")
+        (should (lispm-desktop-finder-trash-p))
+        (lispm-desktop-finder-move-to-trash)
+        (should (equal uninstalled '(calculator)))
+        (lispm-desktop-finder--in
+          (should-not (assoc "Calculator" lispm-desktop-finder--items))))
+      (kill-buffer " *lispm-test-other*")
+      (kill-buffer lispm-desktop-finder-buffer-name))))
 
 (ert-deftest lispm-desktop-test-window-rolls-up-its-chrome ()
   "A floating window whose kind rolls its chrome, as the Finder window,
@@ -3918,6 +4034,30 @@ from the edge."
                      nil)
                     'cancel))))))
 
+(ert-deftest lispm-desktop-test-alert-widens-for-long-words ()
+  "An alert whose buttons' words are too long for Mac OS 9's width, as in
+German, is just wide enough for the button standing apart to keep clear
+of Cancel; one whose words fit keeps the width."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+    (cl-letf (((symbol-function 'lispm-desktop-platinum-push-button-width)
+               (lambda (label) (+ 24 (* 6 (length label))))))
+      (should-not (plist-get (lispm-desktop-popup--alert-layout
+                              "Uninstall?" nil '(("Uninstall All" all nil) ("Cancel" cancel cancel)
+                                                 ("Uninstall" item default)))
+                             :width))
+      (let* ((layout (lispm-desktop-popup--alert-layout
+                      "„Test“ deinstallieren?" nil
+                      '(("Alles deinstallieren" all nil) ("Abbrechen" cancel cancel)
+                        ("Deinstallieren" item default))))
+             (w (plist-get layout :width))
+             (buttons (plist-get layout :buttons)))
+        (should (> w lispm-desktop-popup-alert-width))
+        (pcase-let ((`(,_ ,_ ,_ ,apart ,_ ,apart-width) (nth 0 buttons))
+                    (`(,_ ,_ ,_ ,cancel ,_ ,_) (nth 1 buttons))
+                    (`(,_ ,_ ,_ ,default ,_ ,default-width) (nth 2 buttons)))
+          (should (= (- cancel (+ apart apart-width)) (* 2 lispm-desktop-popup-button-gap)))
+          (should (= (+ default default-width 3) (- w 12))))))))
+
 ;;;; lispm-desktop-modal
 
 (ert-deftest lispm-desktop-test-modal-key-roles ()
@@ -4998,7 +5138,8 @@ item opens its panel, and nothing is made, renamed or thrown away there."
         (should (equal (lispm-desktop-finder--title lispm-desktop-finder--directory) "Control Panels"))
         (should-not (lispm-desktop-finder-real-p))
         (should-not (lispm-desktop-finder--parent lispm-desktop-finder--directory))
-        (setq lispm-desktop-finder--selected "Appearance"))
+        (setq lispm-desktop-finder--selected "Appearance")
+        (should-not (lispm-desktop-finder-trash-p)))
       (lispm-desktop-finder-open)
       (should (eq opened 'themes))
       (should-error (lispm-desktop-finder-new-folder "x") :type 'user-error)
@@ -7205,7 +7346,7 @@ when it is removed, which unloads it."
         (should-not (lispm-desktop-store-update-available-p 'ext))
         (should (equal (lispm-desktop-store--version 'ext (cdr (assq 'ext (lispm-desktop-store-items))))
                        "load path"))
-        (lispm-desktop-store-remove 'ext)
+        (lispm-desktop-store-uninstall 'ext)
         (should-not (featurep 'lispm-desktop-test-ext))
         (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
         (should-not lispm-desktop-store-installed)))))
@@ -7225,7 +7366,7 @@ it."
       (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
         (lispm-desktop-store-install 'notes)
         (should (featurep 'lispm-desktop-test-ext))
-        (lispm-desktop-store-remove 'notes)
+        (lispm-desktop-store-uninstall 'notes)
         (should-not (featurep 'lispm-desktop-test-ext))
         (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
         (should-not lispm-desktop-store-installed)))))
@@ -7297,9 +7438,9 @@ asked and no package installed."
       (lispm-desktop-store-install 'emms)
       (should-not lispm-desktop-store-installed))))
 
-(ert-deftest lispm-desktop-test-store-remove ()
-  "Removing an application deletes the package the App Store installed and
-leaves one there before; each is forgotten."
+(ert-deftest lispm-desktop-test-store-uninstall ()
+  "Uninstalling an application deletes the package the App Store installed
+and leaves one there before; each is forgotten."
   (lispm-desktop-test--with-store
     (setq lispm-desktop-store-installed
           '((elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "r")
@@ -7311,14 +7452,14 @@ leaves one there before; each is forgotten."
       (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
                 ((symbol-function 'lispm-desktop-store--delete-package) (lambda (package) (push package deleted))))
         (dolist (id '(elfeed emms))
-          (lispm-desktop-store-remove id))
+          (lispm-desktop-store-uninstall id))
         (should (equal deleted '((elfeed :url "u" :rev "r"))))
         (should-not lispm-desktop-store-installed)
         (should-not (assq 'elfeed lispm-desktop-apps))
         (should-not (assq 'emms lispm-desktop-apps))))))
 
-(ert-deftest lispm-desktop-test-store-remove-says-who-needs-it ()
-  "Removing an item says which installed items require it."
+(ert-deftest lispm-desktop-test-store-uninstall-says-who-needs-it ()
+  "Uninstalling an item says which installed items require it."
   (let ((lispm-desktop-store-installed
          '((elfeed :kind app :name "Elfeed" :command elfeed :package elfeed)
            (ext :kind extension :name "Ext" :feature ext :package ext :requires (elfeed)))))
@@ -7328,6 +7469,132 @@ leaves one there before; each is forgotten."
     (should (string-search "leaves the editor"
                            (lispm-desktop-store--remove-detail
                             'ext (cdr (assq 'ext lispm-desktop-store-installed)))))))
+
+(ert-deftest lispm-desktop-test-store-needs-left-over ()
+  "An app leaves what Homebrew installed for it alone: a program another
+app needs stays, and so do one Homebrew did not install and Apple's
+command line tools."
+  (lispm-desktop-test--with-store
+    (let ((op '(program "op" :for "reading vaults" :cask "1password-cli"))
+          (mpv '(program "mpv" :for "playing music" :brew "mpv"))
+          (tagger '(program "tagger" :for "reading tags" :brew "tagger"))
+          (cc '(program "cc" :for "building" :xcode t)))
+      (setq lispm-desktop-store-installed
+            `((vault :kind app :name "Vault" :command vault :needs (,op ,mpv ,tagger ,cc) :installed "built-in")
+              (music :kind app :name "Music" :command music :needs (,mpv) :installed "built-in")))
+      (cl-letf (((symbol-function 'lispm-desktop-needs-brewed-p)
+                 (lambda (need) (member (lispm-desktop-needs-name need) '("op" "mpv")))))
+        (should (equal (lispm-desktop-store--needs-leftovers 'vault) (list op)))
+        (should-not (lispm-desktop-store--needs-leftovers 'music))))))
+
+(ert-deftest lispm-desktop-test-store-packages-left-over ()
+  "An app's package leaves the packages only it needed, those needing
+another first: not those chosen by hand, nor another's, nor those a
+package staying requires, nor one outside `package-user-dir'; and none
+when the App Store did not install its package."
+  (lispm-desktop-test--with-store
+    (let* ((package-user-dir (file-name-as-directory (make-temp-file "lispm-test-elpa" t)))
+           (desc (lambda (name requires &optional directory)
+                   (list name (package-desc-create
+                               :name name :reqs (mapcar (lambda (required) (list required '(0))) requires)
+                               :dir (or directory (expand-file-name (symbol-name name) package-user-dir))))))
+           (package-alist (list (funcall desc 'vault '(dep-a shared chosen site emacs))
+                                (funcall desc 'dep-a '(dep-b))
+                                (funcall desc 'dep-b nil)
+                                (funcall desc 'shared nil)
+                                (funcall desc 'leftover '(shared))
+                                (funcall desc 'chosen nil)
+                                (funcall desc 'site nil "/usr/share/emacs/site-lisp/site")))
+           (package-selected-packages '(vault chosen))
+           (package-vc-selected-packages nil)
+           (props '(:kind app :name "Vault" :command vault :package (vault :url "u" :rev "r")
+                          :installed "r" :owned t)))
+      (unwind-protect
+          (progn
+            (setq lispm-desktop-store-installed (list (cons 'vault props)))
+            (should (equal (lispm-desktop-store--package-leftovers 'vault props) '(dep-a dep-b)))
+            (should-not (lispm-desktop-store--package-leftovers 'vault (plist-put (copy-sequence props) :owned nil))))
+        (delete-directory package-user-dir t)))))
+
+(ert-deftest lispm-desktop-test-store-uninstall-all-or-alone ()
+  "Uninstalling an app that leaves programs and packages asks in an alert
+of three buttons: Cancel keeps it; Uninstall, the default, uninstalls it
+alone; and Uninstall All also deletes the packages and has the Installer
+uninstall the programs."
+  (lispm-desktop-test--with-store
+    (let ((op '(program "op" :for "reading vaults" :cask "1password-cli"))
+          (asked nil) (deleted nil) (uninstalled nil) (answer nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store--needs-leftovers) (lambda (_) (list op)))
+                ((symbol-function 'lispm-desktop-store--package-leftovers) (lambda (&rest _) '(dep-a)))
+                ((symbol-function 'lispm-desktop-popup-alert)
+                 (lambda (_icon question buttons detail)
+                   (push (list question (mapcar #'car buttons) detail) asked)
+                   answer))
+                ((symbol-function 'lispm-desktop-store--delete-package) (lambda (package) (push package deleted)))
+                ((symbol-function 'lispm-desktop-needs-uninstall)
+                 (lambda (needs who &rest _) (push (cons who needs) uninstalled))))
+        (dolist (choice '(cancel item all))
+          (setq lispm-desktop-store-installed
+                `((vault :kind app :name "Vault" :command vault :needs (,op)
+                         :package (vault :url "u" :rev "r") :installed "r" :owned t))
+                answer choice deleted nil uninstalled nil)
+          (lispm-desktop-store--register-installed)
+          (lispm-desktop-store-uninstall 'vault)
+          (pcase choice
+            ('cancel (should (assq 'vault lispm-desktop-store-installed))
+                     (should-not deleted))
+            ('item (should-not lispm-desktop-store-installed)
+                   (should-not (assq 'vault lispm-desktop-apps))
+                   (should (equal deleted '((vault :url "u" :rev "r"))))
+                   (should-not uninstalled))
+            ('all (should-not lispm-desktop-store-installed)
+                  (should (equal deleted '(dep-a (vault :url "u" :rev "r"))))
+                  (should (equal uninstalled (list (cons "Vault" (list op))))))))
+        (pcase-let ((`(,question ,labels ,detail) (car asked)))
+          (should (equal question "Uninstall “Vault”?"))
+          (should (equal labels '("Uninstall All" "Cancel" "Uninstall")))
+          (should (string-search "Its package vault is deleted." detail))
+          (should (string-search "It brought op from Homebrew and the package dep-a, which nothing else uses: Uninstall leaves them, Uninstall All removes them too."
+                                 detail)))))))
+
+(ert-deftest lispm-desktop-test-store-uninstall-says-what-it-leaves ()
+  "The alert names what is left by name, each kind in its own words."
+  (let ((op '(program "op" :for "reading vaults" :cask "1password-cli"))
+        (mpv '(program "mpv" :for "playing music" :brew "mpv")))
+    (should (equal (lispm-desktop-store--leftovers-text (list op) nil)
+                   "It brought op from Homebrew, which nothing else uses: Uninstall leaves it, Uninstall All uninstalls it too."))
+    (should (equal (lispm-desktop-store--leftovers-text (list op mpv) nil)
+                   "It brought op and mpv from Homebrew, which nothing else uses: Uninstall leaves them, Uninstall All uninstalls them too."))
+    (should (equal (lispm-desktop-store--leftovers-text nil '(dash s))
+                   "It brought the packages dash and s, which nothing else uses: Uninstall leaves them, Uninstall All deletes them too."))))
+
+(ert-deftest lispm-desktop-test-store-item-menu ()
+  "An item's right-click menu holds what the File menu does to it: its
+button's action, then Uninstall…, which only an item installed enables."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog "https://example.org/first"
+                                       '((calculator :kind app :name "Calculator" :command calc)))
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (setq lispm-desktop-store--selected 'calculator))
+    (let ((items (lispm-desktop-store--item-items)))
+      (should (equal (plist-get (car items) :label) "Get"))
+      (should (equal (plist-get (nth 1 items) :label) "Uninstall…"))
+      (should-not (plist-get (nth 1 items) :enabled))
+      (should-not (memq 'separator items)))
+    (setq lispm-desktop-store-installed '((calculator :kind app :name "Calculator" :command calc :installed "built-in")))
+    (should (plist-get (nth 1 (lispm-desktop-store--item-items)) :enabled))))
+
+(ert-deftest lispm-desktop-test-popup-position-of-a-buffer-position ()
+  "A buffer position is placed where it shows, not taken for a character
+typed, as Emacs takes any integer for an event."
+  (cl-letf (((symbol-function 'posn-at-point)
+             (lambda (&optional position window)
+               (let ((position (or position (point))))
+                 (list (or window (selected-window)) position (cons 5 (if (eql position 34) 7 0)) 0 nil position
+                       '(0 . 0) nil '(0 . 0) '(1 . 1))))))
+    (let ((body (window-body-pixel-edges (selected-window))))
+      (should (equal (lispm-desktop-popup-frame-xy 34)
+                     (cons (+ (car body) 5) (+ (nth 1 body) 7)))))))
 
 (ert-deftest lispm-desktop-test-store-updates ()
   "An update is ready once the catalog pins a package to another commit;
@@ -7478,7 +7745,7 @@ install it again."
               (should (equal (lispm-desktop-test-pkg-open) "1.0"))
               (should (assq 'pkg lispm-desktop-apps))
               ;; Removed, it is gone: getting it again installs it again.
-              (lispm-desktop-store-remove 'pkg)
+              (lispm-desktop-store-uninstall 'pkg)
               (should-not (file-exists-p (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
               (should-not (lispm-desktop-store--package-present (cdr (assq 'pkg (lispm-desktop-store-items))))))
           (delete-directory source t))))))
@@ -7785,7 +8052,7 @@ category, and RET presses the selected item's button."
           (let ((labels (delq nil (mapcar (lambda (position)
                                             (get-text-property position 'lispm-desktop-platinum-label))
                                           (number-sequence (point-min) (1- (point-max)))))))
-            (dolist (label '("Check for Updates" "Install from URL…" "Remove" "Get"))
+            (dolist (label '("Check for Updates" "Install from URL…" "Uninstall…" "Get"))
               (should (member label labels))))
           (should (equal (lispm-desktop-store--placard) "7 items, 0 installed"))
           (should (eq lispm-desktop-store--category 'all))
@@ -9281,6 +9548,73 @@ printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
       (lispm-desktop-needs-retry)
       (lispm-desktop-test--wait (lambda () (not (lispm-desktop-needs-running-p))))
       (should (eq (lispm-desktop-needs--job-state (car lispm-desktop-needs--jobs)) 'installed)))))
+
+(ert-deftest lispm-desktop-test-needs-brewed ()
+  "What Homebrew installed is found in its Cellar or Caskroom, whoever had
+it installed; Apple's command line tools never are."
+  (let* ((prefix (make-temp-file "lispm-test-prefix" t))
+         (exec-path (list (expand-file-name "bin" prefix)))
+         (process-environment (copy-sequence process-environment))
+         (lispm-desktop-needs-brew-places nil))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "bin" prefix))
+          (with-temp-file (expand-file-name "bin/brew" prefix)
+            (insert "#!/bin/sh\n"))
+          (set-file-modes (expand-file-name "bin/brew" prefix) #o755)
+          (make-directory (expand-file-name "Cellar/mpv" prefix) t)
+          (make-directory (expand-file-name "Caskroom/1password-cli" prefix) t)
+          (should (lispm-desktop-needs-brewed-p '(program "mpv" :for "playing music" :brew "mpv")))
+          (should (lispm-desktop-needs-brewed-p '(program "op" :for "reading vaults" :cask "1password-cli")))
+          (should-not (lispm-desktop-needs-brewed-p '(program "yt-dlp" :for "fetching videos" :brew "yt-dlp")))
+          (should-not (lispm-desktop-needs-brewed-p '(program "cc" :for "building" :xcode t))))
+      (delete-directory prefix t))))
+
+(ert-deftest lispm-desktop-test-needs-guarded ()
+  "A need is in use while a command guarded needs it, unless that command
+is one of those set aside."
+  (let ((lispm-desktop-needs--guards nil))
+    (defalias 'lispm-desktop-test--guarded (lambda () (interactive)))
+    (unwind-protect
+        (progn
+          (lispm-desktop-needs-guard 'lispm-desktop-test--guarded "EMMS" (list (car lispm-desktop-test--needs)))
+          (should (lispm-desktop-needs-guarded-p (car lispm-desktop-test--needs)))
+          (should-not (lispm-desktop-needs-guarded-p (car lispm-desktop-test--needs) '(lispm-desktop-test--guarded)))
+          (should-not (lispm-desktop-needs-guarded-p (cadr lispm-desktop-test--needs))))
+      (lispm-desktop-needs-unguard 'lispm-desktop-test--guarded)
+      (fmakunbound 'lispm-desktop-test--guarded))))
+
+(ert-deftest lispm-desktop-test-needs-uninstall ()
+  "Uninstalling runs Homebrew's uninstall one at a time in the Installer,
+for what Homebrew installed only; once all are done, the run says so and
+what waited is called back.  One Homebrew refuses fails with its words."
+  (lispm-desktop-test--with-brew
+      "if [ \"$3\" = lispm-test-kept ]; then echo 'Error: Refusing to uninstall lispm-test-kept'; exit 1; fi
+echo \"$1 $2 $3\" >> $BIN/log; rm -f $BIN/$3\n"
+    (dolist (name '("lispm-test-player" "lispm-test-tagger" "lispm-test-kept"))
+      (with-temp-file (expand-file-name name bin)))
+    (cl-letf (((symbol-function 'lispm-desktop-needs-brewed-p)
+               (lambda (need) (file-exists-p (expand-file-name (lispm-desktop-needs-name need) bin)))))
+      (let ((absent '(program "lispm-test-absent" :for "nothing" :brew "lispm-test-absent"))
+            (kept '(program "lispm-test-kept" :for "something else" :brew "lispm-test-kept"))
+            answer)
+        (lispm-desktop-needs-uninstall (append lispm-desktop-test--needs (list absent)) "EMMS"
+                                       (lambda (done) (setq answer (list done))))
+        (lispm-desktop-test--wait (lambda () answer))
+        (should (equal answer '(t)))
+        (should (equal (with-temp-buffer (insert-file-contents (expand-file-name "log" bin))
+                                         (split-string (buffer-string) "\n" t))
+                       '("uninstall --formula lispm-test-player" "uninstall --formula lispm-test-tagger")))
+        (should (equal (lispm-desktop-needs--status) "Uninstalled lispm-test-player and lispm-test-tagger."))
+        (should (seq-every-p (lambda (job) (eq (lispm-desktop-needs--job-state job) 'removed))
+                             lispm-desktop-needs--jobs))
+        (setq answer nil)
+        (lispm-desktop-needs-uninstall (list kept) "Other" (lambda (done) (setq answer (list done))))
+        (lispm-desktop-test--wait (lambda () answer))
+        (should (equal answer '(nil)))
+        (should (equal (lispm-desktop-needs--job-error (car lispm-desktop-needs--jobs))
+                       "Error: Refusing to uninstall lispm-test-kept"))
+        (should (equal (lispm-desktop-needs--status) "lispm-test-kept could not be uninstalled."))))))
 
 (ert-deftest lispm-desktop-test-needs-without-homebrew ()
   "Without Homebrew, installing offers it first; declined, what Homebrew

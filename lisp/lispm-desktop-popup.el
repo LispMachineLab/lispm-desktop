@@ -751,8 +751,10 @@ left at either end."
 (defun lispm-desktop-popup-frame-xy (position)
   "Return POSITION as (X . Y) in its frame: an event, a posn, or nil (the mouse)."
   (let ((posn (cond ((posnp position) position)
-                    ((eventp position) (event-start position))
+                    ;; A buffer position before an event: Emacs takes an
+                    ;; integer for a character typed, too.
                     ((integerp position) (posn-at-point position))
+                    ((eventp position) (event-start position))
                     (t nil))))
     (if-let* ((window (and posn (posn-window posn)))
               ((windowp window))
@@ -931,16 +933,32 @@ ROLE X Y WIDTH).  Laid out as Mac OS 9 laid out its alerts: the caution,
 stop or note icon at the top left, the message to its right in the
 system font, the detail under it; the default button at the bottom
 right, Cancel to its left, and a button such as Don't Save, which comes
-before Cancel, standing apart at the left, under the message."
-  (let* ((w lispm-desktop-popup-alert-width)
-         (text-width (- w lispm-desktop-popup-alert-text-x 20))
+before Cancel, standing apart at the left, under the message.  Where
+the buttons' words are too long for Mac OS 9's width, as in a longer
+language, the alert is just wide enough for those standing apart to
+stay clear of the others."
+  (let* ((layout (lispm-desktop-popup--alert-layout-at lispm-desktop-popup-alert-width message detail buttons))
+         (overlap (plist-get layout :overlap)))
+    (if (<= overlap 0)
+        layout
+      (append (list :width (+ lispm-desktop-popup-alert-width overlap))
+              (lispm-desktop-popup--alert-layout-at (+ lispm-desktop-popup-alert-width overlap)
+                                                    message detail buttons)))))
+
+(defun lispm-desktop-popup--alert-layout-at (w message detail buttons)
+  "Return the layout of an alert W pixels wide, as
+`lispm-desktop-popup--alert-layout' does, with :overlap, the pixels its
+buttons standing apart come too close to the others, if any."
+  (let* ((text-width (- w lispm-desktop-popup-alert-text-x 20))
          (lines (lispm-desktop-popup--wrap message text-width 'lispm-desktop-platinum-title))
          (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-desktop-platinum-list)))
          (text-bottom (+ 15 (* 16 (length lines)) (if details (+ 6 (* 16 (length details))) 0)))
          (top (+ (max text-bottom 47) 29))
          (cancel (seq-position buttons 'cancel (lambda (button role) (eq (nth 2 button) role))))
          (apart (lambda (index) (and cancel (< index cancel) (null (nth 2 (nth index buttons))))))
-         (placed nil))
+         (placed nil)
+         (right-start w)
+         (apart-end 0))
     ;; The buttons at the right, from the right: the default's ring three
     ;; pixels about it and twelve from the edge.
     (let ((right (- w 13)) (previous nil))
@@ -952,6 +970,7 @@ before Cancel, standing apart at the left, under the message."
             (when previous
               (setq right (- right lispm-desktop-popup-button-gap 1)))
             (push (list label value role (- right ring width -1) top width) placed)
+            (setq right-start (min right-start (- right ring width -1 ring)))
             (setq right (- right ring width -1 ring) previous t)))))
     ;; Those standing apart, from the message's left.
     (let ((left (- lispm-desktop-popup-alert-text-x 4)))
@@ -961,9 +980,12 @@ before Cancel, standing apart at the left, under the message."
            (pcase-let* ((`(,label ,value ,role) button)
                         (width (lispm-desktop-platinum-push-button-width label)))
              (push (list label value role left top width) placed)
-             (setq left (+ left width lispm-desktop-popup-button-gap)))))
+             (setq apart-end (+ left width)
+                   left (+ left width lispm-desktop-popup-button-gap)))))
        buttons))
     (list :height (+ top lispm-desktop-platinum-button-height 15)
+          ;; Those apart keep twice the gap between buttons from Cancel.
+          :overlap (if (> apart-end 0) (- (+ apart-end (* 2 lispm-desktop-popup-button-gap)) right-start) 0)
           :message lines :detail details
           :buttons (seq-sort-by (lambda (button) (seq-position buttons (nth 1 button)
                                                                (lambda (b value) (equal (nth 1 b) value))))
@@ -978,7 +1000,7 @@ body; the parts placed by `lispm-desktop-popup--alert-layout'.  PRESSED
 is the VALUE of the button held down, FOCUSED that of the one the
 keyboard is on."
   (let* ((layout (lispm-desktop-popup--alert-layout message detail buttons))
-         (w lispm-desktop-popup-alert-width)
+         (w (or (plist-get layout :width) lispm-desktop-popup-alert-width))
          (h (plist-get layout :height))
          (svg (svg-create w h))
          (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
