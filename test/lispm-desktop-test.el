@@ -6037,6 +6037,26 @@ when it is removed, which unloads it."
         (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
         (should-not lispm-desktop-store-installed)))))
 
+(ert-deftest lispm-desktop-test-store-app-making-itself ()
+  "An application whose package makes it itself, as Stickies does, is
+loaded when installed and unloaded when removed, its windows going with
+it."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-extension 'lispm-desktop-test-ext
+      (setq lispm-desktop-test--extension-events nil)
+      (lispm-desktop-test--write-extension extension-directory 'lispm-desktop-test-ext)
+      (lispm-desktop-test--store-catalog
+       "https://example.org/store"
+       '((notes :kind app :name "Notes" :category productivity :feature lispm-desktop-test-ext
+                :package (lispm-desktop-test-ext :url "u" :rev "abc"))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+        (lispm-desktop-store-install 'notes)
+        (should (featurep 'lispm-desktop-test-ext))
+        (lispm-desktop-store-remove 'notes)
+        (should-not (featurep 'lispm-desktop-test-ext))
+        (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
+        (should-not lispm-desktop-store-installed)))))
+
 (ert-deftest lispm-desktop-test-store-extension-that-cannot-load ()
   "An extension whose feature cannot be loaded is not kept as installed,
 and the package installed for it is deleted again."
