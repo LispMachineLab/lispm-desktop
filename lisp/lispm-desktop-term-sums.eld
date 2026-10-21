@@ -8,7 +8,7 @@
 ;; scripts/pin-term-module.py writes it (make pin) once the terminal
 ;; module workflow has published that release.
 
-(:version "bc91eaad319656b5"
- :modules (("aarch64-apple-darwin" . "0e41751a9e1df18295356b10ae51b0f307e36df1b61ca837d1fec7906859c754")
-           ("x86_64-apple-darwin" . "735db087584a52195e59b4ae8605157fc89e43fa69c752acf31f35d33b0e2c81")
-           ("x86_64-unknown-linux-gnu" . "c689b49d7e64c6b7f579d44fea45f1f188021d3c3aa49cb44de36eca46d71e51")))
+(:version "96cf7cdfe25df0e7"
+ :modules (("aarch64-apple-darwin" . "ee5087d5247083da1c428fc25234c5ef43ada3d7ea0ed230340f6853ffe1676c")
+           ("x86_64-apple-darwin" . "f8cbf11d2797b836e02c1740bf1a4e66a173504107d14010b5de55cdad684e00")
+           ("x86_64-unknown-linux-gnu" . "7d4c21e0f89a1fd4f369237ebbbabacb0d9b7dedfe57f953f00d52227deb4905")))
