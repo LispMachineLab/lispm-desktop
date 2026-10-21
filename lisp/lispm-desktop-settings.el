@@ -67,6 +67,7 @@
 (require 'lispm-desktop-store)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-startup)
+(require 'lispm-desktop-loading)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -913,6 +914,19 @@ on a day before, 18 October 2026 at 09:12."
   "Return TEXT cut to WIDTH characters, an ellipsis standing for the rest."
   (truncate-string-to-width text width nil nil "…"))
 
+(defvar lispm-desktop-settings--update-loading nil
+  "The loading Software Update's check is, while it runs.")
+
+(defun lispm-desktop-settings--update-loading ()
+  "Show the watch on the pointer over Control Panels while Software Update
+checks."
+  (cond ((and (lispm-desktop-update-checking-p) (not lispm-desktop-settings--update-loading))
+         (setq lispm-desktop-settings--update-loading
+               (lispm-desktop-loading-start lispm-desktop-settings-buffer-name)))
+        ((and (not (lispm-desktop-update-checking-p)) lispm-desktop-settings--update-loading)
+         (lispm-desktop-loading-stop lispm-desktop-settings--update-loading)
+         (setq lispm-desktop-settings--update-loading nil))))
+
 (defun lispm-desktop-settings--update-status ()
   "Insert what Software Update is doing, or found last: a line telling it,
 or a line an update, Restart to Update after them."
@@ -1227,6 +1241,7 @@ with /sandbox in a chat, for one."
         '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95)
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render)
+  (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--update-loading)
   (add-hook 'lispm-desktop-startup-changed-hook #'lispm-desktop-settings--render)
   ;; LispM Agent's, which may be loaded later, or never.
   (add-hook 'lispm-sandbox-change-hook #'lispm-desktop-settings--render))

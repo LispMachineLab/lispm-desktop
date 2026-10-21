@@ -3,7 +3,7 @@ name = "lispm-desktop-term"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-description = "Terminals for lispm-desktop: emulated off Emacs's thread, drawn only when shown"
+description = "Terminals for lispm-desktop: emulated off Emacs's thread, drawn only when shown; and its watch pointer on macOS"
 
 [lib]
 crate-type = ["cdylib"]
@@ -19,3 +19,11 @@ emacs = { version = "0.23.0", features = ["emacs-28"] }
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+# AppKit and the run loop, for the watch on the pointer (src/cursor.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+dispatch2 = "0.3"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSCursor", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSEvent", "NSWindow", "NSApplication", "NSResponder", "NSView"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFRunLoop"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSArray", "NSEnumerator", "NSString"] }

@@ -120,6 +120,7 @@
 (require 'lispm-desktop-store-installer)
 (require 'lispm-desktop-needs)
 (require 'lispm-desktop-update)
+(require 'lispm-desktop-loading)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
@@ -292,7 +293,8 @@ called after."
     (setq lispm-desktop-store--checking t)
     (lispm-desktop-store--status "Checking the catalogs…")
     (let ((urls lispm-desktop-store-catalogs)
-          (failed nil))
+          (failed nil)
+          (loading (lispm-desktop-loading-start lispm-desktop-store-buffer-name)))
       (cl-labels ((next ()
                     (if-let* ((url (pop urls)))
                         (lispm-desktop-store--git-steps
@@ -305,6 +307,7 @@ called after."
                       (lispm-desktop-store-read-catalogs)
                       (lispm-desktop-store--refresh-archives
                        (lambda ()
+                         (lispm-desktop-loading-stop loading)
                          (setq lispm-desktop-store--checking nil
                                lispm-desktop-store--checked t)
                          (lispm-desktop-store--status
@@ -313,7 +316,11 @@ called after."
                          (lispm-desktop-store--checked-updates)
                          (when callback
                            (funcall callback)))))))
-        (next)))))
+        (condition-case err
+            (next)
+          (error (lispm-desktop-loading-stop loading)
+                 (setq lispm-desktop-store--checking nil)
+                 (signal (car err) (cdr err))))))))
 
 (defun lispm-desktop-store--safe-file-p (file)
   "Return non-nil when FILE names a file inside a catalog: relative, and
@@ -713,16 +720,18 @@ package's compilation, which would split the App Store's window."
        ,@body)))
 
 (defun lispm-desktop-store--install-here (job present)
-  "Do JOB, an install, in this Emacs, which waits meanwhile: its package is
-installed unless PRESENT, as `lispm-desktop-store--package-present' says."
+  "Do JOB, an install, in this Emacs, which waits meanwhile, the pointer a
+watch over the App Store: its package is installed unless PRESENT, as
+`lispm-desktop-store--package-present' says."
   (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
                (package (plist-get props :package))
                (installed (pcase present
                             ('nil
                              (lispm-desktop-store--status (format "Installing %s…" (plist-get props :name)))
                              (unwind-protect
-                                 (lispm-desktop-store--quietly
-                                   (lispm-desktop-store--install-package package))
+                                 (lispm-desktop-with-loading lispm-desktop-store-buffer-name
+                                   (lispm-desktop-store--quietly
+                                     (lispm-desktop-store--install-package package)))
                                (lispm-desktop-store--status nil)))
                             ;; A checkout's: no package of the App Store's
                             ;; to update or delete.
@@ -1301,21 +1310,22 @@ themselves, asks nothing."
       (lispm-desktop-store--queue (list (cons id props)) 'update))))
 
 (defun lispm-desktop-store--update-here (job)
-  "Do JOB, an update, in this Emacs, which waits meanwhile: its package
-checked out at the commit its catalog pins, or the package archives'
-newest installed."
+  "Do JOB, an update, in this Emacs, which waits meanwhile, the pointer a
+watch over the App Store: its package checked out at the commit its
+catalog pins, or the package archives' newest installed."
   (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
                (package (plist-get props :package)))
     (lispm-desktop-store--status (format "Updating %s…" (plist-get props :name)))
     (let ((now (unwind-protect
-                   (if (consp package)
-                       (let ((rev (plist-get (cdr package) :rev)))
-                         (lispm-desktop-store--quietly
-                           (lispm-desktop-store--repin (car package) rev))
-                         rev)
-                     (lispm-desktop-store--quietly
-                       (package-upgrade package))
-                     (or (lispm-desktop-store--package-version package) "installed"))
+                   (lispm-desktop-with-loading lispm-desktop-store-buffer-name
+                     (if (consp package)
+                         (let ((rev (plist-get (cdr package) :rev)))
+                           (lispm-desktop-store--quietly
+                             (lispm-desktop-store--repin (car package) rev))
+                           rev)
+                       (lispm-desktop-store--quietly
+                         (package-upgrade package))
+                       (or (lispm-desktop-store--package-version package) "installed")))
                  (lispm-desktop-store--status nil))))
       (lispm-desktop-store--updated-as job now))))
 
@@ -1488,28 +1498,34 @@ background; what goes wrong is said in an alert."
   (interactive (list (read-string "Install from git URL: ")))
   (when (string-blank-p url)
     (user-error "No URL"))
-  (let ((directory (make-temp-file "lispm-desktop-store-" t)))
+  (let ((directory (make-temp-file "lispm-desktop-store-" t))
+        (loading (lispm-desktop-loading-start lispm-desktop-store-buffer-name)))
     (lispm-desktop-store--status (format "Looking at %s…" url))
-    (lispm-desktop-store--git-steps
-     `((,directory "clone" "--quiet" "--depth" "1" ,url "repository"))
-     (lambda (failure)
-       (lispm-desktop-store--status nil)
-       (run-at-time
-        0 nil
-        (lambda ()
-          (unwind-protect
-              (with-local-quit
-                (condition-case err
-                    (let ((repository (expand-file-name "repository" directory)))
-                      (cond (failure (user-error "%s" failure))
-                            ((file-exists-p (expand-file-name "catalog.eld" repository))
-                             (lispm-desktop-store--add-catalog url))
-                            (t (lispm-desktop-store--install-repository url repository))))
-                  (user-error
-                   (lispm-desktop-popup-alert 'stop (format "Nothing could be installed from %s." url)
-                                              '(("OK" ok default))
-                                              (error-message-string err)))))
-            (delete-directory directory t))))))))
+    (condition-case err
+        (lispm-desktop-store--git-steps
+         `((,directory "clone" "--quiet" "--depth" "1" ,url "repository"))
+         (lambda (failure)
+           (lispm-desktop-loading-stop loading)
+           (lispm-desktop-store--status nil)
+           (run-at-time
+            0 nil
+            (lambda ()
+              (unwind-protect
+                  (with-local-quit
+                    (condition-case err
+                        (let ((repository (expand-file-name "repository" directory)))
+                          (cond (failure (user-error "%s" failure))
+                                ((file-exists-p (expand-file-name "catalog.eld" repository))
+                                 (lispm-desktop-store--add-catalog url))
+                                (t (lispm-desktop-store--install-repository url repository))))
+                      (user-error
+                       (lispm-desktop-popup-alert 'stop (format "Nothing could be installed from %s." url)
+                                                  '(("OK" ok default))
+                                                  (error-message-string err)))))
+                (delete-directory directory t))))))
+      (error (lispm-desktop-loading-stop loading)
+             (lispm-desktop-store--status nil)
+             (signal (car err) (cdr err))))))
 
 ;;;; Applications and extensions taking part
 

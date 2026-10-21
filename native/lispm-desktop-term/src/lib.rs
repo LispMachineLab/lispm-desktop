@@ -18,7 +18,12 @@
 //
 // Titles, program status (status.rs), exits and clipboard writes reach
 // Emacs whether shown or not.
+//
+// In the Mac build the module also draws the desktop's watch on the
+// pointer (cursor.rs), which Emacs cannot: LispM loads it anyway, and it
+// can reach AppKit.
 
+mod cursor;
 mod pty;
 mod status;
 

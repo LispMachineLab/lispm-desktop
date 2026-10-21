@@ -35,6 +35,8 @@
 ;;   workspaces     one per project, owning that project's buffers
 ;;   coherence      windows out on the computer's screen, the desktop in
 ;;                  the Dock (C-c h)
+;;   loading        Mac OS 9's watch on the pointer while LispM is busy,
+;;                  or loads something for what is in front
 ;;   agents         LispM's, running inside Emacs, and Claude Code and
 ;;                  Codex, each when its CLI is on PATH (C-c a); others,
 ;;                  as Hermes, are extensions from the App Store
@@ -75,6 +77,7 @@
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
 (require 'lispm-desktop-term)
+(require 'lispm-desktop-loading)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-assistant)
@@ -181,6 +184,7 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-keymapping)
           (lispm-desktop-setup-interface)
           (lispm-desktop-setup-term)
+          (lispm-desktop-setup-loading)
           (lispm-desktop-setup-platinum)
           (lispm-desktop-setup-sidebar)
           (lispm-desktop-popup-enable)
