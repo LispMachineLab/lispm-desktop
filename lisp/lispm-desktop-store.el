@@ -79,6 +79,16 @@
 ;; `lispm-desktop-store-installed', so the applications and extensions
 ;; are back at the next start without a look at the network.
 ;;
+;; Packages are installed and updated in an Emacs of their own, in the
+;; background, one after another (`lispm-desktop-store-install-in-background',
+;; lispm-desktop-store-installer.el), so the desktop goes on meanwhile.
+;; The item's button gives way to a progress bar, Mac OS 9's, its
+;; subtitle to what is being done: waiting, downloading, building; its
+;; information says how far, and its button under the grid, Stop, stops
+;; it, what it installed undone.  One that fails says why in its
+;; information, its button reads Try Again, and Show Log shows what its
+;; Emacs said.
+;;
 ;; The window is laid out as the Mac App Store's, in Mac OS 9's forms:
 ;; the categories down the left, the items of the one chosen as icons in
 ;; a grid, each with its button, Get, Open or Update; push buttons under
@@ -86,8 +96,9 @@
 ;; hidden.  The keyboard does all of it: C-f, C-b, C-n and C-p go from
 ;; icon to icon, M-n and M-p from category to category, RET or Space
 ;; press the selected item's button, / searches, i shows or hides the
-;; information, u updates, D removes, g checks the catalogs, + installs
-;; from a git URL, Tab goes to the push buttons and q closes.
+;; information, u updates, D removes, . stops an install, l shows the
+;; log of one that failed, g checks the catalogs, + installs from a git
+;; URL, Tab goes to the push buttons and q closes.
 
 ;;; Code:
 
@@ -101,12 +112,12 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-store-installer)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
 (declare-function lispm-desktop--darken "lispm-desktop-surface" (svg))
-(declare-function package-vc-install "package-vc" (package &optional rev backend name))
-(declare-function package-vc-rebuild "package-vc" (pkg-desc))
+(declare-function project-remember-projects-under "project" (dir &optional recursive))
 (defvar package-vc-selected-packages)
 (defvar lispm-desktop-finder-folders)
 (defvar evil-emacs-state-cursor)
@@ -199,6 +210,7 @@ for; a category holding nothing is left out.")
 
 (defvar lispm-desktop-store-grid-map)
 (defvar lispm-desktop-store-disclosure-map)
+(defvar lispm-desktop-store--jobs)
 
 ;;;; Catalogs
 
@@ -219,22 +231,6 @@ for; a category holding nothing is left out.")
                (replace-regexp-in-string "\\`[a-z+]+://[^/]*/" ""
                                          (string-remove-suffix ".git" (directory-file-name url))))))
     (file-name-as-directory (expand-file-name (string-trim name "-+" "-+") lispm-desktop-store-directory))))
-
-(defun lispm-desktop-store--git-environment ()
-  "Return the environment git runs in: no repository of Emacs's own, as an
-inherited GIT_DIR would name, and no prompt for a password."
-  (append '("GIT_DIR" "GIT_WORK_TREE" "GIT_INDEX_FILE" "GIT_TERMINAL_PROMPT=0")
-          process-environment))
-
-(defun lispm-desktop-store--git (directory &rest args)
-  "Run git with ARGS in DIRECTORY; return what it printed, or signal it."
-  (let ((default-directory (file-name-as-directory directory))
-        (process-environment (lispm-desktop-store--git-environment)))
-    (with-temp-buffer
-      (let ((status (apply #'process-file "git" nil t nil args)))
-        (unless (eql status 0)
-          (error "git %s failed: %s" (car args) (string-trim (buffer-string))))
-        (string-trim (buffer-string))))))
 
 (defun lispm-desktop-store--git-steps (steps callback)
   "Run STEPS in the background one after another, each (DIRECTORY . ARGS) of
@@ -412,7 +408,8 @@ not install are passed over without a word."
 (defun lispm-desktop-store-items ()
   "Return the items the App Store lists: (ID . PROPERTIES), :catalog the
 repository of the catalog listing each.  Installed items no catalog
-lists any more come too, as they were installed."
+lists any more come too, as they were installed, and those being
+installed from elsewhere, as from a git URL."
   (let ((items nil))
     (dolist (catalog lispm-desktop-store--catalogs)
       (pcase-dolist (`(,id . ,props) (plist-get catalog :items))
@@ -421,6 +418,9 @@ lists any more come too, as they were installed."
     (pcase-dolist (`(,id . ,props) lispm-desktop-store-installed)
       (unless (or (assq id items) (not (lispm-desktop-store--kind-p (cons id props))))
         (push (cons id props) items)))
+    (dolist (job lispm-desktop-store--jobs)
+      (unless (assq (lispm-desktop-store-job-id job) items)
+        (push (lispm-desktop-store-job-item job) items)))
     (nreverse items)))
 
 (defun lispm-desktop-store-installed-p (id)
@@ -430,15 +430,6 @@ lists any more come too, as they were installed."
 (defun lispm-desktop-store--installed (id)
   "Return the properties the item ID was installed with, or nil."
   (cdr (assq id lispm-desktop-store-installed)))
-
-(defun lispm-desktop-store--plist-without (plist &rest keys)
-  "Return PLIST without KEYS."
-  (let ((result nil))
-    (while plist
-      (unless (memq (car plist) keys)
-        (setq result (nconc result (list (car plist) (cadr plist)))))
-      (setq plist (cddr plist)))
-    result))
 
 (defun lispm-desktop-store--file (props file)
   "Return FILE of the catalog of the item of PROPS, in its clone."
@@ -456,15 +447,6 @@ one standing for its kind."
       (pcase (plist-get props :kind)
         ('extension "robot")
         (_ (if large "applications-32" "lispm")))))
-
-(defun lispm-desktop-store--package-name (package)
-  "Return the name of PACKAGE, an item's :package."
-  (if (consp package) (car package) package))
-
-(defun lispm-desktop-store--package-version (name)
-  "Return the version of the package NAME installed, or nil."
-  (when-let* ((desc (cadr (assq name package-alist))))
-    (package-version-join (package-desc-version desc))))
 
 (defun lispm-desktop-store--short (commit)
   "Return COMMIT shortened, as git shows commits, or nil."
@@ -518,10 +500,15 @@ else its :category."
 
 (defun lispm-desktop-store--action (id props)
   "Return what the button of the item ID, of PROPS, does, as (LABEL .
-ACTION): ACTION is `install', `open' or `update', or nil for a button
-that does nothing: an extension installed, or one whose program is not
-on PATH."
-  (cond ((lispm-desktop-store-update-available-p id) '("Update" . update))
+ACTION): ACTION is `install', `open', `update' or `stop', or nil for a
+button that does nothing: an extension installed, one whose program is
+not on PATH, or an update past stopping.  An item whose install or
+update failed is tried again."
+  (cond ((lispm-desktop-store--busy-p id)
+         (if (lispm-desktop-store--stoppable-p (lispm-desktop-store--job id)) '("Stop" . stop) '("Stop")))
+        ((when-let* ((job (lispm-desktop-store--job id)))
+           (cons "Try Again" (lispm-desktop-store-job-action job))))
+        ((lispm-desktop-store-update-available-p id) '("Update" . update))
         ((lispm-desktop-store-installed-p id)
          (if (eq (plist-get props :kind) 'app) '("Open" . open) '("Installed")))
         ((lispm-desktop-store--missing-program props) '("Get"))
@@ -623,12 +610,14 @@ Applications built into Emacs are only made applications: nothing asks."
 
 (defun lispm-desktop-store--to-install (id)
   "Return the items installing the item ID brings, those it requires first
-and those installed left out."
+and those installed, or being installed, left out."
   (let ((items (lispm-desktop-store-items))
         (order nil)
         (visiting nil))
     (cl-labels ((visit (id from)
-                  (unless (or (assq id order) (lispm-desktop-store-installed-p id))
+                  (unless (or (assq id order) (lispm-desktop-store-installed-p id)
+                              ;; Asked for before: waiting, or installing.
+                              (and from (lispm-desktop-store--busy-p id)))
                     (when (memq id visiting)
                       (user-error "The App Store's items %s require each other" id))
                     (push id visiting)
@@ -650,12 +639,14 @@ saying how to install it."
                   ""))))
 
 (defun lispm-desktop-store--keep (id props &rest installed)
-  "Keep that the item ID, of PROPS, is installed as INSTALLED, a plist, says."
-  (customize-save-variable
-   'lispm-desktop-store-installed
-   (append (assq-delete-all id (copy-alist lispm-desktop-store-installed))
-           (list (cons id (append installed (lispm-desktop-store--plist-without
-                                             props :installed :owned)))))))
+  "Keep that the item ID, of PROPS, is installed as INSTALLED, a plist, says.
+Saving it is not said in the echo area: the window shows it."
+  (let ((inhibit-message t))
+    (customize-save-variable
+     'lispm-desktop-store-installed
+     (append (assq-delete-all id (copy-alist lispm-desktop-store-installed))
+             (list (cons id (append installed (lispm-desktop-store--plist-without
+                                               props :installed :owned))))))))
 
 (defun lispm-desktop-store--forget (id)
   "Forget that the item ID is installed."
@@ -673,29 +664,6 @@ when it is to be installed."
           ((package-installed-p (lispm-desktop-store--package-name package)) 'installed)
           ((and feature (locate-library (symbol-name feature))) 'load-path))))
 
-(defun lispm-desktop-store--install-package (package)
-  "Install PACKAGE, an item's :package; return what is installed: the
-commit of a package from git, the version of one from the archives, or
-\"built-in\".  A package installed already is left as it is."
-  (pcase package
-    ('nil "built-in")
-    ((pred symbolp)
-     (unless (package-installed-p package)
-       (unless (assq package package-archive-contents)
-         (package-refresh-contents))
-       (package-install package))
-     (or (lispm-desktop-store--package-version package) "installed"))
-    (`(,name . ,spec)
-     (let ((rev (plist-get spec :rev)))
-       (unless (package-installed-p name)
-         (let ((directory (expand-file-name (symbol-name name) package-user-dir)))
-           (when (file-exists-p directory)
-             (user-error "%s is in the way of %s; move it away first"
-                         (abbreviate-file-name directory) name)))
-         (require 'package-vc)
-         (package-vc-install (cons name (lispm-desktop-store--plist-without spec :rev)) rev))
-       rev))))
-
 (defmacro lispm-desktop-store--quietly (&rest body)
   "Run BODY showing none of the buffers it would show, as the log of the
 package's compilation, which would split the App Store's window."
@@ -704,17 +672,18 @@ package's compilation, which would split the App Store's window."
      (let ((display-buffer-overriding-action '(display-buffer-no-window (allow-no-window . t))))
        ,@body)))
 
-(defun lispm-desktop-store--install-1 (item)
-  "Install ITEM, unasked, keep what was installed, and make it take part:
-an application one of the desktop's, an extension loaded."
-  (pcase-let* ((`(,id . ,props) item)
+(defun lispm-desktop-store--install-here (job present)
+  "Do JOB, an install, in this Emacs, which waits meanwhile: its package is
+installed unless PRESENT, as `lispm-desktop-store--package-present' says."
+  (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
                (package (plist-get props :package))
-               (present (lispm-desktop-store--package-present props))
                (installed (pcase present
                             ('nil
                              (lispm-desktop-store--status (format "Installing %s…" (plist-get props :name)))
-                             (lispm-desktop-store--quietly
-                               (lispm-desktop-store--install-package package)))
+                             (unwind-protect
+                                 (lispm-desktop-store--quietly
+                                   (lispm-desktop-store--install-package package))
+                               (lispm-desktop-store--status nil)))
                             ;; A checkout's: no package of the App Store's
                             ;; to update or delete.
                             ('load-path "load-path")
@@ -723,29 +692,447 @@ an application one of the desktop's, an extension loaded."
                             (_ (if (consp package)
                                    (plist-get (cdr package) :rev)
                                  (or (lispm-desktop-store--package-version package) "installed"))))))
-    ;; Kept only once it takes part: a package that cannot be loaded is
-    ;; not left installed.
-    (condition-case err
-        (lispm-desktop-store--register id props)
-      (error (unless present
-               (lispm-desktop-store--quietly (lispm-desktop-store--delete-package package)))
-             (user-error "%s cannot be loaded: %s" (plist-get props :name) (error-message-string err))))
-    (lispm-desktop-store--keep id props :installed installed :owned (not present))))
+    (lispm-desktop-store--installed-as job installed (not present))))
+
+(defun lispm-desktop-store--installed-as (job installed owned)
+  "End JOB, an install, its package installed as INSTALLED, OWNED when the
+App Store installed it: keep it, and make it take part, an application
+one of the desktop's, an extension loaded.  It is kept only once it takes
+part: a package that cannot be loaded is not left installed."
+  (pcase-let ((`(,id . ,props) (lispm-desktop-store-job-item job)))
+    (if-let* ((failure (lispm-desktop-store--failure-of (lambda () (lispm-desktop-store--register id props)))))
+        (progn
+          (when owned
+            (lispm-desktop-store--quietly
+              (lispm-desktop-store--delete-package (plist-get props :package))))
+          (lispm-desktop-store--fail job (format "It cannot be loaded: %s" failure)))
+      (lispm-desktop-store--keep id props :installed installed :owned owned)
+      (lispm-desktop-store--done job))))
+
+(defun lispm-desktop-store--failure-of (function)
+  "Call FUNCTION; return nil, or what the error it signalled says."
+  (condition-case err
+      (progn (funcall function) nil)
+    (error (error-message-string err))))
 
 (defun lispm-desktop-store-install (id)
-  "Install the item ID, and the items it requires first, once confirmed."
+  "Install the item ID, and the items it requires first, once confirmed.
+They are installed one after another, in the background, see
+`lispm-desktop-store-install-in-background', each item's progress shown
+in its place in the App Store's window."
   (interactive (list (lispm-desktop-store--read-item
                       "Install: " (lambda (id) (not (lispm-desktop-store-installed-p id))))))
+  (when (lispm-desktop-store--busy-p id)
+    (user-error "%s is being installed already" (plist-get (cdr (assq id (lispm-desktop-store-items))) :name)))
   (let ((items (lispm-desktop-store--to-install id)))
     ;; Nothing is asked about what could not run here.
     (dolist (item items)
       (lispm-desktop-store--check-program (cdr item)))
     (when (and items (lispm-desktop-store--confirm-install items))
-      (unwind-protect
-          (dolist (item items)
-            (lispm-desktop-store--install-1 item))
-        (lispm-desktop-store--status nil)
-        (lispm-desktop-store--render)))))
+      (lispm-desktop-store--queue items 'install))))
+
+;;;; Installing in the background
+
+(defcustom lispm-desktop-store-install-in-background t
+  "Non-nil to install and update packages in an Emacs of their own.
+The desktop goes on meanwhile, and the App Store's window shows how far
+each is, as Mac OS 9 showed it, in a progress bar; one can be stopped.
+Nil installs them in this Emacs, which waits until each is done."
+  :type 'boolean
+  :group 'lispm-desktop-store)
+
+(cl-defstruct (lispm-desktop-store-job (:constructor lispm-desktop-store--make-job)
+                                       (:copier nil))
+  "An install or an update the App Store was asked for."
+  id item action group
+  (state 'waiting) (stage 'waiting) (fraction 0.0)
+  process log file before pending installed error stopped)
+
+(defvar lispm-desktop-store--jobs nil
+  "The installs and updates asked for, in order, as `lispm-desktop-store-job's.
+Each waits, runs, one at a time, or failed; those done are gone.  A job
+is installing or updating ITEM, (ID . PROPERTIES), as ACTION says; those
+asked for together share a GROUP.")
+
+(defconst lispm-desktop-store-stages
+  '((waiting "Waiting" 0.0 0.0)
+    (preparing "Preparing" 0.0 0.05)
+    (archives "Reading the archives" 0.05 0.1)
+    (download "Downloading" 0.1 0.6)
+    (dependencies "Getting what it needs" 0.6 0.7)
+    (build "Building" 0.7 0.95)
+    (finishing "Finishing" 0.95 1.0))
+  "The stages of an install or an update, in order: (STAGE NAME FROM TO),
+FROM and TO the part of its progress bar each fills.")
+
+(defconst lispm-desktop-store--handed-variables
+  '(user-emacs-directory exec-path
+    package-user-dir package-directory-list package-archives package-archive-priorities
+    package-pinned-packages package-load-list package-check-signature package-unsigned-archives
+    package-gnupghome-dir package-selected-packages package-install-upgrade-built-in
+    package-vc-selected-packages package-vc-default-backend package-quickstart package-quickstart-file
+    url-proxy-services url-using-proxy gnutls-trustfiles network-security-level)
+  "What an Emacs installing in the background takes from this one: how
+packages are installed, and how the network is reached.")
+
+(defvar lispm-desktop-store--redraw-timer nil
+  "Timer drawing the App Store's window again with the jobs' progress.")
+
+(defun lispm-desktop-store--job (id)
+  "Return the job of the item ID, or nil."
+  (seq-find (lambda (job) (eq (lispm-desktop-store-job-id job) id)) lispm-desktop-store--jobs))
+
+(defun lispm-desktop-store--busy-p (id)
+  "Return non-nil while the item ID waits to be installed or updated, or is."
+  (when-let* ((job (lispm-desktop-store--job id)))
+    (memq (lispm-desktop-store-job-state job) '(waiting running))))
+
+(defun lispm-desktop-store--background-p ()
+  "Return non-nil when packages are installed in an Emacs of their own."
+  (and lispm-desktop-store-install-in-background t))
+
+(defun lispm-desktop-store--stoppable-p (job)
+  "Return non-nil when JOB can be stopped: while it waits, an install
+while it runs in the background, an update until it builds, as Mac OS
+9's Installer no longer stopped once it changed what it had installed."
+  (pcase (lispm-desktop-store-job-state job)
+    ('waiting t)
+    ('running (and (lispm-desktop-store-job-process job)
+                   (or (eq (lispm-desktop-store-job-action job) 'install)
+                       (memq (lispm-desktop-store-job-stage job) '(preparing archives download)))))))
+
+(defun lispm-desktop-store--queue (items action)
+  "Install or update, as ACTION says, ITEMS, (ID . PROPERTIES), one after
+another; an earlier attempt that failed is forgotten."
+  (let ((group (list action)))
+    (dolist (item items)
+      (when-let* ((old (lispm-desktop-store--job (car item))))
+        (lispm-desktop-store--forget-job old))
+      (setq lispm-desktop-store--jobs
+            (append lispm-desktop-store--jobs
+                    (list (lispm-desktop-store--make-job :id (car item) :item item
+                                                         :action action :group group))))))
+  (lispm-desktop-store--render)
+  (lispm-desktop-store--next))
+
+(defun lispm-desktop-store--forget-job (job)
+  "Forget JOB, and its log."
+  (setq lispm-desktop-store--jobs (delq job lispm-desktop-store--jobs))
+  (when-let* ((log (lispm-desktop-store-job-log job))
+              ((buffer-live-p log)))
+    (when-let* ((pipe (get-buffer-process log)))
+      (delete-process pipe))
+    (kill-buffer log)))
+
+(defun lispm-desktop-store--next ()
+  "Start the first job waiting, unless one runs."
+  (unless (seq-find (lambda (job) (eq (lispm-desktop-store-job-state job) 'running))
+                    lispm-desktop-store--jobs)
+    (when-let* ((job (seq-find (lambda (job) (eq (lispm-desktop-store-job-state job) 'waiting))
+                               lispm-desktop-store--jobs)))
+      (lispm-desktop-store--start job))))
+
+(defun lispm-desktop-store--start (job)
+  "Start JOB: in an Emacs of its own, or here, as
+`lispm-desktop-store-install-in-background' says.  An item whose package
+is there already, or that has none, is installed at once."
+  (setf (lispm-desktop-store-job-state job) 'running
+        (lispm-desktop-store-job-stage job) 'preparing)
+  (pcase-let ((`(,id . ,props) (lispm-desktop-store-job-item job)))
+    (condition-case err
+        (progn
+          ;; What it requires must be there by now: it failed, else.
+          (when-let* ((missing (seq-find (lambda (required) (not (lispm-desktop-store-installed-p required)))
+                                         (plist-get props :requires))))
+            (error "It needs “%s”, which is not installed"
+                   (or (plist-get (cdr (assq missing (lispm-desktop-store-items))) :name) missing)))
+          (pcase (lispm-desktop-store-job-action job)
+            ('install
+             (let ((present (lispm-desktop-store--package-present props)))
+               (if (or present (not (lispm-desktop-store--background-p)))
+                   (lispm-desktop-store--install-here job present)
+                 (lispm-desktop-store--spawn job `(install ,(plist-get props :package))))))
+            ('update
+             (let ((package (plist-get props :package))
+                   (former (plist-get (lispm-desktop-store--installed id) :installed)))
+               (if (lispm-desktop-store--background-p)
+                   (lispm-desktop-store--spawn
+                    job `(update ,(car package) ,(plist-get (cdr package) :rev) ,former))
+                 (lispm-desktop-store--update-here job))))))
+      (error (lispm-desktop-store--fail job (error-message-string err))))))
+
+(defun lispm-desktop-store--done (job)
+  "End JOB, which went well."
+  (lispm-desktop-store--forget-job job)
+  (unless (lispm-desktop-store-open-p)
+    (message "%s is %s" (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
+             (if (eq (lispm-desktop-store-job-action job) 'install) "installed" "up to date")))
+  (lispm-desktop-store--render)
+  (lispm-desktop-store--next))
+
+(defun lispm-desktop-store--fail (job reason)
+  "End JOB, which failed for REASON, a sentence: it stays, saying so, with
+its log, until it is tried again.  The jobs asked for with it, waiting,
+are not started."
+  (setf (lispm-desktop-store-job-state job) 'failed
+        (lispm-desktop-store-job-process job) nil
+        (lispm-desktop-store-job-error job) reason)
+  (dolist (other lispm-desktop-store--jobs)
+    (when (and (eq (lispm-desktop-store-job-group other) (lispm-desktop-store-job-group job))
+               (eq (lispm-desktop-store-job-state other) 'waiting))
+      (lispm-desktop-store--forget-job other)))
+  (message "App Store: %s could not be %s: %s" (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
+           (if (eq (lispm-desktop-store-job-action job) 'install) "installed" "updated")
+           reason)
+  (lispm-desktop-store--render)
+  (lispm-desktop-store--next))
+
+(defun lispm-desktop-store--readable-p (value)
+  "Return non-nil when VALUE, printed, reads back as itself."
+  (condition-case nil
+      (let ((print-length nil) (print-level nil))
+        (equal (car (read-from-string (prin1-to-string value))) value))
+    (error nil)))
+
+(defun lispm-desktop-store--job-program (task)
+  "Return the program an Emacs of its own runs for TASK, as
+`lispm-desktop-store-installer-run' takes it: this Emacs's settings for
+packages and the network, then TASK."
+  (let ((library (or (locate-library "lispm-desktop-store-installer")
+                     (error "lispm-desktop-store-installer is not on the load path"))))
+    `(progn
+       ,@(mapcan (lambda (variable)
+                   (when (and (boundp variable) (lispm-desktop-store--readable-p (symbol-value variable)))
+                     (list `(setq ,variable ',(symbol-value variable)))))
+                 lispm-desktop-store--handed-variables)
+       (push ,(file-name-directory library) load-path)
+       (require 'lispm-desktop-store-installer)
+       (lispm-desktop-store-installer-run ',task))))
+
+(defun lispm-desktop-store--package-directories ()
+  "Return the packages' directories in `package-user-dir', the archives'
+and the keys' left out."
+  (when (file-directory-p package-user-dir)
+    (seq-filter (lambda (directory)
+                  (and (file-directory-p directory)
+                       (not (member (file-name-nondirectory directory) '("archives" "gnupg")))))
+                (directory-files package-user-dir t "\\`[^.]"))))
+
+(defun lispm-desktop-store--spawn (job task)
+  "Run JOB in an Emacs of its own, in batch, doing TASK; see
+`lispm-desktop-store-installer-run'."
+  (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
+               (file (make-temp-file "lispm-desktop-store-job" nil ".el"))
+               (log (generate-new-buffer (format " *App Store: %s*" (plist-get props :name))))
+               (process-environment (lispm-desktop-store--git-environment)))
+    (with-temp-file file
+      (insert ";;; -*- lexical-binding: t -*-\n")
+      (let ((print-length nil) (print-level nil) (print-escape-newlines t))
+        (prin1 (lispm-desktop-store--job-program task) (current-buffer))))
+    (setf (lispm-desktop-store-job-file job) file
+          (lispm-desktop-store-job-log job) log
+          (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
+    (add-hook 'kill-emacs-hook #'lispm-desktop-store--abandon)
+    (let ((process (make-process
+                    :name "lispm-desktop-store-install"
+                    :command (list (expand-file-name invocation-name invocation-directory)
+                                   "-Q" "--batch" "-l" file)
+                    :connection-type 'pipe
+                    ;; Its log goes when the job does, unasked.
+                    :stderr (make-pipe-process :name "lispm-desktop-store-install log"
+                                               :buffer log :noquery t)
+                    :filter (lambda (_process text) (lispm-desktop-store--heard job text))
+                    :sentinel (lambda (process _event)
+                                (unless (process-live-p process)
+                                  ;; Alerts and loading are no sentinel's work.
+                                  (run-at-time 0 nil #'lispm-desktop-store--ended job))))))
+      (setf (lispm-desktop-store-job-process job) process)
+      ;; Nothing it asks is answered: it fails instead of waiting.
+      (process-send-eof process))))
+
+(defun lispm-desktop-store--stage-bounds (stage)
+  "Return the part of the progress bar STAGE fills, as (FROM TO)."
+  (or (cddr (assq stage lispm-desktop-store-stages)) '(0.0 0.0)))
+
+(defun lispm-desktop-store--heard (job text)
+  "Take what JOB's Emacs said, TEXT: how far it is, see
+lispm-desktop-store-installer.el, else what goes in its log."
+  (let* ((lines (split-string (concat (lispm-desktop-store-job-pending job) text) "\n"))
+         (tag lispm-desktop-store-installer-tag))
+    (setf (lispm-desktop-store-job-pending job) (car (last lines)))
+    (dolist (line (butlast lines))
+      (if (string-prefix-p tag line)
+          (pcase (ignore-errors (car (read-from-string line (length tag))))
+            (`(stage ,(and stage (guard (assq stage lispm-desktop-store-stages))))
+             (setf (lispm-desktop-store-job-stage job) stage
+                   (lispm-desktop-store-job-fraction job)
+                   (max (lispm-desktop-store-job-fraction job) (car (lispm-desktop-store--stage-bounds stage)))))
+            (`(progress ,(and fraction (pred numberp)))
+             (pcase-let ((`(,from ,to) (lispm-desktop-store--stage-bounds (lispm-desktop-store-job-stage job))))
+               (setf (lispm-desktop-store-job-fraction job)
+                     (max (lispm-desktop-store-job-fraction job) (+ from (* (- to from) (min 1 fraction)))))))
+            (`(done ,installed) (setf (lispm-desktop-store-job-installed job) (list installed)))
+            (`(failed ,message) (setf (lispm-desktop-store-job-error job) message)))
+        (when (and (not (string-blank-p line)) (buffer-live-p (lispm-desktop-store-job-log job)))
+          (with-current-buffer (lispm-desktop-store-job-log job)
+            (goto-char (point-max))
+            (insert line "\n")))))
+    (lispm-desktop-store--redraw-soon)))
+
+(defun lispm-desktop-store--last-said (job)
+  "Return the last line JOB's Emacs said in its log, or nil."
+  (when (buffer-live-p (lispm-desktop-store-job-log job))
+    (car (last (split-string (with-current-buffer (lispm-desktop-store-job-log job) (buffer-string))
+                             "[\r\n]+" t "[ \t]+")))))
+
+(defun lispm-desktop-store--ended (job)
+  "Take that JOB's Emacs ended: the job is done, failed or was stopped."
+  (let ((process (lispm-desktop-store-job-process job)))
+    (when (lispm-desktop-store-job-file job)
+      (ignore-errors (delete-file (lispm-desktop-store-job-file job)))
+      (setf (lispm-desktop-store-job-file job) nil))
+    (cond
+     ((lispm-desktop-store-job-stopped job)
+      (lispm-desktop-store--undo job)
+      (dolist (other lispm-desktop-store--jobs)
+        (when (and (eq (lispm-desktop-store-job-group other) (lispm-desktop-store-job-group job))
+                   (memq (lispm-desktop-store-job-state other) '(waiting running)))
+          (lispm-desktop-store--forget-job other)))
+      (lispm-desktop-store--render)
+      (lispm-desktop-store--next))
+     ((and (eql (process-exit-status process) 0) (lispm-desktop-store-job-installed job))
+      (setf (lispm-desktop-store-job-stage job) 'finishing
+            (lispm-desktop-store-job-fraction job) 0.95)
+      (let ((installed (car (lispm-desktop-store-job-installed job))))
+        (if-let* ((failure (lispm-desktop-store--failure-of (lambda () (lispm-desktop-store--adopt job)))))
+            (progn (lispm-desktop-store--undo job)
+                   (lispm-desktop-store--fail job failure))
+          (pcase (lispm-desktop-store-job-action job)
+            ('install (lispm-desktop-store--installed-as job installed t))
+            ('update (lispm-desktop-store--updated-as job installed))))))
+     (t
+      (lispm-desktop-store--undo job)
+      (lispm-desktop-store--fail job (or (lispm-desktop-store-job-error job)
+                                         (lispm-desktop-store--last-said job)
+                                         "Its Emacs stopped before it was done"))))))
+
+(defun lispm-desktop-store--undo (job)
+  "Undo what JOB, failed or stopped in the background, left: the packages
+it put in `package-user-dir', and an update's checkout, back at the
+commit it was at."
+  (let ((before (lispm-desktop-store-job-before job)))
+    (dolist (directory (lispm-desktop-store--package-directories))
+      (unless (member directory before)
+        (delete-directory directory t))))
+  (when (eq (lispm-desktop-store-job-action job) 'update)
+    (pcase-let* ((`(,id . ,props) (lispm-desktop-store-job-item job))
+                 (desc (cadr (assq (lispm-desktop-store--package-name (plist-get props :package))
+                                   package-alist))))
+      (when desc
+        (ignore-errors
+          (lispm-desktop-store--git (package-desc-dir desc) "checkout" "--quiet" "--detach"
+                                    (plist-get (lispm-desktop-store--installed id) :installed)))))))
+
+(defun lispm-desktop-store--adopt (job)
+  "Make what JOB's Emacs installed known to this one and take part, as
+installing it here would have: its package and those it brought, active,
+and its package one of those chosen, as package.el keeps them.  An
+update's package is described anew, and what of it was loaded is loaded
+again."
+  (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
+               (package (plist-get props :package))
+               (name (lispm-desktop-store--package-name package))
+               (before (lispm-desktop-store-job-before job))
+               (former (assq name package-alist))
+               (again (and former (eq (lispm-desktop-store-job-action job) 'update)
+                           (package-desc-dir (cadr former))))
+               ;; What Customize saves and project.el finds is not said
+               ;; in the echo area: the window shows what happens.
+               (inhibit-message t))
+    (when again
+      (setq package-alist (delq former package-alist)))
+    (dolist (directory (lispm-desktop-store--package-directories))
+      (when (or (not (member directory before))
+                (and again (file-equal-p directory again)))
+        (package-load-descriptor directory)))
+    (if again
+        (let ((desc (or (cadr (assq name package-alist)) (error "%s is gone" name))))
+          (package-activate-1 desc 'reload 'deps))
+      (unless (package-activate name)
+        (error "Its package %s cannot be activated" name))
+      (unless (memq name package-selected-packages)
+        (customize-save-variable 'package-selected-packages (cons name package-selected-packages)))
+      (when (consp package)
+        (require 'package-vc)
+        (unless (assq name package-vc-selected-packages)
+          (customize-save-variable
+           'package-vc-selected-packages
+           (cons (cons name (lispm-desktop-store--plist-without (cdr package) :rev))
+                 package-vc-selected-packages)))
+        (when (bound-and-true-p package-vc-register-as-project)
+          (require 'project)
+          (project-remember-projects-under (package-desc-dir (cadr (assq name package-alist)))))))))
+
+(defun lispm-desktop-store--abandon ()
+  "Stop the jobs running, as Emacs exits, and undo what they did."
+  (dolist (job lispm-desktop-store--jobs)
+    (when-let* ((process (lispm-desktop-store-job-process job))
+                ((process-live-p process)))
+      (setf (lispm-desktop-store-job-stopped job) t)
+      (delete-process process)
+      (ignore-errors (lispm-desktop-store--undo job))
+      (when (lispm-desktop-store-job-file job)
+        (ignore-errors (delete-file (lispm-desktop-store-job-file job)))))))
+
+(defun lispm-desktop-store-stop (id)
+  "Stop installing or updating the item ID, and those asked for with it.
+What it installed so far is undone."
+  (interactive (list (lispm-desktop-store--read-item "Stop: " #'lispm-desktop-store--busy-p)))
+  (let ((job (lispm-desktop-store--job id)))
+    (unless (lispm-desktop-store--busy-p id)
+      (user-error "Nothing is being installed for that"))
+    (unless (lispm-desktop-store--stoppable-p job)
+      (user-error "%s can no longer be stopped" (plist-get (cdr (lispm-desktop-store-job-item job)) :name)))
+    (if (eq (lispm-desktop-store-job-state job) 'running)
+        (progn (setf (lispm-desktop-store-job-stopped job) t)
+               (delete-process (lispm-desktop-store-job-process job)))
+      (let ((group (lispm-desktop-store-job-group job)))
+        (dolist (other (memq job lispm-desktop-store--jobs))
+          (when (and (eq (lispm-desktop-store-job-group other) group)
+                     (eq (lispm-desktop-store-job-state other) 'waiting))
+            (lispm-desktop-store--forget-job other))))
+      (lispm-desktop-store--render))))
+
+(defun lispm-desktop-store-show-log (id)
+  "Show what the Emacs that failed to install or update the item ID said."
+  (interactive (list (lispm-desktop-store--read-item
+                      "Log of: " (lambda (id) (when-let* ((job (lispm-desktop-store--job id)))
+                                                (buffer-live-p (lispm-desktop-store-job-log job)))))))
+  (let ((log (and (lispm-desktop-store--job id) (lispm-desktop-store-job-log (lispm-desktop-store--job id)))))
+    (unless (buffer-live-p log)
+      (user-error "There is no log of that"))
+    (with-current-buffer log
+      (special-mode)
+      (goto-char (point-max)))
+    (pop-to-buffer log)))
+
+(defun lispm-desktop-store--progress (job)
+  "Return how far JOB is, in words, as \"Installing: downloading, 45%\"."
+  (let ((install (eq (lispm-desktop-store-job-action job) 'install)))
+    (pcase (lispm-desktop-store-job-state job)
+      ('waiting (if install "Waiting to install" "Waiting to update"))
+      ('failed (if install "Could not be installed" "Could not be updated"))
+      (_ (format "%s: %s, %d%%" (if install "Installing" "Updating")
+                 (downcase (nth 1 (assq (lispm-desktop-store-job-stage job) lispm-desktop-store-stages)))
+                 (round (* 100 (lispm-desktop-store-job-fraction job))))))))
+
+(defun lispm-desktop-store--redraw-soon ()
+  "Draw the App Store's window again shortly, its jobs' progress shown."
+  (unless (timerp lispm-desktop-store--redraw-timer)
+    (setq lispm-desktop-store--redraw-timer
+          (run-at-time 0.1 nil (lambda ()
+                                 (setq lispm-desktop-store--redraw-timer nil)
+                                 (lispm-desktop-store--render))))))
 
 (defun lispm-desktop-store--delete-package (package)
   "Delete PACKAGE, an item's :package, as package.el deletes one.
@@ -753,7 +1140,13 @@ One that other packages need stays, as said in the echo area."
   (let ((name (lispm-desktop-store--package-name package)))
     (when-let* ((desc (cadr (assq name package-alist))))
       (condition-case err
-          (package-delete desc)
+          (progn
+            (package-delete desc)
+            ;; Activated from package.el's start, before it read the
+            ;; archives, `package-installed-p' asks this list; the
+            ;; package would be there still, and not installed again.
+            (unless (assq name package-alist)
+              (setq package-activated-list (delq name package-activated-list))))
         (error (message "App Store: %s stays: %s" name (error-message-string err)))))
     (when (and (consp package) (boundp 'package-vc-selected-packages)
                (assq name package-vc-selected-packages))
@@ -801,6 +1194,8 @@ what cannot be unloaded is said, and stays until Emacs restarts."
   (interactive (list (lispm-desktop-store--read-item "Remove: " #'lispm-desktop-store-installed-p)))
   (let ((props (or (lispm-desktop-store--installed id)
                    (user-error "The App Store did not install %s" id))))
+    (when (lispm-desktop-store--busy-p id)
+      (user-error "%s is being updated; stop that first" (plist-get props :name)))
     (when (lispm-desktop-store--confirm (format "Remove “%s”?" (plist-get props :name))
                                         (lispm-desktop-store--remove-detail id props)
                                         nil "Remove")
@@ -814,48 +1209,49 @@ what cannot be unloaded is said, and stays until Emacs restarts."
             (plist-get props :name) name (plist-get installed :installed)
             (plist-get spec :rev) (plist-get spec :url))))
 
-(defun lispm-desktop-store--repin (name rev)
-  "Check the package NAME, installed from git, out at commit REV, and build
-it again, as `package-vc-upgrade' would build it."
-  (let* ((desc (or (cadr (assq name package-alist)) (user-error "%s is not installed" name)))
-         (directory (package-desc-dir desc))
-         (present (lambda ()
-                    (ignore-errors
-                      (lispm-desktop-store--git directory "cat-file" "-e" (concat rev "^{commit}"))
-                      t))))
-    (unless (funcall present)
-      (lispm-desktop-store--git directory "fetch" "--quiet" "origin")
-      (unless (funcall present)
-        (lispm-desktop-store--git directory "fetch" "--quiet" "origin" rev)))
-    (lispm-desktop-store--git directory "checkout" "--quiet" "--detach" rev)
-    (require 'package-vc)
-    (package-vc-rebuild desc)))
-
 (defun lispm-desktop-store-update (id)
   "Bring the item ID to what its catalog lists now, once confirmed.
-An extension is loaded again, so the new code takes part at once."
+It is updated in the background, as it is installed, see
+`lispm-desktop-store-install'; an extension is loaded again, so the new
+code takes part at once."
   (interactive (list (lispm-desktop-store--read-item "Update: " #'lispm-desktop-store-update-available-p)))
   (let* ((installed (or (lispm-desktop-store--installed id)
                         (user-error "The App Store did not install %s" id)))
          (props (cdr (assq id (lispm-desktop-store-items)))))
     (unless (lispm-desktop-store-update-available-p id)
       (user-error "%s is up to date" (plist-get installed :name)))
+    (when (lispm-desktop-store--busy-p id)
+      (user-error "%s is being updated already" (plist-get installed :name)))
     (when (lispm-desktop-store--confirm (format "Update “%s”?" (plist-get props :name))
                                         "What changes is shown under the window."
                                         (lispm-desktop-store--changes installed props)
                                         "Update")
-      (lispm-desktop-store--status (format "Updating %s…" (plist-get props :name)))
-      (unwind-protect
-          (let* ((package (plist-get props :package))
-                 (rev (plist-get (cdr package) :rev)))
-            (lispm-desktop-store--quietly
-              (lispm-desktop-store--repin (car package) rev))
-            (lispm-desktop-store--keep id props :installed rev :owned (plist-get installed :owned))
-            (when (eq (plist-get props :kind) 'extension)
-              (lispm-desktop-store--unload (plist-get props :feature)))
-            (lispm-desktop-store--register id (lispm-desktop-store--installed id)))
-        (lispm-desktop-store--status nil)
-        (lispm-desktop-store--render)))))
+      (lispm-desktop-store--queue (list (cons id props)) 'update))))
+
+(defun lispm-desktop-store--update-here (job)
+  "Do JOB, an update, in this Emacs, which waits meanwhile."
+  (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
+               (package (plist-get props :package))
+               (rev (plist-get (cdr package) :rev)))
+    (lispm-desktop-store--status (format "Updating %s…" (plist-get props :name)))
+    (unwind-protect
+        (lispm-desktop-store--quietly
+          (lispm-desktop-store--repin (car package) rev))
+      (lispm-desktop-store--status nil))
+    (lispm-desktop-store--updated-as job rev)))
+
+(defun lispm-desktop-store--updated-as (job rev)
+  "End JOB, an update, its package checked out at REV: keep it, and load
+an extension again."
+  (pcase-let ((`(,id . ,props) (lispm-desktop-store-job-item job)))
+    (lispm-desktop-store--keep id props :installed rev
+                               :owned (plist-get (lispm-desktop-store--installed id) :owned))
+    (when (eq (plist-get props :kind) 'extension)
+      (lispm-desktop-store--unload (plist-get props :feature)))
+    (if-let* ((failure (lispm-desktop-store--failure-of
+                        (lambda () (lispm-desktop-store--register id (lispm-desktop-store--installed id))))))
+        (lispm-desktop-store--fail job (format "It cannot be loaded: %s" failure))
+      (lispm-desktop-store--done job))))
 
 ;;;; Installing from a git URL
 
@@ -913,34 +1309,42 @@ Its command opening it is read; it is pinned to the clone's commit."
                   :package (,name :url ,url :rev ,rev ,@(and lisp-dir (list :lisp-dir lisp-dir))))))
     (when (string-blank-p command)
       (user-error "No command opens %s" name))
-    (when (lispm-desktop-store-installed-p name)
+    (when (or (lispm-desktop-store-installed-p name) (lispm-desktop-store--busy-p name))
       (user-error "%s is installed already" name))
     (when (lispm-desktop-store--confirm-install (list (cons name props)))
-      (unwind-protect
-          (lispm-desktop-store--install-1 (cons name props))
-        (lispm-desktop-store--status nil)
-        (lispm-desktop-store--render)))))
+      (lispm-desktop-store--queue (list (cons name props)) 'install))))
 
 (defun lispm-desktop-store-install-from-url (url)
   "Install from the git repository at URL, once confirmed.
 A repository holding a catalog.eld is a catalog, which joins the App
 Store's; any other is an Emacs package, installed as an application
-pinned to its newest commit."
+pinned to its newest commit.  The repository is looked at in the
+background; what goes wrong is said in an alert."
   (interactive (list (read-string "Install from git URL: ")))
   (when (string-blank-p url)
     (user-error "No URL"))
   (let ((directory (make-temp-file "lispm-desktop-store-" t)))
-    (unwind-protect
-        (progn
-          (lispm-desktop-store--status (format "Looking at %s…" url))
-          (lispm-desktop-store--git directory "clone" "--quiet" "--depth" "1" url "repository")
-          (let ((repository (expand-file-name "repository" directory)))
-            (lispm-desktop-store--status nil)
-            (if (file-exists-p (expand-file-name "catalog.eld" repository))
-                (lispm-desktop-store--add-catalog url)
-              (lispm-desktop-store--install-repository url repository))))
-      (lispm-desktop-store--status nil)
-      (delete-directory directory t))))
+    (lispm-desktop-store--status (format "Looking at %s…" url))
+    (lispm-desktop-store--git-steps
+     `((,directory "clone" "--quiet" "--depth" "1" ,url "repository"))
+     (lambda (failure)
+       (lispm-desktop-store--status nil)
+       (run-at-time
+        0 nil
+        (lambda ()
+          (unwind-protect
+              (with-local-quit
+                (condition-case err
+                    (let ((repository (expand-file-name "repository" directory)))
+                      (cond (failure (user-error "%s" failure))
+                            ((file-exists-p (expand-file-name "catalog.eld" repository))
+                             (lispm-desktop-store--add-catalog url))
+                            (t (lispm-desktop-store--install-repository url repository))))
+                  (user-error
+                   (lispm-desktop-popup-alert 'stop (format "Nothing could be installed from %s." url)
+                                              '(("OK" ok default))
+                                              (error-message-string err)))))
+            (delete-directory directory t))))))))
 
 ;;;; Applications and extensions taking part
 
@@ -1139,7 +1543,8 @@ pixels wide, stands: (X Y WIDTH), Y from the top of the item's line."
 (defun lispm-desktop-store--hit (width line x y categories items)
   "Return what stands at X, Y of the grid's LINE, the window WIDTH pixels
 wide, listing CATEGORIES beside ITEMS: (category . CATEGORY), (button .
-ID), the button of the item ID, (item . ID), or nil."
+ID), the button of the item ID, (item . ID), or nil.  The progress bar
+standing in place of a button is the item's."
   (pcase-let* ((`(,gx ,columns ,tw) (lispm-desktop-store--grid width))
                (top (+ (* line lispm-desktop-store-tile-height) y)))
     (cond
@@ -1155,7 +1560,8 @@ ID), the button of the item ID, (item . ID), or nil."
           (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box
                                        (+ gx (* column tw)) tw
                                        (car (lispm-desktop-store--action (car item) (cdr item))))))
-            (if (lispm-desktop-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y)
+            (if (and (not (lispm-desktop-store--busy-p (car item)))
+                     (lispm-desktop-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y))
                 (cons 'button (car item))
               (cons 'item (car item))))))))))
 
@@ -1215,20 +1621,41 @@ up by the lines above, so that together they show it once."
 (defun lispm-desktop-store--tile (item)
   "Return what the grid draws of ITEM, (ID . PROPERTIES), as a plist: its
 :icon, :name, :subtitle, its button's :label, whether it is :enabled and
-:pressed, and whether it is :selected."
+:pressed, and whether it is :selected.  While it is installed or
+updated, or waits to be, :progress is how far, and its button is not
+drawn; the subtitle says what it is doing, or that it failed."
   (pcase-let* ((`(,id . ,props) item)
-               (`(,label . ,action) (lispm-desktop-store--action id props)))
+               (`(,label . ,action) (lispm-desktop-store--action id props))
+               (job (lispm-desktop-store--job id)))
     (list :id id :icon (lispm-desktop-store--icon props t) :name (plist-get props :name)
-          :subtitle (or (plist-get props :subtitle)
-                        (lispm-desktop-store--category-name (lispm-desktop-store--category-of props)))
+          :subtitle (cond ((null job)
+                           (or (plist-get props :subtitle)
+                               (lispm-desktop-store--category-name (lispm-desktop-store--category-of props))))
+                          ((eq (lispm-desktop-store-job-state job) 'failed)
+                           (if (eq (lispm-desktop-store-job-action job) 'install)
+                               "Could not install"
+                             "Could not update"))
+                          (t (concat (nth 1 (assq (lispm-desktop-store-job-stage job) lispm-desktop-store-stages))
+                                     "…")))
+          :progress (and (lispm-desktop-store--busy-p id)
+                         ;; Steps of a hundredth: no more images than that.
+                         (/ (round (* 100 (lispm-desktop-store-job-fraction job))) 100.0))
           :label label :enabled (and action t)
           :pressed (eq id lispm-desktop-store--pressed)
           :selected (eq id lispm-desktop-store--selected))))
 
+(defun lispm-desktop-store--progress-box (x width)
+  "Return where the progress bar of the item drawn at X, WIDTH pixels wide,
+stands, in place of its button: (X Y WIDTH), Y from the top of the line."
+  (let ((w (min 120 (- width 20))))
+    (list (+ x (/ (- width w) 2))
+          (+ 84 (/ (- lispm-desktop-platinum-button-height lispm-desktop-platinum-progress-height) 2))
+          w)))
+
 (defun lispm-desktop-store--draw-tile (svg palette tile x width)
   "Draw TILE, as `lispm-desktop-store--tile' makes it, on SVG at X, WIDTH
 pixels wide: its icon, darkened when selected, its name, highlighted
-when selected, its subtitle and its button."
+when selected, its subtitle and its button, or its progress bar."
   (let* ((center (+ x (/ width 2)))
          (file (lispm-desktop-platinum-icon-file (plist-get tile :icon)))
          (selected (plist-get tile :selected))
@@ -1255,10 +1682,13 @@ when selected, its subtitle and its button."
              (w (lispm-desktop-platinum-content-width text small)))
         (lispm-desktop-platinum-svg-content svg text (- center (/ w 2)) 61 14
                                               (lispm-desktop-platinum-grey palette #x66) small)))
-    (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box x width (plist-get tile :label))))
-      (lispm-desktop-platinum-svg-push-button svg bx by palette (plist-get tile :label) bw
-                                                :state (cond ((not (plist-get tile :enabled)) 'disabled)
-                                                             ((plist-get tile :pressed) 'pressed))))))
+    (if-let* ((progress (plist-get tile :progress)))
+        (pcase-let ((`(,px ,py ,pw) (lispm-desktop-store--progress-box x width)))
+          (lispm-desktop-platinum-svg-progress-bar svg px py pw progress palette))
+      (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box x width (plist-get tile :label))))
+        (lispm-desktop-platinum-svg-push-button svg bx by palette (plist-get tile :label) bw
+                                                  :state (cond ((not (plist-get tile :enabled)) 'disabled)
+                                                               ((plist-get tile :pressed) 'pressed)))))))
 
 (defun lispm-desktop-store--draw-line (palette width line categories current tiles empty)
   "Return an SVG of the grid's LINE, WIDTH pixels wide, in PALETTE: its
@@ -1358,16 +1788,22 @@ shown match, and Check for Updates."
 
 (defun lispm-desktop-store--insert-buttons (width)
   "Insert the push buttons under the grid, flush with its right edge:
-Install from URL…, Copy Install Command for an extension whose program
-is missing, Remove, and the selected item's button, Get, Open or Update."
+Install from URL…, Show Log for an item that failed to install or
+update, Copy Install Command for an extension whose program is missing,
+Remove, and the selected item's button, Get, Open, Update, Stop or Try
+Again."
   (let* ((id lispm-desktop-store--selected)
          (props (and id (cdr (assq id (lispm-desktop-store-items)))))
          (action (and props (lispm-desktop-store--action id props)))
+         (job (and id (lispm-desktop-store--job id)))
          (buttons `(("Install from URL…" lispm-desktop-store-install-from-url nil)
+                    ,@(when (and job (eq (lispm-desktop-store-job-state job) 'failed)
+                                 (buffer-live-p (lispm-desktop-store-job-log job)))
+                        '(("Show Log" lispm-desktop-store-show-log-selected nil)))
                     ,@(when (and props (lispm-desktop-store--install-commands props))
                         '(("Copy Install Command" lispm-desktop-store-copy-install-command nil)))
                     ("Remove" lispm-desktop-store-remove-selected
-                     ,(not (and id (lispm-desktop-store-installed-p id))))
+                     ,(not (and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id)))))
                     (,(or (car action) "Get") lispm-desktop-store-act-selected
                      ,(not (cdr action)) t)))
          (gap 10)
@@ -1387,11 +1823,32 @@ is missing, Remove, and the selected item's button, Get, Open or Update."
      buttons)
     (insert "\n")))
 
+(defun lispm-desktop-store--pieces (word width face)
+  "Return WORD in FACE cut into pieces of at most WIDTH pixels, after a
+slash or a hyphen where one is: a file name or a URL, as an error names.
+A word that fits is its own piece."
+  (let ((pieces nil))
+    (cl-flet ((fits (text) (<= (string-pixel-width (propertize text 'face face)) width)))
+      (while (not (fits word))
+        (let* ((fit (let ((n (1- (length word))))
+                      (while (and (> n 1) (not (fits (substring word 0 n))))
+                        (setq n (1- n)))
+                      n))
+               (cut (or (when-let* ((at (string-match-p "[/-][^/-]*\\'" (substring word 0 fit)))
+                                    ((> at 0)))
+                          (1+ at))
+                        fit)))
+          (push (substring word 0 cut) pieces)
+          (setq word (substring word cut)))))
+    (nreverse (cons word pieces))))
+
 (defun lispm-desktop-store--wrap (text width face)
-  "Return TEXT in FACE broken into lines of at most WIDTH pixels."
+  "Return TEXT in FACE broken into lines of at most WIDTH pixels; a word
+too long for a line is cut, see `lispm-desktop-store--pieces'."
   (let ((lines nil)
         (line ""))
-    (dolist (word (split-string (or text "") "[ \t\n]+" t))
+    (dolist (word (mapcan (lambda (word) (lispm-desktop-store--pieces word width face))
+                          (split-string (or text "") "[ \t\n]+" t)))
       (let ((longer (if (string-empty-p line) word (concat line " " word))))
         (if (or (string-empty-p line)
                 (<= (string-pixel-width (propertize longer 'face face)) width))
@@ -1420,7 +1877,8 @@ is missing, Remove, and the selected item's button, Get, Open or Update."
          (program (lispm-desktop-store--missing-program props)))
     `(("Category:" ,(or (lispm-desktop-store--category-name (lispm-desktop-store--category-of props)) "–"))
       ("Version:" ,(lispm-desktop-store--version id props))
-      ("Status:" ,(cond ((lispm-desktop-store-update-available-p id) "Installed; an update is ready")
+      ("Status:" ,(cond ((lispm-desktop-store--job id) (lispm-desktop-store--progress (lispm-desktop-store--job id)))
+                        ((lispm-desktop-store-update-available-p id) "Installed; an update is ready")
                         (installed "Installed")
                         (program (format "Needs %s, not on PATH" program))
                         (t "Not installed")))
@@ -1485,7 +1943,8 @@ under them, the description in a box at the right."
     (when props
       (let ((y 8))
         (dolist (line (cons (propertize (plist-get props :name) 'face 'bold)
-                            (lispm-desktop-store--wrap (lispm-desktop-store--description props)
+                            (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
+                                                               (lispm-desktop-store--description props))
                                                        (- box-w 12) small)))
           (when (< y (- height 20))
             (lispm-desktop-platinum-svg-content svg line (+ box-x 6) y 13 text small)
@@ -1524,11 +1983,32 @@ information, WIDTH pixels wide."
 when it changes."
   (and id (let ((props (cdr (assq id (lispm-desktop-store-items)))))
             (list (lispm-desktop-store--fields id) props (lispm-desktop-store--description props)
+                  (lispm-desktop-store--failure id)
                   (lispm-desktop-store--catalog-name (plist-get props :catalog))))))
 
+(defun lispm-desktop-store--failure (id)
+  "Return why installing or updating the item ID failed, as sentences to
+put before its description, or \"\"."
+  (let ((job (lispm-desktop-store--job id)))
+    (if (and job (eq (lispm-desktop-store-job-state job) 'failed))
+        (format "It could not be %s: %s.  "
+                (if (eq (lispm-desktop-store-job-action job) 'install) "installed" "updated")
+                (string-trim-right (lispm-desktop-store-job-error job) "[ .]+"))
+      "")))
+
 (defun lispm-desktop-store--placard ()
-  "Return what the placard says: the App Store's doing, or its count."
+  "Return what the placard says: the App Store's doing, what it installs
+or updates, or its count."
   (or lispm-desktop-store--status-text
+      (when-let* ((job (seq-find (lambda (job) (eq (lispm-desktop-store-job-state job) 'running))
+                                 lispm-desktop-store--jobs)))
+        (let ((waiting (seq-count (lambda (job) (eq (lispm-desktop-store-job-state job) 'waiting))
+                                  lispm-desktop-store--jobs)))
+          (format "%s “%s”… %d%%%s"
+                  (if (eq (lispm-desktop-store-job-action job) 'install) "Installing" "Updating")
+                  (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
+                  (round (* 100 (lispm-desktop-store-job-fraction job)))
+                  (if (> waiting 0) (format ", %d waiting" waiting) ""))))
       (let* ((items (lispm-desktop-store-items))
              (installed (seq-count (lambda (item) (lispm-desktop-store-installed-p (car item))) items)))
         (format "%d item%s, %d installed" (length items) (if (= (length items) 1) "" "s") installed))))
@@ -1540,7 +2020,8 @@ when it changes."
       (let* ((inhibit-read-only t)
              (window (get-buffer-window buffer t))
              (width (if window (window-body-width window t) 640))
-             (button (get-text-property (point) 'lispm-desktop-platinum-label)))
+             (button (get-text-property (if window (window-point window) (point))
+                                        'lispm-desktop-platinum-label)))
         (setq lispm-desktop-store--width width)
         (unless (assq lispm-desktop-store--category (lispm-desktop-store--categories))
           (setq lispm-desktop-store--category 'all))
@@ -1661,14 +2142,18 @@ an empty TEXT shows every item again."
      (lispm-desktop-store--render))))
 
 (defun lispm-desktop-store-act (id)
-  "Press the button of the item ID: get it, open it, or update it."
+  "Press the button of the item ID: get it, open it, update it, or stop
+installing or updating it."
   (interactive (list (lispm-desktop-store--read-item "Item: ")))
   (let* ((props (cdr (assq id (lispm-desktop-store-items)))))
     (pcase (cdr (lispm-desktop-store--action id props))
       ('install (lispm-desktop-store-install id))
       ('open (lispm-desktop-store-open id))
       ('update (lispm-desktop-store-update id))
+      ('stop (lispm-desktop-store-stop id))
       (_ (lispm-desktop-store--check-program props)
+         (when (lispm-desktop-store--busy-p id)
+           (user-error "%s can no longer be stopped" (plist-get props :name)))
          (user-error "%s is installed" (plist-get props :name))))))
 
 (defun lispm-desktop-store-act-selected ()
@@ -1690,6 +2175,21 @@ an empty TEXT shows every item again."
   (interactive)
   (if-let* ((id (lispm-desktop-store--selected-id)))
       (lispm-desktop-store-remove id)
+    (user-error "Select an item first")))
+
+(defun lispm-desktop-store-stop-selected ()
+  "Stop installing or updating the item selected, as Command-period
+stopped what Mac OS 9 was doing."
+  (interactive)
+  (if-let* ((id (lispm-desktop-store--selected-id)))
+      (lispm-desktop-store-stop id)
+    (user-error "Select an item first")))
+
+(defun lispm-desktop-store-show-log-selected ()
+  "Show the log of the item selected, which failed to install or update."
+  (interactive)
+  (if-let* ((id (lispm-desktop-store--selected-id)))
+      (lispm-desktop-store-show-log id)
     (user-error "Select an item first")))
 
 (defun lispm-desktop-store--install-commands (props)
@@ -1811,6 +2311,8 @@ hides it, as Return does, rather than pressing the item's button."
   "i" #'lispm-desktop-store-toggle-information
   "u" #'lispm-desktop-store-update-selected
   "D" #'lispm-desktop-store-remove-selected
+  "." #'lispm-desktop-store-stop-selected
+  "l" #'lispm-desktop-store-show-log-selected
   "w" #'lispm-desktop-store-copy-install-command
   "+" #'lispm-desktop-store-install-from-url
   "g" #'lispm-desktop-store-check-for-updates
@@ -1857,7 +2359,13 @@ The catalogs are fetched the first time it opens after Emacs starts."
     `((:label ,(or (car action) "Get") :action lispm-desktop-store-act-selected :key "RET"
               :enabled ,(and (cdr action) t))
       (:label "Remove" :action lispm-desktop-store-remove-selected :key "D"
-              :enabled ,(and id (lispm-desktop-store-installed-p id)))
+              :enabled ,(and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id))))
+      (:label "Stop" :action lispm-desktop-store-stop-selected :key "."
+              :enabled ,(and id (lispm-desktop-store--busy-p id)
+                             (lispm-desktop-store--stoppable-p (lispm-desktop-store--job id)) t))
+      (:label "Show Log" :action lispm-desktop-store-show-log-selected :key "l"
+              :enabled ,(and id (lispm-desktop-store--job id)
+                             (buffer-live-p (lispm-desktop-store-job-log (lispm-desktop-store--job id)))))
       (:label "Copy Install Command" :action lispm-desktop-store-copy-install-command :key "w"
               :enabled ,(and props (plist-get props :install) t))
       separator

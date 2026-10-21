@@ -153,13 +153,18 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   and the selected item's information below.  An extension whose program is not on ~PATH~ is
   greyed out, its information saying how to install the program.  Nothing is installed unasked:
   where a package comes from and the commit it is pinned to shows under the window while an
-  alert asks, and an update shows what changes.  Install from URL… takes a git URL: a repository
-  with a catalog becomes one more catalog, any other Emacs package an application.  The λ menu
-  and the desktop's App Store icon open it; the λ menu lists the applications installed, and so
-  does the desktop's Applications folder.  The keyboard does all of it: =C-f=, =C-b=, =C-n=, =C-p=
-  from icon to icon, =M-n=, =M-p= from category to category, =RET= or =SPC= presses the selected
-  item's button, =/= searches, =i= shows its information, =u= updates, =D= removes, =g= checks the
-  catalogs, =+= installs from a URL.
+  alert asks, and an update shows what changes.  Packages are installed and updated in an Emacs
+  of their own, in the background, one after another, so the desktop goes on meanwhile: the
+  item's button gives way to Mac OS 9's progress bar and its subtitle to what is being done
+  (waiting, downloading, building); its information says how far, and Stop under the grid stops
+  it, what it installed undone.  One that fails says why, offers Try Again, and Show Log shows
+  what its Emacs said.  Install from URL… takes a git URL: a repository with a catalog becomes
+  one more catalog, any other Emacs package an application.  The λ menu and the desktop's App
+  Store icon open it; the λ menu lists the applications installed, and so does the desktop's
+  Applications folder.  The keyboard does all of it: =C-f=, =C-b=, =C-n=, =C-p= from icon to
+  icon, =M-n=, =M-p= from category to category, =RET= or =SPC= presses the selected item's button,
+  =/= searches, =i= shows its information, =u= updates, =D= removes, =.= stops an install, =l=
+  shows the log of one that failed, =g= checks the catalogs, =+= installs from a URL.
 - *The applications* the App Store installs, Emacs packages written for Emacs's own windows, get
   the desktop's interface in theirs: their name and icon in the title bar, not a buffer's name;
   a strip of push buttons for their main commands (New Game, Pause, Update); what they report
