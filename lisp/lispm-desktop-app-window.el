@@ -431,12 +431,17 @@ and the application stays in front."
 (define-derived-mode lispm-desktop-app-window-mode special-mode "Window"
   "Major mode a floating window's own buffer derives from, as the Finder
 window's and Control Panels': no cursor, no fringes, no wrapped or
-numbered lines."
+numbered lines, and no scrolling sideways after point."
   (visual-line-mode -1)
   (setq-local cursor-type nil
               evil-emacs-state-cursor '(nil)
               evil-normal-state-cursor '(nil)
               truncate-lines t
+              ;; Such a buffer is drawn to its window's width, often a line
+              ;; as one image as wide as the window.  Scrolling moves point,
+              ;; unseen, and leaves it after such an image now and then:
+              ;; following it would shift the whole window sideways.
+              auto-hscroll-mode nil
               left-fringe-width 0
               right-fringe-width 0
               show-trailing-whitespace nil)
