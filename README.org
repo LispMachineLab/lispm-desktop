@@ -124,7 +124,8 @@ and Platinum, Mac OS 9's own greys with black on white and the Lavender accent.
   or any other installed); Desktop the desktop's colour, its picture and how the picture covers
   it (fill, fit, center, tile), and arranges its icons; Keyboard Vim or Emacs keys; Internet the
   browser's home page and search address, its history and its bookmarks; Network the proxy every
-  connection goes through (see [[*A proxy][A proxy]]); Software Update keeps LispM up to date (see
+  connection goes through (see [[*A proxy][A proxy]]); Startup whether LispM opens at login and
+  what it opens once started (see [[*Startup][Startup]]); Software Update keeps LispM up to date (see
   [[*Updating][Updating]]).  Each choice takes effect at once where it can
   and is kept for the next start.
 - *The App Store*, laid out as the Mac App Store in Mac OS 9's forms, installs what LispM runs
@@ -543,6 +544,36 @@ personal.el can set it too:
 (setq lispm-desktop-proxy-type 'socks5            ; or 'http; nil for none
       lispm-desktop-proxy-server "127.0.0.1:7890"
       lispm-desktop-proxy-exceptions '("intranet.example"))
+#+end_src
+
+* Startup
+
+The Startup control panel chooses what starts with LispM.
+
+Open LispM when you log in has the computer open LispM at login, the same application and
+configuration that runs now.  On macOS it is a launch agent,
+=~/Library/LaunchAgents/org.lispmachinelab.lispm.login.plist=, running =open -a= on LispM.app
+(or the Emacs.app LispM runs in), which System Settings lists in its Login Items; on GNU/Linux an
+autostart entry, =~/.config/autostart/lispm.desktop=, which GNOME, KDE and the other desktops
+read.  The file is the setting: LispM writes it when the box is checked and deletes it when it is
+unchecked.
+
+Startup Items, as the Startup Items folder of Mac OS 9's System Folder, are opened once LispM has
+started and the desktop shows, in their order: applications (the desktop's and the App Store's),
+documents (in the editor) and folders (in the Finder window), programs and Emacs commands.  A
+program is a shell command run in the background while LispM runs, as a service, in a directory
+of its choice; its output goes to a buffer of its own (=*Startup: NAME*=), quitting LispM stops
+it without asking, and the panel tells whether it runs.  Each item has a check box that turns it
+off without taking it out; Add…, Remove… and Open… do the rest.  personal.el can set both:
+
+#+begin_src emacs-lisp
+(lispm-desktop-open-at-login t)
+(setq lispm-desktop-startup-items
+      '((:program "ollama serve")                    ; :name, :directory optional
+        (:app browser)
+        (:file "~/notes/todo.org")
+        (:command lispm-desktop-shell-new)
+        (:program "npm run dev" :name "Site" :directory "~/site/" :disabled t)))
 #+end_src
 
 * Updating
