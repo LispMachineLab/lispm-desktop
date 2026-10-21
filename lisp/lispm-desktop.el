@@ -83,6 +83,7 @@
 (require 'lispm-desktop-update)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-store)
+(require 'lispm-desktop-app-yeetube)
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
 (require 'lispm-desktop-strip)

@@ -6973,6 +6973,123 @@ category and its description, from which the interface tells a game."
       (should (equal (mapcar #'cadr (funcall (plist-get app :menus))) '("File" "Help"))))
     (should-not (lispm-desktop-app-ui-game-p 'calc))))
 
+(ert-deftest lispm-desktop-test-app-ui-own-menu-in-its-window ()
+  "A skin's own menu lists its items as they stand in the application's
+window, whichever buffer is current as the menu drops."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (lispm-desktop-apps (list (list 'test :name "Test"))))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode
+      :menu (cons "Thing" (lambda () (list (list :label (buffer-name) :action #'ignore)))))
+    (save-window-excursion
+      (with-temp-buffer
+        (lispm-desktop-test-app-mode)
+        (switch-to-buffer (current-buffer))
+        (let* ((name (buffer-name))
+               (menu (car (lispm-desktop-app-ui--mode-menus 'test (selected-window)))))
+          (should (equal (nth 1 menu) "Thing"))
+          (with-temp-buffer
+            (should (equal (plist-get (car (funcall (nth 2 menu))) :label) name))))))))
+
+;;;; Yeetube
+
+(defvar yeetube-items)
+(defvar yeetube--buffer-name)
+
+(ert-deftest lispm-desktop-test-app-yeetube-described ()
+  "Yeetube opens on its own command, titled by its name, and every command
+and function its buttons and page name is one."
+  (let ((skin (alist-get 'yeetube-mode lispm-desktop-app-ui-skins)))
+    (should (eq (plist-get skin :app) 'yeetube))
+    (should (equal (plist-get skin :title) "Yeetube"))
+    (should (eq (plist-get (lispm-desktop-app-ui--app-skin 'yeetube) :run) #'lispm-desktop-app-yeetube))
+    (should (equal (mapcar #'car (plist-get skin :buttons))
+                   '("Search…" "Play" "Download" "Save…" "More Results")))
+    (dolist (button (plist-get skin :buttons))
+      (when-let* ((enabled (nth 2 button)))
+        (should (fboundp enabled))))
+    (should (fboundp (nth 2 (plist-get skin :empty))))
+    (should (fboundp (cdr (plist-get skin :menu))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-page-until-searched ()
+  "Yeetube's page shows until something is searched, offering to search,
+and to play a saved video once one is saved."
+  (let ((predicate (car (plist-get (alist-get 'yeetube-mode lispm-desktop-app-ui-skins) :empty))))
+    (with-temp-buffer
+      (should (funcall predicate))
+      (setq-local yeetube--current-url "https://youtube.com/search?q=emacs")
+      (should-not (funcall predicate)))
+    (cl-letf (((symbol-function 'lispm-desktop-app-yeetube--saved-p) #'ignore))
+      (should (equal (mapcar #'car (lispm-desktop-app-yeetube--empty-buttons)) '("Search…"))))
+    (cl-letf (((symbol-function 'lispm-desktop-app-yeetube--saved-p) #'always))
+      (should (equal (mapcar #'car (lispm-desktop-app-yeetube--empty-buttons)) '("Search…" "Play Saved…"))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-query ()
+  "Yeetube's status says what its list shows from the address it fetched:
+the words searched, decoded, those searched in a channel, a channel's
+videos or streams."
+  (should (equal (lispm-desktop-app-yeetube-query "https://youtube.com/search?q=emacs%20org%20mode&sp=CAISAhAB")
+                 "“emacs org mode”"))
+  (should (equal (lispm-desktop-app-yeetube-query
+                  (concat "https://youtube.com/search?q=" (url-hexify-string "λ calculus")))
+                 "“λ calculus”"))
+  (should (equal (lispm-desktop-app-yeetube-query "https://youtube.com/@SystemCrafters/videos")
+                 "@SystemCrafters, Videos"))
+  (should (equal (lispm-desktop-app-yeetube-query "https://youtube.com/@SystemCrafters/search?query=org")
+                 "“org” in @SystemCrafters"))
+  (should-not (lispm-desktop-app-yeetube-query nil)))
+
+(ert-deftest lispm-desktop-test-app-yeetube-status ()
+  "Yeetube's status says what was searched and, once its results are
+listed, how many videos and playlists came, and what mpv plays."
+  (should (equal (lispm-desktop-app-yeetube-count nil) "No videos"))
+  (should (equal (lispm-desktop-app-yeetube-count '((:type video))) "1 video"))
+  (should (equal (lispm-desktop-app-yeetube-count '((:type video) (:type video) (:type playlist)))
+                 "2 videos, 1 playlist"))
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'lispm-desktop-app-yeetube--playing) #'ignore))
+      (should-not (lispm-desktop-app-yeetube--status))
+      (setq-local yeetube--current-url "https://youtube.com/search?q=emacs")
+      (insert "Loading...")
+      (should (equal (lispm-desktop-app-yeetube--status) '("“emacs”" "Searching…")))
+      (erase-buffer)
+      (insert "Title\n" (propertize "One\n" 'tabulated-list-id "a1"))
+      (dlet ((yeetube-items '((:id "a1" :type video))))
+        (should (equal (lispm-desktop-app-yeetube--status) '("“emacs”" "1 video")))))
+    (cl-letf (((symbol-function 'lispm-desktop-app-yeetube--playing) (lambda () "One")))
+      (dlet ((yeetube-items '((:id "a1" :type video))))
+        (should (equal (car (last (lispm-desktop-app-yeetube--status))) "Playing: One"))))))
+
+(ert-deftest lispm-desktop-test-app-yeetube-results-in-their-window ()
+  "Results coming once another window is selected are shown in the window
+already showing Yeetube's list, point on the first of them, under the
+columns' names."
+  (let ((yeetube--buffer-name " *lispm-desktop-test-yeetube*")
+        (shown-in nil))
+    (save-window-excursion
+      (delete-other-windows)
+      (let* ((list-window (selected-window))
+             (other (split-window))
+             (buffer (get-buffer-create yeetube--buffer-name)))
+        (unwind-protect
+            (progn
+              (set-window-buffer list-window buffer)
+              (select-window other)
+              (lispm-desktop-app-yeetube--render-in-place
+               (lambda (title)
+                 (setq shown-in (selected-window))
+                 (with-current-buffer buffer
+                   (let ((inhibit-read-only t))
+                     (erase-buffer)
+                     (insert "Title\n" (propertize (concat title "\n") 'tabulated-list-id "a1"))
+                     (goto-char (point-min)))))
+               "One")
+              (should (eq shown-in list-window))
+              (should (eq (selected-window) other))
+              (with-current-buffer buffer
+                (should (equal (tabulated-list-get-id) "a1"))
+                (should (equal (get-text-property (window-point list-window) 'tabulated-list-id) "a1"))))
+          (kill-buffer buffer))))))
+
 (ert-deftest lispm-desktop-test-platinum-info-placards ()
   "A window's bottom shows each string its info returns on a placard of its
 own, and none when it returns nil, not the buffer's name."
