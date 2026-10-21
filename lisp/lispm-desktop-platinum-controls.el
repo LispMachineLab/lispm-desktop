@@ -906,6 +906,22 @@ button keeps its place as the keyboard comes and goes."
                (list 'tab-edge width)
                (lambda () (lispm-desktop-platinum-draw-tab-edge lispm-desktop-platinum-current-palette width)))))
 
+(defconst lispm-desktop-platinum--tabs-lead 8
+  "Pixels of the pane's edge before a row of tabs.")
+
+(defun lispm-desktop-platinum--tab-width (label face)
+  "Return the width in pixels of a tab reading LABEL in FACE."
+  (+ (lispm-desktop-platinum-content-width label face)
+     (* 2 lispm-desktop-platinum-tab-padding)))
+
+(defun lispm-desktop-platinum-tabs-width (labels &optional face)
+  "Return the width in pixels a row of tabs reading LABELS takes, as
+`lispm-desktop-platinum-tabs' draws it in FACE, the pane's edge after
+them left out: the narrowest the row fits in."
+  (let ((face (or face 'lispm-desktop-platinum-title)))
+    (apply #'+ lispm-desktop-platinum--tabs-lead
+           (mapcar (lambda (label) (+ (lispm-desktop-platinum--tab-width label face) 2)) labels))))
+
 (defun lispm-desktop-platinum-tabs (tabs width &optional face)
   "Return a row of TABS standing on their pane's edge, WIDTH pixels wide.
 Each tab is (LABEL FRONT . PROPERTIES): LABEL shown as Emacs would show
@@ -914,12 +930,11 @@ front; PROPERTIES, text properties the tab's string carries, such as its
 keymap and help.  The row opens with a short run of the pane's edge and
 runs it on to WIDTH, as Mac OS 9 drew a tab control along its pane."
   (let* ((face (or face 'lispm-desktop-platinum-title))
-         (lead 8)
+         (lead lispm-desktop-platinum--tabs-lead)
          (used lead)
          (parts
           (mapcar (pcase-lambda (`(,label ,front . ,properties))
-                    (let ((tab-width (+ (lispm-desktop-platinum-content-width label face)
-                                        (* 2 lispm-desktop-platinum-tab-padding))))
+                    (let ((tab-width (lispm-desktop-platinum--tab-width label face)))
                       (setq used (+ used tab-width 2))
                       (concat (apply #'propertize " " 'display
                                      (lispm-desktop-platinum-image

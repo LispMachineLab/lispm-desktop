@@ -43,6 +43,9 @@
 ;;                  interface: buttons, status, menus, keys, boards drawn
 ;;   Software Update  LispM kept up to date, checked daily and installed
 ;;                  as it quits, in Control Panels
+;;   Startup        LispM opened at login, and startup items opened once
+;;                  it has started: applications, documents, programs
+;;                  run as services, commands; in Control Panels
 ;;   guide          a tour of all this, as Apple Guide gave one, the
 ;;                  first time LispM starts and from the Help menu (C-c ?)
 ;;
@@ -84,6 +87,7 @@
 (require 'lispm-desktop-finder)
 (require 'lispm-desktop-settings)
 (require 'lispm-desktop-update)
+(require 'lispm-desktop-startup)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-store)
 (require 'lispm-desktop-app-games)
@@ -181,6 +185,7 @@ boxes.  A download that fails, as offline, is only reported."
           (lispm-desktop-setup-browser-places)
           (lispm-desktop-setup-settings)
           (lispm-desktop-setup-update)
+          (lispm-desktop-setup-startup)
           (lispm-desktop-setup-app-windows)
           (lispm-desktop-setup-app-ui)
           (lispm-desktop-setup-app-games)

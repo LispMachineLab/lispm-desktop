@@ -38,6 +38,9 @@
 ;;               and its bookmarks
 ;;   Network     the proxy every connection LispM makes goes through, see
 ;;               lispm-desktop-proxy.el
+;;   Startup     whether the computer opens LispM at login, and the
+;;               startup items LispM opens once started, see
+;;               lispm-desktop-startup.el
 ;;   Software Update  Update Now, and how LispM checks for updates and
 ;;               installs them by itself, see lispm-desktop-update.el
 ;;
@@ -55,6 +58,7 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-update)
 (require 'lispm-desktop-proxy)
+(require 'lispm-desktop-startup)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -84,6 +88,7 @@
     (keyboard "Keyboard" lispm-desktop-settings--keyboard "keyboard-32")
     (browser "Internet" lispm-desktop-settings--browser "globe-32" lispm-desktop-settings--browser-p)
     (network "Network" lispm-desktop-settings--network "network-32")
+    (startup "Startup" lispm-desktop-settings--startup "startup-32")
     (update "Software Update" lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
 INSERT fills the window with the panel, ICON is its large icon in the
@@ -481,6 +486,137 @@ and the hosts reached directly."
   (lispm-desktop-settings--note "Hosts reached directly, not through the proxy, and their")
   (lispm-desktop-settings--note "subdomains; this computer's own addresses always are."))
 
+(defun lispm-desktop-settings--startup-read-item ()
+  "Ask what LispM is to open at startup; return it as a startup item, see
+`lispm-desktop-startup-items'."
+  (let* ((kinds '(("Application" . app) ("Document or folder" . file)
+                  ("Program, run in the background" . program) ("Emacs command" . command)))
+         (kind (or (cdr (assoc (completing-read "Open at startup: " kinds nil t) kinds))
+                   (user-error "Choose what to open"))))
+    (pcase kind
+      ('app
+       (let ((apps (mapcar (pcase-lambda (`(,key . ,properties)) (cons (plist-get properties :name) key))
+                           lispm-desktop-apps)))
+         (list :app (or (cdr (assoc (completing-read "Application: " apps nil t) apps))
+                        (user-error "Choose an application")))))
+      ('file
+       (list :file (abbreviate-file-name (read-file-name "Document or folder: " nil nil t))))
+      ('program
+       (let ((command (string-trim (read-string "Program, as a shell command: "))))
+         (when (string-empty-p command)
+           (user-error "Type the command running the program"))
+         (let* ((directory (abbreviate-file-name
+                            (file-name-as-directory (read-directory-name "Run it in: " "~/" nil t))))
+                (default (lispm-desktop-startup-program-name command))
+                (name (string-trim (read-string "Name: " default))))
+           `(:program ,command
+             ,@(unless (equal directory "~/") (list :directory directory))
+             ,@(unless (or (string-empty-p name) (equal name default)) (list :name name))))))
+      ('command
+       (list :command (intern (completing-read "Emacs command: " obarray #'commandp t)))))))
+
+(defun lispm-desktop-settings--startup-add ()
+  "Ask what LispM is to open at startup, and add it to the startup items,
+after the others."
+  (let* ((item (lispm-desktop-settings--startup-read-item))
+         (name (lispm-desktop-startup-item-name item)))
+    (when (member name (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items))
+      (user-error "There is already a startup item called “%s”" name))
+    (lispm-desktop-settings--save 'lispm-desktop-startup-items
+                                  (append lispm-desktop-startup-items (list item)))))
+
+(defun lispm-desktop-settings--startup-choose (prompt)
+  "Ask with PROMPT for one of the startup items, the first by default;
+return its index."
+  (let ((names (or (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)
+                   (user-error "There are no startup items"))))
+    (seq-position names (completing-read prompt names nil t nil nil (car names)))))
+
+(defun lispm-desktop-settings--startup-remove ()
+  "Ask for a startup item and take it out of the startup items.  What it
+opened stays open; a program it runs runs on."
+  (let ((index (lispm-desktop-settings--startup-choose "Remove the startup item: ")))
+    (lispm-desktop-settings--save 'lispm-desktop-startup-items
+                                  (append (seq-take lispm-desktop-startup-items index)
+                                          (seq-drop lispm-desktop-startup-items (1+ index))))))
+
+(defun lispm-desktop-settings--startup-open ()
+  "Ask for a startup item and open it now; a program's output shows."
+  (lispm-desktop-startup-open-item
+   (nth (lispm-desktop-settings--startup-choose "Open the startup item: ") lispm-desktop-startup-items)
+   t))
+
+(defun lispm-desktop-settings--startup-toggle (index)
+  "Turn the startup item at INDEX off when it is on, on when it is off."
+  (lispm-desktop-settings--save
+   'lispm-desktop-startup-items
+   (seq-map-indexed (lambda (item i)
+                      (if (= i index)
+                          (lispm-desktop-startup-item-with item :disabled (not (plist-get item :disabled)))
+                        item))
+                    lispm-desktop-startup-items)))
+
+(defun lispm-desktop-settings--startup-item-note (item)
+  "Return what the Startup panel says of ITEM after its name."
+  (pcase (lispm-desktop-startup-item-kind item)
+    ('app "application")
+    ('file (let ((file (expand-file-name (plist-get item :file))))
+             (format "%s in %s" (if (file-directory-p file) "folder" "document")
+                     (abbreviate-file-name (file-name-directory (directory-file-name file))))))
+    ;; How it runs first, as the command may be cut short.
+    ('program (format "%s: %s"
+                      (pcase (lispm-desktop-startup-program-status item)
+                        ('running "running")
+                        (`(exited . ,(and code (pred integerp))) (format "stopped, exit %d" code))
+                        (`(exited . ,_) "stopped")
+                        (_ "program"))
+                      (plist-get item :program)))
+    ('command (let ((command (symbol-name (plist-get item :command))))
+                (if (equal command (lispm-desktop-startup-item-name item))
+                    "Emacs command"
+                  (format "Emacs command %s" command))))
+    (_ "names nothing to open")))
+
+(defun lispm-desktop-settings--startup ()
+  "Insert the Startup panel: whether the computer opens LispM at login,
+and the startup items LispM opens once started."
+  (lispm-desktop-settings--heading "Login")
+  (if (not (lispm-desktop-startup-login-file))
+      (lispm-desktop-settings--note "This system gives LispM no way to open at login.")
+    (lispm-desktop-settings--check-box
+     "Open LispM when you log in" (lispm-desktop-startup-login-p)
+     (lambda () (lispm-desktop-open-at-login (not (lispm-desktop-startup-login-p)))))
+    (lispm-desktop-settings--note
+     (lispm-desktop-settings--truncate (format "Opens %s." (lispm-desktop-startup-login-description)) 62))
+    (when (eq system-type 'darwin)
+      (lispm-desktop-settings--note "System Settings lists it in its Login Items.")))
+  (lispm-desktop-settings--heading "Startup Items")
+  (lispm-desktop-settings--note "Opened once LispM has started, in this order:")
+  (if (null lispm-desktop-startup-items)
+      (lispm-desktop-settings--note "None.")
+    (seq-do-indexed
+     (lambda (item index)
+       (let ((name (lispm-desktop-startup-item-name item)))
+         (lispm-desktop-settings--check-box
+          name (not (plist-get item :disabled))
+          (lambda () (lispm-desktop-settings--startup-toggle index))
+          (lispm-desktop-settings--truncate (lispm-desktop-settings--startup-item-note item)
+                                            (max 12 (- 54 (length name)))))))
+     lispm-desktop-startup-items))
+  (insert "\n" lispm-desktop-settings--indent)
+  (lispm-desktop-settings--button "Add…" #'lispm-desktop-settings--startup-add
+                                  "Add an application, a document, a program or a command")
+  (when lispm-desktop-startup-items
+    (insert " ")
+    (lispm-desktop-settings--button "Remove…" #'lispm-desktop-settings--startup-remove
+                                    "Take an item out of the startup items")
+    (insert " ")
+    (lispm-desktop-settings--button "Open…" #'lispm-desktop-settings--startup-open
+                                    "Open an item now, or show a program's output"))
+  (insert "\n\n")
+  (lispm-desktop-settings--note "A program runs in the background while LispM runs, and")
+  (lispm-desktop-settings--note "stops as it quits; its output is in its own buffer."))
+
 (defun lispm-desktop-settings--when (time)
   "Return TIME as the Software Update panel tells it: today at 23:50, or
 on a day before, 18 October 2026 at 09:12."
@@ -701,8 +837,13 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
         (current-buffer))))
 
 (defun lispm-desktop-settings--default-geometry (screen)
-  "Return where the control panel's window opens first: the middle of SCREEN."
-  (let ((width 520)
+  "Return where the control panel's window opens first: the middle of
+SCREEN, wide enough for every panel's tab."
+  (let ((width (max 520 (+ (lispm-desktop-platinum-tabs-width
+                            (mapcar #'cadr (lispm-desktop-settings--panels)))
+                           ;; The window's sides, and a little of the
+                           ;; pane's edge after the last tab.
+                           24)))
         (height 500))
     (list (max 20 (/ (- (frame-inner-width screen) width) 2))
           (+ (lispm-desktop-app-window-menu-bar-height screen) 50)
@@ -776,7 +917,8 @@ when they change."
   (setf (alist-get 'control-panels lispm-desktop-finder-folders)
         '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-settings--render)) 95)
-  (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render))
+  (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render)
+  (add-hook 'lispm-desktop-startup-changed-hook #'lispm-desktop-settings--render))
 
 (provide 'lispm-desktop-settings)
 ;;; lispm-desktop-settings.el ends here
