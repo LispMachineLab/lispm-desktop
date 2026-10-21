@@ -6051,6 +6051,18 @@ again with the desktop in front."
       (lispm-desktop-app-window--follow-frontmost 'elfeed)
       (should (equal (nreverse calls) '(hide show))))))
 
+(ert-deftest lispm-desktop-test-app-window-no-hscroll ()
+  "A floating window's own buffer, drawn to the window's width, never
+scrolls sideways after point, as the App Store's did when scrolling left
+point after a line of its grid."
+  (with-temp-buffer
+    (lispm-desktop-app-window-mode)
+    (should-not auto-hscroll-mode)
+    (should truncate-lines))
+  (with-temp-buffer
+    (lispm-desktop-store-mode)
+    (should-not auto-hscroll-mode)))
+
 (ert-deftest lispm-desktop-test-app-window-close-box ()
   "The close box of an application's window closes the window alone while
 others share the application's frame, else the application's window."
