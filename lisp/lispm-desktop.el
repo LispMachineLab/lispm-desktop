@@ -89,6 +89,7 @@
 (require 'lispm-desktop-store)
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
+(require 'lispm-desktop-app-emms)
 (require 'lispm-desktop-strip)
 (require 'lispm-desktop-exwm)
 (require 'lispm-desktop-languages)

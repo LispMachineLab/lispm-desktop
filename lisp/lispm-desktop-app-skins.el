@@ -35,9 +35,8 @@
 ;;   Elfeed      its entries in the list face, the line point is on
 ;;               highlighted; a page saying how to begin while it has
 ;;               no feeds
-;;   EMMS        its library in the list face, the player's buttons,
-;;               what is playing on the window's bottom; a page while
-;;               it knows no music, and its players set up once
+;;
+;; EMMS has a file of its own, lispm-desktop-app-emms.el.
 
 ;;; Code:
 
@@ -64,8 +63,6 @@
 (defvar elfeed-search-filter)
 (defvar elfeed-search-entries)
 (defvar elfeed-feeds)
-(defvar emms-player-list)
-(defvar emms-cache-db)
 (declare-function calc "calc" (&optional arg full-display interactive))
 (declare-function calc-refresh "calc" (&optional align))
 (declare-function calc-eval "calc" (str &optional separator &rest args))
@@ -84,14 +81,6 @@
 (declare-function calendar-check-holidays "holidays" (date))
 (declare-function elfeed-db-last-update "elfeed-db" ())
 (declare-function elfeed-tagged-p "elfeed-db" (tag entry))
-(declare-function emms-all "emms-setup" ())
-(declare-function emms-default-players "emms-setup" ())
-(declare-function emms-browser "emms-browser" ())
-(declare-function emms-browse-by-artist "emms-browser" ())
-(declare-function emms-add-directory-tree "emms-source-file" (dir))
-(declare-function emms-add-file "emms-source-file" (file))
-(declare-function emms-playlist-current-selected-track "emms" ())
-(declare-function emms-track-description "emms" (track))
 
 ;;;; Calculator
 
@@ -446,69 +435,6 @@ holidays."
   :prose t
   :buttons '(("Back" elfeed-kill-buffer) ("Previous" elfeed-show-prev) ("Next" elfeed-show-next)
              ("Open in Browser" elfeed-show-visit)))
-
-;;;; EMMS
-
-(defun lispm-desktop-app-skins-emms ()
-  "Open EMMS's browser of the music it knows, its players set up the first
-time, as EMMS's manual says: without them it can play nothing."
-  (interactive)
-  (require 'emms-setup)
-  (unless (bound-and-true-p emms-player-list)
-    (emms-all)
-    (emms-default-players))
-  (emms-browser))
-
-(defun lispm-desktop-app-skins--emms-library-empty-p ()
-  "Return non-nil while EMMS knows no music."
-  (or (not (boundp 'emms-cache-db)) (not (hash-table-p emms-cache-db))
-      (zerop (hash-table-count emms-cache-db))))
-
-(defun lispm-desktop-app-skins--emms-browse-later ()
-  "Browse the music EMMS knows once it has read what was just added."
-  (let ((window (selected-window)))
-    (run-at-time 3 nil (lambda ()
-                         (when (window-live-p window)
-                           (with-selected-window window (emms-browse-by-artist)))))))
-
-(defun lispm-desktop-app-skins-emms-add-folder ()
-  "Add a folder of music, and everything in it, to what EMMS knows."
-  (interactive)
-  (call-interactively #'emms-add-directory-tree)
-  (lispm-desktop-app-skins--emms-browse-later))
-
-(defun lispm-desktop-app-skins-emms-add-file ()
-  "Add a file of music to what EMMS knows."
-  (interactive)
-  (call-interactively #'emms-add-file)
-  (lispm-desktop-app-skins--emms-browse-later))
-
-(defun lispm-desktop-app-skins--emms-status ()
-  "Return what EMMS's bottom says: what is playing, if anything."
-  (when-let* (((bound-and-true-p emms-player-playing-p))
-              (track (emms-playlist-current-selected-track)))
-    (list (concat (if (bound-and-true-p emms-player-paused-p) "Paused: " "Playing: ")
-                  (emms-track-description track)))))
-
-(lispm-desktop-app-ui-define 'emms-browser-mode
-  :app 'emms
-  :run #'lispm-desktop-app-skins-emms
-  :list t
-  :title "EMMS"
-  :status #'lispm-desktop-app-skins--emms-status
-  :buttons `((,(lambda () (if (bound-and-true-p emms-player-paused-p) "Play" "Pause")) emms-pause
-              ,(lambda () (bound-and-true-p emms-player-playing-p)))
-             ("Stop" emms-stop ,(lambda () (bound-and-true-p emms-player-playing-p)))
-             ("Previous" emms-previous) ("Next" emms-next)
-             ("Add Folder…" lispm-desktop-app-skins-emms-add-folder))
-  :empty `(lispm-desktop-app-skins--emms-library-empty-p
-           ,(concat "No music yet.\nAdd a folder of music, and browse it here\n"
-                    "by artist, album, genre or year.")
-           (("Add Folder…" lispm-desktop-app-skins-emms-add-folder)
-            ("Add File…" lispm-desktop-app-skins-emms-add-file)))
-  :keys '(("Return" . "Add to the playlist") ("C-j" . "Add and play") ("SPC" . "Show or hide what is under")
-          ("n  p" . "Next and previous line") ("b 1 … b 7" . "Browse by artist, album, genre, year…")
-          ("s a  s t" . "Search artists, titles") ("+  −" . "Louder, softer")))
 
 (provide 'lispm-desktop-app-skins)
 ;;; lispm-desktop-app-skins.el ends here
