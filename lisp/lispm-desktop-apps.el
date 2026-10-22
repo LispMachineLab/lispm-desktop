@@ -342,7 +342,12 @@ size, and once more after it went full screen or back, when the window
 system is done with them.  This is a `window-size-change-functions'
 function."
   (unless (or (frame-parent frame) (lispm-desktop-platinum-chrome-frame-p frame))
-    (lispm-desktop-apps--place-windows frame)
+    ;; A text terminal resizes a window at once, inside this hook, and
+    ;; Emacs then runs none of the window's own size hooks: its contents
+    ;; would keep their old width.  They are placed just after instead.
+    (if (lispm-desktop-tty-p frame)
+        (run-at-time 0 nil #'lispm-desktop-apps--place-windows frame)
+      (lispm-desktop-apps--place-windows frame))
     (let ((fullscreen (frame-parameter frame 'fullscreen)))
       (unless (equal fullscreen (frame-parameter frame 'lispm-desktop-apps-fullscreen))
         (set-frame-parameter frame 'lispm-desktop-apps-fullscreen fullscreen)

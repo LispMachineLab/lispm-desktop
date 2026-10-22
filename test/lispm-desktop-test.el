@@ -11839,23 +11839,148 @@ apart under the message, none overlapping, every line as wide."
         (should (string-match-p "\\[ Save \\]" (car (last lines 2))))))))
 
 (ert-deftest lispm-desktop-test-tty-desktop ()
-  "Where images cannot be shown the desktop is text: its icons down the
-right edge from under the menu bar, each a character over its name, the
-Trash in the bottom corner, the one selected inverted; clicks find them
-by the text."
+  "Where images cannot be shown the desktop is text: its icons drawn in
+cells, each over its name, down the right edge from under the menu bar
+and on in a second column, the Trash in the bottom corner, the one
+selected darkened and its name inverted; clicks find them by the text."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
   (lispm-desktop-test--on-tty
     (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
       (with-temp-buffer
         (setq lispm-desktop--selected 'editor)
-        (let ((lines (split-string (lispm-desktop--text-desktop 60 20) "\n")))
-          (should (= (length lines) 20))
-          (should (> (string-search "Home" (nth 2 lines)) 40))
-          (should (string-match-p "Emacs" (nth 5 lines)))
-          (should (string-match-p "Trash" (nth 18 lines)))
-          (should (eq (get-text-property (string-search "Home" (nth 2 lines)) 'lispm-desktop-item (nth 2 lines))
+        (let ((lines (split-string (lispm-desktop--text-desktop 100 50) "\n")))
+          (should (= (length lines) 50))
+          (should (seq-every-p (lambda (line) (= (string-width line) 99)) lines))
+          ;; 16-pixel icons, 8 lines each, their names under them.
+          (should (> (string-search "Home" (nth 9 lines)) 70))
+          (should (eq (get-text-property (string-search "Home" (nth 9 lines)) 'lispm-desktop-item (nth 9 lines))
                       'home))
-          (should (eq (get-text-property (string-search "Emacs" (nth 5 lines)) 'face (nth 5 lines))
-                      'lispm-desktop-label-selected)))))))
+          (let ((cell (string-match-p "[▀▄]" (nth 4 lines))))
+            (should cell)
+            (should (memq (get-text-property cell 'lispm-desktop-item (nth 4 lines)) '(home store))))
+          (should (eq (get-text-property (string-search "Emacs" (nth 19 lines)) 'face (nth 19 lines))
+                      'lispm-desktop-label-selected))
+          (should (string-match-p "Trash" (nth 48 lines)))
+          ;; A second column holds the rest.
+          (should (seq-some (lambda (line) (string-match-p "Control Panels" line)) lines)))
+        ;; Where the icons no longer fit, they are characters.
+        (let ((lines (split-string (lispm-desktop--text-desktop 40 12) "\n")))
+          (should (= (length lines) 12))
+          (should (seq-every-p (lambda (line) (= (string-width line) 39)) lines))
+          (should-not (seq-some (lambda (line) (string-match-p "[▀▄]" line)) lines))
+          (should (seq-some (lambda (line) (string-match-p "Home" line)) lines)))))))
+
+(defun lispm-desktop-test--svg (string)
+  "Return the SVG document STRING parsed."
+  (with-temp-buffer
+    (insert string)
+    (libxml-parse-xml-region (point-min) (point-max))))
+
+(ert-deftest lispm-desktop-test-raster-rectangles ()
+  "An icon of rectangles comes out pixel for pixel at its own size, and at
+half its size each pixel the average of the four it stands for; what no
+shape covers is clear."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((dom (lispm-desktop-test--svg
+              "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\">
+                 <rect x=\"0\" y=\"0\" width=\"2\" height=\"2\" fill=\"#FF0000\"/>
+                 <rect x=\"2\" y=\"0\" width=\"2\" height=\"1\" fill=\"#0000FF\"/>
+                 <rect x=\"2\" y=\"1\" width=\"2\" height=\"1\" fill=\"#FFFFFF\"/>
+                 <rect x=\"0\" y=\"2\" width=\"4\" height=\"2\" fill=\"#00FF00\" display=\"none\"/>
+               </svg>")))
+    (let ((pixels (lispm-desktop-platinum-raster-dom dom 4)))
+      (should (equal (aref pixels 0) ["#ff0000" "#ff0000" "#0000ff" "#0000ff"]))
+      (should (equal (aref pixels 1) ["#ff0000" "#ff0000" "#ffffff" "#ffffff"]))
+      (should (equal (aref pixels 2) [nil nil nil nil])))
+    (let ((pixels (lispm-desktop-platinum-raster-dom dom 2)))
+      (should (equal (aref pixels 0) ["#ff0000" "#8080ff"]))
+      (should (equal (aref pixels 1) [nil nil])))))
+
+(ert-deftest lispm-desktop-test-raster-crisp ()
+  "An icon asking for crisp edges keeps its colours at half its size: each
+pixel takes the colour covering most of the four it stands for, the
+darker of two covering as much, so a pixel-wide outline survives, but
+the lighter amid the darker, so what close outlines outline survives."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\" shape-rendering=\"crispEdges\">
+                     <rect x=\"0\" y=\"0\" width=\"2\" height=\"2\" fill=\"#000000\"/>
+                     <rect x=\"1\" y=\"1\" width=\"1\" height=\"1\" fill=\"#FFFFFF\"/>
+                     <rect x=\"2\" y=\"0\" width=\"2\" height=\"1\" fill=\"#0000FF\"/>
+                     <rect x=\"2\" y=\"1\" width=\"2\" height=\"1\" fill=\"#FFFFFF\"/>
+                   </svg>")
+                 2)))
+    (should (equal (aref pixels 0) ["#000000" "#0000ff"]))
+    (should (equal (aref pixels 1) [nil nil])))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\" shape-rendering=\"crispEdges\">
+                     <rect x=\"0\" y=\"0\" width=\"4\" height=\"4\" fill=\"#000000\"/>
+                     <rect x=\"1\" y=\"0\" width=\"1\" height=\"2\" fill=\"#FFFFFF\"/>
+                   </svg>")
+                 2)))
+    (should (equal (aref pixels 0) ["#ffffff" "#000000"]))))
+
+(ert-deftest lispm-desktop-test-raster-shapes ()
+  "Paths are filled, their arcs followed; a circle is round; an outline
+stays a pixel wide however small the icon, and one of no width is none."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\">
+                     <path d=\"M0 0H8L0 8Z\" fill=\"#000000\"/>
+                   </svg>")
+                 8)))
+    ;; The upper left triangle: the corner in, the opposite corner out.
+    (should (aref (aref pixels 0) 0))
+    (should (aref (aref pixels 0) 6))
+    (should-not (aref (aref pixels 7) 7)))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\">
+                     <path d=\"M0 4A4 4 0 0 1 8 4A4 4 0 0 1 0 4Z\" style=\"fill:#0000ff\"/>
+                   </svg>")
+                 8)))
+    (should (equal (aref (aref pixels 4) 4) "#0000ff"))
+    (should (aref (aref pixels 0) 4))
+    (should-not (aref (aref pixels 0) 0)))
+  (cl-flet ((outlined (width)
+              (lispm-desktop-platinum-raster-dom
+               (lispm-desktop-test--svg
+                (format "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">
+                           <rect x=\"8\" y=\"8\" width=\"48\" height=\"48\" fill=\"none\"
+                                 stroke=\"#000000\" stroke-width=\"%s\"/>
+                         </svg>" width))
+               8)))
+    (should (equal (aref (aref (outlined "1") 1) 4) "#000000"))
+    (should-not (aref (aref (outlined "0") 1) 4))))
+
+(ert-deftest lispm-desktop-test-text-picture ()
+  "Pixels are drawn two rows a line: the upper half block in the top
+pixel's colour over the bottom one's, the lower half block under a clear
+pixel, a blank for two; darkened, every colour at half its brightness."
+  (let ((lines (lispm-desktop-platinum-text-picture
+                [["#ff0000" nil nil] ["#0000ff" "#00ff00" nil]])))
+    (should (equal (mapcar #'substring-no-properties lines) '("▀▄ ")))
+    (should (equal (get-text-property 0 'face (car lines)) '(:foreground "#ff0000" :background "#0000ff")))
+    (should (equal (get-text-property 1 'face (car lines)) '(:foreground "#00ff00"))))
+  (should (equal (get-text-property 0 'face (car (lispm-desktop-platinum-text-picture [["#ff0000"]] t)))
+                 '(:foreground "#800000"))))
+
+(ert-deftest lispm-desktop-test-text-compose ()
+  "Pieces of text stand where they are put on blank lines as wide as asked,
+cut at the right edge."
+  (should (equal (lispm-desktop-platinum-text-compose 8 3 '((0 2 "ab") (2 0 "x") (2 6 "long")))
+                 '("  ab    " "        " "x     lo"))))
+
+(ert-deftest lispm-desktop-test-raster-icon-color ()
+  "Where only a character's room is left, an icon is drawn in the colour it
+is drawn in most: Mac OS 9's folders in their blue."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((color (lispm-desktop-platinum-raster-color
+                (lispm-desktop-platinum-raster (lispm-desktop-platinum-icon-file "folder") 16))))
+    (should (equal color "#9c9cff"))))
 
 (ert-deftest lispm-desktop-test-tty-window-geometry ()
   "On a text terminal a floating window opens in cells: its pixel size a
