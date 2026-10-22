@@ -73,10 +73,6 @@ floating window of its own, which ~(lispm-desktop-app-window-close ID)~ closes.
   '(("applications" . applications) ("control-panels" . control-panels))
   "The folders desktop_folder names that are no directory on disk.")
 
-(defun lispm-desktop-skill-available-p (props)
-  "Non-nil when the application of PROPS can run here."
-  (let ((visible (plist-get props :visible)))
-    (or (not visible) (and (functionp visible) (funcall visible)))))
 
 (defun lispm-desktop-skill-running-p (props)
   "Non-nil when the application of PROPS runs now."
@@ -84,8 +80,9 @@ floating window of its own, which ~(lispm-desktop-app-window-close ID)~ closes.
     (or (not running) (and (functionp running) (funcall running)))))
 
 (defun lispm-desktop-skill-apps ()
-  "The applications that can run here, as (KEY . PROPERTIES)."
-  (seq-filter (lambda (app) (lispm-desktop-skill-available-p (cdr app))) lispm-desktop-apps))
+  "The applications that can be opened here, as (KEY . PROPERTIES): those
+the App Store installed and Control Panels whether open or not."
+  (seq-filter (lambda (app) (lispm-desktop-apps-openable-p (car app))) lispm-desktop-apps))
 
 (defun lispm-desktop-skill-app (name)
   "The key of the application NAME, a key or a name, case ignored; an error

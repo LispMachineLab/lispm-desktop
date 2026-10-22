@@ -4593,13 +4593,19 @@ in the hook's order, as Spotlight's came after Mac OS X's."
 
 (ert-deftest lispm-desktop-test-bar-finds-applications ()
   "The LispM bar finds the desktop's applications and its Control Panels,
-each of which Return opens."
+each of which Return opens; one the App Store installed, its window
+closed, too."
   (skip-unless (require 'lispm-bar nil t))
   (let* ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications))
+         (lispm-desktop-apps (append lispm-desktop-apps
+                                     `((feeds :name "Feeds" :store t :activate ignore :visible ,#'ignore)
+                                       (gone :name "Gone" :activate ignore :visible ,#'ignore))))
          (things (lispm-desktop-bar-applications))
          (named (lambda (name) (seq-find (lambda (thing) (equal (plist-get thing :name) name)) things))))
     (should (funcall named "Emacs"))
     (should (funcall named "Control Panels"))
+    (should (funcall named "Feeds"))
+    (should-not (funcall named "Gone"))
     ;; The desktop is no application to open; its Control Panel is.
     (should (eq (plist-get (funcall named "Desktop") :kind) 'control-panel))
     (should (eq (plist-get (funcall named "Network") :kind) 'control-panel))
@@ -8542,7 +8548,12 @@ move a file to the Trash, which alone writes."
   (lispm-desktop-test--load-system-skill "desktop")
   (let* ((directory (file-name-as-directory (make-temp-file "lispm-desktop-test-folder" t)))
          (default-directory directory)
-         (lispm-desktop-apps lispm-desktop-apps)
+         ;; One the App Store installed, its window closed: its :visible
+         ;; lists it in the Application menu only while open.  And one
+         ;; that cannot run here.
+         (lispm-desktop-apps (append lispm-desktop-apps
+                                     `((feeds :name "Feeds" :store t :activate ignore :visible ,#'ignore)
+                                       (gone :name "Gone" :activate ignore :visible ,#'ignore))))
          (lispm-desktop-app-window--frames nil)
          (lispm-desktop-finder-folders '((applications :title "Applications")))
          (hidden nil)
@@ -8558,9 +8569,14 @@ move a file to the Trash, which alone writes."
                   ((symbol-function 'lispm-desktop-app-window-present) (lambda (id) (push (list 'raise id) done)))
                   ((symbol-function 'move-file-to-trash) (lambda (file) (push (list 'trashed file) done)))
                   ((symbol-function 'lispm-desktop-check-trash) #'ignore))
-          (should (string-search "editor: Emacs; running" (lispm-desktop-test--call "desktop_apps")))
+          (let ((apps (lispm-desktop-test--call "desktop_apps")))
+            (should (string-search "editor: Emacs; running" apps))
+            (should (string-search "feeds: Feeds; running; installed by the App Store" apps))
+            (should-not (string-search "gone" apps)))
           (lispm-desktop-test--call "desktop_open" "editor")
+          (lispm-desktop-test--call "desktop_open" "Feeds")
           (should-error (lispm-desktop-test--call "desktop_open" "no-such-application"))
+          (should-error (lispm-desktop-test--call "desktop_open" "gone"))
           (lispm-desktop-test--call "desktop_folder" "applications")
           (lispm-desktop-test--call "desktop_folder" "home")
           (lispm-desktop-test--call "desktop_folder" directory)
@@ -8576,7 +8592,7 @@ move a file to the Trash, which alone writes."
           (should (string-search "old.txt" (lispm-desktop-test--call "desktop_trash" ["old.txt"])))
           (should-error (lispm-desktop-test--call "desktop_trash" ["no-such-file"]))
           (should (equal (reverse done)
-                         `((activate editor) (folder applications) (folder "~") (folder ,directory) (trash)
+                         `((activate editor) (activate feeds) (folder applications) (folder "~") (folder ,directory) (trash)
                            (raise finder) (trashed ,(expand-file-name "old.txt" directory)))))
           (dolist (tool '("desktop_apps" "desktop_open" "desktop_folder" "desktop_windows" "desktop_window"
                           "desktop_hide"))

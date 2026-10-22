@@ -353,6 +353,18 @@ function."
         (set-frame-parameter frame 'lispm-desktop-apps-fullscreen fullscreen)
         (run-at-time 1 nil #'lispm-desktop-apps--place-windows frame t)))))
 
+(defun lispm-desktop-apps-openable-p (app)
+  "Return non-nil when APP, a key of `lispm-desktop-apps', can be opened
+here: its :activate is a function, and its :visible, if any, says it can
+run.  Control Panels and the applications the App Store installed open
+whatever their :visible says: theirs lists them in the Application menu
+only while their window is open."
+  (let* ((props (alist-get app lispm-desktop-apps))
+         (visible (plist-get props :visible)))
+    (and (functionp (plist-get props :activate))
+         (or (eq app 'settings) (plist-get props :store) (not visible)
+             (and (functionp visible) (funcall visible) t)))))
+
 (defun lispm-desktop-apps--available ()
   "Return the applications that can run here."
   (seq-filter (lambda (app)
