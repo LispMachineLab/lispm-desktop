@@ -251,7 +251,7 @@ resizes it, see `lispm-desktop-sidebar--keep-width'."
   (display-buffer-in-side-window
    buffer `((side . left)
             (slot . -1)
-            (window-width . ,lispm-desktop-sidebar-width)
+            (window-width . ,(lispm-desktop-sidebar-columns))
             (preserve-size . (t . nil))
             (dedicated . t)
             (window-parameters . ((no-delete-other-windows . t)
@@ -361,7 +361,7 @@ This is a buffer-local `window-size-change-functions' function."
 text terminal but its last two columns, see `lispm-desktop-align-right'."
   (- (if-let* ((window (get-buffer-window (current-buffer))))
          (window-body-width window t)
-       (* lispm-desktop-sidebar-width (frame-char-width)))
+       (* (lispm-desktop-sidebar-columns) (frame-char-width)))
      (if (lispm-desktop-tty-p) 2 0)))
 
 (defun lispm-desktop-sidebar--blank (spec)

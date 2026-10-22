@@ -74,9 +74,12 @@
 
 (defun lispm-desktop-loading--module-p ()
   "Return non-nil when lispm-desktop-term's module draws the pointer: it is
-loaded, and built since it learnt to."
+loaded, built since it learnt to, and the pointer is AppKit's, Emacs
+being on the Mac's display.  On a text terminal, where the module runs
+the terminals all the same, there is no pointer to draw."
   (and (featurep 'lispm-desktop-term-module)
-       (fboundp 'lispm-desktop-term-module-cursor-define)))
+       (fboundp 'lispm-desktop-term-module-cursor-define)
+       (eq window-system 'ns)))
 
 (defun lispm-desktop-loading-in-front-p (where)
   "Return non-nil when WHERE is in front.

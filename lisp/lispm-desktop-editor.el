@@ -218,9 +218,11 @@ the edge of the windows below, which runs across the strip."
           (set-window-point strip (point-min))
           (set-window-hscroll strip 0))
         (setq lispm-desktop-platinum-title (lispm-desktop-editor--title)
-              ;; Only a floating window rolls up into its title bar.
+              ;; Only a floating window rolls up into its title bar; on
+              ;; a text terminal the editor stays full screen.
               lispm-desktop-platinum-box-functions
-              `(:close lispm-desktop-editor--close-box :zoom lispm-desktop-editor--zoom-box
+              `(:close lispm-desktop-editor--close-box
+                ,@(unless (lispm-desktop-tty-p frame) '(:zoom lispm-desktop-editor--zoom-box))
                 ,@(when (lispm-desktop-editor-floating-p) '(:collapse lispm-desktop-editor--collapse-box))))
         (force-mode-line-update)
         ;; The tabs may have changed the strip's height.
@@ -542,9 +544,11 @@ return the strip's height: the editor rolls up to it."
   :roll #'lispm-desktop-editor--roll :follow nil)
 
 (defun lispm-desktop-editor-float ()
-  "Float the editor in a window of its own over the desktop."
+  "Float the editor in a window of its own over the desktop.
+On a text terminal, where a window is a grid of cells, the editor stays
+full screen."
   (interactive)
-  (unless (lispm-desktop-editor-floating-p)
+  (unless (or (lispm-desktop-editor-floating-p) (lispm-desktop-tty-p (lispm-desktop-apps-screen)))
     (let* ((screen (lispm-desktop-apps-screen))
            (lispm-desktop-editor--moving t)
            (_ (lispm-desktop-editor--take-off-chrome screen))
@@ -685,7 +689,8 @@ the editor full screen or floating."
       ,(lispm-desktop-editor--item (lispm-desktop-tr "Full Screen") #'lispm-desktop-editor-full-screen
                                    :checked (not (lispm-desktop-editor-floating-p)))
       ,(lispm-desktop-editor--item (lispm-desktop-tr "Floating Window") #'lispm-desktop-editor-float
-                                   :checked (lispm-desktop-editor-floating-p)))))
+                                   :checked (lispm-desktop-editor-floating-p)
+                                   :enabled (not (lispm-desktop-tty-p))))))
 
 (defun lispm-desktop-editor--window-items ()
   "Return the items of the editor's Window menu: the buffer manager, then

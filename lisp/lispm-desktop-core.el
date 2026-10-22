@@ -161,6 +161,14 @@ All views share it, so switching views keeps the main window's width: a
 terminal in the main window is not resized, and a full-screen program in it,
 such as a coding agent, does not redraw its whole history.")
 
+(defun lispm-desktop-sidebar-columns (&optional frame)
+  "Return the width in columns of the sidebar of FRAME, by default the
+selected one: `lispm-desktop-sidebar-width', but on a text terminal no
+more than a third of it, so a small terminal keeps room for the rest."
+  (if (lispm-desktop-tty-p frame)
+      (min lispm-desktop-sidebar-width (max 24 (/ (frame-width frame) 3)))
+    lispm-desktop-sidebar-width))
+
 (defun lispm-desktop-macos-p ()
   "Return non-nil on macOS."
   (eq system-type 'darwin))

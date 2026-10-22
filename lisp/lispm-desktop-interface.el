@@ -377,11 +377,12 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
     :bind (("C-c p t" . treemacs-add-and-display-current-project)
            ("C-c p T" . treemacs))
     :config
-    (setq treemacs-indentation-string (propertize " " 'display '(space :width (12)))
+    ;; Two blanks on a text terminal.
+    (setq treemacs-indentation-string (propertize "  " 'display '(when (display-graphic-p) space :width (12)))
           treemacs-indentation 1)
     ;; Every sidebar view has the same bottom edge as any window, so
     ;; switching views keeps it in place.
-    (setq treemacs-width lispm-desktop-sidebar-width
+    (setq treemacs-width (lispm-desktop-sidebar-columns)
           treemacs-is-never-other-window t
           treemacs-user-mode-line-format lispm-desktop-platinum-mode-line-format)
     (define-key treemacs-mode-map [mouse-1] #'treemacs-single-click-expand-action))

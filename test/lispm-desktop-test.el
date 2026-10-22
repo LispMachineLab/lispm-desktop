@@ -11121,6 +11121,201 @@ user's own, as they placed it, comes first."
       (should (equal (lispm-desktop--picture-in-use)
                      (cons (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory) 'tile))))))
 
+;;;; Text terminals
+
+(defmacro lispm-desktop-test--on-tty (&rest body)
+  "Run BODY as on a text terminal, in Platinum's palette."
+  (declare (indent 0))
+  `(let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+     (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&optional _) t)))
+       ,@body)))
+
+(ert-deftest lispm-desktop-test-tty-not-in-batch ()
+  "Batch Emacs has no display and draws as a graphical one does, so its
+tests see the chrome they test: it is no text terminal."
+  (should-not (lispm-desktop-tty-p)))
+
+(ert-deftest lispm-desktop-test-tty-pixels-are-cells ()
+  "On a text terminal a length in pixels is the cells an 8-pixel font
+takes, and what aligns to a window's right edge stops two cells short
+of it, clear of the column kept for a long line's sign."
+  (should (= (lispm-desktop-px 24) 24))
+  (should (eq (lispm-desktop-align-right) 'right))
+  (should (equal (lispm-desktop-align-right 10) '(- right (10))))
+  (lispm-desktop-test--on-tty
+    (should (equal (mapcar #'lispm-desktop-px '(2 4 6 8 12 16 24)) '(0 1 1 1 2 2 3)))
+    (should (equal (lispm-desktop-align-right) '(- right (2))))
+    (should (equal (lispm-desktop-align-right 10) '(- right (12))))))
+
+(ert-deftest lispm-desktop-test-tty-title-bar ()
+  "A text terminal's title bar is a line as wide as the window: active, its
+close box, the title centred between double rules, its zoom and collapse
+boxes, each box pressable; inactive, a single rule round the title.  A
+modified document marks its close box; a long title is cut, never the
+boxes."
+  (lispm-desktop-test--on-tty
+    (let ((active (lispm-desktop-platinum-text-title-bar 40 t nil "notes.org" nil '(on on on)))
+          (inactive (lispm-desktop-platinum-text-title-bar 40 nil nil "notes.org" nil '(on on on))))
+      (should (= (string-width active) 40))
+      (should (= (string-width inactive) 40))
+      (should (string-match-p "\\`═\\[■\\]═+ notes\\.org ═+\\[↕\\]\\[─\\]═\\'" active))
+      (should (string-match-p "\\`─+ notes\\.org ─+\\'" inactive))
+      (should (= (string-search " notes.org " active) (/ (- 40 11) 2)))
+      (should (eq (get-text-property (string-search "■" active) 'lispm-desktop-platinum-target active)
+                  'close))
+      (should (eq (get-text-property (string-search "↕" active) 'lispm-desktop-platinum-target active)
+                  'zoom)))
+    (should (string-match-p "\\[•\\]" (lispm-desktop-platinum-text-title-bar 40 t nil "notes.org" t
+                                                                             '(on on on))))
+    (let ((bar (lispm-desktop-platinum-text-title-bar 24 t nil (make-string 50 ?x) nil '(on on on))))
+      (should (= (string-width bar) 24))
+      (should (string-match-p "x…" bar))
+      (should (string-match-p "\\[■\\]" bar))
+      (should (string-match-p "\\[↕\\]\\[─\\]" bar)))))
+
+(ert-deftest lispm-desktop-test-tty-menu-bar ()
+  "On a text terminal a menu bar title is its label between blanks, in the
+menu titles' face, highlighted while its menu is open; the bar's stretch
+between its ends is blanks."
+  (lispm-desktop-test--on-tty
+    (pcase-let ((`(,key menu-item ,title ,command . ,_)
+                 (lispm-desktop-platinum--menu-title 'file "File" #'ignore "File" t)))
+      (should (eq key 'file))
+      (should (eq command #'ignore))
+      (should (equal (substring-no-properties title) " File "))
+      (should (memq 'lispm-desktop-platinum-menu-title-active
+                    (ensure-list (get-text-property 1 'face title)))))
+    (should (equal (substring-no-properties (nth 2 (lispm-desktop-platinum--menu-filler 5))) "     "))
+    (should (equal (lispm-desktop-platinum--lambda) "λ"))))
+
+(ert-deftest lispm-desktop-test-tty-tabs ()
+  "On a text terminal a row of tabs is text as wide as asked, the tab in
+front highlighted, and cuts its labels where they would not fit."
+  (lispm-desktop-test--on-tty
+    (let ((row (lispm-desktop-platinum-tabs '(("Files" nil) ("Agents" t) ("Shells" nil)) 40)))
+      (should (= (string-width row) 40))
+      (should (string-prefix-p "─ Files ─ Agents ─ Shells ─" (substring-no-properties row)))
+      (should (memq 'lispm-desktop-platinum-menu-title-active
+                    (ensure-list (get-text-property (string-search "Agents" row) 'face row)))))
+    (let ((row (lispm-desktop-platinum-tabs '(("Files" nil) ("Agents" t) ("Shells" nil)) 22)))
+      (should (= (string-width row) 22))
+      (should (string-match-p "…" row)))))
+
+(ert-deftest lispm-desktop-test-tty-text-icons ()
+  "On a text terminal an icon is a character a cell wide: the entry of
+`lispm-desktop-platinum-text-icons' starting its name longest, else a
+dot."
+  (lispm-desktop-test--on-tty
+    (should (equal (lispm-desktop-platinum-icon "folder-git-32") "▪"))
+    (should (equal (lispm-desktop-platinum-icon "document-lisp") "λ"))
+    (should (equal (lispm-desktop-platinum-icon "document-code") "▫"))
+    (should (equal (lispm-desktop-platinum-icon 'emacs) "◆"))
+    (should (equal (lispm-desktop-platinum-icon "/some/app/icon.svg") "·"))
+    (should (equal (lispm-desktop-platinum-triangle t) "▾"))))
+
+(ert-deftest lispm-desktop-test-tty-controls ()
+  "On a text terminal the controls a buffer holds show text where they show
+images elsewhere: radio buttons, check boxes, push buttons and group
+boxes; the one focused is ringed in the focus colour."
+  (lispm-desktop-test--on-tty
+    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t)) "(•)"))
+    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio nil)) "( )"))
+    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-check-box t)) "[✓]"))
+    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-push-button "OK")) "[ OK ]"))
+    (let ((focused (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t nil t))))
+      (should (equal (plist-get (get-text-property 0 'face focused) :background)
+                     (lispm-desktop-platinum-color :focus))))
+    (let ((top (lispm-desktop-platinum-group-edge 20 "Look"))
+          (bottom (lispm-desktop-platinum-group-edge 20 nil t)))
+      (should (equal (substring-no-properties top) "┌─ Look ───────────┐"))
+      (should (equal (substring-no-properties bottom) "└──────────────────┘"))
+      (should (equal (substring-no-properties (lispm-desktop-platinum-group-side 16)) "│")))))
+
+(ert-deftest lispm-desktop-test-tty-menu ()
+  "On a text terminal a menu is text, a line an item as wide as the menu: a
+check mark before the checked, the key equivalent flush right, a rule
+for a separator; the item highlighted and those disabled in their faces."
+  (lispm-desktop-test--on-tty
+    (let* ((items `((:label "Open" :action ,(lambda () nil) :key "C-x C-f")
+                    separator
+                    (:label "Saved" :action ,(lambda () nil) :checked t)
+                    (:label "Gone" :enabled nil)))
+           (lines (split-string (lispm-desktop-popup--text-menu items 24 0) "\n")))
+      (should (= (length lines) 4))
+      (should (seq-every-p (lambda (line) (= (string-width line) 24)) lines))
+      (should (string-match-p "\\`  Open +C-x C-f \\'" (nth 0 lines)))
+      (should (equal (substring-no-properties (nth 1 lines)) (make-string 24 ?─)))
+      (should (string-prefix-p "✓ Saved" (nth 2 lines)))
+      (should (memq 'lispm-desktop-popup-item-highlight (ensure-list (get-text-property 2 'face (nth 0 lines)))))
+      (should (memq 'lispm-desktop-popup-item-disabled (ensure-list (get-text-property 2 'face (nth 3 lines))))))
+    (should (= (lispm-desktop-popup--item-height) 1))
+    (should (equal (cdr (lispm-desktop-popup--rows '((:label "a") separator (:label "b")))) 3))))
+
+(ert-deftest lispm-desktop-test-tty-alert ()
+  "On a text terminal an alert is laid out in cells: the default button at
+the right, Cancel to its left, a button coming before Cancel standing
+apart under the message, none overlapping, every line as wide."
+  (lispm-desktop-test--on-tty
+    (let* ((buttons '(("Don’t Save" discard nil) ("Cancel" cancel cancel) ("Save" save default)))
+           (layout (lispm-desktop-popup--text-alert-layout
+                    "Save changes to the document “notes.org” before closing?"
+                    "If you don’t save, your changes will be lost." buttons))
+           (w (plist-get layout :width)))
+      (pcase-let ((`((,_ discard ,_ ,dx ,_ ,dw) (,_ cancel ,_ ,cx ,_ ,cw) (,_ save ,_ ,sx ,_ ,sw))
+                   (plist-get layout :buttons)))
+        (should (= (+ sx sw) (- w 2)))
+        (should (< (+ cx cw) sx))
+        (should (= dx lispm-desktop-popup--text-alert-x))
+        (should (< (+ dx dw) cx)))
+      (let ((lines (split-string (lispm-desktop-popup--text-alert
+                                  'caution "Save changes?" "Detail." buttons nil 'cancel)
+                                 "\n")))
+        (should (seq-every-p (lambda (line) (= (string-width line) lispm-desktop-popup-text-alert-width)) lines))
+        (should (string-match-p "\\[ Save \\]" (car (last lines 2))))))))
+
+(ert-deftest lispm-desktop-test-tty-desktop ()
+  "Where images cannot be shown the desktop is text: its icons down the
+right edge from under the menu bar, each a character over its name, the
+Trash in the bottom corner, the one selected inverted; clicks find them
+by the text."
+  (lispm-desktop-test--on-tty
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+      (with-temp-buffer
+        (setq lispm-desktop--selected 'editor)
+        (let ((lines (split-string (lispm-desktop--text-desktop 60 20) "\n")))
+          (should (= (length lines) 20))
+          (should (> (string-search "Home" (nth 2 lines)) 40))
+          (should (string-match-p "Emacs" (nth 5 lines)))
+          (should (string-match-p "Trash" (nth 18 lines)))
+          (should (eq (get-text-property (string-search "Home" (nth 2 lines)) 'lispm-desktop-item (nth 2 lines))
+                      'home))
+          (should (eq (get-text-property (string-search "Emacs" (nth 5 lines)) 'face (nth 5 lines))
+                      'lispm-desktop-label-selected)))))))
+
+(ert-deftest lispm-desktop-test-tty-window-geometry ()
+  "On a text terminal a floating window opens in cells: its pixel size a
+cell for 8 pixels across and 16 down, or most of the screen without one,
+under the menu bar, on the screen."
+  (lispm-desktop-test--on-tty
+    (cl-letf (((symbol-function 'frame-width) (lambda (&optional _) 200))
+              ((symbol-function 'frame-height) (lambda (&optional _) 50))
+              ((symbol-function 'frame-parameter)
+               (lambda (_ parameter) (and (eq parameter 'tab-bar-lines) 1))))
+      (let ((lispm-desktop-app-window--frames nil))
+        (should (equal (lispm-desktop-app-window--tty-geometry nil '(640 . 440)) '(2 2 80 28)))
+        (pcase-let ((`(,left ,top ,width ,height) (lispm-desktop-app-window--tty-geometry nil nil)))
+          (should (= width 140))
+          (should (<= (+ top height) 50))
+          (should (>= left 0))))
+      (should (= (lispm-desktop-sidebar-columns) 40)))
+    (cl-letf (((symbol-function 'frame-width) (lambda (&optional _) 80)))
+      (should (= (lispm-desktop-sidebar-columns) 26)))))
+
+(ert-deftest lispm-desktop-test-store-cuts-to-characters ()
+  "Cutting a word to a width no character fits, as on a narrow window,
+ends at single characters."
+  (should (equal (lispm-desktop-store--pieces "abc" -5 'default) '("a" "b" "c"))))
+
 ;;;; The language LispM speaks
 
 (defun lispm-desktop-test--source-files ()
