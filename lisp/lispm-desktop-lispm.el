@@ -27,7 +27,7 @@
 ;; talk to one in a chat buffer laid out like Claude Code's; its session is
 ;; stored as an org document out of sight (/transcript shows it).  This
 ;; module makes it one of the editor's agents, built in
-;; (`lispm-desktop-agent-define'), so it works as the others do:
+;; (`lispm-agents-define'), so it works as the others do:
 ;;
 ;; - C-c a l (and l in the agents sidebar) starts a LispM agent at the
 ;;   current project root; C-u C-c a l asks for its role;
@@ -131,9 +131,9 @@
   "Tag a LispM chat or session buffer: its session id, title and layout.
 lispm-desktop-ai reads them."
   (when-let* ((agent (lispm-desktop-lispm--buffer-agent)))
-    (setq lispm-desktop-agent-buffer-session-id (lispm-agent-id agent)
-          lispm-desktop-agent-buffer-title (or lispm-desktop-agent-buffer-title
-                                               (symbol-name (lispm-agent-name agent))))
+    (setq lispm-agents-buffer-session-id (lispm-agent-id agent)
+          lispm-agents-buffer-title (or lispm-agents-buffer-title
+                                        (symbol-name (lispm-agent-name agent))))
     (setq-local lispm-desktop-conversation-buffer t)))
 
 (defun lispm-desktop-lispm--changed (agent)
@@ -142,7 +142,7 @@ lispm-desktop-ai reads them."
     ;; /clear gives a standing agent a new session in the same chat.
     (when (buffer-live-p view)
       (with-current-buffer view (lispm-desktop-lispm--tag-buffer))))
-  (run-hooks 'lispm-desktop-agents-changed-hook))
+  (run-hooks 'lispm-agents-changed-hook))
 
 ;;;; Commands
 
@@ -151,17 +151,18 @@ lispm-desktop-ai reads them."
 With a prefix argument, choose its ROLE."
   (interactive (list (and current-prefix-arg (lispm--read-role (lispm-desktop-tr "Role")))))
   (if role
-      (lispm-desktop-agent-show (lispm-desktop-lispm-new (lispm-desktop-agent-default-directory) role))
-    (lispm-desktop-agent-new 'lispm)))
+      (lispm-agents-show (lispm-desktop-lispm-new (lispm-agents-default-directory) role))
+    (lispm-agents-new 'lispm)))
 
 (defun lispm-desktop-setup-lispm ()
   "Load LispM and register its agents with the agent tools."
   (lispm-desktop-deps-ensure 'lispm)
   (require 'lispm)
-  (lispm-desktop-agent-define
+  (lispm-agents-define
    'lispm
    :name "LispM"
-   :icon '(lispm-desktop-agent-image-icon "lispm-lambda.png" nil)
+   :icon `(lispm-agents-image-icon
+           ,(expand-file-name "lispm-lambda.png" lispm-desktop-agent-icon-directory) nil)
    :text-icon "λ"
    :command #'lispm-desktop-agent-lispm-new
    :key "l"

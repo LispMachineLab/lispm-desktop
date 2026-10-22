@@ -7,9 +7,7 @@
 
 (:name "English (UK)"
  :messages
- (("Move the %s session “%s” to the Trash?" . "Move the %s session “%s” to the Bin?")
-  ("Move to Trash" . "Move to Bin")
-  ("Its %d file goes to the Trash." "Its %d file goes to the Bin." "Its %d files go to the Bin.")
+ (("Move to Trash" . "Move to Bin")
   ("“%s” was moved to the Trash" . "“%s” was moved to the Bin")
   ("%-I:%M %p" . "%H:%M")
   ("Center" . "Centre")
