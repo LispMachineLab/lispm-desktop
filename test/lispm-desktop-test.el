@@ -10098,8 +10098,12 @@ Switch shows once it is ready."
                                          " "))))
             (dolist (label '("LispM Kernel" "Use LispM Kernel" "Off: Emacs reads the sessions itself."
                              "Emacs Kernel" "GNU Emacs 31.1" "GNU Emacs 32, in development"
-                             "running now" "~/.lispm/backup"))
-              (should (string-search label text))))
+                             "~/.lispm/backup"))
+              (should (string-search label text)))
+            ;; An Emacs install.sh does not offer, such as 30, is named, not chosen.
+            (should (string-search (if (memql emacs-major-version '(31 32)) "running now"
+                                     (format "LispM runs on GNU Emacs %s." emacs-version))
+                                   text)))
           (let ((press (lambda (label)
                          (let ((button (next-button (point-min))))
                            (while (and button (not (string-search label (button-label button))))
