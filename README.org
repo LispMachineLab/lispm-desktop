@@ -94,6 +94,11 @@ Optional, used when present:
   listed per project.  Claude Code and Codex see the selection, open files and diagnostics;
   programs speaking the [[https://superlogical.com/rex/docs/build/program-status][Program Status Protocol]] show working, done or waiting in their title
   bars (=C-c a n= goes to the next one waiting).
+- *The LispM bar*: a magnifying glass beside the clock (=C-c l=, or =M-x ai=) drops a field.
+  What you type finds applications, Control Panels, skills and tools at once, and Return opens
+  the one chosen; otherwise it asks LispM itself, the system's own agent, whose reply streams in
+  under the field.  A call it asks approval for is answered there with =y= or =n=; =C-o= opens
+  the bar out to the conversation and more of what was found.
 - *Terminals that never stall Emacs*: each emulated on a thread of its own by a Rust module
   built on [[https://github.com/alacritty/alacritty][Alacritty]]'s terminal (=native/lispm-desktop-term=); Emacs redraws only those on
   screen.  The module is downloaded as built for this computer and kept only when its SHA-256 is
@@ -126,6 +131,7 @@ Title bars and menus use Charcoal, else Chicago (or ChicagoFLF), else Geneva.
 
 | Key                        | Does                                                         |
 |----------------------------+--------------------------------------------------------------|
+| =C-c l=                    | the LispM bar: find what is installed, or ask LispM          |
 | =C-c ?=                    | the guide (=C-u=: from the start)                            |
 | =C-c o=                    | the next application                                         |
 | =C-c m=                    | the menu bar from the keyboard                               |

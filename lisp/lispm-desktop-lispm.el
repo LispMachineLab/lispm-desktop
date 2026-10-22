@@ -66,6 +66,7 @@
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
 (declare-function lispm-desktop-store-skill-sources "lispm-desktop-store" ())
 (defvar lispm-skill-sources)
+(declare-function lispm-desktop-setup-bar "lispm-desktop-bar" ())
 
 ;;;; Sessions as lispm-desktop-ai sees them
 
@@ -204,7 +205,9 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
   (when (boundp 'lispm-language-functions)
     (add-hook 'lispm-language-functions #'lispm-desktop-current-language)
     (add-hook 'lispm-desktop-language-changed-hook #'lispm-language-changed))
-  (lispm-mode-line-mode 1))
+  (lispm-mode-line-mode 1)
+  ;; LispM itself, the system's agent, has a bar of its own in the menu bar.
+  (lispm-desktop-setup-bar))
 
 (provide 'lispm-desktop-lispm)
 ;;; lispm-desktop-lispm.el ends here
