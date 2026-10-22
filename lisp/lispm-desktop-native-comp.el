@@ -63,16 +63,34 @@
              (split-string paths path-separator t)
              path-separator))
 
+(defconst lispm-desktop-native-comp--darwin-options '("-Wl,-w")
+  "The driver options comp.el gives macOS, which it would have once loaded.")
+
+(defun lispm-desktop-native-comp--driver-options (options)
+  "Return OPTIONS, native compilation's driver options, building for macOS
+11 or later unless they say for which already."
+  (if (string-search "-mmacosx-version-min=" (mapconcat #'identity options " "))
+      options
+    (append options '("-mmacosx-version-min=11.0"))))
+
 (defun lispm-desktop-native-comp-mend ()
-  "Make native compilation work on macOS, once comp.el is loaded: build
-for macOS 11 or later, and link with the chosen developer directory's SDK."
+  "Make native compilation work on macOS: build for macOS 11 or later, and
+link with the chosen developer directory's SDK.
+The driver options are set at once, not only once comp.el is loaded: the
+Emacsen compiling packages in the background take the ones this Emacs has
+when it starts them, which comp-run.el does before comp.el is loaded."
   (when (and (eq system-type 'darwin)
              (fboundp 'native-comp-available-p)
              (native-comp-available-p))
+    ;; comp.el's defcustom keeps a value set before it is loaded.
+    (setq native-comp-driver-options
+          (lispm-desktop-native-comp--driver-options
+           (if (boundp 'native-comp-driver-options)
+               native-comp-driver-options
+             lispm-desktop-native-comp--darwin-options)))
     (with-eval-after-load 'comp
-      (unless (string-search "-mmacosx-version-min=" (mapconcat #'identity native-comp-driver-options " "))
-        (setq native-comp-driver-options
-              (append native-comp-driver-options '("-mmacosx-version-min=11.0"))))
+      (setq native-comp-driver-options
+            (lispm-desktop-native-comp--driver-options native-comp-driver-options))
       (when-let* ((paths (getenv "LIBRARY_PATH"))
                   ((string-search lispm-desktop-native-comp--tools-sdk-lib paths))
                   (lib (lispm-desktop-native-comp--sdk-lib)))

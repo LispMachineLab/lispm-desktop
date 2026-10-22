@@ -55,6 +55,7 @@
 
 ;; Native compilation mended for LispM.app's Emacs, before anything is
 ;; compiled; lisp/ is not on the load path yet.
+(declare-function lispm-desktop-native-comp-mend "lispm-desktop-native-comp" ())
 (load (expand-file-name "lispm-desktop-native-comp" (file-name-directory load-file-name)) nil t)
 (lispm-desktop-native-comp-mend)
 

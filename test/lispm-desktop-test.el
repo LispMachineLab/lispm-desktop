@@ -7077,6 +7077,16 @@ menu of the module beside, as along the menu bar."
         (should (equal (lispm-desktop-strip--walk (lispm-desktop-strip--modules) 0) '(nil . 0)))
         (should (equal opened '(appearance mail appearance)))))))
 
+(ert-deftest lispm-desktop-test-native-comp-builds-for-macos-11 ()
+  "Native compilation's driver options build for macOS 11 or later, unless
+they name a macOS already; set before comp.el loads, the Emacsen compiling
+in the background take them."
+  (require 'lispm-desktop-native-comp)
+  (should (equal (lispm-desktop-native-comp--driver-options '("-Wl,-w"))
+                 '("-Wl,-w" "-mmacosx-version-min=11.0")))
+  (should (equal (lispm-desktop-native-comp--driver-options '("-mmacosx-version-min=12.0"))
+                 '("-mmacosx-version-min=12.0"))))
+
 (ert-deftest lispm-desktop-test-library-path-takes-the-chosen-sdk ()
   "Only the command line tools' SDK on LIBRARY_PATH gives way to the chosen one."
   (require 'lispm-desktop-native-comp)
