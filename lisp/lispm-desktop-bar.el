@@ -54,10 +54,10 @@
 (defvar lispm-bar-triangle-function)
 (defvar lispm-bar-ask-icon)
 (defvar lispm-bar-activity-functions)
-(defvar lispm-bar--open)
-(defvar lispm-bar--expanded)
 (defvar lispm-desktop-store-installed)
 (declare-function lispm-ai "lispm-bar" ())
+(declare-function lispm-bar-open-p "lispm-bar" ())
+(declare-function lispm-bar-expanded-p "lispm-bar" ())
 (declare-function lispm-bar-show-in-window "lispm-bar" (buffer))
 (declare-function lispm-bar-hide-window "lispm-bar" (buffer))
 (declare-function lispm-desktop-store-show "lispm-desktop-store" ())
@@ -225,7 +225,7 @@ they are, up to half the screen, or two thirds of it opened out.  This is
           (with-current-buffer buffer
             (lispm-desktop-popup-hold-size)))
         (lispm-desktop-popup-set-size panel lispm-desktop-bar-width (frame-char-height panel))
-        (let* ((most (floor (* (frame-inner-height screen) (if lispm-bar--expanded 0.66 0.5))))
+        (let* ((most (floor (* (frame-inner-height screen) (if (lispm-bar-expanded-p) 0.66 0.5))))
                (height (cdr (window-text-pixel-size window nil nil nil most))))
           (lispm-desktop-popup-set-size panel lispm-desktop-bar-width (max (frame-char-height panel) height)))
         (pcase-let ((`(,_ ,_ ,_ ,bottom) (frame-edges field 'outer-edges)))
@@ -247,7 +247,7 @@ This is `lispm-bar-hide-function'."
 (defun lispm-desktop-bar--close-elsewhere ()
   "Close the bar once a window of another frame is selected, as a click
 elsewhere does.  This is a `post-command-hook' function while it reads."
-  (when (and lispm-bar--open
+  (when (and (lispm-bar-open-p)
              (active-minibuffer-window)
              (not (memq (selected-frame) (list lispm-desktop-bar--field lispm-desktop-bar--panel))))
     (run-at-time 0 nil (lambda ()

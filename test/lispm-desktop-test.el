@@ -4596,7 +4596,6 @@ in the hook's order, as Spotlight's came after Mac OS X's."
 each of which Return opens."
   (skip-unless (require 'lispm-bar nil t))
   (let* ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications))
-         (lispm-bar--things nil)
          (things (lispm-desktop-bar-applications))
          (named (lambda (name) (seq-find (lambda (thing) (equal (plist-get thing :name) name)) things))))
     (should (funcall named "Emacs"))
