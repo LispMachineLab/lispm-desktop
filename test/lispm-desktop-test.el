@@ -29,95 +29,27 @@
 ;;; Code:
 
 (require 'ert)
-(require 'lispm-desktop)
+(require 'lispm-desktop-deps)
+;; lispm-agent is on the load path, used as it is: what its package
+;; requires is for LispM's own agents, which no test runs.
+(cl-letf (((symbol-function 'lispm-desktop-deps--requirements) #'ignore))
+  (require 'lispm-desktop))
 
 ;; The words as the code writes them, whatever the computer's language.
-(setq lispm-desktop-language 'en)
+(setq lispm-desktop-language 'en
+      lispm-language 'en)
 
 (defmacro lispm-desktop-test--with-agents (agents &rest body)
   "Run BODY with AGENTS, (AGENT . PROPERTIES), the only agents defined,
 their keys bound in keymaps of the test's own."
   (declare (indent 1))
-  `(let ((lispm-desktop-agents nil)
-         (lispm-desktop-agent--keys nil)
-         (lispm-desktop-agent-map (make-sparse-keymap))
+  `(let ((lispm-agents-defined nil)
+         (lispm-agents--keys nil)
+         (lispm-agents-map (make-sparse-keymap))
          (lispm-desktop-agent-list-mode-map (make-sparse-keymap)))
      (pcase-dolist (`(,agent . ,props) ,agents)
-       (apply #'lispm-desktop-agent-define agent props))
+       (apply #'lispm-agents-define agent props))
      ,@body))
-
-(ert-deftest lispm-desktop-test-agent-available-p ()
-  "An agent run as a CLI can run exactly when its program is on PATH; one
-running inside Emacs always can; one never defined cannot."
-  (lispm-desktop-test--with-agents
-      '((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program")
-        (codex :name "Codex" :program "emacs")
-        (lispm :name "LispM" :new ignore))
-    (should-not (lispm-desktop-agent-available-p 'claude))
-    (should (lispm-desktop-agent-available-p 'codex))
-    (should (lispm-desktop-agent-available-p 'lispm))
-    (should-not (lispm-desktop-agent-available-p 'hermes))
-    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(codex lispm)))))
-
-(ert-deftest lispm-desktop-test-agents-built-in-first ()
-  "Agents are offered those built in first, then in the order defined."
-  (lispm-desktop-test--with-agents
-      '((hermes :name "Hermes" :new ignore)
-        (lispm :name "LispM" :new ignore :built-in t)
-        (claude :name "Claude Code" :new ignore :built-in t))
-    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(lispm claude hermes)))
-    (lispm-desktop-agent-define 'hermes :name "Hermes, again" :new #'ignore)
-    (should (equal (mapcar #'car lispm-desktop-agents) '(hermes lispm claude)))
-    (lispm-desktop-agent-undefine 'lispm)
-    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(claude hermes)))))
-
-(ert-deftest lispm-desktop-test-agent-keys-follow-the-agent ()
-  "An agent's key starts it, under C-c a and in the agents sidebar, while
-it can run; it does nothing once its program is gone or it is undefined."
-  (let ((program "emacs"))
-    (lispm-desktop-test--with-agents
-        `((codex :name "Codex" :program "emacs" :key "x" :command lispm-desktop-agent-codex-new))
-      (should (eq (keymap-lookup lispm-desktop-agent-map "x") 'lispm-desktop-agent-codex-new))
-      (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "x") 'lispm-desktop-agent-codex-new))
-      (setf (plist-get (alist-get 'codex lispm-desktop-agents) :program) "lispm-desktop-test-no-such-program")
-      (should-not (keymap-lookup lispm-desktop-agent-map "x"))
-      (setf (plist-get (alist-get 'codex lispm-desktop-agents) :program) program)
-      (lispm-desktop-agent-undefine 'codex)
-      (should-not (keymap-lookup lispm-desktop-agent-map "x"))
-      (should-not (keymap-lookup lispm-desktop-agent-list-mode-map "x")))))
-
-(ert-deftest lispm-desktop-test-agent-keys-leave-other-commands-be ()
-  "An agent's key taken by another command stays that command's, and its
-parent's bindings do not count; an agent taking another's key gives it
-back when it goes."
-  (lispm-desktop-test--with-agents nil
-    (keymap-set lispm-desktop-agent-map "r" #'lispm-desktop-agent-send-region)
-    (set-keymap-parent lispm-desktop-agent-list-mode-map special-mode-map)
-    (let ((inhibit-message t))
-      (lispm-desktop-agent-define 'greedy :name "Greedy" :new #'ignore :key "r" :command #'ignore))
-    (should (eq (keymap-lookup lispm-desktop-agent-map "r") 'lispm-desktop-agent-send-region))
-    (lispm-desktop-agent-undefine 'greedy)
-    (should (eq (keymap-lookup lispm-desktop-agent-map "r") 'lispm-desktop-agent-send-region))
-    ;; h is the sidebar's parent's, describe-mode: Hermes may have it.
-    (lispm-desktop-agent-define 'hermes :name "Hermes" :new #'ignore :key "h" :command 'lispm-hermes-new)
-    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'lispm-hermes-new))
-    (lispm-desktop-agent-define 'other :name "Other" :new #'ignore :key "h" :command 'other-new)
-    (should (eq (keymap-lookup lispm-desktop-agent-map "h") 'other-new))
-    (lispm-desktop-agent-undefine 'other)
-    (should (eq (keymap-lookup lispm-desktop-agent-map "h") 'lispm-hermes-new))
-    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'lispm-hermes-new))
-    (lispm-desktop-agent-undefine 'hermes)
-    (should-not (keymap-lookup lispm-desktop-agent-map "h"))
-    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'describe-mode))))
-
-(ert-deftest lispm-desktop-test-launch-requires-installed-cli ()
-  "Starting an agent whose CLI is missing, or no agent at all, is a user
-error, before anything runs."
-  (lispm-desktop-test--with-agents
-      '((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program"))
-    (should-error (lispm-desktop-agent--launch 'claude temporary-file-directory "x" nil)
-                  :type 'user-error)
-    (should-error (lispm-desktop-agent-new 'hermes temporary-file-directory) :type 'user-error)))
 
 (ert-deftest lispm-desktop-test-claude-follows-emacs-theme ()
   "Claude Code starts with its theme \"auto\", asking the terminal for
@@ -134,106 +66,33 @@ local settings, or in its old global configuration other than the default
       (unwind-protect
           (progn
             (make-directory project)
-            (should (equal (lispm-desktop-agent-claude--arguments project) auto))
+            (should (equal (lispm-agents-claude--arguments project) auto))
             (put-json (expand-file-name ".claude.json" home) "{\"numStartups\":3,\"theme\":\"dark\"}")
             (put-json (expand-file-name ".claude/settings.json" home) "{\"theme\":")
-            (should (equal (lispm-desktop-agent-claude--arguments project) auto))
+            (should (equal (lispm-agents-claude--arguments project) auto))
             (dolist (file (list (expand-file-name ".claude.json" home)
                                 (expand-file-name ".claude/settings.json" home)
                                 (expand-file-name ".claude/settings.json" project)
                                 (expand-file-name ".claude/settings.local.json" project)))
               (put-json file "{\"permissions\":{},\"theme\":\"light-daltonized\"}")
-              (should-not (lispm-desktop-agent-claude--arguments project))
+              (should-not (lispm-agents-claude--arguments project))
               (put-json file "[]"))
             ;; Launched, Claude gets the arguments before its own.
             (let (command)
               (lispm-desktop-test--with-agents nil
-                (lispm-desktop-setup-claude)
-                (cl-letf (((symbol-function 'lispm-desktop-agent-available-p) #'always)
-                          ((symbol-function 'lispm-desktop-agent-ide-start) #'ignore)
+                (lispm-agents-setup-claude)
+                (cl-letf (((symbol-function 'lispm-agents-available-p) #'always)
+                          ((symbol-function 'lispm-agents-ide-start) #'ignore)
                           ((symbol-function 'lispm-desktop-terminal-make)
                            (lambda (_name &rest program)
                              (setq command program)
                              (get-buffer-create " *lispm-desktop-test-launch*"))))
                   (unwind-protect
-                      (lispm-desktop-agent--launch 'claude project "lispm-desktop-test-launch"
-                                                   '("--session-id" "x"))
+                      (lispm-agents--launch 'claude project "lispm-desktop-test-launch"
+                                            '("--session-id" "x"))
                     (kill-buffer " *lispm-desktop-test-launch*"))))
               (should (equal command `("claude" ,@auto "--session-id" "x")))))
         (delete-directory home t)))))
-
-(ert-deftest lispm-desktop-test-sessions-skip-missing-agents ()
-  "No record of an agent whose CLI is missing is read or listed."
-  (let ((read nil))
-    (lispm-desktop-test--with-agents
-        `((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program"
-                  :sessions ,(lambda () (setq read t) nil)))
-      (should (null (lispm-desktop-agent-sessions-list)))
-      (should-not read))))
-
-(ert-deftest lispm-desktop-test-sessions-of-every-agent ()
-  "Every agent's sessions are listed, newest first; an agent whose
-sessions cannot be read lists none, and the others still list theirs."
-  (lispm-desktop-test--with-agents
-      `((lispm :name "LispM" :new ignore
-               :sessions ,(lambda ()
-                            (list (list :agent 'lispm :id "a" :time 1.0)
-                                  (list :agent 'lispm :id "b" :time 3.0))))
-        (codex :name "Codex" :program "emacs"
-               :sessions ,(lambda () (list (list :agent 'codex :id "c" :time 2.0))))
-        (broken :name "Broken" :new ignore :sessions ,(lambda () (error "No store"))))
-    (let ((inhibit-message t))
-      (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
-                     '("b" "c" "a"))))))
-
-(ert-deftest lispm-desktop-test-session-readers-feed-the-sidebar-only ()
-  "The sidebar's sessions come from an agent's session reader where it has
-one, without waiting: an agent whose reader has nothing yet is pending,
-one whose reader fails lists none, and agents without a reader are read
-as they are.  The session list and the picker never ask a reader."
-  (let ((lispm-desktop-agent--session-readers nil)
-        (lispm-desktop-agent--candidates nil)
-        (lispm-desktop-agent-sessions-arrived-hook nil)
-        (arrived 0))
-    (add-hook 'lispm-desktop-agent-sessions-arrived-hook (lambda () (setq arrived (1+ arrived))))
-    (cl-flet ((session (agent id time title)
-                (list :agent agent :id id :time time :title title :cwd "/tmp/project/")))
-      (lispm-desktop-test--with-agents
-          `((lispm :name "LispM" :new ignore
-                   :sessions ,(lambda () (list (session 'lispm "l" 2.0 "L"))))
-            (codex :name "Codex" :new ignore
-                   :sessions ,(lambda () (list (session 'codex "c" 3.0 "C"))))
-            (claude :name "Claude Code" :new ignore
-                    :sessions ,(lambda () (list (session 'claude "a" 1.0 "A"))))
-            (hermes :name "Hermes" :new ignore
-                    :sessions ,(lambda () (list (session 'hermes "h" 5.0 "H")))))
-        (should (eq (lispm-desktop-agent-add-session-reader 'codex (lambda () 'pending)) 'codex))
-        (lispm-desktop-agent-add-session-reader
-         'claude (lambda () (list (session 'claude "a" 4.0 "A, read") nil)))
-        (lispm-desktop-agent-add-session-reader 'hermes (lambda () (error "No store")))
-        ;; Each change of readers draws the sidebar again.
-        (should (= arrived 3))
-        (let ((inhibit-message t))
-          (pcase-let ((`(,sessions . ,pending) (lispm-desktop-agent-sessions-snapshot)))
-            (should (equal (mapcar (lambda (s) (plist-get s :title)) sessions) '("A, read" "L")))
-            (should (equal pending '(codex)))))
-        ;; One reader per agent: a new one replaces the old.
-        (dolist (agent '(codex claude hermes))
-          (lispm-desktop-agent-add-session-reader agent (lambda () (error "A reader was asked"))))
-        (should (= (length lispm-desktop-agent--session-readers) 3))
-        (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
-                       '("h" "c" "l" "a")))
-        (cl-letf (((symbol-function 'completing-read)
-                   (lambda (_prompt table &rest _) (car (all-completions "" table)))))
-          (should (equal (plist-get (lispm-desktop-agent--read-session "Agent session: ") :id) "h")))
-        (lispm-desktop-agent-remove-session-reader 'codex)
-        (lispm-desktop-agent-remove-session-reader 'claude)
-        (lispm-desktop-agent-remove-session-reader 'hermes)
-        (lispm-desktop-agent-remove-session-reader 'hermes)
-        (should-not lispm-desktop-agent--session-readers)
-        (should (= arrived 9))
-        (should (equal (lispm-desktop-agent-sessions-snapshot)
-                       (cons (lispm-desktop-agent-sessions-list) nil)))))))
 
 (ert-deftest lispm-desktop-test-agent-list-says-it-is-reading ()
   "The agents sidebar's bottom edge counts the sessions and the terminals
@@ -255,19 +114,19 @@ that agent is defined; a shell is no agent's."
           (progn
             (dolist (buffer (list named tagged shell))
               (with-current-buffer buffer (setq major-mode 'lispm-desktop-term-mode)))
-            (with-current-buffer tagged (setq lispm-desktop-agent-buffer-agent 'codex))
-            (should (eq (lispm-desktop-agent-of-buffer named) 'codex))
-            (should (eq (lispm-desktop-agent-of-buffer tagged) 'codex))
-            (should-not (lispm-desktop-agent-buffer-p shell))
-            (lispm-desktop-agent-undefine 'codex)
-            (should-not (lispm-desktop-agent-buffer-p named)))
+            (with-current-buffer tagged (setq lispm-agents-buffer-agent 'codex))
+            (should (eq (lispm-agents-of-buffer named) 'codex))
+            (should (eq (lispm-agents-of-buffer tagged) 'codex))
+            (should-not (lispm-agents-buffer-p shell))
+            (lispm-agents-undefine 'codex)
+            (should-not (lispm-agents-buffer-p named)))
         (mapc #'kill-buffer (list named tagged shell))))))
 
 (cl-defstruct (lispm-desktop-test--server (:constructor lispm-desktop-test--server-make))
   "A server bound to a terminal in a test; STOPPED once it was stopped."
   stopped)
 
-(cl-defmethod lispm-desktop-agent-context-stop ((server lispm-desktop-test--server))
+(cl-defmethod lispm-agents-context-stop ((server lispm-desktop-test--server))
   "Note that SERVER was stopped."
   (setf (lispm-desktop-test--server-stopped server) t))
 
@@ -283,124 +142,22 @@ the match data a caller holds survives telling terminals apart."
           (claude-server (lispm-desktop-test--server-make)))
       (unwind-protect
           (progn
-            (with-current-buffer codex (setq lispm-desktop-agent-buffer-agent 'codex))
-            (with-current-buffer claude (setq lispm-desktop-agent-buffer-agent 'claude))
-            (lispm-desktop-agent-context-bind codex-server codex)
-            (lispm-desktop-agent-context-bind claude-server claude)
+            (with-current-buffer codex (setq lispm-agents-buffer-agent 'codex))
+            (with-current-buffer claude (setq lispm-agents-buffer-agent 'claude))
+            (lispm-agents-context-bind codex-server codex)
+            (lispm-agents-context-bind claude-server claude)
             (with-temp-buffer
               (setq major-mode 'lispm-desktop-term-mode)
               (rename-buffer "*claude:lispm-desktop-test-2*")
               (string-match "\\(test\\)" "a test")
-              (lispm-desktop-agent-buffer-p (current-buffer))
+              (lispm-agents-buffer-p (current-buffer))
               (should (equal (match-beginning 1) 2)))
-            (lispm-desktop-agent-undefine 'codex)
+            (lispm-agents-undefine 'codex)
             (should (lispm-desktop-test--server-stopped codex-server))
             (should-not (lispm-desktop-test--server-stopped claude-server))
             (should (buffer-live-p codex)))
-        (lispm-desktop-agent-context-release-all)
+        (lispm-agents-context-release-all)
         (mapc #'kill-buffer (list codex claude))))))
-
-(ert-deftest lispm-desktop-test-agent-worktrees-join-their-projects ()
-  "A Claude worktree joins its repository and a Codex worktree the known
-project of its name; the Codex app's scratch tree holds chats."
-  (lispm-desktop-test--with-agents nil
-    (lispm-desktop-setup-claude)
-    (lispm-desktop-setup-codex)
-    (let* ((repo (make-temp-file "lispm-desktop-test-repo" t))
-           (claude (expand-file-name ".claude/worktrees/feature" repo))
-           (codex (expand-file-name (format "~/.codex/worktrees/1a2b/%s" (file-name-nondirectory repo))))
-           (scratch (expand-file-name "2026-10-20/chat" lispm-desktop-agent-codex-chats-directory)))
-      (unwind-protect
-          (progn
-            (make-directory claude t)
-            (let ((roots (lispm-desktop-agent--resolve-roots (list repo claude codex scratch))))
-              (should (equal (cdr (assoc claude roots)) (directory-file-name repo)))
-              (should (equal (cdr (assoc codex roots)) (directory-file-name repo)))
-              (should (eq (cdr (assoc scratch roots)) 'chats)))
-            (should (equal (lispm-desktop-agent-location-label claude (directory-file-name repo))
-                           "⎇ feature"))
-            (should (equal (lispm-desktop-agent-location-label codex (directory-file-name repo))
-                           "⎇ codex worktree")))
-        (clrhash lispm-desktop-agent--root-cache)
-        (delete-directory repo t)))))
-
-(ert-deftest lispm-desktop-test-agent-archive-survives-an-unreadable-state ()
-  "Archived sessions are kept across starts; a state file that does not
-read is moved aside, not replaced by the next archiving."
-  (let* ((directory (make-temp-file "lispm-desktop-test-state" t))
-         (lispm-desktop-agent-state-file (expand-file-name "agent-sessions.eld" directory))
-         (lispm-desktop-agent--archived 'unloaded)
-         (cut-short "(:archived (\"claude:1\" \"cod")
-         (one '(:agent claude :id "1"))
-         (two '(:agent codex :id "2")))
-    (unwind-protect
-        (progn
-          (lispm-desktop-agent--set-archived one t)
-          (should-not (file-exists-p (concat lispm-desktop-agent-state-file ".part")))
-          (setq lispm-desktop-agent--archived 'unloaded)
-          (should (lispm-desktop-agent-archived-p one))
-          (should-not (lispm-desktop-agent-archived-p two))
-          ;; A write cut short leaves a file that does not read.
-          (with-temp-file lispm-desktop-agent-state-file (insert cut-short))
-          (setq lispm-desktop-agent--archived 'unloaded)
-          (let ((inhibit-message t))
-            (should-not (lispm-desktop-agent-archived-p one)))
-          (lispm-desktop-agent--set-archived two t)
-          (should (equal (with-temp-buffer
-                           (insert-file-contents (concat lispm-desktop-agent-state-file ".unreadable"))
-                           (buffer-string))
-                         cut-short))
-          (setq lispm-desktop-agent--archived 'unloaded)
-          (should (equal (lispm-desktop-agent--archived-keys) '("codex:2"))))
-      (delete-directory directory t))))
-
-(ert-deftest lispm-desktop-test-codex-sessions-named-by-the-index ()
-  "A Codex session is titled by its thread name in the index, else by its
-first prompt; context Codex injects is no prompt."
-  (let* ((home (make-temp-file "lispm-desktop-test-codex" t))
-         (lispm-desktop-agent-codex-sessions-directory (expand-file-name "sessions/" home))
-         (lispm-desktop-agent-codex-index-file (expand-file-name "session_index.jsonl" home))
-         (file (expand-file-name "2026/10/20/rollout-1.jsonl" lispm-desktop-agent-codex-sessions-directory)))
-    (unwind-protect
-        (progn
-          (make-directory (file-name-directory file) t)
-          (with-temp-file file
-            (insert "{\"type\":\"session_meta\",\"payload\":{\"id\":\"0199\",\"cwd\":\"/tmp\",\"timestamp\":\"2026-10-20T08:00:00Z\"}}\n"
-                    "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions\"}]}}\n"
-                    "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Fix the build\"}}\n"))
-          (let ((session (car (lispm-desktop-agent-codex-sessions))))
-            (should (equal (plist-get session :title) "Fix the build"))
-            (should (equal (plist-get session :id) "0199"))
-            (should (numberp (plist-get session :started))))
-          (lispm-desktop-agent-codex--rename (list :id "0199") "Build fix")
-          (should (equal (plist-get (car (lispm-desktop-agent-codex-sessions)) :title) "Build fix")))
-      (remhash file lispm-desktop-agent--session-cache)
-      (delete-directory home t))))
-
-(ert-deftest lispm-desktop-test-claude-sessions-titled-by-their-name ()
-  "A Claude session is titled by its first prompt until it is named.  The
-name lives beside the transcript, which Claude rewrites, and a blank one
-names nothing.  A transcript without a prompt is no session."
-  (let* ((lispm-desktop-agent-claude-projects-directory (make-temp-file "lispm-desktop-test-claude" t))
-         (file (expand-file-name "-tmp/0199.jsonl" lispm-desktop-agent-claude-projects-directory))
-         (empty (expand-file-name "-tmp/0200.jsonl" lispm-desktop-agent-claude-projects-directory))
-         (title (lambda () (plist-get (car (lispm-desktop-agent-claude-sessions)) :title))))
-    (unwind-protect
-        (progn
-          (make-directory (file-name-directory file) t)
-          (with-temp-file file
-            (insert "{\"type\":\"user\",\"cwd\":\"/tmp\",\"message\":{\"role\":\"user\",\"content\":\"Fix the build\"}}\n"))
-          (with-temp-file empty
-            (insert "{\"type\":\"system\",\"cwd\":\"/tmp\"}\n"))
-          (should (= (length (lispm-desktop-agent-claude-sessions)) 1))
-          (should (equal (funcall title) "Fix the build"))
-          (lispm-desktop-agent-claude--rename (car (lispm-desktop-agent-claude-sessions)) "Build fix")
-          (should (equal (funcall title) "Build fix"))
-          (lispm-desktop-agent-claude--rename (car (lispm-desktop-agent-claude-sessions)) " ")
-          (should (equal (funcall title) "Fix the build")))
-      (remhash file lispm-desktop-agent--session-cache)
-      (remhash empty lispm-desktop-agent--session-cache)
-      (delete-directory lispm-desktop-agent-claude-projects-directory t))))
 
 (ert-deftest lispm-desktop-test-first-start-in-batch ()
   "A batch Emacs settles on Emacs keys and Dracula without asking.
@@ -1084,6 +841,16 @@ an error loading it is signalled once the redisplay is done."
         (should-not (advice-function-member-p #'lispm-desktop--load-pending-theme
                                               pre-redisplay-function))))))
 
+(ert-deftest lispm-desktop-test-deps-release-tag ()
+  "A project's latest release is its newest tag vX.Y.Z, compared as versions."
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (&rest _)
+               (insert "a1\trefs/tags/v0.9.0\nb2\trefs/tags/v0.10.0\nc3\trefs/tags/v0.10.0-rc1\nd4\trefs/tags/vx\n")
+               0)))
+    (should (equal (lispm-desktop-deps--release-tag "https://example.org/repo") "v0.10.0")))
+  (cl-letf (((symbol-function 'call-process) (lambda (&rest _) 128)))
+    (should-not (lispm-desktop-deps--release-tag "https://example.org/repo"))))
+
 (ert-deftest lispm-desktop-test-deps-requirements ()
   "Of a package's requirements, those not installed are returned; Emacs never."
   (let ((file (make-temp-file "lispm-desktop-test-" nil ".el"
@@ -1096,6 +863,55 @@ an error loading it is signalled once the redisplay is done."
         (should (equal (mapcar #'car (lispm-desktop-deps--requirements file)) '(lispm-desktop-test-missing)))
       (delete-file file))))
 
+(defun lispm-desktop-test--declared-packages ()
+  "Return the packages the `use-package' declarations of lisp/ install from
+the package archives: neither built in nor declared `:ensure nil'."
+  (let ((found nil))
+    (cl-labels ((walk (form)
+                  (when (consp form)
+                    (if (and (eq (car form) 'use-package) (symbolp (cadr form)))
+                        (unless (or (let ((ensure (memq :ensure (cddr form))))
+                                      (and ensure (null (cadr ensure))))
+                                    (package-built-in-p (cadr form)))
+                          (cl-pushnew (cadr form) found))
+                      (while (consp form)
+                        (walk (pop form)))))))
+      (dolist (file (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'"))
+        (with-temp-buffer
+          (insert-file-contents file)
+          (condition-case nil
+              (while t (walk (read (current-buffer))))
+            (end-of-file nil)))))
+    found))
+
+(ert-deftest lispm-desktop-test-deps-desktop-requires ()
+  "lispm-desktop.el's Package-Requires lists the packages its `use-package'
+declarations install, which LispM.app's installer counts; Evil, installed
+once chosen, and EXWM, where used, are left out."
+  (let ((required (with-temp-buffer
+                    (insert-file-contents (expand-file-name "lisp/lispm-desktop.el" lispm-desktop-directory))
+                    (delq 'emacs (mapcar #'car (package-desc-reqs (package-buffer-info))))))
+        (declared (cl-set-difference (lispm-desktop-test--declared-packages) '(evil exwm))))
+    (should (equal (sort (copy-sequence required) #'string<) (sort declared #'string<)))))
+
+(ert-deftest lispm-desktop-test-deps-batch-progress ()
+  "Each package installed is said with the how many-th it is of those the
+desktop and its projects need, counted at the first; one beyond them counts
+one more."
+  (let ((said nil)
+        (counted 0)
+        (lispm-desktop-deps--progress nil))
+    (cl-letf (((symbol-function 'package-compute-transaction)
+               (lambda (&rest _) (cl-incf counted) (make-list 3 'package)))
+              ((symbol-function 'lispm-desktop-deps--required) #'ignore)
+              ((symbol-function 'send-string-to-terminal) (lambda (string) (push string said))))
+      (dolist (name '(dash s magit treemacs))
+        (lispm-desktop-deps--installing (package-desc-create :name name))))
+    (should (= counted 1))
+    (should (equal (nreverse said)
+                   (mapcar (lambda (line) (concat "\n" lispm-desktop-deps-progress-tag line "\n"))
+                           '("dash (1/3)" "s (2/3)" "magit (3/3)" "treemacs (4/4)"))))))
+
 (ert-deftest lispm-desktop-test-deps-found-in-order ()
   "A project already on `load-path' is used as it is; else a checkout beside
 the desktop's joins `load-path'; else package-vc installs its latest
@@ -1105,6 +921,7 @@ release from its repository, lisp/ holding its sources."
         (load-path '("/elsewhere")))
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) found))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (setq found "/elsewhere/lispm-browser.el")
       (lispm-desktop-deps-ensure 'lispm-browser)
@@ -1120,13 +937,48 @@ release from its repository, lisp/ holding its sources."
                                                  :lisp-dir "lisp")
                                   :last-release)))))))
 
+(ert-deftest lispm-desktop-test-deps-catch-up ()
+  "A project lacking the library the desktop needs of it is brought up to
+its latest release when package-vc installed it, in an Emacs of its own,
+before anything of it loads; a checkout lacking it is an error saying
+what to update."
+  (let* ((desc (package-desc-create :name 'lispm :kind 'vc :dir "/elpa/lispm/"))
+         (package-alist (list (list 'lispm desc)))
+         (main "/elpa/lispm/lisp/lispm.el")
+         (agents nil)
+         (jobs nil))
+    (cl-letf (((symbol-function 'locate-library)
+               (lambda (file &rest _)
+                 (pcase file
+                   ("lispm.el" main)
+                   ("lispm-agents" (and agents "/elpa/lispm/lisp/lispm-agents.el")))))
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release) (lambda (_) "0400"))
+              ((symbol-function 'lispm-desktop-deps--git) (lambda (_directory &rest _) "0300"))
+              ((symbol-function 'lispm-desktop-store-installer-call)
+               (lambda (job) (push job jobs) (setq agents t) "0400"))
+              (inhibit-message t))
+      (lispm-desktop-deps-ensure 'lispm)
+      (should (equal jobs '((update lispm "0400" "0300"))))
+      ;; Up to date already: nothing is done.
+      (lispm-desktop-deps-ensure 'lispm)
+      (should (= (length jobs) 1))
+      ;; A checkout lacking it.
+      (setq agents nil main "/src/lispm-agent/lisp/lispm.el")
+      (should (string-match-p "lispm-agent/lisp/ lacks lispm-agents"
+                              (cadr (should-error (lispm-desktop-deps-ensure 'lispm)))))
+      (should (= (length jobs) 1)))))
+
 (ert-deftest lispm-desktop-test-deps-kernel ()
   "lispm-kernel is got as the other projects are: from a checkout beside the
-desktop's, ../lispm-kernel, else its latest release with package-vc."
+desktop's, ../lispm-kernel, else its latest release with package-vc, its
+newest tag, or what package-vc takes for it before the first."
   (let ((installed nil)
+        (release nil)
         (load-path '("/elsewhere")))
     (cl-letf (((symbol-function 'locate-library) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) release))
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
                  (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
@@ -1137,62 +989,282 @@ desktop's, ../lispm-kernel, else its latest release with package-vc."
         (lispm-desktop-deps-ensure 'lispm-kernel))
       (should (equal installed '(((lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel"
                                                 :lisp-dir "lisp")
-                                  :last-release)))))))
+                                  :last-release))))
+      (setq release "v0.2.0" installed nil)
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout) #'ignore))
+        (lispm-desktop-deps-ensure 'lispm-kernel))
+      (should (equal installed '(((lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel"
+                                                :lisp-dir "lisp")
+                                  "v0.2.0"))))
+      ;; Here without installing anything: on `load-path', or beside.
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout) #'ignore))
+        (should-not (lispm-desktop-deps-present-p 'lispm-kernel)))
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
+                 (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
+        (should (lispm-desktop-deps-present-p 'lispm-kernel))))))
 
 (defvar lispm-kernel-desktop-mode)
+(defvar lispm-kernel-package-mode)
 
 (ert-deftest lispm-desktop-test-kernel ()
-  "lispm-kernel is not even loaded until `lispm-desktop-kernel' asks for it;
-then its Lisp is got and its mode turned on, at setup or as soon as the
-option is set, and off again when it is set to nil.  A batch Emacs gets
-the Lisp only, and what goes wrong is said and leaves the desktop as it
-was."
+  "lispm-kernel is on by default, and not even loaded while
+`lispm-desktop-kernel' is nil; set, its Lisp is got and its modes turned
+on, the sessions' and package.el's downloads', the latter where the
+kernel's Lisp has it, at setup or as soon as the option is set, and off
+again when it is set to nil.  Asked for, what it lacks, its Lisp or its
+program, the Installer gets, and it is turned on once that is done,
+unless it was turned off meanwhile; on by default, that is got quietly.
+A batch Emacs gets the Lisp only, and what goes wrong is said, in the
+echo area only when the kernel was asked for, and leaves the desktop as
+it was."
+  (should (eq (eval (car (get 'lispm-desktop-kernel 'standard-value)) t) t))
   (let ((lispm-desktop-kernel nil)
         (lispm-kernel-desktop-mode nil)
+        (lispm-kernel-package-mode nil)
         (provided (featurep 'lispm-kernel-desktop))
+        (provided-package (featurep 'lispm-kernel-package))
+        (saved (get 'lispm-desktop-kernel 'saved-value))
+        (customized (get 'lispm-desktop-kernel 'customized-value))
         (noninteractive nil)
-        (inhibit-message t)
+        (inhibit-message nil)
+        (present t)
+        (getting nil)
+        (installs nil)
         (ensured 0)
         (failure nil)
         (messages nil))
     ;; The kernel's Lisp, as `require' finds it once it is got.
     (provide 'lispm-kernel-desktop)
+    (provide 'lispm-kernel-package)
+    (put 'lispm-desktop-kernel 'saved-value nil)
+    (put 'lispm-desktop-kernel 'customized-value nil)
     (unwind-protect
-        (cl-letf (((symbol-function 'lispm-desktop-deps-ensure)
+        (cl-letf (((symbol-function 'lispm-desktop-deps-present-p)
+                   (lambda (feature) (should (eq feature 'lispm-kernel)) present))
+                  ((symbol-function 'lispm-desktop-deps-ensure)
                    (lambda (feature)
                      (should (eq feature 'lispm-kernel))
                      (when failure (error "%s" failure))
                      (setq ensured (1+ ensured))))
+                  ((symbol-function 'lispm-desktop-kernel--getting-p) (lambda () getting))
+                  ((symbol-function 'lispm-desktop-needs-install)
+                   (lambda (needs who then) (push (list needs who then) installs)))
                   ((symbol-function 'lispm-kernel-desktop-mode)
                    (lambda (&optional arg)
                      (setq lispm-kernel-desktop-mode (> (prefix-numeric-value arg) 0))))
+                  ((symbol-function 'lispm-kernel-package-mode)
+                   (lambda (&optional arg)
+                     (setq lispm-kernel-package-mode (> (prefix-numeric-value arg) 0))))
+                  ;; Each message, and whether it stays out of the echo area.
                   ((symbol-function 'message)
-                   (lambda (format &rest args) (push (apply #'format format args) messages))))
+                   (lambda (format &rest args)
+                     (push (cons (apply #'format format args) inhibit-message) messages))))
           (lispm-desktop-setup-kernel)
           (should (= ensured 0))
           (should-not lispm-kernel-desktop-mode)
           (setq lispm-desktop-kernel t)
           (should (= ensured 1))
           (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-package-mode)
           (setq lispm-desktop-kernel nil)
           (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-package-mode)
           (let ((noninteractive t))
             (lispm-desktop-kernel-apply t))
           (should (= ensured 2))
           (should-not lispm-kernel-desktop-mode)
-          ;; Offline, at the start that would install it.
+          (should-not lispm-kernel-package-mode)
+          ;; Offline, at the start that would install it: on by default,
+          ;; it says so in *Messages* alone; asked for, in the echo area too.
           (setq failure "offline")
           (lispm-desktop-kernel-apply t)
-          (should (string-match-p "offline" (car messages)))
+          (should (string-match-p "offline" (caar messages)))
+          (should (cdar messages))
           (should-not lispm-kernel-desktop-mode)
+          (put 'lispm-desktop-kernel 'customized-value '(t))
+          (lispm-desktop-kernel-apply t)
+          (should (string-match-p "offline" (caar messages)))
+          (should-not (cdar messages))
+          (put 'lispm-desktop-kernel 'customized-value nil)
+          (should-not lispm-kernel-package-mode)
           (setq failure nil)
           (let ((lispm-desktop-kernel t))
             (lispm-desktop-setup-kernel)
             (should (= ensured 3))
-            (should lispm-kernel-desktop-mode)))
+            (should lispm-kernel-desktop-mode)
+            (should lispm-kernel-package-mode))
+          ;; A kernel's Lisp from before package.el's downloads.
+          (lispm-desktop-kernel-apply nil)
+          (setq features (delq 'lispm-kernel-package features))
+          (let ((load-path nil))
+            (lispm-desktop-kernel-apply t))
+          (should lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-package-mode)
+          (provide 'lispm-kernel-package)
+          (lispm-desktop-kernel-apply nil)
+          (should-not installs)
+          ;; Asked for, its Lisp missing: the Installer gets it, then it is on.
+          (put 'lispm-desktop-kernel 'customized-value '(t))
+          (setq lispm-desktop-kernel nil present nil)
+          (setq lispm-desktop-kernel t)
+          (should-not lispm-kernel-desktop-mode)
+          (pcase-let ((`((,need) ,who ,then) (car installs)))
+            (should (equal (lispm-desktop-needs-name need) "lispm-kernel"))
+            (should (eq (lispm-desktop-needs-get need :install) #'lispm-desktop-kernel--install))
+            (should (eq (lispm-desktop-needs-get need :present) #'lispm-desktop-kernel-installed-p))
+            (should (equal who "LispM"))
+            (setq present t)
+            (funcall then t)
+            (should lispm-kernel-desktop-mode)
+            (should lispm-kernel-package-mode))
+          ;; Turned off while the Installer got it, it stays off.
+          (setq lispm-desktop-kernel nil present nil)
+          (setq lispm-desktop-kernel t)
+          (setq lispm-desktop-kernel nil)
+          (setq present t)
+          (funcall (nth 2 (car installs)) t)
+          (should-not lispm-kernel-desktop-mode)
+          (should (= (length installs) 2))
+          ;; Its program downloading, it is on, and the Installer shows how
+          ;; far the download is.
+          (setq getting t)
+          (setq lispm-desktop-kernel t)
+          (should lispm-kernel-desktop-mode)
+          (should (= (length installs) 3))
+          ;; On by default, all that is got quietly.
+          (put 'lispm-desktop-kernel 'customized-value nil)
+          (setq lispm-desktop-kernel nil)
+          (setq lispm-desktop-kernel t)
+          (should lispm-kernel-desktop-mode)
+          (setq getting nil present nil lispm-desktop-kernel nil)
+          (setq lispm-desktop-kernel t)
+          (should lispm-kernel-desktop-mode)
+          (should (= (length installs) 3))
+          (setq lispm-desktop-kernel nil))
       (remove-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed)
+      (put 'lispm-desktop-kernel 'saved-value saved)
+      (put 'lispm-desktop-kernel 'customized-value customized)
+      (unless provided
+        (setq features (delq 'lispm-kernel-desktop features)))
+      (if provided-package
+          (provide 'lispm-kernel-package)
+        (setq features (delq 'lispm-kernel-package features))))))
+
+(defvar lispm-kernel-program-progress-functions)
+(defvar lispm-kernel-program-obtained-functions)
+(defvar lispm-kernel-program-problem)
+(defvar lispm-kernel-program-progress)
+
+(ert-deftest lispm-desktop-test-kernel-install ()
+  "The Installer gets lispm-kernel's Lisp, then its program: it says how far
+the download is, ends once the program is there, or why it is not, and
+stops the download when stopped."
+  (let ((provided (featurep 'lispm-kernel-desktop))
+        (lispm-kernel-program-progress-functions nil)
+        (lispm-kernel-program-obtained-functions nil)
+        (lispm-kernel-program-problem nil)
+        (lispm-kernel-program-progress nil)
+        (lispm-kernel-program-source 'download)
+        (present nil)
+        (program nil)
+        (obtain 'pending)
+        (reports nil)
+        (ended nil)
+        (stopped 0))
+    (provide 'lispm-kernel-desktop)
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-deps-present-p) (lambda (_) present))
+                  ((symbol-function 'lispm-desktop-deps-ensure) (lambda (_) (setq present t)))
+                  ((symbol-function 'redisplay) #'ignore)
+                  ((symbol-function 'lispm-kernel-program-file) (lambda () program))
+                  ((symbol-function 'lispm-kernel-program-obtain) (lambda () obtain))
+                  ((symbol-function 'lispm-kernel-program-stop) (lambda () (cl-incf stopped))))
+          (let* ((report (lambda (note &optional fraction) (push (list note fraction) reports)))
+                 (done (lambda (&optional error) (push (list error) ended)))
+                 (stop (lispm-desktop-kernel--install report done)))
+            (should (equal (nreverse reports) '(("Getting its Lisp…" nil) ("Downloading its program…" nil))))
+            (should present)
+            (setq reports nil)
+            (run-hook-with-args 'lispm-kernel-program-progress-functions 0.25)
+            (should (equal reports '(("Downloading its program…" 0.25))))
+            (should-not ended)
+            (setq program "/kernel")
+            (run-hook-with-args 'lispm-kernel-program-obtained-functions t)
+            (should (equal ended '((nil))))
+            (should-not lispm-kernel-program-progress-functions)
+            (should-not lispm-kernel-program-obtained-functions)
+            (should (functionp stop))
+            ;; There: nothing to get.
+            (setq ended nil)
+            (should-not (lispm-desktop-kernel--install report done))
+            (should (equal ended '((nil))))
+            (should (lispm-desktop-kernel-installed-p))
+            ;; Not to be had, it says why.
+            (setq program nil ended nil lispm-kernel-program-problem "none is published for this computer")
+            (setq stop (lispm-desktop-kernel--install report done))
+            (run-hook-with-args 'lispm-kernel-program-obtained-functions nil)
+            (should (equal ended '(("none is published for this computer"))))
+            (setq obtain nil ended nil)
+            (lispm-desktop-kernel--install report done)
+            (should (equal ended '(("none is published for this computer"))))
+            ;; Stopped, the download is.
+            (setq obtain 'pending ended nil)
+            (funcall (lispm-desktop-kernel--install report done))
+            (should (= stopped 1))
+            (should-not lispm-kernel-program-obtained-functions)
+            (should-not ended)))
       (unless provided
         (setq features (delq 'lispm-kernel-desktop features))))))
+
+(ert-deftest lispm-desktop-test-kernel-status ()
+  "How lispm-kernel stands: off, being got, running, exited or stopped."
+  (let ((lispm-desktop-kernel nil)
+        (lispm-kernel-desktop-mode nil)
+        (lispm-kernel-program-problem nil)
+        (lispm-desktop-needs--jobs nil)
+        (status nil))
+    (cl-letf (((symbol-function 'lispm-kernel-desktop-status) (lambda () status))
+              ((symbol-function 'lispm-desktop-kernel--getting-p) #'ignore))
+      (should (equal (lispm-desktop-kernel-status) '(off)))
+      (setq lispm-desktop-kernel t)
+      (setq lispm-kernel-program-problem "none is published for this computer")
+      (should (equal (lispm-desktop-kernel-status) '(stopped "none is published for this computer")))
+      (setq lispm-desktop-needs--jobs
+            (list (lispm-desktop-needs--make-job :need (lispm-desktop-kernel-need) :who "LispM"
+                                                 :state 'installing :fraction 0.5)))
+      (should (equal (lispm-desktop-kernel-status) '(installing 0.5)))
+      (setq lispm-desktop-needs--jobs nil
+            lispm-kernel-desktop-mode t)
+      (let ((process (make-process :name "lispm-test-kernel" :command '("sleep" "5") :noquery t)))
+        (unwind-protect
+            (progn
+              (setq status (list 'running process 100.0))
+              (should (equal (lispm-desktop-kernel-status) (list 'running (process-id process) 100.0))))
+          (delete-process process)))
+      (setq status '(exited "the kernel exited" 200.0))
+      (should (equal (lispm-desktop-kernel-status) '(exited "the kernel exited" 200.0)))
+      (setq status '(getting nil))
+      (should (equal (lispm-desktop-kernel-status) '(installing nil))))))
+
+(declare-function custom-variable-save "cus-edit" (widget))
+
+(ert-deftest lispm-desktop-test-kernel-custom-toggle ()
+  "In Custom, toggling `lispm-desktop-kernel' applies and saves it at once,
+as a check box does, without waiting for Apply."
+  (let ((lispm-desktop-kernel nil)
+        (saved nil))
+    (save-window-excursion
+      (customize-variable 'lispm-desktop-kernel)
+      (unwind-protect
+          (cl-letf (((symbol-function 'run-at-time)
+                     (lambda (_time _repeat function &rest arguments) (apply function arguments)))
+                    ((symbol-function 'custom-variable-save)
+                     (lambda (widget) (push (widget-get widget :value) saved))))
+            (goto-char (point-min))
+            (search-forward "[Toggle]")
+            (widget-apply-action (widget-at (- (point) 2)))
+            (should (equal saved '(lispm-desktop-kernel))))
+        (kill-buffer)))))
 
 (ert-deftest lispm-desktop-test-directory ()
   "`lispm-desktop-directory' is the checkout, holding the agents' icons."
@@ -2526,7 +2598,7 @@ by widening the fringe; the width dragged to is the one kept after."
 different buttons: pressing one draws only it pushed in."
   (let* ((icon (lambda (file) (propertize " " 'display (list 'image :type 'png :file file))))
          (hermes (lispm-desktop-sidebar-toolbar-button (concat (funcall icon "hermes.png") "+")
-                                                        #'lispm-desktop-agent-codex-new "Hermes" 'header-line))
+                                                        #'lispm-agents-codex-new "Hermes" 'header-line))
          (lispm (lispm-desktop-sidebar-toolbar-button (concat (funcall icon "lispm.png") "+")
                                                        #'lispm-desktop-agent-lispm-new "LispM" 'header-line)))
     (should (equal hermes lispm))
@@ -4274,12 +4346,20 @@ Mac OS 9's buttons were, and pressed as the mouse rises over them."
 
 (ert-deftest lispm-desktop-test-modal-moved-p ()
   "A move of the mouse by more than `double-click-fuzz' is a drag; less is
-a hand's jitter in a click."
+a hand's jitter in a click.  In a text terminal's cells, of which Emacs
+reads the fuzz as eighths, a cell is a drag."
   (let ((double-click-fuzz 3))
     (should-not (lispm-desktop-modal-moved-p '(3 . -3)))
     (should (lispm-desktop-modal-moved-p '(4 . 0)))
     (should (lispm-desktop-modal-moved-p '(0 . -4)))
-    (should-not (lispm-desktop-modal-moved-p nil))))
+    (should-not (lispm-desktop-modal-moved-p nil))
+    (should (lispm-desktop-modal-moved-p '(1 . 0) t))
+    (should (lispm-desktop-modal-moved-p '(0 . -1) t))
+    (should-not (lispm-desktop-modal-moved-p '(0 . 0) t))
+    (should-not (lispm-desktop-modal-moved-p nil t)))
+  (let ((double-click-fuzz 16))
+    (should-not (lispm-desktop-modal-moved-p '(2 . 0) t))
+    (should (lispm-desktop-modal-moved-p '(3 . 0) t))))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
@@ -4493,13 +4573,6 @@ Strip."
       (should (= (length labels) 2))))
   (let ((global-mode-string nil) (display-time-mode nil))
     (should-not (lispm-desktop-platinum-menu-status))))
-
-(ert-deftest lispm-desktop-test-age-short-date ()
-  "Old sessions are dated as Finder dated files; recent ones by their age."
-  (let ((now (float-time (encode-time '(0 0 12 13 10 2026 nil -1 nil)))))
-    (should (equal (lispm-desktop-agent-age (- now 120) now) "2m"))
-    (should (equal (lispm-desktop-agent-age (float-time (encode-time '(0 0 12 13 5 2026 nil -1 nil))) now)
-                   "5/13/26"))))
 
 (ert-deftest lispm-desktop-test-row-shades-sorted-column ()
   "A row's right-hand column carries the sorted column's face to the edge."
@@ -4930,6 +5003,48 @@ positions, the keys, the browser's pages."
             (should (string-search label text))))
         (should (equal (nth 1 (assq panel lispm-desktop-settings-panels)) lispm-desktop-platinum-title))))))
 
+(ert-deftest lispm-desktop-test-settings-kernel-panel ()
+  "The Kernel panel's check box turns lispm-kernel on and off, saved, and
+the panel says how it stands, with what can be done about it."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (should (file-readable-p (lispm-desktop-platinum-icon-file "kernel-32")))
+  (let ((saved nil)
+        (lispm-desktop-kernel nil)
+        (status '(off)))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (push (cons variable value) saved)))
+              ((symbol-function 'lispm-desktop-kernel-status) (lambda () status))
+              ((symbol-function 'lispm-desktop-settings--kernel-later) #'ignore))
+      (with-current-buffer (lispm-desktop-settings--buffer)
+        (lispm-desktop-settings-select 'kernel)
+        (should (equal lispm-desktop-platinum-title "Kernel"))
+        (should (string-search "Emacs reads the sessions itself" (buffer-string)))
+        (let ((button (next-button (point-min))))
+          (while (and button (not (string-search "Use LispM Kernel" (button-label button))))
+            (setq button (next-button (button-end button))))
+          (should button)
+          (button-activate button))
+        (should (equal (car saved) '(lispm-desktop-kernel . t)))
+        (pcase-dolist (`(,state . ,labels)
+                       `(((installing 0.42) "42%" "Show Installer")
+                         ((running 4242 ,(float-time)) "process 4242" "Restart")
+                         ((exited "the kernel exited (exit 3)" ,(+ (float-time) 60))
+                          "the kernel exited (exit 3)" "starts again by itself" "Restart Now")
+                         ((stopped "none is published for this computer.") "none is published for this computer."
+                          "Try Again")))
+          (setq status state)
+          (lispm-desktop-settings--render)
+          (let ((text (concat (buffer-string)
+                              ;; Push buttons draw their labels in their images.
+                              (mapconcat #'identity
+                                         (delq nil (mapcar (lambda (position)
+                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (number-sequence (point-min) (1- (point-max)))))
+                                         " "))))
+            (dolist (label labels)
+              (should (string-search label text)))))))))
+
 (ert-deftest lispm-desktop-test-settings-radio-saves ()
   "Pressing a radio button saves its choice and draws the panel again."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
@@ -5277,6 +5392,25 @@ item opens its panel, and nothing is made, renamed or thrown away there."
       (should-error (lispm-desktop-finder-move-to-trash) :type 'user-error)
       (lispm-desktop-finder--go temporary-file-directory)
       (should (lispm-desktop-finder-real-p)))))
+
+(ert-deftest lispm-desktop-test-about-names-gnu-emacs ()
+  "About LispM names the GNU Emacs it runs on and the GNU GPL it is free
+software under; Licence shows the licence in the editor, OK nothing."
+  (let ((alerts nil) (choice 'ok) (shown nil)
+        (lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence))
+    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon _message buttons detail) (push (list buttons detail) alerts) choice))
+              ((symbol-function 'lispm-desktop-apps-activate) (lambda (app) (push app shown)))
+              ((symbol-function 'describe-copying) (lambda () (push 'copying shown))))
+      (lispm-desktop-platinum-about)
+      (let ((detail (nth 1 (car alerts))))
+        (should (string-search (format "GNU Emacs %s" emacs-version) detail))
+        (should (string-search "GNU General Public License" detail)))
+      (should (equal (mapcar #'cadr (nth 0 (car alerts))) '(licence ok)))
+      (should-not shown)
+      (setq choice 'licence)
+      (lispm-desktop-platinum-about)
+      (should (equal shown '(copying editor))))))
 
 (ert-deftest lispm-desktop-test-settings-in-menus ()
   "The λ menu opens each panel; the Application menu lists Settings while
@@ -5919,9 +6053,9 @@ and the clients after it wait too."
 (ert-deftest lispm-desktop-test-agent-list-follows-the-agents ()
   "The agents sidebar draws a session the user acted on at once, and what
 the agents changed themselves once Emacs is idle, and only when it is up."
-  (dlet ((lispm-desktop-agents-changed-hook nil)
-         (lispm-desktop-agent-sessions-changed-hook nil)
-         (lispm-desktop-agent-sessions-arrived-hook nil)
+  (dlet ((lispm-agents-changed-hook nil)
+         (lispm-agents-sessions-changed-hook nil)
+         (lispm-agents-sessions-arrived-hook nil)
          (eat-exit-hook nil)
          (lispm-desktop-term-exit-functions nil)
          (lispm-desktop-term-status-functions nil))
@@ -5933,15 +6067,15 @@ the agents changed themselves once Emacs is idle, and only when it is up."
                 ((symbol-function 'lispm-desktop-agent-list-refresh)
                  (lambda () (setq refreshed (1+ refreshed)))))
         (lispm-desktop-setup-agent-list)
-        (run-hooks 'lispm-desktop-agent-sessions-changed-hook)
+        (run-hooks 'lispm-agents-sessions-changed-hook)
         (should (= refreshed 1))
         (should-not (get-buffer lispm-desktop-agent-list-buffer-name))
-        (run-hooks 'lispm-desktop-agents-changed-hook)
+        (run-hooks 'lispm-agents-changed-hook)
         (should (= scheduled 0))
         (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
           (unwind-protect
               (progn
-                (run-hooks 'lispm-desktop-agents-changed-hook)
+                (run-hooks 'lispm-agents-changed-hook)
                 (should (= scheduled 1)))
             (kill-buffer)))
         (should (= refreshed 1))))))
@@ -5975,10 +6109,10 @@ refreshes it or acts on a session.  Sessions arriving from a reader, the
 agents changing, an agent's status or exit, a group folded, draw it again
 with what the readers have, those once Emacs is idle; arrivals are drawn
 whenever the sidebar is there, shown or not."
-  (dlet ((lispm-desktop-agents-changed-hook nil)
-         (lispm-desktop-agent-sessions-changed-hook nil)
-         (lispm-desktop-agent-sessions-arrived-hook nil)
-         (lispm-desktop-agent-reread-sessions-hook nil)
+  (dlet ((lispm-agents-changed-hook nil)
+         (lispm-agents-sessions-changed-hook nil)
+         (lispm-agents-sessions-arrived-hook nil)
+         (lispm-agents-reread-sessions-hook nil)
          (eat-exit-hook nil)
          (lispm-desktop-term-exit-functions nil)
          (lispm-desktop-term-status-functions nil))
@@ -5996,22 +6130,22 @@ whenever the sidebar is there, shown or not."
                   (happened ()
                     (prog1 (reverse events) (setq events nil))))
           (lispm-desktop-setup-agent-list)
-          (add-hook 'lispm-desktop-agent-reread-sessions-hook (lambda () (push 'reread events)))
+          (add-hook 'lispm-agents-reread-sessions-hook (lambda () (push 'reread events)))
           ;; No sidebar, nothing to draw.
-          (lispm-desktop-agent-sessions-arrived)
+          (lispm-agents-sessions-arrived)
           (should-not idle)
           (let ((sidebar (get-buffer-create lispm-desktop-agent-list-buffer-name))
                 (terminal (get-buffer-create "*codex:lispm-desktop-test*")))
             (unwind-protect
                 (lispm-desktop-test--with-agents '((codex :name "Codex" :program "emacs"))
                   (should-not (get-buffer-window sidebar 'visible))
-                  (lispm-desktop-agent-sessions-arrived)
-                  (lispm-desktop-agent-sessions-arrived)
+                  (lispm-agents-sessions-arrived)
+                  (lispm-agents-sessions-arrived)
                   (should (= (length idle) 1))
                   (should-not events)
                   (when-idle)
                   (should (equal (happened) '((draw agents))))
-                  (run-hooks 'lispm-desktop-agents-changed-hook)
+                  (run-hooks 'lispm-agents-changed-hook)
                   (when-idle)
                   (should (equal (happened) '((draw agents))))
                   (with-current-buffer terminal
@@ -6029,7 +6163,7 @@ whenever the sidebar is there, shown or not."
                   ;; Asked: read anew, then drawn, at once.
                   (lispm-desktop-agent-list-refresh)
                   (should (equal (happened) '(reread (draw agents))))
-                  (run-hooks 'lispm-desktop-agent-sessions-changed-hook)
+                  (run-hooks 'lispm-agents-sessions-changed-hook)
                   (should (equal (happened) '(reread (draw agents))))
                   (should-not idle))
               (kill-buffer sidebar)
@@ -6140,7 +6274,7 @@ its label says what the program waits for."
 (ert-deftest lispm-desktop-test-agent-next-waiting ()
   "\\`C-c a n' goes to the terminals waiting for the user, those blocked
 first, then those failed or done, and round again."
-  (should (eq (keymap-lookup lispm-desktop-agent-map "n") #'lispm-desktop-agent-next-waiting))
+  (should (eq (keymap-lookup lispm-agents-map "n") #'lispm-desktop-agent-next-waiting))
   (should-error (lispm-desktop-agent-next-waiting) :type 'user-error)
   (let ((buffers nil)
         (shown nil))
@@ -6154,7 +6288,7 @@ first, then those failed or done, and round again."
               (push (current-buffer) buffers)))
           (setq buffers (nreverse buffers))
           (should (equal (lispm-desktop-term-waiting-buffers) (list (nth 2 buffers) (nth 1 buffers))))
-          (cl-letf (((symbol-function 'lispm-desktop-agent-show) (lambda (buffer) (push buffer shown)))
+          (cl-letf (((symbol-function 'lispm-agents-show) (lambda (buffer) (push buffer shown)))
                     ((symbol-function 'lispm-desktop-sidebar-show-in-main) (lambda (buffer) (push buffer shown))))
             (lispm-desktop-agent-next-waiting)
             (should (eq (car shown) (nth 2 buffers)))
@@ -7645,10 +7779,10 @@ newest commit after, in the background; then the list shows what it holds."
         (delete-directory source t)))))
 
 (ert-deftest lispm-desktop-test-store-loads-with-the-watch ()
-  "The App Store's window has the watch on the pointer while the App Store
-checks its catalogs, and while this Emacs installs or updates, waiting;
-not while an install runs in the background, its progress bar showing,
-nor after."
+  "The App Store's window has the watch on the pointer while this Emacs
+installs or updates, waiting; not while the App Store checks its
+catalogs, nor while an install runs in the background, its progress bar
+showing, nor after: Emacs waits on neither."
   (lispm-desktop-test--with-store
     (let ((lispm-desktop-loading--loadings nil)
           (lispm-desktop-loading--shown nil)
@@ -7672,8 +7806,43 @@ nor after."
           (lispm-desktop-store--install-here (job 'install) nil)
           (lispm-desktop-store--update-here (job 'update))
           (lispm-desktop-store--start (job 'install))))
-      (should (equal (reverse during) (append (make-list 3 (list lispm-desktop-store-buffer-name)) '(nil))))
+      (should (equal (reverse during) `(nil ,@(make-list 2 (list lispm-desktop-store-buffer-name)) nil)))
       (should-not lispm-desktop-loading--loadings))))
+
+(ert-deftest lispm-desktop-test-store-refreshes-only-its-archives ()
+  "The archives read anew are those holding, as last read, the packages of
+the items installed from them, in their order; all of them when one such
+package is in none.  Only those are downloaded, in the background."
+  (lispm-desktop-test--with-store
+    (let ((package-archives '(("gnu" . "https://elpa.gnu.org/packages/")
+                              ("nongnu" . "https://elpa.nongnu.org/nongnu/")
+                              ("melpa" . "https://melpa.org/packages/")))
+          (package-archive-contents
+           (list (list 'emms (package-desc-create :name 'emms :archive "gnu"))
+                 (list 'magit (package-desc-create :name 'magit :archive "melpa")
+                       (package-desc-create :name 'magit :archive "nongnu"))))
+          (package--downloads-in-progress nil)
+          (refreshed nil))
+      (cl-flet ((archives (&rest packages)
+                  (setq lispm-desktop-store-installed
+                        (mapcar (lambda (package) (list package :kind 'app :package package)) packages))
+                  (mapcar #'car (lispm-desktop-store--archives-to-refresh))))
+        (should (equal (archives 'emms) '("gnu")))
+        (should (equal (archives 'magit) '("nongnu" "melpa")))
+        (should (equal (archives 'emms 'magit) '("gnu" "nongnu" "melpa")))
+        (should (equal (archives 'emms 'gone) '("gnu" "nongnu" "melpa"))))
+      (setq lispm-desktop-store-installed '((emms :kind app :package emms)
+                                            (stickies :kind app :package (stickies :url "https://example.org/s"))))
+      (cl-letf (((symbol-function 'package-refresh-contents)
+                 (lambda (&optional async)
+                   (should async)
+                   (push (mapcar #'car package-archives) refreshed))))
+        (let ((done nil))
+          (lispm-desktop-store--refresh-archives (lambda () (setq done t)))
+          (with-timeout (5 (error "The refresh did not end"))
+            (while (not done) (accept-process-output nil 0.05)))))
+      (should (equal refreshed '(("gnu"))))
+      (should (= (length package-archives) 3)))))
 
 (ert-deftest lispm-desktop-test-store-git-ignores-callers-repository ()
   "Git runs for the App Store in the directory given, whatever repository
@@ -8654,7 +8823,7 @@ packages, those that read back alone, and runs the installer on its task."
   (let ((package-user-dir "/tmp/elpa/")
         (package-archives '(("gnu" . "https://elpa.gnu.org/packages/")))
         (exec-path (list "/opt/bin" (current-buffer))))
-    (let ((program (lispm-desktop-store--job-program '(install (p :url "u" :rev "r")))))
+    (let ((program (lispm-desktop-store-installer-program '(install (p :url "u" :rev "r")))))
       (should (member '(setq package-user-dir '"/tmp/elpa/") program))
       (should (member '(setq package-archives '(("gnu" . "https://elpa.gnu.org/packages/"))) program))
       (should-not (seq-find (lambda (form) (equal (car-safe (cdr-safe form)) 'exec-path)) program))
@@ -8918,7 +9087,7 @@ nothing."
           (lispm-desktop-store-enter)
           (should (eq lispm-desktop-store--view 'item))
           (should (eq lispm-desktop-store--selected 'game16))
-          (let* ((rows (lispm-desktop-store--page-rows 'game16 640 600 4))
+          (let* ((rows (lispm-desktop-store--page-rows 'game16 640))
                  (labels (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
                                            (number-sequence (point-min) (1- (point-max)))))))
             (should (plist-get (car rows) :head))
@@ -8932,8 +9101,11 @@ nothing."
             (should (seq-find (lambda (row) (equal (plist-get row :text) "Information")) rows))
             (dolist (label '("Version:" "Developer:" "Licence:"))
               (should (seq-find (lambda (row) (equal (plist-get row :label) label)) rows)))
-            (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) rows))
-                       (* 4 lispm-desktop-store-tile-height)))
+            ;; A page, which ends where the grid's would.
+            (pcase-let ((`(,page . ,more) (lispm-desktop-store--item-pages 'game16 640 600 4)))
+              (should-not more)
+              (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) page))
+                         (* 4 lispm-desktop-store-tile-height))))
             (dolist (label '("Go Back" "Uninstall…" "Get"))
               (should (member label labels)))
             (dolist (label '("Previous" "Next" "Install from URL…"))
@@ -8955,6 +9127,119 @@ nothing."
           (lispm-desktop-store-show-category 'utilities)
           (should (eq lispm-desktop-store--view 'grid))
           (should (eq lispm-desktop-store--selected 'calculator)))))))
+
+(ert-deftest lispm-desktop-test-store-paginate ()
+  "An item's page is cut into pages as tall as the grid's page, each ending
+in a blank row as tall as it lacks; no page but the first starts with a
+space, a heading goes over to the next page with the row it heads, and
+a picture taller than a page is drawn smaller.  On a text terminal its
+lines are cut into pages the same way."
+  (should (equal (lispm-desktop-store--paginate
+                  '((:height 50 :text "a") (:height 20 :text "H" :heading t) (:height 4)
+                    (:height 40 :text "b") (:height 6) (:height 40 :text "c"))
+                  100)
+                 '(((:height 50 :text "a") (:height 50))
+                   ((:height 20 :text "H" :heading t) (:height 40 :text "b") (:height 40))
+                   ((:height 40 :text "c") (:height 60)))))
+  ;; A heading alone on its page stays there.
+  (should (equal (lispm-desktop-store--paginate '((:height 20 :text "H" :heading t) (:height 90 :text "a")) 100)
+                 '(((:height 20 :text "H" :heading t) (:height 80)) ((:height 90 :text "a") (:height 10)))))
+  (should (equal (lispm-desktop-store--paginate nil 100) '(((:height 100)))))
+  (should (equal (lispm-desktop-store--fit-row '(:height 308 :banner "b" :size (900 . 300)) 158)
+                 '(:height 158 :banner "b" :size (450 . 150))))
+  (should (equal (lispm-desktop-store--paginate '((:height 120 :picture "p" :size (240 . 120))) 100)
+                 '(((:height 100 :picture "p" :size (200 . 100))))))
+  (should (equal (lispm-desktop-store--text-pages '("a" "b" "" "c" "d" "e") 2)
+                 '(("a" "b") ("c" "d") ("e")))))
+
+(ert-deftest lispm-desktop-test-store-holds-still ()
+  "The App Store's window never scrolls: an item's page longer than the
+grid's page shows in pages, which C-v and M-v, ] and [, C-n and C-p, or
+Previous and Next with the page between, turn, and the View menu too;
+another item's page shows from its first.  The wheel turns nothing, the
+window has no scroll bar, and what a command scrolled goes back."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((long :kind app :name "Long" :command ignore :category utilities :about "long")
+       (short :kind app :name "Short" :command ignore :category utilities))
+     `(("about/long.md"
+        . ,(mapconcat (lambda (n)
+                        (format "## Part %d\n\n%s\n" n (string-join (make-list 40 "Words to read.") " ")))
+                      (number-sequence 1 16) "\n"))))
+    (let ((pages (lispm-desktop-store--item-pages 'long 640 600 4)))
+      (should (> (length pages) 2))
+      (dolist (page pages)
+        (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) page))
+                   (* 4 lispm-desktop-store-tile-height)))
+        (should-not (plist-get (car (last (seq-remove #'lispm-desktop-store--gap-p page))) :heading)))
+      (dolist (page (cdr pages))
+        (should-not (lispm-desktop-store--gap-p (car page))))
+      ;; Every row shows, once, in its order.
+      (should (equal (seq-remove #'lispm-desktop-store--gap-p (apply #'append pages))
+                     (seq-remove #'lispm-desktop-store--gap-p (lispm-desktop-store--page-rows 'long 640)))))
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (cl-flet ((labels ()
+                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                                    (number-sequence (point-min) (1- (point-max))))))
+                (enabled (label)
+                  (plist-get (seq-find (lambda (item) (equal (plist-get item :label) label))
+                                       (seq-filter #'consp (lispm-desktop-store--view-items)))
+                             :enabled)))
+        (lispm-desktop-store-show-item 'long)
+        ;; Each row is as tall as its image, however short, so that the
+        ;; page ends where the grid's would.
+        (let ((at (text-property-not-all (point-min) (point-max) 'lispm-desktop-store-row nil)))
+          (should (eql (image-property (get-text-property at 'display) :ascent) 100))
+          (should (eq (get-text-property (1+ at) 'line-height) t)))
+        (let ((count lispm-desktop-store--page-count))
+          (should (> count 2))
+          (should (= lispm-desktop-store--page-number 0))
+          (should (string-search (format "Page 1 of %d" count) (buffer-string)))
+          (dolist (label '("Previous" "Next" "Get"))
+            (should (member label (labels))))
+          (should-not (enabled "Previous Page"))
+          (should (enabled "Next Page"))
+          (should (eq (key-binding (kbd "C-v")) 'lispm-desktop-store-next-page))
+          (lispm-desktop-store-next-page)
+          (should (= lispm-desktop-store--page-number 1))
+          (should (string-search (format "Page 2 of %d" count) (buffer-string)))
+          (lispm-desktop-store-down)
+          (should (= lispm-desktop-store--page-number 2))
+          (lispm-desktop-store-up)
+          (lispm-desktop-store-previous-page)
+          (should (= lispm-desktop-store--page-number 0))
+          (lispm-desktop-store-previous-page)
+          (should (= lispm-desktop-store--page-number 0))
+          (dotimes (_ (1+ count))
+            (lispm-desktop-store-next-page))
+          (should (= lispm-desktop-store--page-number (1- count)))
+          (should (enabled "Previous Page"))
+          (should-not (enabled "Next Page")))
+        (lispm-desktop-store--select 'short)
+        (should (eq lispm-desktop-store--view 'item))
+        (should (= lispm-desktop-store--page-number 0))
+        (should (= lispm-desktop-store--page-count 1))
+        (should-not (member "Next" (labels)))
+        (lispm-desktop-store-down)
+        (should (= lispm-desktop-store--page-number 0))
+        (lispm-desktop-store--select 'long)
+        (should (= lispm-desktop-store--page-number 0)))
+      (dolist (function '(mwheel-scroll-up-function mwheel-scroll-down-function
+                          mwheel-scroll-left-function mwheel-scroll-right-function))
+        (should (eq (symbol-value function) #'ignore)))
+      (should (eq (lispm-desktop-store--scroll-bar (current-buffer)) 'no))
+      (with-temp-buffer
+        (should-not (lispm-desktop-store--scroll-bar (current-buffer))))
+      (should (memq #'lispm-desktop-store--hold-still post-command-hook))
+      (save-window-excursion
+        (let ((window (selected-window)))
+          (set-window-buffer window (current-buffer))
+          (set-window-start window 20)
+          (set-window-hscroll window 5)
+          (lispm-desktop-store--hold-still)
+          (should (= (window-start window) (point-min)))
+          (should (= (window-hscroll window) 0)))))))
 
 ;;;; Markdown
 
@@ -9072,7 +9357,7 @@ mouse; o opens a link from the keyboard."
      '((ai :kind app :name "AI" :command ignore :category classic-ai :about "ai"))
      '(("about/ai.md" . "Talk to [the doctor](https://example.org/doctor).\n\n## Keys\n\n- `RET` says it\n\n> A quote.\n\n```\n(doctor)\n```\n")
        ("about/ai.fr.md" . "Parlez au docteur.\n")))
-    (let* ((rows (lispm-desktop-store--page-rows 'ai 640 600 4))
+    (let* ((rows (lispm-desktop-store--page-rows 'ai 640))
            (link (seq-find (lambda (row) (plist-get row :links)) rows)))
       (should (equal (plist-get link :text) "Talk to the doctor."))
       (pcase-let ((`((,from ,to ,url)) (plist-get link :links)))
@@ -9090,7 +9375,7 @@ mouse; o opens a link from the keyboard."
       (should (assq 'classic-ai (lispm-desktop-store--categories)))
       (let ((lispm-desktop-language 'fr))
         (should (seq-find (lambda (row) (equal (plist-get row :text) "Parlez au docteur."))
-                          (lispm-desktop-store--page-rows 'ai 640 600 4)))))
+                          (lispm-desktop-store--page-rows 'ai 640)))))
     (let ((lines (lispm-desktop-store--markdown-lines
                   (lispm-desktop-store--about (cdr (assq 'ai (lispm-desktop-store-items)))) 60 'shadow)))
       (should (member "Talk to the doctor." lines))
@@ -9490,15 +9775,18 @@ check was asked for; without its window, a check of its own only says so."
           (should said))))))
 
 (ert-deftest lispm-desktop-test-update-checkouts ()
-  "The checkouts are the projects' git checkouts, each once; a project
-installed as a package is left out."
+  "The checkouts are the projects' git checkouts, each once, and the
+packages package-vc installed from git, known by their names; a package
+from the archives, in no checkout, is left out."
   (skip-unless (executable-find "git"))
   (let* ((root (file-name-as-directory (make-temp-file "lispm-desktop-test-update-projects" t)))
          (package-user-dir (concat root "elpa/"))
-         (lispm-desktop-update-projects '(("One" . "one.el") ("Two" . "two.el") ("Package" . "three.el")))
+         (lispm-desktop-update-projects '(("One" . "one.el") ("Two" . "two.el") ("Package" . "three.el")
+                                          ("Archive" . "four.el")))
          (files `(("one.el" . ,(concat root "repo/lisp/one.el"))
                   ("two.el" . ,(concat root "repo/lisp/two.el"))
-                  ("three.el" . ,(concat root "elpa/three/three.el")))))
+                  ("three.el" . ,(concat root "elpa/three/lisp/three.el"))
+                  ("four.el" . ,(concat root "elpa/four-1.0/four.el")))))
     (unwind-protect
         (progn
           (dolist (file files)
@@ -9508,9 +9796,73 @@ installed as a package is left out."
           (lispm-desktop-test--git (concat root "elpa/three") "init" "--quiet")
           (cl-letf (((symbol-function 'locate-library)
                      (lambda (file &rest _) (cdr (assoc file files)))))
-            (should (equal (lispm-desktop-update-checkouts)
-                           (list (cons "One" (file-name-as-directory (file-truename (concat root "repo")))))))))
+            (let ((checkouts (lispm-desktop-update-checkouts)))
+              (should (equal checkouts
+                             (list (cons "One" (file-name-as-directory (file-truename (concat root "repo"))))
+                                   (cons "Package" (file-name-as-directory
+                                                    (file-truename (concat root "elpa/three")))))))
+              (should-not (lispm-desktop-update--package (cdar checkouts)))
+              (should (eq (lispm-desktop-update--package (cdadr checkouts)) 'three)))))
       (delete-directory root t))))
+
+(defun lispm-desktop-test--update-package (root tag)
+  "Return the package foo of ROOT's origin, made as package-vc makes one
+in ROOT's elpa/ and updated as the App Store updates one: a clone, its
+release TAG checked out on no branch."
+  (let ((package (concat root "elpa/foo/")))
+    (lispm-desktop-test--git root "clone" "--quiet" (concat "file://" root "origin.git") package)
+    (lispm-desktop-test--git package "checkout" "--quiet" "--detach" tag)
+    (file-name-as-directory (file-truename package))))
+
+(ert-deftest lispm-desktop-test-update-packages ()
+  "A package package-vc installed from git is checked as a checkout is,
+on no branch following its origin's main, and installed as the App Store
+updates one: checked out at the release and built again, in an Emacs of
+its own.  It goes before the checkouts, which wait while it fails."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let ((package-user-dir (concat root "elpa/"))
+                (jobs nil)
+                (fails nil))
+            (lispm-desktop-test--update-push work "b.txt" "Second")
+            (lispm-desktop-test--update-release work "v0.1.0")
+            (let ((package (lispm-desktop-test--update-package root "v0.1.0")))
+              (lispm-desktop-test--update-push work "c.txt" "Third")
+              (lispm-desktop-test--update-release work "v0.2.0")
+              (lispm-desktop-test--update-push work "d.txt" "Fourth")
+              (cl-letf (((symbol-function 'lispm-desktop-store-installer-call)
+                         (lambda (job)
+                           (push job jobs)
+                           (when fails (error "No network"))
+                           (pcase-let ((`(update ,_ ,rev ,_) job))
+                             (lispm-desktop-test--git package "checkout" "--quiet" "--detach" rev)
+                             rev))))
+                (let ((update (lispm-desktop-test--update-check package))
+                      (other (lispm-desktop-test--update-check checkout))
+                      (release (lispm-desktop-update--git work "rev-parse" "v0.2.0^{commit}")))
+                  (should (eq (plist-get update :state) 'update))
+                  (should (eq (plist-get update :package) 'foo))
+                  (should (equal (plist-get update :release) "v0.2.0"))
+                  (should (equal (plist-get update :to) release))
+                  (should (equal (plist-get update :changes) '("Third")))
+                  (should (eq (plist-get other :state) 'update))
+                  (should-not (plist-get other :package))
+                  ;; The package fails: the checkout waits.
+                  (setq fails t)
+                  (should-not (lispm-desktop-update-install (list other update)))
+                  (should (equal (car jobs) `(update foo ,release ,(plist-get update :from))))
+                  (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") (plist-get other :from)))
+                  ;; Then both, the package first.
+                  (setq fails nil jobs nil)
+                  (should (equal (lispm-desktop-update-install (list other update)) (list update other)))
+                  (should (equal (length jobs) 1))
+                  (should (equal (lispm-desktop-update--git package "rev-parse" "HEAD") release))
+                  (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") release))
+                  (should (equal (lispm-desktop-update-version package) "0.2.0"))
+                  (should (eq (plist-get (lispm-desktop-test--update-check package) :state) 'current))))))
+        (delete-directory root t)))))
 
 (ert-deftest lispm-desktop-test-update-installer-command ()
   "install.sh runs once this Emacs has quit, for the checkouts' home and
@@ -9859,16 +10211,6 @@ for an id alone, as YouTube wants to know the page it is in; it is 16 by
   (pcase-let ((`(,w . ,h) (lispm-desktop-app-yeetube-page-player-size 832 300)))
     (should (= h 198))
     (should (= w (round (/ 198 0.5625))))))
-
-(ert-deftest lispm-desktop-test-local-http-content-type ()
-  "A local server's answer is JSON unless its handler names its type."
-  (let ((sent nil))
-    (cl-letf (((symbol-function 'process-send-string) (lambda (_ string) (push string sent)))
-              ((symbol-function 'process-send-eof) #'ignore))
-      (lispm-desktop-local-http--reply 'connection '("200 OK" "{}"))
-      (lispm-desktop-local-http--reply 'connection '("200 OK" "<p>" "text/html; charset=utf-8")))
-    (should (string-search "Content-Type: application/json\r\n" (nth 1 sent)))
-    (should (string-search "Content-Type: text/html; charset=utf-8\r\n" (nth 0 sent)))))
 
 (ert-deftest lispm-desktop-test-app-yeetube-addresses ()
   "Yeetube's addresses are read for what they search and how they sort,
@@ -10599,6 +10941,62 @@ printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
       (lispm-desktop-needs-retry)
       (lispm-desktop-test--wait (lambda () (not (lispm-desktop-needs-running-p))))
       (should (eq (lispm-desktop-needs--job-state (car lispm-desktop-needs--jobs)) 'installed)))))
+
+(ert-deftest lispm-desktop-test-needs-lisp-install ()
+  "What LispM gets itself installs with a function of its own: the
+Installer shows what it says and how far it is, and ends as it says;
+failed, it tries again; stopped, it stops it, and hears no more of it."
+  (let ((lispm-desktop-needs--jobs nil)
+        (lispm-desktop-needs--requests nil)
+        (lispm-desktop-needs--process nil)
+        (there nil)
+        (report nil)
+        (done nil)
+        (stopped nil)
+        (answer nil))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) #'ignore)
+              ((symbol-function 'lispm-desktop-needs-show) #'ignore))
+      (let ((need (list 'program "lispm-test-kernel" :for "background work"
+                        :present (lambda () there)
+                        :install (lambda (r d) (setq report r done d) (lambda () (setq stopped t))))))
+        (should (equal (lispm-desktop-needs-provider need) (list 'lisp (lispm-desktop-needs-get need :install))))
+        (should (lispm-desktop-needs-installable-p need))
+        (should-not (lispm-desktop-needs-install-command need))
+        (should-not (lispm-desktop-needs-present-p need))
+        (lispm-desktop-needs-install (list need) "LispM" (lambda (present) (setq answer (list present))))
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'installing))
+        (funcall report "Downloading…" 0.5)
+        (should (equal (lispm-desktop-needs-job-state need) '(installing 0.5 nil)))
+        (should (equal (lispm-desktop-needs--status) "Installing lispm-test-kernel (1 of 1)…"))
+        (when (image-type-available-p 'svg)
+          (with-current-buffer (lispm-desktop-needs--buffer)
+            (lispm-desktop-needs--render)
+            (should (string-search "Downloading… 50%" (buffer-string)))))
+        (setq there t)
+        (funcall done nil)
+        (should (equal answer '(t)))
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'installed))
+        ;; Failed, it says why; tried again, it runs again, and stops.
+        (setq there nil answer nil)
+        (lispm-desktop-needs-install (list need) "LispM" (lambda (present) (setq answer (list present))))
+        (funcall done "No program for this computer")
+        (should (equal answer '(nil)))
+        (should (equal (lispm-desktop-needs-job-state need) '(failed nil "No program for this computer")))
+        (lispm-desktop-needs-retry)
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'installing))
+        (lispm-desktop-needs-stop)
+        (should stopped)
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'cancelled))
+        (funcall done nil)
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'cancelled))
+        ;; One that signals fails, saying what it signalled.
+        (setq answer nil)
+        (lispm-desktop-needs-install
+         (list (list 'program "lispm-test-broken" :for "nothing" :present #'ignore
+                     :install (lambda (_r _d) (error "Offline"))))
+         "LispM" (lambda (present) (setq answer (list present))))
+        (should (equal answer '(nil)))
+        (should (equal (nth 2 (lispm-desktop-needs-job-state '(program "lispm-test-broken"))) "Offline"))))))
 
 (ert-deftest lispm-desktop-test-needs-brewed ()
   "What Homebrew installed is found in its Cellar or Caskroom, whoever had
@@ -12011,7 +12409,9 @@ too."
          (raw (with-temp-buffer
                 (set-buffer-multibyte nil)
                 (insert (substring png (+ data-at 4) (+ data-at 4 length)))
-                (and (zlib-available-p) (zlib-decompress-region (point-min) (point-max))
+                ;; An Emacs built without zlib has none of it.
+                (and (fboundp 'zlib-available-p) (zlib-available-p)
+                     (zlib-decompress-region (point-min) (point-max))
                      (buffer-string)))))
     (should (string-prefix-p "\x89PNG\r\n\x1a\n" png))
     (should-not (multibyte-string-p png))
@@ -12095,6 +12495,48 @@ under the menu bar, on the screen."
     (cl-letf (((symbol-function 'frame-width) (lambda (&optional _) 80)))
       (should (= (lispm-desktop-sidebar-columns) 26)))))
 
+(ert-deftest lispm-desktop-test-tty-moved-frame-redrawn ()
+  "On a text terminal a child frame drawn elsewhere than before has the
+windows of its root, the minibuffer's too, redisplayed once, so no copy
+of it stays where it was; one moved inside a child frame has its root's.
+A child frame shown, hidden or left in place, or one on a graphical
+display, has none redisplayed."
+  (let ((lispm-desktop--tty-child-places (make-hash-table :test #'eq))
+        (parents '((finder . root) (menu . finder) (picture . gui)))
+        (places (list (cons 'finder '(4 . 3)) (cons 'menu '(1 . 1)) (cons 'picture '(0 . 0))))
+        (hidden nil)
+        (updated nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () '(root finder menu gui picture)))
+              ((symbol-function 'frame-parent) (lambda (&optional frame) (alist-get frame parents)))
+              ((symbol-function 'lispm-desktop-tty-p)
+               (lambda (&optional frame) (not (memq frame '(gui picture)))))
+              ((symbol-function 'frame-visible-p) (lambda (frame) (not (memq frame hidden))))
+              ((symbol-function 'frame-position) (lambda (&optional frame) (alist-get frame places)))
+              ((symbol-function 'window-list)
+               (lambda (&optional frame _minibuffer _window) (list (list frame 'desktop) (list frame 'minibuffer))))
+              ((symbol-function 'force-window-update) (lambda (&optional window) (push window updated))))
+      (cl-flet ((redisplayed ()
+                  (setq updated nil)
+                  (lispm-desktop--tty-redraw-moved-frames t)
+                  (reverse updated)))
+        ;; Seen the first time, a frame was drawn nowhere else.
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(40 . 12))
+        (should (equal (redisplayed) '((root desktop) (root minibuffer))))
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(41 . 12)
+              (alist-get 'menu places) '(2 . 1))
+        (should (equal (redisplayed) '((root desktop) (root minibuffer))))
+        ;; Hidden, moved and shown again: Emacs draws it there itself.
+        (push 'finder hidden)
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(60 . 20))
+        (should-not (redisplayed))
+        (setq hidden nil)
+        (should-not (redisplayed))
+        (setf (alist-get 'picture places) '(9 . 9))
+        (should-not (redisplayed))))))
+
 (ert-deftest lispm-desktop-test-tty-meta-brackets ()
   "Meta-[ and Meta-] are bound but on a text terminal, which sends them as
 ESC [ and ESC ], the start of its arrows and mouse reports."
@@ -12105,6 +12547,111 @@ ESC [ and ESC ], the start of its arrows and mouse reports."
       (should (eq (key-binding (kbd "M-[")) 'ignore))
       (lispm-desktop-test--on-tty
         (should-not (key-binding (kbd "M-[")))))))
+
+(ert-deftest lispm-desktop-test-tty-pointer ()
+  "A text terminal reports the mouse in cells of the frame it is over;
+carried out through each child frame's place in its parent, it is a
+cell of the root frame.  Before the terminal reported it, it is nowhere."
+  (lispm-desktop-test--with-frames lispm-desktop-test--window-frames
+      (let ((place '(window 5 . 1)))
+        (cl-letf (((symbol-function 'mouse-position) (lambda () place)))
+          (should (equal (lispm-desktop-platinum-tty-pointer) '(105 . 51)))
+          (setq place '(screen 7 . 3))
+          (should (equal (lispm-desktop-platinum-tty-pointer) '(7 . 3)))
+          (setq place '(screen nil))
+          (should-not (lispm-desktop-platinum-tty-pointer))))))
+
+(defconst lispm-desktop-test--tty-window-frames
+  '((screen (position 0 . 0) (size 160 . 45) (visibility . t))
+    (window (lispm-desktop-window . t) (parent-frame . screen)
+            (position 2 . 2) (size 112 . 32) (visibility . t)))
+  "A floating window over a text terminal's screen, in cells and not
+framed, for `lispm-desktop-test--with-frames'.")
+
+(defmacro lispm-desktop-test--with-tty-drag (script &rest body)
+  "Run BODY as on a text terminal, with the window of
+`lispm-desktop-test--tty-window-frames' and a mouse following SCRIPT, a
+list of ((COLUMN . LINE) . EVENT): each read puts the mouse at COLUMN,
+LINE of the screen and gives EVENT, nil for a read that waited in vain.
+In BODY, `ran' counts the runs of `lispm-desktop-platinum-frame-moved-functions',
+`sizes' holds the sizes given the window, `focused' the frames given the
+keyboard, the latest first, and `limits' the time limits reads had."
+  (declare (indent 1))
+  `(lispm-desktop-test--on-tty
+     (lispm-desktop-test--with-frames lispm-desktop-test--tty-window-frames
+         (let* ((script ,script)
+                (pointer (car (car script)))
+                (ran 0)
+                (sizes nil)
+                (focused nil)
+                (limits nil)
+                (unread-command-events nil)
+                (lispm-desktop-platinum-frame-moved-functions (list (lambda (_) (setq ran (1+ ran))))))
+           (cl-letf (((symbol-function 'mouse-position) (lambda () (cons 'screen pointer)))
+                     ((symbol-function 'read-event)
+                      (lambda (&optional _prompt _input-method limit)
+                        (push limit limits)
+                        (pcase-let ((`(,place . ,event) (pop script)))
+                          (setq pointer place)
+                          event)))
+                     ((symbol-function 'select-frame-set-input-focus)
+                      (lambda (frame &rest _) (push frame focused)))
+                     ((symbol-function 'set-frame-size)
+                      (lambda (frame width height &optional _)
+                        (push (list frame width height) sizes)
+                        (frame-put frame 'size (cons width height)))))
+             ,@body)))))
+
+(ert-deftest lispm-desktop-test-tty-drag-moves-the-window ()
+  "On a text terminal a window dragged by its title bar comes in front with
+the keyboard and follows the mouse cell by cell; the mouse is looked at
+as each move comes, where the terminal reported it, not between reports
+or at the release, and no read is cut short, which would lose half a
+sequence.  Given up, the window goes back; let go where it was pressed,
+the press is a click, handed on."
+  (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil)
+                                           (cons '(43 . 3) '(mouse-movement (nil)))
+                                           (cons '(70 . 9) '(switch-frame screen))
+                                           (cons '(46 . 5) '(mouse-movement (nil)))
+                                           (cons '(90 . 9) '(drag-mouse-1 (nil) (nil))))
+    (should (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should (equal moves '((window 8 5) (window 5 3))))
+    (should (equal (car (last raised)) 'window))
+    (should (equal (car (last focused)) 'window))
+    (should (= ran 1))
+    (should (= (length limits) 5))
+    (should-not (delq nil limits)))
+  (dolist (stop '(27 escape ?\C-g))
+    (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil)
+                                             (cons '(45 . 4) '(mouse-movement (nil)))
+                                             (cons '(45 . 4) stop))
+      (should-not (lispm-desktop-platinum-drag-outline 'window 'move))
+      (should (equal moves '((window 2 2) (window 7 4))))
+      (should (= ran 0))))
+  (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil) (cons '(40 . 2) '(mouse-1 (nil))))
+    (should-not (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should-not moves)
+    (should (= ran 0))
+    (should (equal unread-command-events '((mouse-1 (nil)))))))
+
+(ert-deftest lispm-desktop-test-tty-drag-grows-the-window ()
+  "On a text terminal a window grown from its grow box takes each size as
+the mouse goes, no smaller than its least in cells: a cell for 8 pixels
+across and 16 down."
+  (lispm-desktop-test--with-tty-drag (list (cons '(113 . 33) nil)
+                                           (cons '(103 . 30) '(mouse-movement (nil)))
+                                           (cons '(0 . 0) '(mouse-movement (nil)))
+                                           (cons '(0 . 0) '(drag-mouse-1 (nil) (nil))))
+    (should (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 25 6) (window 102 29))))
+    (should-not moves)
+    (should (= ran 1)))
+  (lispm-desktop-test--with-tty-drag (list (cons '(113 . 33) nil)
+                                           (cons '(120 . 40) '(mouse-movement (nil)))
+                                           (cons '(120 . 40) 'escape))
+    (should-not (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 112 32) (window 119 39))))
+    (should (= ran 0))))
 
 (ert-deftest lispm-desktop-test-store-cuts-to-characters ()
   "Cutting a word to a width no character fits, as on a narrow window,

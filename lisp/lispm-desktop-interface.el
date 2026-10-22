@@ -228,7 +228,7 @@ Agent terminals are named by their session title."
                                (cons (selected-window) (window-list nil 'no-mini)))
                      (selected-window)))
          (buffer (window-buffer window)))
-    (or (lispm-desktop-agent-buffer-label buffer) (buffer-name buffer))))
+    (or (lispm-agents-buffer-label buffer) (buffer-name buffer))))
 
 (defconst lispm-desktop-default-font-families '("Monaco" "Menlo" "DejaVu Sans Mono")
   "Font families for the default face, in order of preference.
@@ -325,6 +325,9 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
   ;; display this changes nothing.
   (when lispm-desktop-tty-mouse
     (xterm-mouse-mode 1))
+  ;; A window moved on a text terminal leaves no copy where it was.
+  (when (featurep 'tty-child-frames)
+    (add-function :before pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames))
   ;; Icons as images where the terminal shows them.
   (lispm-desktop-tty-images-setup)
   (when (lispm-desktop-macos-p)

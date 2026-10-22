@@ -46,6 +46,8 @@
 ;;   Startup     whether the computer opens LispM at login, and the
 ;;               startup items LispM opens once started, see
 ;;               lispm-desktop-startup.el
+;;   Kernel      whether LispM Kernel, lispm-kernel, runs LispM's background
+;;               work, and how it stands, see lispm-desktop-kernel.el
 ;;   Software Update  Update Now, and how LispM checks for updates and
 ;;               installs them by itself, see lispm-desktop-update.el;
 ;;               whether the App Store's applications update by
@@ -70,6 +72,7 @@
 (require 'lispm-desktop-startup)
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-kernel)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -118,6 +121,7 @@
     (sandbox ,(lispm-desktop-tr-noop "Sandbox") lispm-desktop-settings--sandbox "sandbox-32"
              lispm-desktop-settings--sandbox-p)
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
+    (kernel ,(lispm-desktop-tr-noop "Kernel") lispm-desktop-settings--kernel "kernel-32")
     (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
 LABEL is in English, translated where shown, see
@@ -864,6 +868,82 @@ LispM Agent's lispm-sandbox.el does the rest."
   (insert "\n\n")
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "Low reaches them besides package registries and code hosts, Middle them alone; High reaches no network.")))
+
+(defvar lispm-desktop-settings--kernel-timer nil
+  "Timer drawing the Kernel panel again while it tells how far lispm-kernel is.")
+
+(defun lispm-desktop-settings--kernel-later ()
+  "Draw the Kernel panel again in a moment, while it is shown."
+  (unless (timerp lispm-desktop-settings--kernel-timer)
+    (setq lispm-desktop-settings--kernel-timer
+          (run-at-time 0.5 nil
+                       (lambda ()
+                         (setq lispm-desktop-settings--kernel-timer nil)
+                         (when-let* (((lispm-desktop-settings-open-p))
+                                     (buffer (get-buffer lispm-desktop-settings-buffer-name))
+                                     ((eq (buffer-local-value 'lispm-desktop-settings--panel buffer) 'kernel)))
+                           (lispm-desktop-settings--render)))))))
+
+(defun lispm-desktop-settings--kernel-status ()
+  "Insert how lispm-kernel stands, and the button doing what can be done
+about it; keep drawing it while it changes by itself."
+  (pcase (lispm-desktop-kernel-status)
+    ('(off)
+     (lispm-desktop-settings--paragraph (lispm-desktop-tr "Off: Emacs reads the sessions itself.")))
+    (`(installing ,fraction)
+     (lispm-desktop-settings--paragraph
+      (if fraction
+          (lispm-desktop-tr "Getting what it needs… %d%%" (floor (* 100 fraction)))
+        (lispm-desktop-tr "Getting what it needs…")))
+     (insert "\n" (lispm-desktop-settings--indent))
+     (lispm-desktop-settings--button (lispm-desktop-tr "Show Installer") #'lispm-desktop-needs-show
+                                     (lispm-desktop-tr "Show how far the Installer is"))
+     (insert "\n")
+     (lispm-desktop-settings--kernel-later))
+    (`(running ,pid ,since)
+     (lispm-desktop-settings--paragraph
+      (if (and pid since)
+          (lispm-desktop-tr "Running as process %d since %s." pid (lispm-desktop-settings--when since))
+        (lispm-desktop-tr "Running.")))
+     (insert "\n" (lispm-desktop-settings--indent))
+     (lispm-desktop-settings--button (lispm-desktop-tr "Restart") #'lispm-desktop-kernel-restart
+                                     (lispm-desktop-tr "Stop lispm-kernel and start it again"))
+     (insert "\n"))
+    (`(exited ,why ,at)
+     (lispm-desktop-settings--paragraph
+      (concat (lispm-desktop-tr "It stopped: %s." why) "  "
+              (if (> at (float-time))
+                  (lispm-desktop-tr "It starts again by itself %s." (lispm-desktop-settings--when at))
+                (lispm-desktop-tr "It starts again by itself once the sidebar reads sessions."))))
+     (insert "\n" (lispm-desktop-settings--indent))
+     (lispm-desktop-settings--button (lispm-desktop-tr "Restart Now") #'lispm-desktop-kernel-restart
+                                     (lispm-desktop-tr "Start lispm-kernel again now"))
+     (insert "\n")
+     (lispm-desktop-settings--kernel-later))
+    (`(stopped ,why)
+     (lispm-desktop-settings--paragraph
+      (if why
+          (lispm-desktop-tr "It does not run: %s." (string-remove-suffix "." why))
+        (lispm-desktop-tr "It does not run.")))
+     (insert "\n" (lispm-desktop-settings--indent))
+     (lispm-desktop-settings--button (lispm-desktop-tr "Try Again") #'lispm-desktop-kernel-restart
+                                     (lispm-desktop-tr "Try again to turn lispm-kernel on"))
+     (insert "\n"))))
+
+(defun lispm-desktop-settings--kernel ()
+  "Insert the Kernel panel: whether LispM Kernel runs LispM's background
+work, and how it stands.  A change takes effect at once."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "LispM Kernel"))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "LispM's own runtime, a Common Lisp program beside Emacs: it reads the agents' sessions in the background, so that Emacs never waits on them."))
+  (lispm-desktop-settings--check-box
+   (lispm-desktop-tr "Use LispM Kernel") lispm-desktop-kernel
+   (lambda () (lispm-desktop-settings--save 'lispm-desktop-kernel (not lispm-desktop-kernel))))
+  (insert "\n")
+  (lispm-desktop-settings--kernel-status)
+  (insert "\n")
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "A change takes effect at once, and nothing needs restarting.  What it lacks, the Installer gets.")))
 
 (defun lispm-desktop-settings--startup-read-item ()
   "Ask what LispM is to open at startup; return it as a startup item, see

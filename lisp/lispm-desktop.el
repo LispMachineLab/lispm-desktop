@@ -4,7 +4,14 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.8.0
+;; Version: 0.9.1
+;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
+;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
+;;                    (eat "0") (embark "0") (embark-consult "0")
+;;                    (exec-path-from-shell "0") (magit "0")
+;;                    (marginalia "0") (markdown-mode "0") (nerd-icons "0")
+;;                    (orderless "0") (tabspaces "0") (treemacs "0")
+;;                    (vertico "0") (yasnippet "0"))
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -61,6 +68,11 @@
 ;;   (require 'lispm-desktop)
 ;;   (lispm-desktop-setup)
 ;;
+;; The setup installs from the package archives the packages its
+;; `use-package' declarations name.  Package-Requires above lists them,
+;; for LispM.app's installer to count, but for those installed only once
+;; chosen, as Evil, or where used, as EXWM.
+;;
 ;; The first start asks for the editing style (`lispm-desktop-editing-style') and
 ;; the appearance (`lispm-desktop-theme') on a page filling the frame, see
 ;; lispm-desktop-assistant.el, and installs the icon font; then the guide
@@ -74,6 +86,8 @@
 (require 'lispm-desktop-deps)
 ;; The browser is lispm-browser, which the desktop's browser files require.
 (lispm-desktop-deps-ensure 'lispm-browser)
+;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
+(lispm-desktop-deps-ensure 'lispm)
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
@@ -119,8 +133,8 @@
 (require 'lispm-desktop-agent-list)
 (require 'lispm-desktop-shells)
 (require 'lispm-desktop-lispm)
-(require 'lispm-desktop-agent-claude)
-(require 'lispm-desktop-agent-codex)
+(require 'lispm-agents-claude)
+(require 'lispm-agents-codex)
 (require 'lispm-desktop-kernel)
 
 (defvar nerd-icons-font-family)
@@ -234,8 +248,8 @@ boxes.  A download that fails, as offline, is only reported."
           (condition-case err
               (lispm-desktop-setup-lispm)
             (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
-          (lispm-desktop-setup-claude)
-          (lispm-desktop-setup-codex)
+          (lispm-agents-setup-claude)
+          (lispm-agents-setup-codex)
           ;; After the agents, whose sessions it reads; off unless asked for.
           (lispm-desktop-setup-kernel)
           ;; After init, so personal.el can still set `lispm-desktop-window-manager'.

@@ -53,6 +53,17 @@
 ;; :file      a library's file, under its formula's prefix, or absolute
 ;; :bundle    an application's bundle identifier
 ;;
+;; What LispM gets itself, not Homebrew, as lispm-kernel's program, is a
+;; need made in code, never in a catalog, with two more:
+;;
+;; :install   a function the Installer calls with REPORT and DONE: it
+;;            calls REPORT with a line saying how far it is and, when it
+;;            knows, the fraction done, and DONE once, with nil when it
+;;            went well, else why not, a sentence.  It may return a
+;;            function stopping it.
+;; :present   a function saying whether the need is there, in place of
+;;            looking for it by its name
+;;
 ;; A need is `present', `instead' while missing but a stand-in is there,
 ;; or `missing' (`lispm-desktop-needs-state').  Nothing is installed
 ;; unasked: `lispm-desktop-needs-ensure' asks in one alert whether to
@@ -231,6 +242,8 @@ its formula's prefix when relative, or else its formula's keg."
 (defun lispm-desktop-needs-present-p (need)
   "Return non-nil when NEED is installed here."
   (pcase (lispm-desktop-needs-kind need)
+    ((guard (lispm-desktop-needs-get need :present))
+     (funcall (lispm-desktop-needs-get need :present)))
     ('program (and (executable-find (lispm-desktop-needs-name need))
                    (or (not (lispm-desktop-needs-get need :xcode))
                        (lispm-desktop-needs-command-line-tools-p))))
@@ -269,14 +282,17 @@ stand-in does the work of."
 ;;;; How a need installs
 
 (defun lispm-desktop-needs-provider (need)
-  "Return how NEED installs: (brew FORMULA), (cask CASK), (xcode), or nil."
-  (cond ((lispm-desktop-needs-get need :brew) (list 'brew (lispm-desktop-needs-get need :brew)))
+  "Return how NEED installs: (lisp FUNCTION), (brew FORMULA), (cask CASK),
+(xcode), or nil."
+  (cond ((lispm-desktop-needs-get need :install) (list 'lisp (lispm-desktop-needs-get need :install)))
+        ((lispm-desktop-needs-get need :brew) (list 'brew (lispm-desktop-needs-get need :brew)))
         ((lispm-desktop-needs-get need :cask) (list 'cask (lispm-desktop-needs-get need :cask)))
         ((lispm-desktop-needs-get need :xcode) (list 'xcode))))
 
 (defun lispm-desktop-needs-installable-p (need)
-  "Return non-nil when the Installer can install NEED: Homebrew runs on
-macOS and Linux, Apple's command line tools only on macOS."
+  "Return non-nil when the Installer can install NEED: LispM's own
+installs and Homebrew run on macOS and Linux, Apple's command line tools
+only on macOS."
   (pcase (lispm-desktop-needs-provider need)
     ('nil nil)
     ('(xcode) (eq system-type 'darwin))
@@ -457,7 +473,10 @@ list of commands: something still uses it."
   "An install or uninstall the Installer runs or has run: ACTION is
 `install' or `uninstall'.  STATE is `waiting', `installing' while either
 runs, then `installed' or `removed', `failed' or `cancelled'."
-  need who (action 'install) (state 'waiting) note error (tries 0) since)
+  need who (action 'install) (state 'waiting) note error (tries 0) since
+  ;; How much of an install of LispM's own is done, from 0 to 1, when it
+  ;; says, and what stops it.
+  fraction stop)
 
 (defvar lispm-desktop-needs--jobs nil
   "The installs of the Installer's run, in order.")
@@ -489,6 +508,17 @@ installer runs, or `declined' when the user said not to install it.")
 (defun lispm-desktop-needs--uninstall-p (job)
   "Return non-nil when JOB uninstalls rather than installs."
   (eq (lispm-desktop-needs--job-action job) 'uninstall))
+
+(defun lispm-desktop-needs-job-state (need)
+  "Return where the Installer is with NEED, the same kind and name: nil
+when its run has nothing to do with it, else (STATE FRACTION ERROR),
+STATE `waiting', `installing', `installed', `removed', `failed' or
+`cancelled', FRACTION how much is done when known, ERROR why it failed."
+  (when-let* ((job (seq-find (lambda (job) (equal (lispm-desktop-needs-key (lispm-desktop-needs--job-need job))
+                                                  (lispm-desktop-needs-key need)))
+                             lispm-desktop-needs--jobs)))
+    (list (lispm-desktop-needs--job-state job) (lispm-desktop-needs--job-fraction job)
+          (lispm-desktop-needs--job-error job))))
 
 (defun lispm-desktop-needs-running-p ()
   "Return non-nil while the Installer has installs or uninstalls to do."
@@ -559,6 +589,7 @@ the run."
               ((lispm-desktop-needs-present-p (lispm-desktop-needs--job-need job))
                (lispm-desktop-needs--end job 'installed))
               (t (pcase (lispm-desktop-needs-provider (lispm-desktop-needs--job-need job))
+                   (`(lisp ,function) (lispm-desktop-needs--lisp-run job function))
                    (`(,(or 'brew 'cask) . ,_) (lispm-desktop-needs--brew-run job))
                    ('(xcode) (lispm-desktop-needs--xcode-install job)))))
       (lispm-desktop-needs--finish)))
@@ -569,7 +600,9 @@ the run."
 ERROR."
   (setf (lispm-desktop-needs--job-state job) state
         (lispm-desktop-needs--job-error job) error
-        (lispm-desktop-needs--job-note job) nil)
+        (lispm-desktop-needs--job-note job) nil
+        (lispm-desktop-needs--job-fraction job) nil
+        (lispm-desktop-needs--job-stop job) nil)
   (clrhash lispm-desktop-needs--applications)
   (when (eq state 'installed)
     (lispm-desktop-needs-refresh (list (lispm-desktop-needs--job-need job))))
@@ -739,6 +772,41 @@ once the installer ended without, or after too long."
            (lispm-desktop-needs--answer)
            (lispm-desktop-needs--next)))))
 
+;;;;; LispM's own
+
+(defun lispm-desktop-needs--lisp-run (job function)
+  "Install JOB's need with FUNCTION, its :install: see the Commentary."
+  (let* ((need (lispm-desktop-needs--job-need job))
+         (running (lambda () (eq (lispm-desktop-needs--job-state job) 'installing)))
+         (report (lambda (note &optional fraction)
+                   (when (funcall running)
+                     (unless (equal note (lispm-desktop-needs--job-note job))
+                       (lispm-desktop-needs--log (concat note "\n")))
+                     (setf (lispm-desktop-needs--job-note job) note
+                           (lispm-desktop-needs--job-fraction job) fraction)
+                     (lispm-desktop-needs--render))))
+         (done (lambda (&optional error)
+                 (when (funcall running)
+                   (cond (error
+                          (lispm-desktop-needs--log (concat error "\n"))
+                          (lispm-desktop-needs--end job 'failed error))
+                         ((lispm-desktop-needs-present-p need) (lispm-desktop-needs--end job 'installed))
+                         (t (lispm-desktop-needs--end
+                             job 'failed (lispm-desktop-tr "It was installed, but %s is not to be found."
+                                                           (lispm-desktop-needs-name need)))))))))
+    (setf (lispm-desktop-needs--job-state job) 'installing
+          (lispm-desktop-needs--job-since job) (float-time)
+          (lispm-desktop-needs--job-note job) (lispm-desktop-tr "Installing…")
+          (lispm-desktop-needs--job-fraction job) nil)
+    (lispm-desktop-needs--log (format "\n%s\n" (lispm-desktop-needs-name need)))
+    (lispm-desktop-needs--tick)
+    (condition-case err
+        (let ((stop (funcall function report done)))
+          ;; It may have ended already.
+          (when (and (functionp stop) (funcall running))
+            (setf (lispm-desktop-needs--job-stop job) stop)))
+      (error (funcall done (error-message-string err))))))
+
 ;;;;; Apple's command line tools
 
 (defun lispm-desktop-needs--xcode-install (job)
@@ -792,11 +860,18 @@ once the installer ended without, or after too long."
     (delete-process lispm-desktop-needs--process))
   (setq lispm-desktop-needs--process nil
         lispm-desktop-needs--homebrew nil)
-  (dolist (job lispm-desktop-needs--jobs)
-    (when (lispm-desktop-needs--active-p job)
-      (setf (lispm-desktop-needs--job-state job) 'cancelled
-            (lispm-desktop-needs--job-note job) nil
-            (lispm-desktop-needs--job-error job) (lispm-desktop-tr "Stopped."))))
+  (let ((stops nil))
+    (dolist (job lispm-desktop-needs--jobs)
+      (when (lispm-desktop-needs--active-p job)
+        (when (lispm-desktop-needs--job-stop job)
+          (push (lispm-desktop-needs--job-stop job) stops))
+        (setf (lispm-desktop-needs--job-state job) 'cancelled
+              (lispm-desktop-needs--job-note job) nil
+              (lispm-desktop-needs--job-fraction job) nil
+              (lispm-desktop-needs--job-stop job) nil
+              (lispm-desktop-needs--job-error job) (lispm-desktop-tr "Stopped."))))
+    ;; Stopped once they are, what they then say is not heard.
+    (mapc (lambda (stop) (ignore-errors (funcall stop))) stops))
   (lispm-desktop-needs--answer)
   (lispm-desktop-needs--next))
 
@@ -889,11 +964,16 @@ language LispM speaks."
 (defun lispm-desktop-needs--bar (width)
   "Return the Installer's progress bar, WIDTH pixels wide, as Mac OS 9 drew
 one: a sunken track filled as far as the installs have come, the part
-installing now striped and moving."
+installing now filled as far as it says it is, else striped and moving."
   (let* ((jobs lispm-desktop-needs--jobs)
          (count (max 1 (length jobs)))
-         (done (seq-count #'lispm-desktop-needs--done-p jobs))
-         (running (lispm-desktop-needs-running-p))
+         (part (seq-some (lambda (job) (and (eq (lispm-desktop-needs--job-state job) 'installing)
+                                            (lispm-desktop-needs--job-fraction job)))
+                         jobs))
+         ;; In hundredths, so that the images kept stay few.
+         (part (and part (/ (round (* 100 (min 1.0 (max 0.0 part)))) 100.0)))
+         (done (+ (seq-count #'lispm-desktop-needs--done-p jobs) (or part 0)))
+         (running (and (lispm-desktop-needs-running-p) (not part)))
          (frame (if running (mod lispm-desktop-needs--frame 6) 0)))
     (lispm-desktop-platinum-image
      (list 'lispm-desktop-needs-bar width count done running frame)
@@ -944,7 +1024,12 @@ installing now striped and moving."
                     (propertize (funcall fit (lispm-desktop-needs-get need :for)) 'face 'shadow)
                     "\n")
             (when-let* ((said (pcase (lispm-desktop-needs--job-state job)
-                                ('installing (lispm-desktop-needs--job-note job))
+                                ('installing
+                                 (let ((note (lispm-desktop-needs--job-note job))
+                                       (fraction (lispm-desktop-needs--job-fraction job)))
+                                   (if (and note fraction)
+                                       (lispm-desktop-tr "%s %d%%" note (floor (* 100 fraction)))
+                                     note)))
                                 ((or 'failed 'cancelled) (lispm-desktop-needs--job-error job)))))
               (insert "     " (propertize (funcall fit said) 'face 'italic) "\n"))))
         (insert "\n  ")

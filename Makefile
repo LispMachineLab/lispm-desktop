@@ -2,6 +2,8 @@ EMACS ?= emacs
 # lisp/ of lispm-browser, the browser the desktop draws: a checkout beside
 # this one by default, as lispm-desktop-deps.el looks for it.
 LISPM_BROWSER ?= ../lispm-browser/lisp
+# lisp/ of lispm-agent, whose editor's agents the desktop draws.
+LISPM_AGENT ?= ../lispm-agent/lisp
 
 .PHONY: test compile i18n native native-test pin
 
@@ -11,20 +13,20 @@ LISPM_BROWSER ?= ../lispm-browser/lisp
 test:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_BROWSER) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
+	  -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code
 # no longer gives; the tests fail on either.
 i18n:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
-	  -L lisp -L $(LISPM_BROWSER) -l test/lispm-desktop-test.el -f lispm-desktop-test-report-catalogs
+	  -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el -f lispm-desktop-test-report-catalogs
 
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_BROWSER) \
+	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) \
 	  -f batch-byte-compile lisp/*.el; \
-	status=$$?; rm -f lisp/*.elc $(LISPM_BROWSER)/*.elc; exit $$status
+	status=$$?; rm -f lisp/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 
 # lispm-desktop-term's module: terminals emulated off Emacs's thread, in Rust.
 # lispm-desktop downloads it, checked, unless lispm-desktop-term-module-source

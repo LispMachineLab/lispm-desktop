@@ -31,7 +31,7 @@
 ;;                 reader of feeds, a music player, Emacs's calculator,
 ;;                 its games
 ;;   Extensions    packages adding to the editor, as an agent its CLI
-;;                 runs (`lispm-desktop-agent-define'): Hermes
+;;                 runs (`lispm-agents-define'): Hermes
 ;;
 ;; It lists them from catalogs: git repositories holding a catalog.eld,
 ;; LispMachineLab/lispm-store by default (`lispm-desktop-store-catalogs').
@@ -96,17 +96,19 @@
 ;; introduction, Markdown its catalog gives (lispm-desktop-markdown.el),
 ;; whose links open as clicked, and its information, who made it and
 ;; under what licence among it; its push buttons under them; Go Back
-;; goes back to the grid, on the page it was.  An item a catalog lists
-;; without the whole of its listing, its banner and introduction among
-;; it, is not shown.  The keyboard does all of it: C-f, C-b, C-n
-;; and C-p go from icon to icon, ] and [, or C-v and M-v, from page to
-;; page, M-n and M-p from category to category, RET or i opens the
-;; selected item's page, DEL or M-[ goes back, Space presses its button,
-;; / or C-s goes to the search field, which RET or C-n leaves and C-g
-;; empties, u updates, D uninstalls, . stops an install, l shows the log
-;; of one that failed, o opens a link of an item's introduction, g checks
-;; the catalogs, + installs from a git URL, Tab goes to the push buttons
-;; and q closes.
+;; goes back to the grid, on the page it was.  The window never scrolls:
+;; an item's page longer than the grid's page shows in pages too, turned
+;; as the grid's are.  An item a catalog lists without the whole of its
+;; listing, its banner and introduction among it, is not shown.  The
+;; keyboard does all of it: C-f, C-b, C-n and C-p go from icon to icon,
+;; on an item's page C-n and C-p from page to page, ] and [, or C-v and
+;; M-v, from page to page, M-n and M-p from category to category, RET or
+;; i opens the selected item's page, DEL or M-[ goes back, Space presses
+;; its button, / or C-s goes to the search field, which RET or C-n leaves
+;; and C-g empties, u updates, D uninstalls, . stops an install, l shows
+;; the log of one that failed, o opens a link of an item's introduction,
+;; g checks the catalogs, + installs from a git URL, Tab goes to the push
+;; buttons and q closes.
 
 ;;; Code:
 
@@ -300,15 +302,15 @@ cloned the first time, the newest commit of its default branch after."
 anew when an item installed comes from them; then list what they hold
 now, and install the updates found or say they are there, see
 `lispm-desktop-store-update-automatically'.  CALLBACK, when given, is
-called after."
+called after.  Emacs waits on none of it, so the pointer keeps its
+arrow; the App Store's status line says it checks."
   (interactive)
   (if lispm-desktop-store--checking
       (message (lispm-desktop-tr "The App Store is checking its catalogs already"))
     (setq lispm-desktop-store--checking t)
     (lispm-desktop-store--status (lispm-desktop-tr "Checking the catalogs…"))
     (let ((urls lispm-desktop-store-catalogs)
-          (failed nil)
-          (loading (lispm-desktop-loading-start lispm-desktop-store-buffer-name)))
+          (failed nil))
       (cl-labels ((next ()
                     (if-let* ((url (pop urls)))
                         (lispm-desktop-store--git-steps
@@ -321,7 +323,6 @@ called after."
                       (lispm-desktop-store-read-catalogs)
                       (lispm-desktop-store--refresh-archives
                        (lambda ()
-                         (lispm-desktop-loading-stop loading)
                          (setq lispm-desktop-store--checking nil
                                lispm-desktop-store--checked t)
                          (lispm-desktop-store--status
@@ -332,8 +333,7 @@ called after."
                            (funcall callback)))))))
         (condition-case err
             (next)
-          (error (lispm-desktop-loading-stop loading)
-                 (setq lispm-desktop-store--checking nil)
+          (error (setq lispm-desktop-store--checking nil)
                  (signal (car err) (cdr err))))))))
 
 (defun lispm-desktop-store--item-valid-p (item)
@@ -861,16 +861,6 @@ TO).  NAME stands alone, as an item's subtitle, PHRASE in a sentence, as
 its status; both are in English, translated where shown.  FROM and TO are
 the part of its progress bar each fills.")
 
-(defconst lispm-desktop-store--handed-variables
-  '(user-emacs-directory exec-path
-    package-user-dir package-directory-list package-archives package-archive-priorities
-    package-pinned-packages package-load-list package-check-signature package-unsigned-archives
-    package-gnupghome-dir package-selected-packages package-install-upgrade-built-in
-    package-vc-selected-packages package-vc-default-backend package-quickstart package-quickstart-file
-    url-proxy-services url-using-proxy gnutls-trustfiles network-security-level)
-  "What an Emacs installing in the background takes from this one: how
-packages are installed, and how the network is reached.")
-
 (defvar lispm-desktop-store--redraw-timer nil
   "Timer drawing the App Store's window again with the jobs' progress.")
 
@@ -999,28 +989,6 @@ are not started."
            reason)
   (lispm-desktop-store--ended-job job))
 
-(defun lispm-desktop-store--readable-p (value)
-  "Return non-nil when VALUE, printed, reads back as itself."
-  (condition-case nil
-      (let ((print-length nil) (print-level nil))
-        (equal (car (read-from-string (prin1-to-string value))) value))
-    (error nil)))
-
-(defun lispm-desktop-store--job-program (task)
-  "Return the program an Emacs of its own runs for TASK, as
-`lispm-desktop-store-installer-run' takes it: this Emacs's settings for
-packages and the network, then TASK."
-  (let ((library (or (locate-library "lispm-desktop-store-installer")
-                     (error (lispm-desktop-tr "lispm-desktop-store-installer is not on the load path")))))
-    `(progn
-       ,@(mapcan (lambda (variable)
-                   (when (and (boundp variable) (lispm-desktop-store--readable-p (symbol-value variable)))
-                     (list `(setq ,variable ',(symbol-value variable)))))
-                 lispm-desktop-store--handed-variables)
-       (push ,(file-name-directory library) load-path)
-       (require 'lispm-desktop-store-installer)
-       (lispm-desktop-store-installer-run ',task))))
-
 (defun lispm-desktop-store--package-directories ()
   "Return the packages' directories in `package-user-dir', the archives'
 and the keys' left out."
@@ -1040,7 +1008,7 @@ and the keys' left out."
     (with-temp-file file
       (insert ";;; -*- lexical-binding: t -*-\n")
       (let ((print-length nil) (print-level nil) (print-escape-newlines t))
-        (prin1 (lispm-desktop-store--job-program task) (current-buffer))))
+        (prin1 (lispm-desktop-store-installer-program task) (current-buffer))))
     (setf (lispm-desktop-store-job-file job) file
           (lispm-desktop-store-job-log job) log
           (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
@@ -1531,8 +1499,8 @@ keep it, and load an extension again."
 ;;
 ;; The App Store looks for updates whenever Software Update checks for
 ;; LispM's own, by itself or asked, and as its window opens: its
-;; catalogs fetched, and the package archives read anew when an item
-;; installed comes from them.  With `lispm-desktop-store-update-automatically'
+;; catalogs fetched, and the package archives the items installed come
+;; from read anew.  With `lispm-desktop-store-update-automatically'
 ;; the updates found install once LispM has been idle a minute, without
 ;; asking, an application only while its window is closed; without it,
 ;; they wait in the App Store's Updates, and Software Update's control
@@ -1596,15 +1564,34 @@ themselves, or say they are there."
                         (and package (symbolp package) package)))
                     lispm-desktop-store-installed)))
 
+(defun lispm-desktop-store--archives-to-refresh ()
+  "Return the entries of `package-archives' that hold, as they were read
+last, the packages of the items installed from the archives; all of them
+when one such package is in none."
+  (unless package-archive-contents
+    (package-read-all-archive-contents))
+  (let ((names nil))
+    (catch 'all
+      (dolist (package (lispm-desktop-store--archive-packages))
+        (let ((descs (cdr (assq package package-archive-contents))))
+          (unless descs
+            (throw 'all package-archives))
+          (dolist (desc descs)
+            (cl-pushnew (package-desc-archive desc) names :test #'equal))))
+      (seq-filter (lambda (archive) (member (car archive) names)) package-archives))))
+
 (defun lispm-desktop-store--refresh-archives (then)
-  "Read the package archives anew in the background, when an item installed
-comes from them, then call THEN; at most two minutes go by."
+  "Read the package archives the items installed come from anew, in the
+background, then call THEN; at most two minutes go by.  Those archives
+are downloaded, see `lispm-desktop-store--archives-to-refresh', the
+others read again as they were."
   (if (null (lispm-desktop-store--archive-packages))
       (funcall then)
     (condition-case nil
         (let ((started (current-time))
               (timer nil))
-          (package-refresh-contents t)
+          (let ((package-archives (lispm-desktop-store--archives-to-refresh)))
+            (package-refresh-contents t))
           (setq timer (run-at-time 1 1 (lambda ()
                                          (when (or (not (bound-and-true-p package--downloads-in-progress))
                                                    (> (float-time (time-since started)) 120))
@@ -2501,22 +2488,30 @@ RIGHT goes on a line of its own under LEFT."
     (funcall insert-all right)
     (insert "\n")))
 
+(defun lispm-desktop-store--pager (page pages)
+  "Return Previous and Next with the page between, as
+`lispm-desktop-store--insert-row' takes them, PAGE of PAGES shown, the
+first 0; nil when there is one page."
+  (when (> pages 1)
+    `((,(lispm-desktop-tr-in "page" "Previous") lispm-desktop-store-previous-page ,(= page 0))
+      ,(lispm-desktop-tr "Page %d of %d" (1+ page) pages)
+      (,(lispm-desktop-tr-in "page" "Next") lispm-desktop-store-next-page ,(= page (1- pages))))))
+
 (defun lispm-desktop-store--insert-buttons ()
   "Insert the push buttons under the grid: Install from URL…, and, while
 there are pages, Previous and Next with the page between; under an
-item's page, its buttons, see `lispm-desktop-store--item-buttons'."
+item's page, its buttons, see `lispm-desktop-store--item-buttons', and
+Previous and Next while it takes pages."
   (if (eq lispm-desktop-store--view 'item)
-      (lispm-desktop-store--insert-row nil (lispm-desktop-store--item-buttons))
+      (lispm-desktop-store--insert-row
+       (lispm-desktop-store--pager lispm-desktop-store--page-number lispm-desktop-store--page-count)
+       (lispm-desktop-store--item-buttons))
     (let* ((items (lispm-desktop-store--shown))
-           (size (lispm-desktop-store--page-size))
-           (pages (lispm-desktop-store--pages (length items) size))
-           (page (lispm-desktop-store--page-of items size)))
+           (size (lispm-desktop-store--page-size)))
       (lispm-desktop-store--insert-row
        `((,(lispm-desktop-tr "Install from URL…") lispm-desktop-store-install-from-url nil))
-       (when (> pages 1)
-         `((,(lispm-desktop-tr-in "page" "Previous") lispm-desktop-store-previous-page ,(= page 0))
-           ,(lispm-desktop-tr "Page %d of %d" (1+ page) pages)
-           (,(lispm-desktop-tr-in "page" "Next") lispm-desktop-store-next-page ,(= page (1- pages)))))))))
+       (lispm-desktop-store--pager (lispm-desktop-store--page-of items size)
+                                   (lispm-desktop-store--pages (length items) size))))))
 
 (defun lispm-desktop-store--item-buttons ()
   "Return the push buttons under the selected item's page, as
@@ -2800,9 +2795,10 @@ quote's bars beside them, BARS those of the quotes holding BLOCKS."
           (`(heading ,level ,text)
            (when (and rows (<= level 2))
              (gap 6))
-           (add (lispm-desktop-store--text-rows
-                 (lispm-desktop-store--in-face text (lispm-desktop-markdown-heading-face level))
-                 x room face (alist-get (min level 3) lispm-desktop-store-heading-heights) bars)))
+           (add (mapcar (lambda (row) (append row '(:heading t)))
+                        (lispm-desktop-store--text-rows
+                         (lispm-desktop-store--in-face text (lispm-desktop-markdown-heading-face level))
+                         x room face (alist-get (min level 3) lispm-desktop-store-heading-heights) bars))))
           (`(paragraph ,text)
            (add (lispm-desktop-store--text-rows text x room face nil bars)))
           (`(code ,_ ,text)
@@ -2844,17 +2840,16 @@ quote's bars beside them, BARS those of the quotes holding BLOCKS."
                      x room face nil bars))))))))
     (nreverse rows)))
 
-(defun lispm-desktop-store--page-rows (id width height categories)
-  "Return the rows of the page of the item ID, the window WIDTH by HEIGHT
-pixels, listing CATEGORIES, a count, at its left: its head, its banner,
-a rule, what it lacks, its introduction, or its description where it has
-none, its information a field each, then a blank row as tall as needed
-for the page to end where the grid's page ends, so that the push
-buttons under it stay where they are.  Each row is a plist: its :height,
-and :head, :banner, :rule, :picture, :text or :label and :value; :x, the
-text's left; its :links, where they stand, as (FROM TO URL)s; a list
-item's :marker at :marker-x; a quote's :bars, the x of each; :code, the
-band behind a block of code, (X . WIDTH)."
+(defun lispm-desktop-store--page-rows (id width)
+  "Return the rows of the page of the item ID, the window WIDTH pixels
+wide: its head, its banner, a rule, what it lacks, its introduction, or
+its description where it has none, its information a field each.  They
+are shown in pages, see `lispm-desktop-store--item-pages'.  Each row is
+a plist: its :height, and :head, :banner, :rule, :picture, :text or
+:label and :value; :x, the text's left; its :links, where they stand,
+as (FROM TO URL)s; a list item's :marker at :marker-x; a quote's :bars,
+the x of each; :code, the band behind a block of code, (X . WIDTH);
+:heading, on a heading's line."
   (let* ((props (cdr (assq id (lispm-desktop-store-items))))
          (gx (car (lispm-desktop-store--grid width)))
          (room (- width gx lispm-desktop-store-margin))
@@ -2889,19 +2884,112 @@ band behind a block of code, (X . WIDTH)."
                  (:height 14)
                  (:height ,(alist-get 2 lispm-desktop-store-heading-heights) :x ,gx :face ,face
                           :text ,(propertize (lispm-desktop-tr "Information")
-                                             'face (lispm-desktop-markdown-heading-face 2)))
+                                             'face (lispm-desktop-markdown-heading-face 2))
+                          :heading t)
                  (:height 4)
                  ,@(mapcar (pcase-lambda (`(,label ,value))
                              (list :height lispm-desktop-store-row-height :label label :label-end label-end
                                    :value (lispm-desktop-platinum-fit (propertize value 'face small)
                                                                       (- room label-end 8))))
-                           fields)))
-         (drawn (apply #'+ (mapcar (lambda (row) (plist-get row :height)) rows)))
-         (wanted (* lispm-desktop-store-tile-height
-                    (lispm-desktop-store--page-lines height categories lispm-desktop-store--rows-height))))
-    (if (> wanted drawn)
-        (append rows (list (list :height (- wanted drawn))))
-      rows)))
+                           fields))))
+    rows))
+
+;;;;; An item's page in pages
+;; The window never scrolls: an item's page longer than the grid's page
+;; shows in pages as tall as the grid's, turned as the grid's are, so
+;; that the push buttons under it stay where they are.
+
+(defvar-local lispm-desktop-store--page-number 0
+  "Which page of an item's page shows, the first 0.")
+
+(defvar-local lispm-desktop-store--page-count 1
+  "How many pages the item's page shown takes, as last drawn.")
+
+(defun lispm-desktop-store--gap-p (row)
+  "Return non-nil when ROW of an item's page shows nothing of its own: a
+space between blocks, a quote's bars beside it maybe."
+  (and row (cl-loop for (key _) on row by #'cddr always (memq key '(:height :bars)))))
+
+(defun lispm-desktop-store--fit-row (row height)
+  "Return ROW of an item's page no taller than HEIGHT pixels: a picture
+taller is drawn smaller, as wide as keeps its shape."
+  (let ((size (plist-get row :size))
+        (tall (plist-get row :height)))
+    (if (not (and size (> tall height)))
+        row
+      (let* ((around (- tall (cdr size)))
+             (h (max 1 (- height around)))
+             (w (max 1 (round (* (car size) (/ (float h) (cdr size))))))
+             (row (copy-sequence row)))
+        (plist-put (plist-put row :size (cons w h)) :height (+ h around))))))
+
+(defun lispm-desktop-store--paginate (rows height)
+  "Return ROWS of an item's page in pages HEIGHT pixels tall, each a list
+of rows ending in a blank row as tall as it lacks: as many rows a page
+as fit, a picture taller than a page drawn smaller.  No page but the
+first starts with a space, and a heading goes over to the next page
+with the row it heads."
+  (let ((pages nil) (page nil) (used 0))
+    (cl-flet ((add (row)
+                (push row page)
+                (cl-incf used (plist-get row :height)))
+              (drop ()
+                (cl-decf used (plist-get (car page) :height))
+                (pop page))
+              (close ()
+                (push (nreverse (if (< used height) (cons (list :height (- height used)) page) page)) pages)
+                (setq page nil used 0)))
+      (dolist (row rows)
+        (let* ((row (lispm-desktop-store--fit-row row height))
+               (tall (plist-get row :height)))
+          (when (and page (> (+ used tall) height))
+            (let ((carried nil))
+              (while (lispm-desktop-store--gap-p (car page))
+                (drop))
+              (while (and (cdr page) (plist-get (car page) :heading)
+                          (<= (+ (plist-get (car page) :height) tall
+                                 (apply #'+ (mapcar (lambda (row) (plist-get row :height)) carried)))
+                              height))
+                (push (drop) carried))
+              (close)
+              (mapc #'add carried)))
+          (unless (and (null page) pages (lispm-desktop-store--gap-p row))
+            (add row))))
+      (when (or page (null pages))
+        (close))
+      (nreverse pages))))
+
+(defun lispm-desktop-store--item-pages (id width height categories)
+  "Return the pages of the page of the item ID, the window WIDTH by HEIGHT
+pixels, listing CATEGORIES, a count, at its left: its rows, see
+`lispm-desktop-store--page-rows', in pages that end where the grid's page
+ends, see `lispm-desktop-store--paginate'."
+  (lispm-desktop-store--paginate
+   (lispm-desktop-store--page-rows id width)
+   (* lispm-desktop-store-tile-height
+      (lispm-desktop-store--page-lines height categories lispm-desktop-store--rows-height))))
+
+(defun lispm-desktop-store--page-of-pages (pages)
+  "Return the page of PAGES, an item's page's, to show: the one
+`lispm-desktop-store--page-number' says, the last when there are fewer;
+count them in `lispm-desktop-store--page-count'."
+  (setq lispm-desktop-store--page-count (max 1 (length pages))
+        lispm-desktop-store--page-number (min lispm-desktop-store--page-number
+                                              (1- lispm-desktop-store--page-count)))
+  (nth lispm-desktop-store--page-number pages))
+
+(defun lispm-desktop-store--text-pages (lines size)
+  "Return LINES of an item's page on a text terminal in pages of SIZE
+lines; no page but the first starts with a blank line."
+  (let ((pages nil))
+    (while lines
+      (when pages
+        (while (and lines (string-empty-p (car lines)))
+          (pop lines)))
+      (when lines
+        (push (seq-take lines size) pages)
+        (setq lines (nthcdr size lines))))
+    (nreverse pages)))
 
 (defun lispm-desktop-store--draw-head (svg palette x width head)
   "Draw HEAD, as `lispm-desktop-store--head' makes it, on SVG from X, the
@@ -3038,7 +3126,8 @@ cells wide and as many lines as a page of the grid takes in HEIGHT
 lines, the categories still at its left: its icon, name, subtitle and
 catalog, how far it is installed, a rule, what it lacks and its
 introduction, or its description where it has none, and its information
-a field a line."
+a field a line; in pages of that many lines, the one
+`lispm-desktop-store--page-number' says."
   (let* ((id lispm-desktop-store--selected)
          (props (cdr (assq id (lispm-desktop-store-items))))
          (head (lispm-desktop-store--head id))
@@ -3081,10 +3170,10 @@ a field a line."
                   ,@(mapcar (pcase-lambda (`(,label ,value))
                               (concat (propertize (string-pad label label-width nil t) 'face 'bold)
                                       " " value))
-                            fields))))
-    (dotimes (index (max (length lines)
-                         (lispm-desktop-store--page-lines height (length categories)
-                                                          lispm-desktop-store--rows-height)))
+                            fields)))
+         (size (lispm-desktop-store--page-lines height (length categories) lispm-desktop-store--rows-height))
+         (lines (lispm-desktop-store--page-of-pages (lispm-desktop-store--text-pages lines size))))
+    (dotimes (index size)
       (let ((start (point)))
         (insert (lispm-desktop-store--text-category (nth index categories))
                 (lispm-desktop-store--hits (truncate-string-to-width (or (nth index lines) "") room nil nil "…")
@@ -3104,24 +3193,30 @@ text terminal as text, see `lispm-desktop-store--insert-text-page'."
 
 (defun lispm-desktop-store--insert-image-page (width height)
   "Insert the page of the item selected as images, the window WIDTH by
-HEIGHT pixels, see `lispm-desktop-store--insert-page'."
+HEIGHT pixels, see `lispm-desktop-store--insert-page': of its pages, the
+one `lispm-desktop-store--page-number' says."
   (let ((categories (lispm-desktop-store--categories))
         (current (lispm-desktop-store--current-category))
         (top 0))
-    (dolist (row (lispm-desktop-store--page-rows lispm-desktop-store--selected width height
-                                                 (length categories)))
-      (let ((at top))
-        (insert (propertize " " 'display
-                            (lispm-desktop-platinum-image
-                             (list 'store-row width at categories current (lispm-desktop-store--row-key row))
-                             (lambda ()
-                               (lispm-desktop-store--draw-row lispm-desktop-platinum-current-palette width at
-                                                              row categories current)))
+    (dolist (row (lispm-desktop-store--page-of-pages
+                  (lispm-desktop-store--item-pages lispm-desktop-store--selected width height
+                                                   (length categories))))
+      (let* ((at top)
+             (image (copy-sequence
+                     (lispm-desktop-platinum-image
+                      (list 'store-row width at categories current (lispm-desktop-store--row-key row))
+                      (lambda ()
+                        (lispm-desktop-store--draw-row lispm-desktop-platinum-current-palette width at
+                                                       row categories current))))))
+        ;; A row is as tall as its image, though shorter than a line of
+        ;; text, as a picture tiled: its pages end where the grid's would.
+        (plist-put (cdr image) :ascent 100)
+        (insert (propertize " " 'display image
                             'lispm-desktop-store-top at
                             'lispm-desktop-store-row row
                             'keymap lispm-desktop-store-page-map
                             'pointer 'arrow)
-                "\n"))
+                (propertize "\n" 'line-height t)))
       (setq top (+ top (plist-get row :height))))))
 
 (defun lispm-desktop-store--row-key (row)
@@ -3187,8 +3282,10 @@ takes none of the properties of the text around it."
 (defun lispm-desktop-store--render ()
   "Draw the App Store's window again, what has the keyboard kept: a push
 button, or the search field, where in it point and the mark were.  On
-the page drawn before, point and the scroll stay too.  While an input
-method composes in the field, it is drawn once the composing ends."
+the page drawn before, point stays too; a page shown anew shows its
+first page.  The window shows its buffer from its start: it never
+scrolls.  While an input method composes in the field, it is drawn once
+the composing ends."
   (when-let* ((buffer (get-buffer lispm-desktop-store-buffer-name)))
     (with-current-buffer buffer
       (if (lispm-desktop-store--composing-p)
@@ -3199,19 +3296,21 @@ method composes in the field, it is drawn once the composing ends."
                (width (if window (window-body-width window t) 640))
                (height (if window (window-body-height window t) 600))
                (here (if window (window-point window) (point)))
-               (start (and window (window-start window)))
                (button (get-text-property here 'lispm-desktop-platinum-label))
                (bounds (lispm-desktop-store--field-bounds))
                (in-field (and bounds (<= (car bounds) here (cdr bounds))
                               (list (- here (car bounds))
                                     (and (mark t) (<= (car bounds) (mark t) (cdr bounds))
                                          (- (mark t) (car bounds))))))
-               field)
+               field same)
           (setq lispm-desktop-store--width width
                 lispm-desktop-store--height height)
           (unless (assq lispm-desktop-store--category (lispm-desktop-store--categories))
             (setq lispm-desktop-store--category 'all))
           (lispm-desktop-store--keep-selection)
+          (setq same (equal (lispm-desktop-store--page) lispm-desktop-store--drawn))
+          (unless same
+            (setq lispm-desktop-store--page-number 0))
           (when lispm-desktop-store--face-cookie
             (face-remap-remove-relative lispm-desktop-store--face-cookie))
           (setq lispm-desktop-store--face-cookie
@@ -3226,26 +3325,23 @@ method composes in the field, it is drawn once the composing ends."
           (lispm-desktop-store--insert-buttons)
           (lispm-desktop-store--protect field)
           (goto-char (point-min))
-          ;; A page shown anew shows from its top, an item's page longer
-          ;; than the window too; one drawn again stays where it was.
-          (let ((same (equal (lispm-desktop-store--page) lispm-desktop-store--drawn)))
-            (cond
-             (in-field
-              (pcase-let ((`(,point ,mark) in-field)
-                          (`(,from . ,to) field))
-                (goto-char (min to (+ from point)))
-                (when mark
-                  (set-marker (mark-marker) (min to (+ from mark))))))
-             ((and button same)
-              (let ((position (point-min)))
-                (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
-                            (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
-                (goto-char (or position (point-min)))))
-             (same
-              (goto-char (min here (point-max)))))
-            (when window
-              (set-window-start window (if (and start same) (min start (point-max)) (point-min)) t)
-              (set-window-point window (point))))
+          (cond
+           (in-field
+            (pcase-let ((`(,point ,mark) in-field)
+                        (`(,from . ,to) field))
+              (goto-char (min to (+ from point)))
+              (when mark
+                (set-marker (mark-marker) (min to (+ from mark))))))
+           ((and button same)
+            (let ((position (point-min)))
+              (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
+                          (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
+              (goto-char (or position (point-min)))))
+           (same
+            (goto-char (min here (point-max)))))
+          (when window
+            (set-window-start window (point-min) t)
+            (set-window-point window (point)))
           (setq lispm-desktop-store--drawn (lispm-desktop-store--page))
           (lispm-desktop-store--dress-field)
           ;; Icons as images where the terminal shows them.
@@ -3532,12 +3628,15 @@ first or the last past either end."
   "Return non-nil while the App Store's window shows an item's page."
   (eq (buffer-local-value 'lispm-desktop-store--view (lispm-desktop-store--buffer)) 'item))
 
-(defun lispm-desktop-store--scroll (function)
-  "Call FUNCTION, a command scrolling, in the App Store's window; at either
-end it does nothing."
-  (when-let* ((window (get-buffer-window (lispm-desktop-store--buffer) t)))
-    (with-selected-window window
-      (ignore-errors (funcall function)))))
+(defun lispm-desktop-store--turn-item-page (step)
+  "Show the page STEP pages on of the item's page shown, STEP negative
+back; past either end, nothing."
+  (lispm-desktop-store--in-window
+   (lambda ()
+     (let ((number (+ lispm-desktop-store--page-number step)))
+       (when (< -1 number lispm-desktop-store--page-count)
+         (setq lispm-desktop-store--page-number number)
+         (lispm-desktop-store--render))))))
 
 (defun lispm-desktop-store-forward ()
   "Select the next item of the grid; on an item's page, show the next's."
@@ -3552,26 +3651,26 @@ previous one's."
 
 (defun lispm-desktop-store-down ()
   "Select the item under the one selected in the grid; on an item's page,
-scroll it a line."
+show its next page, as the window never scrolls."
   (interactive)
   (if (lispm-desktop-store--item-page-p)
-      (lispm-desktop-store--scroll #'scroll-up-line)
+      (lispm-desktop-store--turn-item-page 1)
     (lispm-desktop-store--move (lispm-desktop-store--in-window #'lispm-desktop-store--columns))))
 
 (defun lispm-desktop-store-up ()
   "Select the item over the one selected in the grid; on an item's page,
-scroll it back a line."
+show its previous page."
   (interactive)
   (if (lispm-desktop-store--item-page-p)
-      (lispm-desktop-store--scroll #'scroll-down-line)
+      (lispm-desktop-store--turn-item-page -1)
     (lispm-desktop-store--move (- (lispm-desktop-store--in-window #'lispm-desktop-store--columns)))))
 
 (defun lispm-desktop-store-next-page (&optional back)
   "Show the grid's next page, its first item selected, or the previous
-page when BACK; on an item's page, scroll it, as \\`C-v' and \\`M-v' do."
+page when BACK; on an item's page, its next page or its previous one."
   (interactive)
   (if (lispm-desktop-store--item-page-p)
-      (lispm-desktop-store--scroll (if back #'scroll-down-command #'scroll-up-command))
+      (lispm-desktop-store--turn-item-page (if back -1 1))
     (lispm-desktop-store--in-window
      (lambda ()
        (let* ((items (lispm-desktop-store--shown))
@@ -3582,7 +3681,7 @@ page when BACK; on an item's page, scroll it, as \\`C-v' and \\`M-v' do."
 
 (defun lispm-desktop-store-previous-page ()
   "Show the grid's previous page, its first item selected; on an item's
-page, scroll it back."
+page, its previous page."
   (interactive)
   (lispm-desktop-store-next-page t))
 
@@ -4007,7 +4106,33 @@ a grid of icons in pages, or an item's page in its place.
   (add-hook 'pre-command-hook #'lispm-desktop-store--replace-marked nil t)
   (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
   (add-hook 'post-command-hook #'lispm-desktop-store--follow-focus nil t)
+  ;; The window holds what it shows whole: the wheel turns nothing, and
+  ;; what a command scrolled goes back.
+  (dolist (function '(mwheel-scroll-up-function mwheel-scroll-down-function
+                      mwheel-scroll-left-function mwheel-scroll-right-function))
+    (set (make-local-variable function) #'ignore))
+  (add-hook 'post-command-hook #'lispm-desktop-store--hold-still nil t)
   (hl-line-mode -1))
+
+(defun lispm-desktop-store--hold-still ()
+  "Show the App Store's buffer from its start in each window showing it,
+never scrolled down or sideways, as a command such as \\`C-l' may
+have scrolled it; a window rolled up is left as it is.  This is a
+buffer-local `post-command-hook' function."
+  (dolist (window (get-buffer-window-list nil nil t))
+    (unless (lispm-desktop-platinum-rolled-up-height (window-frame window))
+      (unless (= (window-start window) (point-min))
+        (set-window-start window (point-min)))
+      (unless (zerop (window-hscroll window))
+        (set-window-hscroll window 0))
+      (unless (zerop (window-vscroll window t))
+        (set-window-vscroll window 0 t)))))
+
+(defun lispm-desktop-store--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER, the App Store's, which never scrolls.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (provided-mode-derived-p (buffer-local-value 'major-mode buffer) 'lispm-desktop-store-mode)
+       'no))
 
 (lispm-desktop-app-window-define 'store
   :name "App Store" :size '(640 . 640) :roll 'chrome
@@ -4059,13 +4184,14 @@ The catalogs are fetched the first time it opens after Emacs starts."
 
 (defun lispm-desktop-store--view-items ()
   "Return the items of the App Store's View menu: a category each, the one
-shown checked; Search, Back, and the grid's pages."
+shown checked; Search, Back, and the pages, the grid's or an item's
+page's."
   (with-current-buffer (lispm-desktop-store--buffer)
     (let* ((grid (eq lispm-desktop-store--view 'grid))
            (items (lispm-desktop-store--shown))
            (size (lispm-desktop-store--page-size))
-           (page (lispm-desktop-store--page-of items size))
-           (pages (lispm-desktop-store--pages (length items) size)))
+           (page (if grid (lispm-desktop-store--page-of items size) lispm-desktop-store--page-number))
+           (pages (if grid (lispm-desktop-store--pages (length items) size) lispm-desktop-store--page-count)))
       `(,@(mapcar (pcase-lambda (`(,category ,name . ,_))
                     (list :label name :action (lambda () (lispm-desktop-store-show-category category))
                           :checked (eq category (lispm-desktop-store--current-category))))
@@ -4076,9 +4202,9 @@ shown checked; Search, Back, and the grid's pages."
                 :enabled ,(or (not grid) (lispm-desktop-store--searching-p)))
         separator
         (:label ,(lispm-desktop-tr "Previous Page") :action lispm-desktop-store-previous-page :key "M-v"
-                :enabled ,(and grid (> page 0)))
+                :enabled ,(> page 0))
         (:label ,(lispm-desktop-tr "Next Page") :action lispm-desktop-store-next-page :key "C-v"
-                :enabled ,(and grid (< page (1- pages))))))))
+                :enabled ,(< page (1- pages)))))))
 
 (defun lispm-desktop-store-menus ()
   "Return the App Store's menus, for the menu bar while it is in front."
@@ -4099,6 +4225,7 @@ the Finder, and the applications and extensions installed take part."
                  :items lispm-desktop-store--folder-items :trash ,(lispm-desktop-tr-noop "Uninstall…")))
   (lispm-desktop-store--register-installed)
   (add-hook 'lispm-desktop-update-check-hook #'lispm-desktop-store--check-along)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-store--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-store--render)) 95))
 
 (provide 'lispm-desktop-store)

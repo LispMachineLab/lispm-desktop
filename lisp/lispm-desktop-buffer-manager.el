@@ -43,7 +43,7 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
-(declare-function lispm-desktop-agent-buffer-p "lispm-desktop-ai" (buffer))
+(declare-function lispm-agents-buffer-p "lispm-agents" (buffer))
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
 
 (defconst lispm-desktop-buffer-manager-buffer-name "*Buffer Manager*"
@@ -96,7 +96,7 @@ PROCESSES and CHILDREN are the tables of
   "Return what kind of buffer BUFFER is, in words of the language LispM
 speaks, or else its mode's name."
   (with-current-buffer buffer
-    (cond ((and (fboundp 'lispm-desktop-agent-buffer-p) (lispm-desktop-agent-buffer-p buffer))
+    (cond ((and (fboundp 'lispm-agents-buffer-p) (lispm-agents-buffer-p buffer))
            (lispm-desktop-tr "Agent"))
           ((and (fboundp 'lispm-desktop-terminal-buffer-p) (lispm-desktop-terminal-buffer-p buffer))
            (lispm-desktop-tr "Terminal"))

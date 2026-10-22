@@ -45,20 +45,20 @@
 (defun lispm-desktop-shell--buffer-p (buffer)
   "Return non-nil when BUFFER is a live shell terminal, not an agent's."
   (and (lispm-desktop-terminal-p buffer)
-       (not (lispm-desktop-agent-buffer-p buffer))
-       (lispm-desktop-agent-running-p buffer)))
+       (not (lispm-agents-buffer-p buffer))
+       (lispm-agents-running-p buffer)))
 
 (defun lispm-desktop-shell-new (&optional directory)
   "Start a new shell in DIRECTORY, by default the main window's project root.
 The shell is the user's, run as an independent process in a terminal, see
 `lispm-desktop-terminal-make'."
   (interactive)
-  (let* ((directory (or directory (lispm-desktop-agent-default-directory)))
+  (let* ((directory (or directory (lispm-agents-default-directory)))
          (default-directory (file-name-as-directory directory))
-         (process-environment (lispm-desktop-agent-independent-environment process-environment))
+         (process-environment (lispm-agents-independent-environment process-environment))
          (program (or explicit-shell-file-name (getenv "ESHELL") shell-file-name)))
     (lispm-desktop-sidebar-show-in-main
-     (lispm-desktop-terminal-make (lispm-desktop-agent-fresh-name 'shell directory) program "-l")))
+     (lispm-desktop-terminal-make (lispm-agents-fresh-name 'shell directory) program "-l")))
   (lispm-desktop-shell-list-refresh))
 
 (defun lispm-desktop-eat-new ()
