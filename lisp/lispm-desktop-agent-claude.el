@@ -191,6 +191,7 @@ the id it is given, so its terminal knows its session from the start."
    'claude
    :name "Claude Code"
    :icon '(nerd-icons-codicon "nf-cod-claude" lispm-desktop-agent-claude-icon)
+   :text-icon "✻"
    :command #'lispm-desktop-agent-claude-new
    :key "c"
    :built-in t

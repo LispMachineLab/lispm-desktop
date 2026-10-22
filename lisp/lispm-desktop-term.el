@@ -1267,7 +1267,7 @@ is there to load, it says so, terminals running in Eat."
   ;; before it stops the programs running.
   (add-hook 'lispm-desktop-platinum-buffer-status-functions #'lispm-desktop-term--title-status)
   (add-hook 'lispm-desktop-platinum-running-buffers-functions #'lispm-desktop-term-running-buffers)
-  (when (and lispm-desktop-term-enabled (display-graphic-p) (not (featurep 'lispm-desktop-term-module)))
+  (when (and lispm-desktop-term-enabled (not noninteractive) (not (featurep 'lispm-desktop-term-module)))
     (pcase (lispm-desktop-term--plan)
       ('build (lispm-desktop-term-build))
       ('download (lispm-desktop-term-download))

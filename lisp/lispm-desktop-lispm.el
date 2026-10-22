@@ -161,6 +161,7 @@ With a prefix argument, choose its ROLE."
    'lispm
    :name "LispM"
    :icon '(lispm-desktop-agent-image-icon "lispm-lambda.png" nil)
+   :text-icon "λ"
    :command #'lispm-desktop-agent-lispm-new
    :key "l"
    :built-in t

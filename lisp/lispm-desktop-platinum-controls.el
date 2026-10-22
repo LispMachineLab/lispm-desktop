@@ -973,12 +973,29 @@ HEIGHT defaults to 20 pixels.  See `lispm-desktop-platinum-draw-bevel-button'."
          (height (or height 20))
          (width (+ (lispm-desktop-platinum-content-width label face)
                    (* 2 lispm-desktop-platinum-bevel-padding))))
-    (propertize " " 'display
-                (lispm-desktop-platinum-image
-                 (list 'bevel (lispm-desktop-platinum--content-key label) state height face width)
-                 (lambda ()
-                   (lispm-desktop-platinum-draw-bevel-button lispm-desktop-platinum-current-palette width height
-                                                             :state state :label label :face face))))))
+    (if (lispm-desktop-tty-p)
+        (lispm-desktop-platinum-text-button label state)
+      (propertize " " 'display
+                  (lispm-desktop-platinum-image
+                   (list 'bevel (lispm-desktop-platinum--content-key label) state height face width)
+                   (lambda ()
+                     (lispm-desktop-platinum-draw-bevel-button lispm-desktop-platinum-current-palette width height
+                                                               :state state :label label :face face)))))))
+
+(defun lispm-desktop-platinum-text-button (label &optional state default)
+  "Return a button reading LABEL on a text terminal, as text: LABEL between
+brackets.  STATE is nil, `pressed' or `disabled'; DEFAULT draws the
+default button, which Return presses, in the highlight colour, as the
+ring about it marks it on Mac OS 9."
+  (let* ((palette lispm-desktop-platinum-current-palette)
+         (ink (cond ((eq state 'disabled) (plist-get palette :muted))
+                    ((or default (eq state 'pressed)) (plist-get palette :highlight-text))
+                    (t (plist-get palette :text))))
+         (ground (cond ((or default (eq state 'pressed)) (plist-get palette :highlight))
+                       (t (plist-get palette :chrome))))
+         (button (concat "[" label "]")))
+    (add-face-text-property 0 (length button) `(:foreground ,ink :background ,ground) t button)
+    button))
 
 (cl-defun lispm-desktop-platinum-push-button (label &key state default focused pad)
   "Return a push button reading LABEL, as a string displaying it.
@@ -987,13 +1004,15 @@ takes them; PAD defaults to two pixels, room for the focus ring, so a
 button keeps its place as the keyboard comes and goes."
   (let ((width (lispm-desktop-platinum-push-button-width label))
         (pad (or pad (if default 5 2))))
-    (propertize " " 'display
-                (lispm-desktop-platinum-image
-                 (list 'push label width state default focused pad)
-                 (lambda ()
-                   (lispm-desktop-platinum-draw-push-button lispm-desktop-platinum-current-palette label width
-                                                            :state state :default default
-                                                            :focused focused :pad pad))))))
+    (if (lispm-desktop-tty-p)
+        (lispm-desktop-platinum-text-button (concat " " label " ") state default)
+      (propertize " " 'display
+                  (lispm-desktop-platinum-image
+                   (list 'push label width state default focused pad)
+                   (lambda ()
+                     (lispm-desktop-platinum-draw-push-button lispm-desktop-platinum-current-palette label width
+                                                              :state state :default default
+                                                              :focused focused :pad pad)))))))
 
 (defun lispm-desktop-platinum--tab-edge (width)
   "Return the pane's edge WIDTH pixels wide, as a string displaying it."
@@ -1097,7 +1116,56 @@ which calls it, see `lispm-desktop-platinum-draw-tab-close'.
 The row opens with a short run of the pane's edge and runs it on to
 WIDTH, as Mac OS 9 drew a tab control along its pane.  A row too wide
 for WIDTH, as in a longer language, cuts its widest labels short, see
-`lispm-desktop-platinum--fit-tabs'."
+`lispm-desktop-platinum--fit-tabs'.  On a text terminal the row is text,
+WIDTH columns wide, see `lispm-desktop-platinum--text-tabs'."
+  (if (lispm-desktop-tty-p)
+      (lispm-desktop-platinum--text-tabs tabs width)
+    (lispm-desktop-platinum--image-tabs tabs width face)))
+
+(defun lispm-desktop-platinum--text-tabs (tabs width)
+  "Return a row of TABS WIDTH columns wide on a text terminal, as text.
+TABS are as `lispm-desktop-platinum-tabs' takes them.  Each label stands
+in a cell of its own either side, the tab in front highlighted, between
+runs of a rule that is the pane's edge; a tab with a `:close' function
+shows a cross before its label, which calls it.  Labels too long for
+WIDTH are cut, the longest first."
+  (let* ((rule (lambda (n) (propertize (make-string (max 0 n) ?─) 'face 'lispm-desktop-platinum-toolbar-label)))
+         (crosses (seq-map-indexed
+                   (pcase-lambda (`(,_ ,_ . ,properties) index)
+                     (when-let* ((close (plist-get properties :close)))
+                       (lispm-desktop-platinum-box-button
+                        (propertize "×" 'pointer 'arrow) (list 'tab-close index)
+                        (lambda (_window) (funcall close)) (lispm-desktop-tr "Close this tab"))))
+                   tabs))
+         (labels (mapcar #'car tabs))
+         ;; A rule before each tab and one after the last, a cell either
+         ;; side of each label, two more for a cross.
+         (frame (+ 1 (* 3 (length tabs)) (* 2 (length (delq nil (copy-sequence crosses))))))
+         (cap (apply #'max 0 (mapcar #'string-width labels))))
+    (while (and (> cap 3)
+                (> (+ frame (apply #'+ (mapcar (lambda (label) (min cap (string-width label))) labels)))
+                   width))
+      (setq cap (1- cap)))
+    (let ((row (concat
+                (funcall rule 1)
+                (apply #'concat
+                       (seq-mapn
+                        (pcase-lambda (`(,label ,front . ,properties) cross)
+                          (let ((tab (concat " " (when cross (concat cross " "))
+                                             (truncate-string-to-width label cap nil nil "…") " ")))
+                            (add-face-text-property 0 (length tab)
+                                                    (if front 'lispm-desktop-platinum-menu-title-active
+                                                      'lispm-desktop-platinum-toolbar)
+                                                    t tab)
+                            (concat (apply #'propertize tab
+                                           (lispm-desktop-platinum--plist-without properties :close))
+                                    (funcall rule 1))))
+                        tabs crosses)))))
+      (concat row (funcall rule (- width (string-width row)))))))
+
+(defun lispm-desktop-platinum--image-tabs (tabs width face)
+  "Return a row of TABS WIDTH pixels wide in FACE, drawn as images.
+See `lispm-desktop-platinum-tabs'."
   (let* ((face (or face 'lispm-desktop-platinum-title))
          (lead lispm-desktop-platinum--tabs-lead)
          (used lead)

@@ -160,7 +160,7 @@ as the buttons are drawn: in English, marked with
                (lispm-desktop-sidebar-toolbar-button (lispm-desktop-tr label) command
                                                      (and help (lispm-desktop-tr help))
                                                      row (and pressed 'pressed)))
-             actions (propertize " " 'display '(space :width (4)))))
+             actions (propertize " " 'display `(space :width (,(lispm-desktop-px 4))))))
 
 (defvar-local lispm-desktop-sidebar--faces nil
   "Face remapping cookies drawing this buffer as a list view.")
@@ -182,7 +182,8 @@ are not whole columns."
                                                                         'header-line))))
     (concat " " (lispm-desktop-sidebar--toolbar-buttons actions 'header-line)
             (propertize " " 'display
-                        `(space :align-to (- right (,(+ (string-pixel-width trailing) 6)))))
+                        `(space :align-to ,(lispm-desktop-align-right (+ (string-pixel-width trailing)
+                                                                         (lispm-desktop-px 6)))))
             trailing)))
 
 (defun lispm-desktop-sidebar-set-toolbar (view refresh actions &optional title-actions)
@@ -352,14 +353,16 @@ window's width changes, as when its scroll bar comes."
 This is a buffer-local `window-size-change-functions' function."
   (with-current-buffer (window-buffer window)
     (when (and lispm-desktop-sidebar--columns-width lispm-desktop-sidebar--header
-               (/= (window-body-width window t) lispm-desktop-sidebar--columns-width))
+               (/= (lispm-desktop-sidebar--row-width) lispm-desktop-sidebar--columns-width))
       (funcall (nth 1 lispm-desktop-sidebar--header)))))
 
 (defun lispm-desktop-sidebar--row-width ()
-  "Return the pixel width rows have to fill: the sidebar's text area."
-  (if-let* ((window (get-buffer-window (current-buffer))))
-      (window-body-width window t)
-    (* lispm-desktop-sidebar-width (frame-char-width))))
+  "Return the pixel width rows have to fill: the sidebar's text area, on a
+text terminal but its last two columns, see `lispm-desktop-align-right'."
+  (- (if-let* ((window (get-buffer-window (current-buffer))))
+         (window-body-width window t)
+       (* lispm-desktop-sidebar-width (frame-char-width)))
+     (if (lispm-desktop-tty-p) 2 0)))
 
 (defun lispm-desktop-sidebar--blank (spec)
   "Return a blank displayed as SPEC, in the list's face.
@@ -378,14 +381,18 @@ a list was sorted by."
   (let* ((meta (lispm-desktop-platinum-fit (propertize (or meta "") 'face
                                                         (or (get-text-property 0 'face (or meta ""))
                                                             'lispm-desktop-platinum-list))
-                                            (- (lispm-desktop-sidebar--column-pixels) 16)))
+                                            (- (lispm-desktop-sidebar--column-pixels)
+                                               (lispm-desktop-px 16))))
          (meta-width (string-pixel-width meta)))
     (add-face-text-property 0 (length meta) 'lispm-desktop-platinum-sorted t meta)
-    (concat (lispm-desktop-sidebar--blank `(space :align-to (- right ,lispm-desktop-platinum-column-width)))
-            (propertize " " 'display `(space :align-to (- right (,(+ meta-width 10))))
+    (concat (lispm-desktop-sidebar--blank
+             `(space :align-to ,(lispm-desktop-align-right (lispm-desktop-sidebar--column-pixels))))
+            (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right
+                                                         (+ meta-width (lispm-desktop-px 10))))
                         'face 'lispm-desktop-platinum-sorted)
             meta
-            (propertize " " 'display '(space :align-to right) 'face 'lispm-desktop-platinum-sorted))))
+            (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right))
+                        'face 'lispm-desktop-platinum-sorted))))
 
 (defun lispm-desktop-sidebar--row (lead name meta width)
   "Return a row of a list WIDTH pixels wide: LEAD, NAME, and META at its right.
@@ -393,7 +400,7 @@ LEAD (indentation, a triangle or an icon) keeps its size; META sits in
 the right-hand column, see `lispm-desktop-sidebar--sorted-column'; NAME is
 shortened to fit between them."
   (let ((room (- width (string-pixel-width (propertize lead 'face 'lispm-desktop-platinum-list))
-                 (lispm-desktop-sidebar--column-pixels) 12)))
+                 (lispm-desktop-sidebar--column-pixels) (lispm-desktop-px 12))))
     (concat lead
             (lispm-desktop-platinum-fit (propertize name 'face (or (get-text-property 0 'face name)
                                                                     'lispm-desktop-platinum-list))
@@ -413,8 +420,10 @@ row's text."
     ;; Font family.
     (add-face-text-property 0 (length meta) 'shadow t meta)
     (insert (lispm-desktop-sidebar--row
-             (concat (lispm-desktop-sidebar--blank `(space :width (,(+ 8 lispm-desktop-sidebar-indent
-                                                                       (* lispm-desktop-sidebar-indent (or depth 0))))))
+             (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px
+                                                                       (+ 8 lispm-desktop-sidebar-indent
+                                                                          (* lispm-desktop-sidebar-indent
+                                                                             (or depth 0)))))))
                      icon (propertize " " 'face 'lispm-desktop-platinum-list))
              (lispm-desktop-sidebar-one-line title 200)
              meta
@@ -431,7 +440,7 @@ row's text."
 
 (defun lispm-desktop-sidebar-insert-empty (text)
   "Insert the row of an empty list, saying TEXT."
-  (insert (lispm-desktop-sidebar--blank '(space :width (8)))
+  (insert (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
           (propertize text 'face 'shadow)
           (lispm-desktop-sidebar--sorted-column nil) "\n"))
 
@@ -445,11 +454,11 @@ The folder is badged when DIRECTORY is a git repository.  META sits in
 the right-hand column; clicking the row calls ACTION, described by HELP."
   (let ((beg (point)))
     (insert (lispm-desktop-sidebar--row
-             (concat (lispm-desktop-sidebar--blank '(space :width (8)))
+             (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
                      (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-desktop-platinum-list)
-                     (lispm-desktop-sidebar--blank '(space :width (6)))
+                     (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                      (lispm-desktop-platinum-folder-icon directory)
-                     (lispm-desktop-sidebar--blank '(space :width (6))))
+                     (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6)))))
              (propertize (lispm-desktop-sidebar-one-line name 200)
                          'face '(:inherit lispm-desktop-platinum-list :weight bold))
              (propertize (or meta "") 'face 'shadow)

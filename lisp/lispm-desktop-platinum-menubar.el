@@ -131,26 +131,43 @@ in its `lispm-desktop-platinum-label' property."
   (let* ((width (+ (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-menu-title)
                    (* 2 lispm-desktop-platinum-menu-padding)))
          (marked (lispm-desktop-platinum-coach-marked-p (cons 'menu key)))
-         (title (propertize " " 'display
-                            (lispm-desktop-platinum-image
-                             (list 'menu-title (lispm-desktop-platinum--content-key label) width active corner
-                                   marked)
-                             (lambda ()
-                               (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette width
-                                                                       :label label :highlighted active
-                                                                       :corner corner :marked marked)))
-                            'lispm-desktop-platinum-label label
-                            'lispm-desktop-platinum-highlighted active)))
+         (title (if (lispm-desktop-tty-p)
+                    (lispm-desktop-platinum--text-menu-title label active)
+                  (propertize " " 'display
+                              (lispm-desktop-platinum-image
+                               (list 'menu-title (lispm-desktop-platinum--content-key label) width active corner
+                                     marked)
+                               (lambda ()
+                                 (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette width
+                                                                         :label label :highlighted active
+                                                                         :corner corner :marked marked)))
+                              'lispm-desktop-platinum-label label
+                              'lispm-desktop-platinum-highlighted active))))
     `(,key menu-item ,title ,command :help ,help)))
 
+(defun lispm-desktop-platinum--text-menu-title (label active)
+  "Return a menu bar title showing LABEL on a text terminal, a cell of the
+bar either side of it; ACTIVE highlights it all, as an open menu's."
+  (let ((title (concat " " label " ")))
+    (add-face-text-property 0 (length title)
+                            (if active 'lispm-desktop-platinum-menu-title-active
+                              'lispm-desktop-platinum-menu-title)
+                            t title)
+    (propertize title
+                'lispm-desktop-platinum-label label
+                'lispm-desktop-platinum-highlighted active)))
+
 (defun lispm-desktop-platinum--menu-filler (width)
-  "Return the menu bar's stretch WIDTH pixels wide between its two ends."
+  "Return the menu bar's stretch WIDTH pixels wide between its two ends,
+or WIDTH columns on a text terminal."
   (list 'lispm-desktop-menu-filler 'menu-item
-        (propertize " " 'display
-                    (lispm-desktop-platinum-image
-                     (list 'menu-title nil width nil nil nil)
-                     (lambda () (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette
-                                                                        width))))
+        (if (lispm-desktop-tty-p)
+            (propertize (make-string width ?\s) 'face 'lispm-desktop-platinum-menu-title)
+          (propertize " " 'display
+                      (lispm-desktop-platinum-image
+                       (list 'menu-title nil width nil nil nil)
+                       (lambda () (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette
+                                                                          width)))))
         #'ignore))
 
 (defun lispm-desktop-platinum-menu-bar-line ()
@@ -174,8 +191,11 @@ Where images cannot be shown, a plain λ stands in."
 
 (defun lispm-desktop-platinum--menu-y ()
   "Return where a menu dropped from the menu bar starts: on the bar's black
-bottom line, which the menu's outline then draws, as on Mac OS 9."
-  (1- (tab-bar-height nil t)))
+bottom line, which the menu's outline then draws, as on Mac OS 9.  On a
+text terminal the bar is a line of text, and the outline starts under it."
+  (if (lispm-desktop-tty-p)
+      (+ (or (frame-parameter nil 'menu-bar-lines) 0) (or (frame-parameter nil 'tab-bar-lines) 0))
+    (1- (tab-bar-height nil t))))
 
 (defvar lispm-desktop-platinum-lambda-items-function nil
   "Function returning the λ menu's items between About and Customize, as
@@ -196,7 +216,8 @@ See `lispm-desktop-platinum-lambda-items-function'."
   "Pop up the λ menu, LispM's counterpart of the Apple menu."
   (interactive)
   (lispm-desktop-platinum-with-open-menu 'lispm-desktop-lambda
-    (lispm-desktop-popup-menu (lispm-desktop-platinum-lambda-items) 4 (lispm-desktop-platinum--menu-y))))
+    (lispm-desktop-popup-menu (lispm-desktop-platinum-lambda-items) (lispm-desktop-px 4)
+                              (lispm-desktop-platinum--menu-y))))
 
 (defun lispm-desktop-platinum-about ()
   "Tell which LispM and lispm-desktop this is, as About This Computer did."

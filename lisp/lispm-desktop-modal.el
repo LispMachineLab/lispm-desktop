@@ -44,9 +44,17 @@
 (defun lispm-desktop-modal-read (&optional timeout)
   "Read the next event, a quit included, without quitting.
 With TIMEOUT, return nil after that many seconds without one.  The click
-that opened a panel is not echoed as an unfinished key."
+that opened a panel is not echoed as an unfinished key.  A text terminal
+sends arrows and the mouse as sequences of characters, which are read as
+the keys and clicks they are, see `read-key'; Escape alone starts such a
+sequence there, so it is typed twice, as Emacs's own menus take it."
   (let* ((inhibit-quit t)
-         (event (let ((echo-keystrokes 0)) (read-event nil nil timeout))))
+         (event (let ((echo-keystrokes 0))
+                  (if (and (not noninteractive) (not (display-graphic-p)))
+                      (if timeout
+                          (with-timeout (timeout nil) (read-key))
+                        (read-key))
+                    (read-event nil nil timeout)))))
     (when (eq event ?\C-g)
       (setq quit-flag nil))
     event))

@@ -408,13 +408,18 @@ collapses; a window collapses only when another shares its column."
          (edges (cons (not (and framed (window-at-side-p window 'left)))
                       (not (and framed (window-at-side-p window 'right)))))
          (margins (lispm-desktop-platinum-window-box-margins window))
+         (tty (lispm-desktop-tty-p (window-frame window)))
          (key (list lispm-desktop-platinum-generation width active icon title modified controls
-                    pressed status edges margins))
+                    pressed status edges margins tty))
          (cached (window-parameter window 'lispm-desktop-platinum-title-bar)))
     (if (equal (car cached) key)
         (cdr cached)
-      (let ((bar (lispm-desktop-platinum-draw-title-bar width active icon title modified controls
-                                                         pressed status edges margins)))
+      (let ((bar (if tty
+                     (lispm-desktop-platinum-text-title-bar
+                      (- width (if (window-at-side-p window 'right) 0 1))
+                      active icon title modified controls pressed status)
+                   (lispm-desktop-platinum-draw-title-bar width active icon title modified controls
+                                                          pressed status edges margins))))
         (set-window-parameter window 'lispm-desktop-platinum-title-bar (cons key bar))
         bar))))
 
@@ -476,6 +481,62 @@ title too."
            (box 'collapse #'lispm-desktop-platinum-collapse-window
                 (lispm-desktop-tr "Collapse this window to its title bar")))
          (plain trail-margin :trail trail))))))
+
+(defun lispm-desktop-platinum-text-title-bar (width active icon title modified controls
+                                                    &optional pressed status)
+  "Return a title bar WIDTH columns wide on a text terminal, as text.
+Turbo Vision drew windows in text much as Mac OS 9 drew them in pixels,
+and the bar follows it: the close box at its left, the title centred
+between double rules and the zoom and collapse boxes at its right, all
+drawn only while the window is active; an inactive bar is a single rule,
+its title greyed.  The arguments are those of
+`lispm-desktop-platinum-draw-title-bar'; MODIFIED marks the close box
+with a dot, and PRESSED shows its box held down."
+  (pcase-let* ((`(,close ,zoom ,collapse) controls)
+               (palette lispm-desktop-platinum-current-palette)
+               (rule `(:foreground ,(plist-get palette (if active :text :muted))))
+               (face (if active 'lispm-desktop-platinum-title 'lispm-desktop-platinum-title-inactive))
+               (title-help (lispm-desktop-platinum-title-help))
+               (rules (lambda (n)
+                        (propertize (make-string (max 0 n) (if active ?═ ?─))
+                                    'face rule 'keymap lispm-desktop-platinum-title-map
+                                    'help-echo title-help)))
+               (box (lambda (kind glyph command help)
+                      (lispm-desktop-platinum-box-button
+                       (concat (propertize "[" 'face rule)
+                               (propertize glyph 'face (if (eq pressed kind)
+                                                           `(:foreground ,(plist-get palette :highlight-text)
+                                                             :background ,(plist-get palette :highlight))
+                                                         rule))
+                               (propertize "]" 'face rule))
+                       kind command help)))
+               (lead (if (and active close)
+                         (concat (funcall rules 1)
+                                 (funcall box 'close (if modified "•" "■")
+                                          #'lispm-desktop-platinum-close-window
+                                          (lispm-desktop-tr "Close this window")))
+                       ""))
+               (trail (if active
+                          (concat (when zoom
+                                    (funcall box 'zoom "↕" #'lispm-desktop-platinum-zoom-window
+                                             (lispm-desktop-tr "Zoom this window")))
+                                  (when collapse
+                                    (funcall box 'collapse "─" #'lispm-desktop-platinum-collapse-window
+                                             (lispm-desktop-tr "Collapse this window to its title bar")))
+                                  (when (or zoom collapse) (funcall rules 1)))
+                        ""))
+               ;; At least two rules either side of the title.
+               (room (- width (string-width lead) (string-width trail) 6))
+               (label (concat (when icon (concat icon " ")) title (when status (concat "  " status))))
+               (label (let ((label (truncate-string-to-width label (max 0 room) nil nil "…")))
+                        (add-face-text-property 0 (length label) face t label)
+                        (propertize (concat " " label " ")
+                                    'keymap lispm-desktop-platinum-title-map 'help-echo title-help)))
+               (free (- width (string-width lead) (string-width trail) (string-width label)))
+               ;; Centred in the bar unless that would push it into the boxes.
+               (before (max 2 (min (- free 2) (- (/ (- width (string-width label)) 2)
+                                                 (string-width lead))))))
+    (concat lead (funcall rules before) label (funcall rules (- free before)) trail)))
 
 (defun lispm-desktop-platinum-title-bar ()
   "The tab line of every window: its title bar.

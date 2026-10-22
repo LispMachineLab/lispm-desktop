@@ -246,10 +246,12 @@ with Customize is left as it is."
 
 (defun lispm-desktop-frame-menu-bar (&optional frame)
   "Keep FRAME's menu bar only where it is drawn outside the frame.
-Mac OS Emacs (NS) puts it at the top of the screen; on X it would be a
-second bar inside the frame, above the Platinum menu bar."
+Mac OS Emacs (NS) puts it at the top of the screen; on X or a text
+terminal it would be a second bar inside the frame, above the Platinum
+menu bar."
   (let ((frame (or frame (selected-frame))))
-    (when (and (display-graphic-p frame) (not (eq (framep frame) 'ns)))
+    (when (and (not (eq (framep frame) 'ns))
+               (or (display-graphic-p frame) (lispm-desktop-tty-p frame)))
       (set-frame-parameter frame 'menu-bar-lines 0))))
 
 (defconst lispm-desktop-cjk-font-families (list lispm-desktop-terminal-font-family "PingFang SC")
@@ -339,6 +341,10 @@ function never sets, so re-running it is idempotent."
     (menu-bar-mode 1)
     (mapc #'lispm-desktop-frame-menu-bar (frame-list))
     (add-hook 'after-make-frame-functions #'lispm-desktop-frame-menu-bar))
+  ;; On a text terminal, windows meet at a line and menus and alerts are
+  ;; outlined in lines, not in | - and +.
+  (when (fboundp 'standard-display-unicode-special-glyphs)
+    (standard-display-unicode-special-glyphs))
   (show-paren-mode 1)
   (when (fboundp 'tooltip-mode)
     (tooltip-mode 1))
