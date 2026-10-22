@@ -250,6 +250,34 @@ it but for what windows and menus in front of it cover."
                                 icons)))))
   (lispm-desktop-tty-images--schedule))
 
+(defun lispm-desktop-tty-images-blank (key name selected columns rows)
+  "Return ROWS blank lines COLUMNS wide for icon NAME, darkened when
+SELECTED, to show as an image, or nil where the terminal shows none or
+NAME is no drawing it can be made of.  The first line carries the icon,
+KEY its key in its window, as its `lispm-desktop-tty-image' property,
+for `lispm-desktop-tty-images-show-marked' to find where it went."
+  (when (and (lispm-desktop-tty-images-p)
+             (lispm-desktop-tty-images--file name columns rows selected))
+    (cons (propertize (make-string columns ?\s) 'lispm-desktop-tty-image
+                      (list key name selected columns rows))
+          (make-list (1- rows) (make-string columns ?\s)))))
+
+(defun lispm-desktop-tty-images-show-marked (window)
+  "Show as images the icons WINDOW's text marks, as
+`lispm-desktop-tty-images-blank' makes them, and no other images of
+WINDOW; where none, take WINDOW's away."
+  (when (window-live-p window)
+    (with-current-buffer (window-buffer window)
+      (save-excursion
+        (let ((icons nil)
+              (at (point-min)))
+          (while (setq at (text-property-not-all at (point-max) 'lispm-desktop-tty-image nil))
+            (pcase-let ((`(,key ,name ,selected ,columns ,rows) (get-text-property at 'lispm-desktop-tty-image)))
+              (goto-char at)
+              (push (list key name selected (1- (line-number-at-pos)) (current-column) columns rows) icons))
+            (setq at (or (next-single-property-change at 'lispm-desktop-tty-image) (point-max))))
+          (lispm-desktop-tty-images-show window icons))))))
+
 (defun lispm-desktop-tty-images--schedule ()
   "Place every image anew once Emacs has drawn the screen, as one it
 cleared has lost them."

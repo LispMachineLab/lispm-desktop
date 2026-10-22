@@ -12039,6 +12039,29 @@ misses them, up to four round a hole."
   (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(1 2 3 6))
                  '((0 0 1 8) (1 0 3 2) (1 6 3 8) (3 0 4 8)))))
 
+(ert-deftest lispm-desktop-test-tty-images-marked ()
+  "An icon to show as an image is blank lines, the first marking it, found
+after drawing where it went in its window's text; none where the
+terminal shows no images."
+  (should-not (lispm-desktop-tty-images-blank 'key "folder" nil 3 2))
+  (let ((shown nil))
+    (cl-letf (((symbol-function 'lispm-desktop-tty-images-p) (lambda () t))
+              ((symbol-function 'lispm-desktop-tty-images--file) (lambda (&rest _) '("f.png" 16 16)))
+              ((symbol-function 'lispm-desktop-tty-images-show)
+               (lambda (window icons) (setq shown (list window icons)))))
+      (let ((blank (lispm-desktop-tty-images-blank 'key "folder" t 3 2)))
+        (should (equal blank '("   " "   ")))
+        (with-temp-buffer
+          (insert "first line\n  ab" (car blank) "cd\n    " (cadr blank) "\n")
+          (let ((buffer (window-buffer (selected-window))))
+            (unwind-protect
+                (progn
+                  (set-window-buffer (selected-window) (current-buffer))
+                  (lispm-desktop-tty-images-show-marked (selected-window)))
+              (set-window-buffer (selected-window) buffer))))
+        (should (eq (car shown) (selected-window)))
+        (should (equal (cadr shown) '((key "folder" t 1 4 3 2))))))))
+
 (ert-deftest lispm-desktop-test-text-compose ()
   "Pieces of text stand where they are put on blank lines as wide as asked,
 cut at the right edge."

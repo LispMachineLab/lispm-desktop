@@ -54,6 +54,7 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-tty-images)
 
 
 ;;;; Popup frames
@@ -1180,9 +1181,13 @@ takes them."
          (row 1))
     (cl-flet ((put (row column string)
                 (aset rows row (cons (cons column string) (aref rows row)))))
-      (if-let* ((picture (lispm-desktop-platinum-icon-picture
-                          (symbol-name icon) lispm-desktop-popup--text-alert-icon-size nil
-                          (lispm-desktop-platinum-color :chrome))))
+      (if-let* ((picture (or (let ((size (lispm-desktop-platinum-text-size
+                                           lispm-desktop-popup--text-alert-icon-size)))
+                               (lispm-desktop-tty-images-blank 'icon (symbol-name icon) nil
+                                                               (car size) (cdr size)))
+                             (lispm-desktop-platinum-icon-picture
+                              (symbol-name icon) lispm-desktop-popup--text-alert-icon-size nil
+                              (lispm-desktop-platinum-color :chrome)))))
           (seq-do-indexed (lambda (line index) (put (1+ index) 3 line)) picture)
         (put 1 3 (propertize (concat " " (pcase icon ('stop "×") ('note "i") (_ "!")) " ")
                              'face `(:foreground ,(lispm-desktop-platinum-color :highlight-text)
@@ -1230,6 +1235,9 @@ On a text terminal the alert is text, see `lispm-desktop-popup--text-alert'."
                        (svg-image (lispm-desktop-popup-draw-alert lispm-desktop-platinum-current-palette icon message
                                                                   detail buttons pressed focused)
                                   :ascent 100 :scale 1))))
+  ;; The icon as an image where the terminal shows it.
+  (when (lispm-desktop-tty-p frame)
+    (lispm-desktop-tty-images-show-marked (frame-root-window frame)))
   (set-frame-parameter frame 'lispm-desktop-popup-buttons
                        (plist-get (lispm-desktop-popup--layout message detail buttons) :buttons)))
 

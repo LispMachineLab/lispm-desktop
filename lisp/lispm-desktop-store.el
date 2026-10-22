@@ -128,6 +128,7 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-catalog)
 (require 'lispm-desktop-markdown)
+(require 'lispm-desktop-tty-images)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
@@ -2336,7 +2337,10 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
            (let* ((id (plist-get tile :id))
                   (left (* column tile-width))
                   (item (cons 'item id))
-                  (picture (or (lispm-desktop-platinum-icon-picture (plist-get tile :icon) size
+                  (picture (or (lispm-desktop-tty-images-blank
+                                (cons 'tile id) (plist-get tile :icon) (plist-get tile :selected)
+                                (car (lispm-desktop-platinum-text-size size)) icon-lines)
+                               (lispm-desktop-platinum-icon-picture (plist-get tile :icon) size
                                                                     (plist-get tile :selected) background)
                                (list (substring-no-properties
                                       (lispm-desktop-platinum-icon (plist-get tile :icon))))))
@@ -3047,7 +3051,10 @@ a field a line."
          (notes (string-trim (concat (lispm-desktop-store--failure id) (lispm-desktop-store--notes props))))
          ;; The head: the icon, its name, subtitle, catalog and how far
          ;; it is installed beside it.
-         (picture (or (lispm-desktop-platinum-icon-picture (plist-get head :icon) lispm-desktop-store-text-icon-size
+         (picture-size (lispm-desktop-platinum-text-size lispm-desktop-store-text-icon-size))
+         (picture (or (lispm-desktop-tty-images-blank 'head (plist-get head :icon) nil
+                                                      (car picture-size) (cdr picture-size))
+                      (lispm-desktop-platinum-icon-picture (plist-get head :icon) lispm-desktop-store-text-icon-size
                                                            nil (lispm-desktop-platinum-color :chrome))
                       (list (substring-no-properties (lispm-desktop-platinum-icon (plist-get head :icon))))))
          (picture-width (apply #'max (mapcar #'string-width picture)))
@@ -3241,6 +3248,9 @@ method composes in the field, it is drawn once the composing ends."
               (set-window-point window (point))))
           (setq lispm-desktop-store--drawn (lispm-desktop-store--page))
           (lispm-desktop-store--dress-field)
+          ;; Icons as images where the terminal shows them.
+          (when (and window (lispm-desktop-tty-p))
+            (lispm-desktop-tty-images-show-marked window))
           (setq lispm-desktop-platinum-focus nil)
           (lispm-desktop-platinum-show-focus)
           (force-mode-line-update)
