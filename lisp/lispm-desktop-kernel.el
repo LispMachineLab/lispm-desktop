@@ -28,9 +28,11 @@
 ;; executable, that Emacs runs as a process.  The two talk in
 ;; S-expressions; it does the work on threads of its own and Emacs takes
 ;; the results in a little at a time, on the desktop's frame clock
-;; (lispm-desktop-frame.el).  For now it reads the agents' sessions for the
-;; sidebar, through the desktop's session readers; see
-;; lispm-kernel-desktop.el in its repository.
+;; (lispm-desktop-frame.el).  It reads the agents' sessions for the
+;; sidebar, through the desktop's session readers, and makes the downloads
+;; package.el makes in the background, as the App Store's refresh of the
+;; package archives, which url.el would make on Emacs's thread; see
+;; lispm-kernel-desktop.el and lispm-kernel-package.el in its repository.
 ;;
 ;; It is on unless `lispm-desktop-kernel' is nil.  Its Lisp is found or
 ;; installed as the other LispM projects are, see lispm-desktop-deps.el,
@@ -40,7 +42,8 @@
 ;; nobody is made to build it, though `lispm-kernel-program-source' can
 ;; ask SBCL to build it.  Until the program is there, and wherever it
 ;; cannot be, the sidebar reads sessions as it does without the kernel,
-;; and the kernel says why: in *Messages* alone, unless it was asked for.
+;; url.el downloads for package.el, and the kernel says why: in
+;; *Messages* alone, unless it was asked for.
 
 ;;; Code:
 
@@ -50,14 +53,17 @@
 
 (defvar lispm-kernel-desktop-mode)
 (declare-function lispm-kernel-desktop-mode "ext:lispm-kernel-desktop" (&optional arg))
+(defvar lispm-kernel-package-mode)
+(declare-function lispm-kernel-package-mode "ext:lispm-kernel-package" (&optional arg))
 
 (defcustom lispm-desktop-kernel t
-  "Non-nil reads the agents' sessions in the background with lispm-kernel.
+  "Non-nil reads the agents' sessions in the background with lispm-kernel,
+and has it make package.el's downloads in the background.
 Its Lisp is found beside the desktop's checkout or installed with
 package-vc, and its program downloaded for this computer, checked against
 the SHA-256 its Lisp pins; until then, and where it cannot be, the
-sidebar reads the sessions as it does with nil.  Setting it once LispM is
-set up takes effect at once."
+sidebar reads the sessions, and url.el downloads, as with nil.  Setting
+it once LispM is set up takes effect at once."
   :type 'boolean
   :group 'lispm-desktop)
 
@@ -71,20 +77,26 @@ set up takes effect at once."
   "Turn lispm-kernel on when ON is non-nil, else off.
 Turning it on gets the kernel's Lisp, see `lispm-desktop-deps-ensure', and
 turns `lispm-kernel-desktop-mode' on, which gets its program in the
-background; what goes wrong is said, and leaves the desktop as it was.
-A batch Emacs, as an installer's, gets the Lisp and leaves the mode off."
+background, then `lispm-kernel-package-mode', where the kernel's Lisp has
+it; what goes wrong is said, and leaves the desktop as it was.  A batch
+Emacs, as an installer's, gets the Lisp and leaves the modes off."
   (if on
       (condition-case err
           (progn
             (lispm-desktop-deps-ensure 'lispm-kernel)
             (require 'lispm-kernel-desktop)
-            (unless (or noninteractive lispm-kernel-desktop-mode)
-              (lispm-kernel-desktop-mode 1)))
+            (unless noninteractive
+              (unless lispm-kernel-desktop-mode
+                (lispm-kernel-desktop-mode 1))
+              (when (and (require 'lispm-kernel-package nil t) (not lispm-kernel-package-mode))
+                (lispm-kernel-package-mode 1))))
         ;; On by default, it says so in *Messages* alone, as where no
         ;; program is published for the computer it would at every start.
         (error (let ((inhibit-message (or inhibit-message (not (lispm-desktop-kernel--asked-p)))))
                  (message (lispm-desktop-tr "lispm-kernel could not be turned on: %s")
                           (error-message-string err)))))
+    (when (bound-and-true-p lispm-kernel-package-mode)
+      (lispm-kernel-package-mode -1))
     (when (bound-and-true-p lispm-kernel-desktop-mode)
       (lispm-kernel-desktop-mode -1))))
 
