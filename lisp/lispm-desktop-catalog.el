@@ -51,13 +51,13 @@
 ;;
 ;; An item is (ID . PROPERTIES), its properties as
 ;; `lispm-desktop-catalog-properties' lists them for its kind.  The App
-;; Store installs applications and extensions; items of other kinds, as
-;; LispM Agent's roles and skills, are not its own, and it passes them
-;; over.  Each application and extension gives its whole listing, what
-;; its page in the App Store shows (`lispm-desktop-catalog-listing'):
-;; lacking any of it, it is not listed.  :icon names icons/NAME.svg, 16
-;; pixels, and icons/NAME-32.svg; :banner banners/NAME.svg, the picture
-;; over its page; :about about/NAME.md, its introduction, in the Markdown
+;; Store installs applications and extensions, and the skills that come
+;; with them; items of other kinds, as LispM Agent's roles, are not its
+;; own, and it passes them over.  Each application and extension gives
+;; its whole listing, what its page in the App Store shows
+;; (`lispm-desktop-catalog-listing'): lacking any of it, it is not
+;; listed.  :icon names icons/NAME.svg, 16 pixels, and
+;; icons/NAME-32.svg; :banner banners/NAME.svg, the picture over its page; :about about/NAME.md, its introduction, in the Markdown
 ;; lispm-desktop-markdown.el reads, about/NAME.LANGUAGE.md in a language
 ;; of `lispm-desktop-languages' where there is one; :author is who made
 ;; what it installs, :license its licence, an SPDX expression.
@@ -77,6 +77,22 @@
 ;; installed before it.  :emacs is the lowest major version of Emacs it
 ;; runs in, as 32 for what only Emacs 32's canvas images can show: an
 ;; older Emacs's App Store lists it, but does not install it.
+;;
+;; A skill is LispM Agent's manual of what applications and extensions
+;; let agents do, an org file of instructions and of code defining tools:
+;;
+;;     (music :kind skill :name "Play music"
+;;            :description "Lets agents find, play, pause and skip music."
+;;            :file "skills/music.org" :requires (emms))
+;;
+;; It is never listed nor installed on its own: the App Store installs it
+;; with what it :requires, the applications and extensions of the catalog
+;; it is the manual of, once each of them is, and uninstalls it with
+;; them.  Its :file is skills/ID.org, or skills/ID/ holding SKILL.org and
+;; files of its own; the org file says its #+title: and #+description:
+;; on a line each, and its code, in blocks marked :lispm load, reads
+;; whole: it is read here, never evaluated.  See
+;; `lispm-desktop-catalog-skill-properties'.
 ;;
 ;; `lispm-desktop-catalog-item-problems' and
 ;; `lispm-desktop-catalog-problems' say what is wrong, each problem an
@@ -110,6 +126,13 @@ An application gives its :category too.")
                :optional (:program :install :requires :emacs)))
   "The properties an item of each kind has, as (KIND :required KEYS
 :optional KEYS).  An application has :command or :feature besides.")
+
+(defconst lispm-desktop-catalog-skill-properties
+  '(:required (:kind :name :description :file :requires) :optional nil)
+  "The properties of a skill, LispM Agent's, which the App Store installs
+with the applications and extensions it :requires, never on its own: its
+:name and a :description, a line each, saying what it lets agents do,
+and its :file, skills/ID.org or skills/ID/.")
 
 (defconst lispm-desktop-catalog-categories '(news music social productivity utilities games classic-ai)
   "The categories an application names; every extension is in Extensions.")
@@ -502,9 +525,10 @@ list of (SEVERITY . TEXT): SEVERITY `error' when the App Store cannot
 list it, unsafe, unreadable or short of its listing, `warning' when it
 lists it, but not as a catalog should.  DIRECTORY being the catalog's
 clone, the files the item names there are looked at too, see
-`lispm-desktop-catalog--file-problems'.  An item of a kind the App Store
-does not install, as a role or a skill, is not its own: nothing is said
-of it."
+`lispm-desktop-catalog--file-problems'.  A skill's are said by
+`lispm-desktop-catalog--skill-problems', its file read in DIRECTORY.  An
+item of a kind the App Store does not install, as a role, is not its
+own: nothing is said of it."
   (pcase item
     (`(,id . ,props)
      (cond
@@ -514,13 +538,15 @@ of it."
        (list (cons 'error "its properties are no property list")))
       (t
        (let ((kind (plist-get props :kind)))
-         (when (memq kind lispm-desktop-catalog-kinds)
+         (cond
+          ((memq kind lispm-desktop-catalog-kinds)
            (append (lispm-desktop-catalog--common-problems id kind props)
                    (lispm-desktop-catalog--package-problems (plist-get props :package) kind)
                    (if (eq kind 'app)
                        (lispm-desktop-catalog--application-problems props)
                      (lispm-desktop-catalog--extension-problems props))
-                   (and directory (lispm-desktop-catalog--file-problems props directory))))))))
+                   (and directory (lispm-desktop-catalog--file-problems props directory))))
+          ((eq kind 'skill) (lispm-desktop-catalog--skill-problems id props directory)))))))
     (_ (list (cons 'error "an item is (ID . PROPERTIES)")))))
 
 (defun lispm-desktop-catalog-item-valid-p (item &optional directory)
@@ -529,6 +555,127 @@ of one of its kinds, without an error; DIRECTORY being its catalog's
 clone, the files it names there too."
   (and (consp item) (lispm-desktop-catalog--plist-p (cdr item))
        (memq (plist-get (cdr item) :kind) lispm-desktop-catalog-kinds)
+       (null (lispm-desktop-catalog-errors (lispm-desktop-catalog-item-problems item directory)))))
+
+;;;; Skills
+
+(defun lispm-desktop-catalog-skill-p (item)
+  "Return non-nil when ITEM, (ID . PROPERTIES), is a skill."
+  (and (consp item) (lispm-desktop-catalog--plist-p (cdr item))
+       (eq (plist-get (cdr item) :kind) 'skill)))
+
+(defun lispm-desktop-catalog-skill-file (id props)
+  "Return the org file of the skill ID, of PROPS, relative to its catalog:
+its :file, skills/ID.org, or SKILL.org in it, skills/ID/; nil when :file
+names neither, or ID names no file."
+  (let ((file (plist-get props :file)))
+    (when (and (lispm-desktop-catalog--id-p id) (lispm-desktop-catalog-safe-file-p file))
+      (cond ((equal file (format "skills/%s.org" id)) file)
+            ((equal file (format "skills/%s/" id)) (concat file "SKILL.org"))))))
+
+(defun lispm-desktop-catalog--org-keyword (text key)
+  "Return the value of the #+KEY: line of the org TEXT, as LispM Agent
+reads a skill's title and description, or nil."
+  (let ((case-fold-search t))
+    (when (string-match (format "^#\\+%s:[ \t]*\\(.*?\\)[ \t]*$" (regexp-quote key)) text)
+      (match-string 1 text))))
+
+(defun lispm-desktop-catalog-skill-blocks (text)
+  "Return the source blocks of Emacs Lisp of the skill TEXT, as (LINE
+CODE LOAD): LINE where it starts, CODE as LispM Agent reads it, org's
+escapes undone, nil when the block is not closed; LOAD non-nil for a
+block marked :lispm load, whose code is evaluated as the skill loads."
+  (with-temp-buffer
+    (insert text)
+    (goto-char (point-min))
+    (let ((case-fold-search t) (blocks nil))
+      (while (re-search-forward "^[ \t]*#\\+begin_src[ \t]+emacs-lisp\\([^\n]*\\)\n" nil t)
+        (let ((args (match-string 1))
+              (line (line-number-at-pos (match-beginning 0)))
+              (start (point)))
+          (push (list line
+                      (and (re-search-forward "^[ \t]*#\\+end_src" nil t)
+                           (replace-regexp-in-string
+                            "^[ \t]*\\(,\\)\\(?:,*[*]\\|#\\+\\)" ""
+                            (buffer-substring-no-properties start (match-beginning 0)) nil nil 1))
+                      (string-match-p ":lispm[ \t]+load" args))
+                blocks)))
+      (nreverse blocks))))
+
+(defun lispm-desktop-catalog--unread (code)
+  "Return why CODE, Emacs Lisp, does not read whole, or nil when it does.
+It is read, never evaluated."
+  (with-temp-buffer
+    (with-syntax-table emacs-lisp-mode-syntax-table
+      (insert code)
+      (goto-char (point-min))
+      (let ((line 1))
+        (condition-case err
+            (progn
+              (while (progn (forward-comment (buffer-size)) (not (eobp)))
+                (setq line (line-number-at-pos))
+                (read (current-buffer)))
+              nil)
+          (end-of-file (format "the form at its line %d is not closed" line))
+          (error (format "at its line %d, %s" (line-number-at-pos) (error-message-string err))))))))
+
+(defun lispm-desktop-catalog--skill-text-problems (text name)
+  "Return what is wrong with TEXT, the org file NAME of a skill: a title
+or a description missing, a block not closed, code that does not read."
+  (lispm-desktop-catalog--saying
+    (dolist (key '("title" "description"))
+      (unless (lispm-desktop-catalog--line-p (lispm-desktop-catalog--org-keyword text key))
+        (wrong "%s needs #+%s:, a line" name key)))
+    (pcase-dolist (`(,line ,code ,load) (lispm-desktop-catalog-skill-blocks text))
+      (cond ((null code) (wrong "%s:%d: the block is not closed with #+end_src" name line))
+            ((not load))
+            ((when-let* ((why (lispm-desktop-catalog--unread code)))
+               (wrong "%s:%d: the code does not read: %s" name line why)))))))
+
+(defun lispm-desktop-catalog--skill-problems (id props &optional directory)
+  "Return what is wrong with PROPS, the properties of the skill ID: as a
+list of (SEVERITY . TEXT), see `lispm-desktop-catalog-item-problems'.
+DIRECTORY being its catalog's clone, its file is read there too."
+  (let ((allowed (append (plist-get lispm-desktop-catalog-skill-properties :required)
+                         (plist-get lispm-desktop-catalog-skill-properties :optional))))
+    (append
+     (lispm-desktop-catalog--saying
+       ;; It names its file, and the file of its copy.
+       (unless (lispm-desktop-catalog--id-p id)
+         (wrong "a skill's ID is of lower-case letters, digits and hyphens: it names its file"))
+       (when-let* ((key (lispm-desktop-catalog--holds props lispm-desktop-catalog-forbidden)))
+         (wrong "it holds %s: the App Store builds nothing with a command" key))
+       (let ((seen nil))
+         (dolist (key (lispm-desktop-catalog--keys props))
+           (cond ((memq key seen) (short "%s is given twice" key))
+                 ((not (memq key allowed)) (short "%s is not a property of a skill" key)))
+           (push key seen)))
+       (dolist (key '(:name :description))
+         (let ((value (plist-get props key)))
+           (cond ((not (and (stringp value) (not (string-empty-p value)))) (wrong "it needs %s, a string" key))
+                 ((not (lispm-desktop-catalog--line-p value)) (short "%s is a string of one line" key)))))
+       (let ((requires (plist-get props :requires)))
+         (cond ((not (and (proper-list-p requires) (seq-every-p #'lispm-desktop-catalog--symbol-p requires)))
+                (wrong ":requires is a list of items' IDs"))
+               ((null requires)
+                (wrong "it needs :requires, the applications or extensions it comes with"))))
+       (when (and (lispm-desktop-catalog--id-p id) (not (lispm-desktop-catalog-skill-file id props)))
+         (wrong ":file is \"skills/%s.org\" or \"skills/%s/\"" id id)))
+     (when-let* ((directory)
+                 (file (lispm-desktop-catalog-skill-file id props)))
+       (if (file-regular-p (expand-file-name file directory))
+           (lispm-desktop-catalog--skill-text-problems
+            (with-temp-buffer
+              (insert-file-contents (expand-file-name file directory))
+              (buffer-string))
+            file)
+         (list (cons 'error (format "%s is missing" file))))))))
+
+(defun lispm-desktop-catalog-skill-valid-p (item &optional directory)
+  "Return non-nil when ITEM is a skill the App Store installs with what it
+requires: without an error; DIRECTORY being its catalog's clone, in its
+file there too."
+  (and (lispm-desktop-catalog-skill-p item)
        (null (lispm-desktop-catalog-errors (lispm-desktop-catalog-item-problems item directory)))))
 
 ;;;; Catalogs
@@ -571,16 +718,29 @@ and they leave an order to install them in."
          (dolist (item items)
            (visit (car item) nil)))))))
 
+(defun lispm-desktop-catalog--skill-requires-problems (skills items)
+  "Return what is wrong with the :requires of SKILLS, given ITEMS, the
+applications and extensions of their catalog: a skill requiring another
+item would never be installed."
+  (lispm-desktop-catalog--saying
+    (pcase-dolist (`(,id . ,props) skills)
+      (dolist (other (plist-get props :requires))
+        (unless (assq other items)
+          (wrong "%s: it requires %s, which is no application or extension of the catalog: it would never be installed"
+                 id other))))))
+
 (defun lispm-desktop-catalog-problems (catalog &optional directory)
   "Return what is wrong with CATALOG, the form a catalog.eld holds, in the
 items the App Store installs, as a list of (SEVERITY . TEXT), each TEXT
 naming the item: what `lispm-desktop-catalog-item-problems' says of
 each, DIRECTORY being the catalog's clone, of the files it names there
-too; IDs given twice, and :requires naming no such item."
+too; IDs given twice, :requires naming no such item, and a skill's
+naming what is no application or extension of the catalog."
   (if (not (and (lispm-desktop-catalog--plist-p catalog) (proper-list-p (plist-get catalog :items))))
       (list (cons 'error "the catalog is (:name NAME :items ITEMS)"))
     (let ((problems nil)
           (items nil)
+          (skills nil)
           (ids nil))
       (unless (lispm-desktop-catalog--line-p (plist-get catalog :name))
         (push (cons 'warning "the catalog's :name is a string of one line") problems))
@@ -593,10 +753,14 @@ too; IDs given twice, and :requires naming no such item."
               (dolist (problem found)
                 (push (cons (car problem) (format "%s: %s" (if (consp entry) id entry) (cdr problem))) problems))
               (when (and (consp entry) (lispm-desktop-catalog--plist-p (cdr entry))
-                         (memq (plist-get (cdr entry) :kind) lispm-desktop-catalog-kinds)
                          (null (lispm-desktop-catalog-errors found)))
-                (push entry items))))))
-      (append (nreverse problems) (lispm-desktop-catalog--requires-problems (nreverse items))))))
+                (cond ((memq (plist-get (cdr entry) :kind) lispm-desktop-catalog-kinds)
+                       (push entry items))
+                      ((lispm-desktop-catalog-skill-p entry)
+                       (push entry skills))))))))
+      (setq items (nreverse items))
+      (append (nreverse problems) (lispm-desktop-catalog--requires-problems items)
+              (lispm-desktop-catalog--skill-requires-problems (nreverse skills) items)))))
 
 (provide 'lispm-desktop-catalog)
 ;;; lispm-desktop-catalog.el ends here

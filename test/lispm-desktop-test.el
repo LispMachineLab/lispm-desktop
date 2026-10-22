@@ -8104,6 +8104,569 @@ a word, and those installed no catalog lists stay listed."
       (should (equal (plist-get (cdr (assq 'hermes items)) :catalog) "https://example.org/second"))
       (should (equal (lispm-desktop-store--catalog-name "https://example.org/second") "Test Store")))))
 
+;;;; Skills the App Store installs
+
+;; LispM Agent's hook, which its main branch may not have yet, and the
+;; hooks `lispm-desktop-setup-lispm' adds to, bound by the tests.
+(defvar lispm-skill-sources)
+(defvar lispm-chat-mode-hook)
+(defvar lispm-session-mode-hook)
+(defvar lispm-state-change-functions)
+(defvar lispm-title-change-functions)
+(defvar lispm-language-functions)
+
+(defvar lispm-desktop-test--evaluated nil
+  "Non-nil once a skill's code ran, which reading it never does.")
+
+(defconst lispm-desktop-test--skill-text
+  "#+title: Calculate
+#+description: Lets agents calculate.
+
+Use it.
+
+#+begin_src emacs-lisp :lispm load
+(defvar lispm-desktop-test--skill-version 1)
+#+end_src
+"
+  "A skill's file, as a test's catalog holds it.")
+
+(defun lispm-desktop-test--skill-catalog (&optional more files)
+  "Put a test's catalog at https://example.org/store holding Calculator,
+built into Emacs, and the skill calc-help that comes with it, its file
+`lispm-desktop-test--skill-text'; MORE items and FILES, (FILE . TEXT)s,
+besides."
+  (lispm-desktop-test--store-catalog
+   "https://example.org/store"
+   (append '((calculator :kind app :name "Calculator" :command calc)
+             (calc-help :kind skill :name "Calculate" :description "Lets agents calculate."
+                        :file "skills/calc-help.org" :requires (calculator)))
+           more)
+   (cons (cons "skills/calc-help.org" lispm-desktop-test--skill-text) files)))
+
+(defun lispm-desktop-test--text-of (file)
+  "Return the text of FILE."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (buffer-string)))
+
+(defun lispm-desktop-test--change-skill (text)
+  "Have the test's catalog's clone hold TEXT as calc-help's file, as after
+a check of the catalogs, and read the catalogs again."
+  (with-temp-file (lispm-desktop-store--file '(:catalog "https://example.org/store") "skills/calc-help.org")
+    (insert text))
+  (lispm-desktop-store-read-catalogs))
+
+(ert-deftest lispm-desktop-test-catalog-skill-problems ()
+  "A skill has its name and description, its file skills/ID.org or
+skills/ID/, and the items it :requires; its file says its title and its
+description, and its code reads whole, read and never evaluated.  A
+skill requiring nothing, or nothing its catalog lists as an application
+or an extension, is a problem."
+  (let ((directory (make-temp-file "lispm-desktop-test-catalog" t))
+        (skill (lambda (id &rest more)
+                 (let ((props (list :kind 'skill :name "Good" :description "Lets agents do good."
+                                    :file (format "skills/%s.org" id) :requires '(app))))
+                   (cl-loop for (key value) on more by #'cddr do (setq props (plist-put props key value)))
+                   (cons id props)))))
+    (unwind-protect
+        (progn
+          (pcase-dolist (`(,file . ,text)
+                         `(("skills/good.org" . ,lispm-desktop-test--skill-text)
+                           ("skills/dir/SKILL.org" . ,lispm-desktop-test--skill-text)
+                           ("skills/evaluated.org"
+                            . "#+title: E\n#+description: E.\n\n#+begin_src emacs-lisp :lispm load\n(setq lispm-desktop-test--evaluated t)\n#+end_src\n")
+                           ("skills/bad.org" . "#+title: Bad\n\n#+begin_src emacs-lisp :lispm load\n(defun bad (\n#+end_src\n")
+                           ("skills/open.org" . "#+title: Open\n#+description: Open.\n\n#+begin_src emacs-lisp :lispm load\n(ignore)\n")))
+            (make-directory (file-name-directory (expand-file-name file directory)) t)
+            (with-temp-file (expand-file-name file directory) (insert text)))
+          (cl-flet ((errors (item)
+                      (lispm-desktop-catalog-errors (lispm-desktop-catalog-item-problems item directory)))
+                    (says (said texts) (and (seq-find (lambda (text) (string-search said text)) texts) t)))
+            (should-not (lispm-desktop-catalog-item-problems (funcall skill 'good) directory))
+            (should (lispm-desktop-catalog-skill-valid-p (funcall skill 'dir :file "skills/dir/") directory))
+            (let ((lispm-desktop-test--evaluated nil))
+              (should (lispm-desktop-catalog-skill-valid-p (funcall skill 'evaluated) directory))
+              (should-not lispm-desktop-test--evaluated))
+            (should (says "needs :requires" (errors (funcall skill 'good :requires nil))))
+            (should (says ":requires is a list" (errors (funcall skill 'good :requires 'app))))
+            (should (says ":file is \"skills/good.org\"" (errors (funcall skill 'good :file "skills/other.org"))))
+            (should (says ":file is" (errors (funcall skill 'good :file "skills/../good.org"))))
+            (should (says "lower-case" (errors (funcall skill 'Good :file "skills/Good.org"))))
+            (should (says "needs :description" (errors (funcall skill 'good :description nil))))
+            (should (says "skills/gone.org is missing" (errors (funcall skill 'gone))))
+            (should (says "skills/bad.org needs #+description:" (errors (funcall skill 'bad))))
+            (should (says "skills/bad.org:3: the code does not read" (errors (funcall skill 'bad))))
+            (should (says "skills/open.org:4: the block is not closed" (errors (funcall skill 'open))))
+            ;; Without its clone, only what the catalog says is looked at.
+            (should-not (lispm-desktop-catalog-item-problems (funcall skill 'gone)))
+            (should-not (lispm-desktop-catalog-item-valid-p (funcall skill 'good) directory))
+            ;; A whole catalog: a skill requiring what it lists as no
+            ;; application or extension.
+            (let ((texts (mapcar #'cdr (lispm-desktop-catalog-problems
+                                        `(:name "Test"
+                                          :items (,(cons 'app (cdr lispm-desktop-test--listed-app))
+                                                  ,(funcall skill 'good)
+                                                  ,(funcall skill 'dir :file "skills/dir/" :requires '(app role))
+                                                  (role :kind role :name "Role" :file "roles/role.org")))))))
+              (should (says "dir: it requires role, which is no application or extension" texts))
+              (should-not (says "good:" texts)))))
+      (delete-directory directory t))))
+
+(ert-deftest lispm-desktop-test-store-skill-comes-with-its-app ()
+  "A skill is never in the grid nor installed on its own: installing what
+it requires copies its file to the App Store's skills, kept with the
+hash of the copy, and the item's page names it; uninstalling that
+deletes the copy and forgets it, the alert saying so."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog)
+    (let ((copy (expand-file-name "calc-help.org" (lispm-desktop-store-skill-directory))))
+      (should (equal (mapcar #'car (lispm-desktop-store-items)) '(calculator)))
+      (should (equal (mapcar #'car (lispm-desktop-store--skills)) '(calc-help)))
+      (should (equal (lispm-desktop-store--skill-lines 'calculator)
+                     '("For agents: Calculate — Lets agents calculate.")))
+      (should (equal (mapcar #'car (lispm-desktop-store--skills-coming (lispm-desktop-store--to-install 'calculator)))
+                     '(calc-help)))
+      (lispm-desktop-store-install 'calculator)
+      (should (equal (lispm-desktop-test--text-of copy) lispm-desktop-test--skill-text))
+      (let ((kept (lispm-desktop-store--installed 'calc-help)))
+        (should (eq (plist-get kept :kind) 'skill))
+        (should (equal (plist-get kept :installed) (secure-hash 'sha256 lispm-desktop-test--skill-text)))
+        (should (equal (plist-get kept :catalog) "https://example.org/store"))
+        (should (equal (plist-get kept :requires) '(calculator)))
+        (should-not (plist-member kept :hash)))
+      ;; Still in no grid, never an item to update, nor requiring.
+      (should (equal (mapcar #'car (lispm-desktop-store-items)) '(calculator)))
+      (should-not (lispm-desktop-store-updates))
+      (should-not (lispm-desktop-store--requirers 'calculator))
+      (should-not (lispm-desktop-store--skills-coming (lispm-desktop-store--to-install 'calculator)))
+      (should (string-search "Agents no longer find its skill “Calculate”."
+                             (lispm-desktop-store--remove-detail 'calculator
+                                                                 (lispm-desktop-store--installed 'calculator))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+        (lispm-desktop-store-uninstall 'calculator))
+      (should-not (file-exists-p copy))
+      (should-not lispm-desktop-store-installed))))
+
+(ert-deftest lispm-desktop-test-store-skill-in-install-alert ()
+  "The alert installing an item says the skills coming with it, and what
+it brings shows them; a skill requiring two items comes once both are."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((elfeed :kind app :name "Elfeed" :command elfeed :category news
+               :package (elfeed :url "https://example.org/elfeed" :rev "0123456789abcdef"))
+       (ext :kind extension :name "Ext" :feature lispm-desktop-test-ext
+            :package (lispm-desktop-test-ext :url "https://example.org/ext" :rev "fedcba9876543210"))
+       (feeds :kind skill :name "Read feeds" :description "Lets agents read feeds."
+              :file "skills/feeds.org" :requires (elfeed))
+       (both :kind skill :name "Both" :description "Lets agents use both."
+             :file "skills/both/" :requires (elfeed ext)))
+     `(("skills/feeds.org" . ,lispm-desktop-test--skill-text)
+       ("skills/both/SKILL.org" . ,lispm-desktop-test--skill-text)
+       ("skills/both/notes.txt" . "More.\n")))
+    (let ((asked nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
+                 (lambda (question detail preview _) (push (list question detail preview) asked) t)))
+        (should (lispm-desktop-store--confirm-install (lispm-desktop-store--to-install 'elfeed))))
+      (pcase-let ((`((,question ,detail ,preview)) asked))
+        (should (equal question "Install “Elfeed”?"))
+        (should (string-search "It brings agents the skill “Read feeds”." detail))
+        (should (string-search "* Read feeds, skill for agents\n\nLets agents read feeds." preview))
+        (should-not (string-search "Both" preview))))
+    (should (equal (mapcar #'car (lispm-desktop-store--skills-coming
+                                  (list (assq 'elfeed (lispm-desktop-store-items))
+                                        (assq 'ext (lispm-desktop-store-items)))))
+                   '(feeds both)))
+    ;; Installed as the catalog lists them; a directory comes whole.
+    (setq lispm-desktop-store-installed '((elfeed :kind app :name "Elfeed" :installed "0123456789abcdef")))
+    (lispm-desktop-store--sync-skills)
+    (should (equal (mapcar #'car lispm-desktop-store-installed) '(elfeed feeds)))
+    (setq lispm-desktop-store-installed (append lispm-desktop-store-installed
+                                                '((ext :kind extension :name "Ext" :installed "fedcba9876543210"))))
+    (lispm-desktop-store--sync-skills)
+    (should (equal (mapcar #'car lispm-desktop-store-installed) '(elfeed feeds ext both)))
+    (should (equal (lispm-desktop-test--text-of
+                    (expand-file-name "both/notes.txt" (lispm-desktop-store-skill-directory)))
+                   "More.\n"))
+    (should (equal (plist-get (lispm-desktop-store--installed 'both) :installed)
+                   (plist-get (cdr (assq 'both (lispm-desktop-store--skills))) :hash)))))
+
+(ert-deftest lispm-desktop-test-store-skill-update ()
+  "A skill's code never changes unseen: its catalog changing it leaves the
+copy as it was and makes what it requires updatable, the alert showing
+how it changes; updating copies it anew, for an item built into Emacs
+without anything else to do, for one with a package with its update."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog)
+    (lispm-desktop-store-install 'calculator)
+    (let ((copy (expand-file-name "calc-help.org" (lispm-desktop-store-skill-directory)))
+          (new (string-replace "version 1" "version 2" lispm-desktop-test--skill-text)))
+      (should-not (lispm-desktop-store-update-available-p 'calculator))
+      (lispm-desktop-test--change-skill new)
+      (lispm-desktop-store--sync-skills)
+      (should (equal (lispm-desktop-test--text-of copy) lispm-desktop-test--skill-text))
+      (should (lispm-desktop-store-update-available-p 'calculator))
+      (should (equal (lispm-desktop-store-updates) '(calculator)))
+      (should (equal (mapcar #'car (lispm-desktop-store--changed-skills 'calculator)) '(calc-help)))
+      (let ((changes (lispm-desktop-store--changes (lispm-desktop-store--installed 'calculator)
+                                                   (cdr (assq 'calculator (lispm-desktop-store-items)))
+                                                   'calculator)))
+        (should (string-search "The skill “Calculate”, for agents, changes:" changes))
+        (should-not (string-search "The package" changes))
+        (when (executable-find "diff")
+          (should (string-search "+(defvar lispm-desktop-test--skill-version 2)" changes))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
+                ((symbol-function 'lispm-desktop-store--queue) (lambda (&rest _) (error "Queued"))))
+        (lispm-desktop-store-update 'calculator))
+      (should (equal (lispm-desktop-test--text-of copy) new))
+      (should (equal (plist-get (lispm-desktop-store--installed 'calc-help) :installed) (secure-hash 'sha256 new)))
+      (should-not (lispm-desktop-store-update-available-p 'calculator))))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog
+     '((elfeed :kind app :name "Elfeed" :command elfeed :category news
+               :package (elfeed :url "https://example.org/elfeed" :rev "bbb"))
+       (feeds :kind skill :name "Read feeds" :description "Lets agents read feeds."
+              :file "skills/feeds.org" :requires (elfeed)))
+     `(("skills/feeds.org" . ,lispm-desktop-test--skill-text)))
+    (setq lispm-desktop-store-installed
+          '((elfeed :kind app :name "Elfeed" :command elfeed :installed "aaa"
+                    :package (elfeed :url "https://example.org/elfeed" :rev "aaa"))))
+    (lispm-desktop-store--sync-skills)
+    (let ((copy (expand-file-name "feeds.org" (lispm-desktop-store-skill-directory)))
+          (new (string-replace "version 1" "version 2" lispm-desktop-test--skill-text))
+          (repinned nil))
+      (with-temp-file (lispm-desktop-store--file '(:catalog "https://example.org/store") "skills/feeds.org")
+        (insert new))
+      (lispm-desktop-store-read-catalogs)
+      (should (lispm-desktop-store--package-update-p 'elfeed))
+      (should (string-search "The package elfeed goes from commit aaa to commit bbb"
+                             (lispm-desktop-store--changes (lispm-desktop-store--installed 'elfeed)
+                                                           (cdr (assq 'elfeed (lispm-desktop-store-items)))
+                                                           'elfeed)))
+      (cl-letf (((symbol-function 'lispm-desktop-store--repin) (lambda (name rev) (setq repinned (list name rev))))
+                ((symbol-function 'lispm-desktop-store--register) #'ignore))
+        (lispm-desktop-store-update 'elfeed t))
+      (should (equal repinned '(elfeed "bbb")))
+      (should (equal (lispm-desktop-test--text-of copy) new))
+      (should-not (lispm-desktop-store-update-available-p 'elfeed)))))
+
+(ert-deftest lispm-desktop-test-store-skills-at-start ()
+  "At a start, the catalogs read from their clones, the skills of what was
+installed before come, a copy gone comes back as it was, and a skill
+whose requirement is no longer installed goes."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog)
+    (setq lispm-desktop-store-installed '((calculator :kind app :name "Calculator" :command calc
+                                                      :installed "built-in"))
+          lispm-desktop-store--catalogs nil)
+    (let ((copy (expand-file-name "calc-help.org" (lispm-desktop-store-skill-directory))))
+      (lispm-desktop-store--sync-skills-at-start)
+      (should lispm-desktop-store--catalogs)
+      (should (equal (lispm-desktop-test--text-of copy) lispm-desktop-test--skill-text))
+      (should (lispm-desktop-store-installed-p 'calc-help))
+      (delete-file copy)
+      (lispm-desktop-store--sync-skills-at-start)
+      (should (file-exists-p copy))
+      ;; A copy gone while its catalog changed it waits for the update.
+      (delete-file copy)
+      (lispm-desktop-test--change-skill (string-replace "version 1" "version 2" lispm-desktop-test--skill-text))
+      (lispm-desktop-store--sync-skills-at-start)
+      (should-not (file-exists-p copy))
+      (should (lispm-desktop-store-update-available-p 'calculator))
+      (setq lispm-desktop-store-installed (assq-delete-all 'calculator (copy-alist lispm-desktop-store-installed)))
+      (lispm-desktop-store--sync-skills-at-start)
+      (should-not lispm-desktop-store-installed))))
+
+(ert-deftest lispm-desktop-test-store-skill-without-requires ()
+  "A skill a catalog lists without :requires is left out, saying why: it
+would come with nothing."
+  (lispm-desktop-test--with-store
+    (let ((said nil))
+      (cl-letf (((symbol-function 'message) (lambda (&rest args) (push (apply #'format args) said))))
+        (lispm-desktop-test--skill-catalog
+         '((lonely :kind skill :name "Lonely" :description "Lets agents be alone." :file "skills/lonely.org"))
+         `(("skills/lonely.org" . ,lispm-desktop-test--skill-text))))
+      (should (seq-find (lambda (text) (and (string-search "lonely" text) (string-search ":requires" text))) said))
+      (should (equal (mapcar #'car (lispm-desktop-store--skills)) '(calc-help))))))
+
+(ert-deftest lispm-desktop-test-skill-sources ()
+  "LispM's agents are told where the desktop's skills are and where the
+App Store copies those it installs, the desktop's last, so that no
+catalog's skill replaces one of them."
+  (lispm-desktop-test--with-store
+    (should (equal (lispm-desktop-store-skill-sources)
+                   `((:directory ,(file-name-as-directory (expand-file-name "skills" lispm-desktop-store-directory))
+                                 :origin "App Store")))))
+  (should (equal (lispm-desktop--system-skills)
+                 `((:directory ,lispm-desktop-skill-directory :origin "LispM Desktop"))))
+  (should (equal (directory-files lispm-desktop-skill-directory nil "\\.org\\'")
+                 '("app-store.org" "desktop.org" "settings.org")))
+  (let ((lispm-skill-sources nil)
+        (lispm-desktop-conversation-modes nil)
+        (lispm-chat-mode-hook nil)
+        (lispm-session-mode-hook nil)
+        (lispm-state-change-functions nil)
+        (lispm-title-change-functions nil)
+        (lispm-language-functions nil)
+        (lispm-desktop-language-changed-hook nil)
+        (real-require (symbol-function 'require)))
+    (cl-letf (((symbol-function 'lispm-desktop-deps-ensure) #'ignore)
+              ((symbol-function 'require) (lambda (feature &rest more)
+                                            (unless (eq feature 'lispm) (apply real-require feature more))))
+              ((symbol-function 'lispm-agents-define) #'ignore)
+              ((symbol-function 'lispm-mode-line-mode) #'ignore))
+      (lispm-desktop-setup-lispm))
+    (should (equal lispm-skill-sources '(lispm-desktop-store-skill-sources lispm-desktop--system-skills)))))
+
+;;;; The desktop's own skills
+
+(defun lispm-desktop-test--system-skill (name)
+  "Return the file of the desktop's skill NAME."
+  (expand-file-name (format "%s.org" name) lispm-desktop-skill-directory))
+
+(defun lispm-desktop-test--skill-forms (file)
+  "Return the forms of the code of the skill FILE, read, not evaluated."
+  (mapcan (pcase-lambda (`(,_ ,code ,load))
+            (when load
+              (with-temp-buffer
+                (insert code)
+                (goto-char (point-min))
+                (let ((forms nil))
+                  (while (progn (forward-comment (buffer-size)) (not (eobp)))
+                    (push (read (current-buffer)) forms))
+                  (nreverse forms)))))
+          (lispm-desktop-catalog-skill-blocks (lispm-desktop-test--text-of file))))
+
+(defun lispm-desktop-test--load-system-skill (name)
+  "Evaluate the code of the desktop's skill NAME, as LispM loads it."
+  (require 'lispm-tools)
+  (dolist (form (lispm-desktop-test--skill-forms (lispm-desktop-test--system-skill name)))
+    (eval form t)))
+
+(defun lispm-desktop-test--arguments (tool args)
+  "Return ARGS of the tool TOOL as LispM passes them: nil for each
+optional one left out."
+  (append args (make-list (- (length (lispm-tool-params (lispm-get-tool tool))) (length args)) nil)))
+
+(defun lispm-desktop-test--call (tool &rest args)
+  "Call the tool TOOL with ARGS; its result."
+  (apply (lispm-tool-function (lispm-get-tool tool)) (lispm-desktop-test--arguments tool args)))
+
+(defun lispm-desktop-test--call-async (tool &rest args)
+  "Call the asynchronous tool TOOL with ARGS; once it is done, its result
+and whether it failed, as a list."
+  (let ((result nil))
+    (apply (lispm-tool-function (lispm-get-tool tool))
+           (lambda (value &optional failed) (setq result (list value failed)))
+           (lispm-desktop-test--arguments tool args))
+    (with-timeout (10 (error "%s did not end" tool))
+      (while (not result)
+        (accept-process-output nil 0.05)))
+    result))
+
+(ert-deftest lispm-desktop-test-system-skills-read ()
+  "Each of the desktop's skills reads as a catalog's skill must: its title
+and description a line each, its code whole.  Each tool is a literal
+`lispm-deftool' at the top of its code, its name and description written
+out, so that LispM Agent indexes it without evaluating anything; no two
+skills define a tool or a function of the same name."
+  (let ((tools nil) (functions nil))
+    (dolist (name '("desktop" "settings" "app-store"))
+      (let ((text (lispm-desktop-test--text-of (lispm-desktop-test--system-skill name))))
+        (should (equal (list name (lispm-desktop-catalog--skill-text-problems text name)) (list name nil)))
+        (dolist (form (lispm-desktop-test--skill-forms (lispm-desktop-test--system-skill name)))
+          (pcase form
+            (`(lispm-deftool ,tool ,params ,doc . ,_)
+             (should (and (symbolp tool) (listp params) (stringp doc)))
+             (push tool tools))
+            ;; A definition of its own; a bare (defvar NAME) only declares.
+            (`(,(or 'defun 'defconst) ,symbol . ,_) (push symbol functions))
+            (`(defvar ,symbol ,_ . ,_) (push symbol functions))))))
+    (should (equal (length tools) (length (seq-uniq tools))))
+    (should (equal (length functions) (length (seq-uniq functions))))
+    (dolist (tool '(desktop_apps desktop_open desktop_folder desktop_windows desktop_window desktop_hide
+                    desktop_trash settings_get settings_show settings_set settings_lower_sandbox
+                    store_search store_item store_show store_check store_install store_update store_uninstall))
+      (should (memq tool tools)))))
+
+(ert-deftest lispm-desktop-test-system-skill-desktop ()
+  "The desktop's skill's tools list the applications and open one, show a
+folder, list the windows and raise one, hide and show the desktop, and
+move a file to the Trash, which alone writes."
+  (lispm-desktop-test--load-system-skill "desktop")
+  (let* ((directory (file-name-as-directory (make-temp-file "lispm-desktop-test-folder" t)))
+         (default-directory directory)
+         (lispm-desktop-apps lispm-desktop-apps)
+         (lispm-desktop-app-window--frames nil)
+         (lispm-desktop-finder-folders '((applications :title "Applications")))
+         (hidden nil)
+         (done nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-apps-activate) (lambda (app) (push (list 'activate app) done)))
+                  ((symbol-function 'lispm-desktop-finder-open-directory) (lambda (dir) (push (list 'folder dir) done)))
+                  ((symbol-function 'lispm-desktop-open-trash) (lambda () (push '(trash) done)))
+                  ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&rest _) hidden))
+                  ((symbol-function 'lispm-desktop-hide-desktop) (lambda () (setq hidden t)))
+                  ((symbol-function 'lispm-desktop-show-desktop) (lambda (&rest _) (setq hidden nil)))
+                  ((symbol-function 'lispm-desktop-app-window-id) (lambda (_) 'finder))
+                  ((symbol-function 'lispm-desktop-app-window-present) (lambda (id) (push (list 'raise id) done)))
+                  ((symbol-function 'move-file-to-trash) (lambda (file) (push (list 'trashed file) done)))
+                  ((symbol-function 'lispm-desktop-check-trash) #'ignore))
+          (should (string-search "editor: Emacs; running" (lispm-desktop-test--call "desktop_apps")))
+          (lispm-desktop-test--call "desktop_open" "editor")
+          (should-error (lispm-desktop-test--call "desktop_open" "no-such-application"))
+          (lispm-desktop-test--call "desktop_folder" "applications")
+          (lispm-desktop-test--call "desktop_folder" "home")
+          (lispm-desktop-test--call "desktop_folder" directory)
+          (lispm-desktop-test--call "desktop_folder" "trash")
+          (should-error (lispm-desktop-test--call "desktop_folder" "no-such-folder"))
+          (should (string-search "No window floats" (lispm-desktop-test--call "desktop_windows")))
+          (should-error (lispm-desktop-test--call "desktop_window" "finder" "raise"))
+          (setq lispm-desktop-app-window--frames (list (cons 'finder (selected-frame))))
+          (lispm-desktop-test--call "desktop_window" "finder" "raise")
+          (should (equal (lispm-desktop-test--call "desktop_hide") "The desktop is hidden in the Dock."))
+          (should (equal (lispm-desktop-test--call "desktop_hide" t) "The desktop is back."))
+          (with-temp-file (expand-file-name "old.txt" directory) (insert "old"))
+          (should (string-search "old.txt" (lispm-desktop-test--call "desktop_trash" ["old.txt"])))
+          (should-error (lispm-desktop-test--call "desktop_trash" ["no-such-file"]))
+          (should (equal (reverse done)
+                         `((activate editor) (folder applications) (folder "~") (folder ,directory) (trash)
+                           (raise finder) (trashed ,(expand-file-name "old.txt" directory)))))
+          (dolist (tool '("desktop_apps" "desktop_open" "desktop_folder" "desktop_windows" "desktop_window"
+                          "desktop_hide"))
+            (should (equal (list tool (lispm-tool-permission (lispm-get-tool tool))) (list tool 'read))))
+          (should (eq (lispm-tool-permission (lispm-get-tool "desktop_trash")) 'write))
+          (should (equal (funcall (lispm-tool-targets (lispm-get-tool "desktop_trash")) ["old.txt"])
+                         (list (expand-file-name "old.txt" directory)))))
+      (delete-directory directory t))))
+
+(ert-deftest lispm-desktop-test-system-skill-settings ()
+  "The settings' skill's tools read every setting, show a panel, change
+one, saved as Control Panels saves it, refuse what a setting does not
+take, and make the sandbox stricter; only the tool always asking lowers
+it."
+  (lispm-desktop-test--load-system-skill "settings")
+  (lispm-desktop-test--with-sandbox
+    (let ((lispm-desktop-theme 'platinum)
+          (lispm-desktop-look 'platinum)
+          (lispm-desktop-language nil)
+          (lispm-desktop-editing-style 'emacs)
+          (lispm-desktop-proxy-type nil)
+          (lispm-desktop-proxy-server nil)
+          (lispm-desktop-proxy-exceptions nil)
+          (lispm-desktop-startup-items nil)
+          (lispm-desktop-update-check-automatically t)
+          (lispm-desktop-update-schedule 'daily)
+          (lispm-desktop-update-install-automatically t)
+          (lispm-desktop-store-update-automatically t)
+          (lispm-desktop-kernel t)
+          (done nil))
+      (cl-letf (((symbol-function 'customize-save-variable) (lambda (variable value &rest _) (set variable value)))
+                ((symbol-function 'lispm-desktop-set-theme) (lambda (theme) (push (list 'theme theme) done)))
+                ((symbol-function 'lispm-desktop-set-language) (lambda (language) (push (list 'language language) done)))
+                ((symbol-function 'lispm-desktop-open-at-login) (lambda (open) (push (list 'login open) done)))
+                ((symbol-function 'lispm-desktop-startup-login-p) #'ignore)
+                ((symbol-function 'lispm-desktop-settings-show) (lambda (&optional panel) (push (list 'show panel) done)))
+                ((symbol-function 'lispm-desktop-settings-open-p) #'ignore))
+        (let ((all (lispm-desktop-test--call "settings_get")))
+          (dolist (said '("look = platinum" "theme = platinum" "language = computer" "proxy-type = none"
+                          "proxy-server = none" "sandbox = none" "open-at-login = false" "startup-item = none"
+                          "kernel = true" "sandbox-domains = none"))
+            (should (equal (list said (and (string-search said all) t)) (list said t)))))
+        (should (string-prefix-p "update-schedule = daily" (lispm-desktop-test--call "settings_get" "update-schedule")))
+        (should-error (lispm-desktop-test--call "settings_get" "no-such-setting"))
+        (lispm-desktop-test--call "settings_show" "network")
+        (lispm-desktop-test--call "settings_set" "theme" "dracula")
+        (should-error (lispm-desktop-test--call "settings_set" "theme" "no-such-theme"))
+        (lispm-desktop-test--call "settings_set" "language" "de")
+        (lispm-desktop-test--call "settings_set" "language" "computer")
+        (should-error (lispm-desktop-test--call "settings_set" "proxy-type" "http"))
+        (should-error (lispm-desktop-test--call "settings_set" "proxy-server" "nowhere"))
+        (lispm-desktop-test--call "settings_set" "proxy-server" "127.0.0.1:7890")
+        (should (string-prefix-p "proxy-type = http" (lispm-desktop-test--call "settings_set" "proxy-type" "http")))
+        (lispm-desktop-test--call "settings_set" "proxy-exceptions" "example.com, example.org")
+        (should (equal (list lispm-desktop-proxy-type lispm-desktop-proxy-server lispm-desktop-proxy-exceptions)
+                       '(http "127.0.0.1:7890" ("example.com" "example.org"))))
+        (lispm-desktop-test--call "settings_set" "open-at-login" "true")
+        (should-error (lispm-desktop-test--call "settings_set" "open-at-login" "perhaps"))
+        (lispm-desktop-test--call "settings_set" "startup-item" "add" "browser")
+        (should (equal lispm-desktop-startup-items '((:app browser))))
+        (lispm-desktop-test--call "settings_set" "startup-item" "off" "Browser")
+        (should (equal lispm-desktop-startup-items '((:app browser :disabled t))))
+        (lispm-desktop-test--call "settings_set" "startup-item" "remove" "browser")
+        (should-not lispm-desktop-startup-items)
+        (lispm-desktop-test--call "settings_set" "update-schedule" "weekly")
+        (lispm-desktop-test--call "settings_set" "kernel" "false")
+        (should (equal (list lispm-desktop-update-schedule lispm-desktop-kernel) '(weekly nil)))
+        (should-error (lispm-desktop-test--call "settings_set" "sandbox-domains" "example.com"))
+        ;; Stricter by settings_set; looser only by the tool always asking.
+        (lispm-desktop-test--call "settings_set" "sandbox" "high")
+        (should-error (lispm-desktop-test--call "settings_set" "sandbox" "low"))
+        (should (equal (lispm-desktop-test--call "settings_lower_sandbox" "low") "The sandbox level is low now."))
+        (should (equal chosen '((low t) (high t))))
+        (should (equal (reverse done)
+                       '((show network) (theme dracula) (language de) (language nil) (login t))))
+        (should (lispm-tool-always-ask (lispm-get-tool "settings_lower_sandbox")))
+        (should-not (lispm-tool-always-ask (lispm-get-tool "settings_set")))
+        (should (equal (mapcar (lambda (tool) (lispm-tool-permission (lispm-get-tool tool)))
+                               '("settings_get" "settings_show" "settings_set" "settings_lower_sandbox"))
+                       '(read read write write)))))))
+
+(ert-deftest lispm-desktop-test-system-skill-app-store ()
+  "The App Store's skill's tools search the items and read one, show the
+App Store, check the catalogs, and install, update and uninstall an
+item with its skills, waiting for each to end, asking nothing more once
+approved: those three always ask, and show first what they do."
+  (lispm-desktop-test--load-system-skill "app-store")
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog)
+    (should (string-search "calculator: Calculator, an application in Utilities: A test item; not installed; skills for agents: calc-help (Calculate)"
+                           (lispm-desktop-test--call "store_search")))
+    (should (string-search "calculator:" (lispm-desktop-test--call "store_search" "calc" "utilities")))
+    (should (equal (lispm-desktop-test--call "store_search" "zzz") "Nothing matches."))
+    (should (equal (lispm-desktop-test--call "store_search" nil nil t) "Nothing matches."))
+    (let ((item (lispm-desktop-test--call "store_item" "Calculator")))
+      (should (string-search "Status: not installed." item))
+      (should (string-search "Skill for agents: calc-help, Calculate: Lets agents calculate." item))
+      (should (string-search "Introduction:\nAn item of the tests." item)))
+    (should-error (lispm-desktop-test--call "store_item" "nothing"))
+    (let ((shown nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store-show) (lambda () (push 'store shown)))
+                ((symbol-function 'lispm-desktop-store-show-item) (lambda (&optional id) (push id shown))))
+        (lispm-desktop-test--call "store_show" "calculator"))
+      (should (equal shown '(calculator store))))
+    (cl-letf (((symbol-function 'lispm-desktop-store-check-for-updates)
+               (lambda (&rest _)
+                 (setq lispm-desktop-store--checking t)
+                 (run-at-time 0.1 nil (lambda () (setq lispm-desktop-store--checking nil))))))
+      (should (equal (lispm-desktop-test--call-async "store_check")
+                     '("The catalogs list 1 item. Everything installed is up to date." nil))))
+    (should (string-search "Calculate, skill for agents"
+                           (funcall (lispm-tool-preview (lispm-get-tool "store_install")) "calculator")))
+    (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) (error "Asked")))
+              ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) (error "Asked"))))
+      (should (equal (lispm-desktop-test--call-async "store_install" "calculator")
+                     '("Calculator is installed. Its skills for agents: calc-help." nil)))
+      (should (lispm-desktop-store-installed-p 'calc-help))
+      (should (string-search "installed already" (car (lispm-desktop-test--call-async "store_install" "calculator"))))
+      (should-error (lispm-desktop-test--call-async "store_update" "calculator"))
+      (lispm-desktop-test--change-skill (string-replace "version 1" "version 2" lispm-desktop-test--skill-text))
+      (should (string-search "The skill “Calculate”, for agents, changes:"
+                             (funcall (lispm-tool-preview (lispm-get-tool "store_update")) "calculator")))
+      (should (equal (lispm-desktop-test--call-async "store_update" "calculator") '("Calculator is updated." nil)))
+      (should-not (lispm-desktop-store-update-available-p 'calculator))
+      (should (string-search "Agents no longer find its skill"
+                             (funcall (lispm-tool-preview (lispm-get-tool "store_uninstall")) "calculator")))
+      (should (equal (lispm-desktop-test--call "store_uninstall" "calculator") "Calculator is uninstalled."))
+      (should-not lispm-desktop-store-installed)
+      (should-error (lispm-desktop-test--call "store_uninstall" "calculator")))
+    (dolist (tool '("store_install" "store_update" "store_uninstall"))
+      (should (lispm-tool-always-ask (lispm-get-tool tool))))
+    (should (equal (mapcar (lambda (tool) (lispm-tool-permission (lispm-get-tool tool)))
+                           '("store_search" "store_item" "store_show" "store_check" "store_install" "store_update"
+                             "store_uninstall"))
+                   '(read read read web exec exec write)))))
+
 (defvar lispm-desktop-test--extension-events nil
   "What the test extension's library did: `loaded', `unloaded', newest first.")
 

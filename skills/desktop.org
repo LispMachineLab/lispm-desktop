@@ -1,0 +1,219 @@
+#+title: Use the desktop
+#+description: See and open LispM's applications, folders in the Finder window and the windows floating over the desktop; hide the desktop in the Dock or bring it back; move files to the Trash.
+
+LispM Desktop draws a classic-style desktop in Emacs: a menu bar along the top, the desktop's
+icons down its right side, and the windows of applications floating over it.  The applications
+are the desktop itself, with its Finder window, the editor, the browser, Control Panels, the App
+Store, LispM Guide, the Installer, the games built in, and those the App Store installed.  This
+skill gives you tools over them, and names the functions behind them for ~eval_elisp~.
+
+* Applications
+
+- ~desktop_apps~: every application that can run here, by its key, with its name, whether it runs
+  now, whether a window of it is open, which one is in front, and where it comes from: LispM's
+  own, built in, or installed by the App Store.
+- ~desktop_open~ APP: bring the application APP, a key ~desktop_apps~ gives, in front, opening
+  its window.  An application the App Store lists but did not install is not there yet: the skill
+  app-store installs it.
+
+* Folders
+
+- ~desktop_folder~ FOLDER: show a folder in the Finder window, the desktop in front: a directory,
+  or ~applications~ (the applications, built in and installed), ~control-panels~ (a panel each),
+  ~home~ or ~trash~.
+
+* Windows
+
+- ~desktop_windows~: the windows floating over the desktop, the one in front first: each window's
+  kind (~finder~, ~settings~ for Control Panels, ~store~ for the App Store, an application's
+  key, ...), its application, and whether it is rolled up into its title bar or out on the
+  computer's screen; and whether the desktop is hidden in the Dock.
+- ~desktop_window~ WINDOW ACTION: bring a window to the front (~raise~), roll it up into its
+  title bar or down again (~roll-up~, ~roll-down~), or ~close~ it.  An application keeps what it
+  showed: opened again, its window shows it again.  The editor's and the browser's floating
+  windows go back to full screen from their own menus, not by closing.
+- ~desktop_hide~: hide the desktop in the Dock, its windows out on the computer's screen; with
+  SHOW, bring it back.  Not every system lets it hide; the tool then says why.
+
+Opening, raising and rolling windows change no file and no setting, so these tools are of the
+permission class ~read~.  Still, bring things in front only when the user asked to see them or
+the task needs it: the screen is theirs.
+
+* The Trash
+
+- ~desktop_trash~ PATHS: move files or folders to the system's Trash, from where the user can put
+  them back.  It is of the class ~write~, and asks for paths outside your project.  When the user
+  asks to throw something away, use it rather than deleting.
+
+* Beyond the tools
+
+With ~eval_elisp~: ~lispm-desktop-apps~ holds the applications, as ~(KEY . PROPERTIES)~;
+~(lispm-desktop-define-app KEY :name NAME :icon ICON :activate FUNCTION)~ makes a function of
+yours an application of the menu bar's Application menu, and ~(lispm-desktop-remove-app KEY)~
+takes it away; ~(lispm-desktop-app-window-show ID :name NAME :buffer BUFFER)~ shows a buffer in a
+floating window of its own, which ~(lispm-desktop-app-window-close ID)~ closes.
+
+* The code
+
+#+begin_src emacs-lisp :lispm load
+;; Copyright (C) 2026  Ryan.K
+;; SPDX-License-Identifier: AGPL-3.0-or-later
+
+(require 'seq)
+(require 'subr-x)
+(require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
+(require 'lispm-desktop-finder)
+(require 'lispm-desktop-coherence)
+
+(defvar lispm-current-agent)
+(declare-function lispm-agent-root "lispm-core" (agent))
+
+(defconst lispm-desktop-skill-folders
+  '(("applications" . applications) ("control-panels" . control-panels))
+  "The folders desktop_folder names that are no directory on disk.")
+
+(defun lispm-desktop-skill-available-p (props)
+  "Non-nil when the application of PROPS can run here."
+  (let ((visible (plist-get props :visible)))
+    (or (not visible) (and (functionp visible) (funcall visible)))))
+
+(defun lispm-desktop-skill-running-p (props)
+  "Non-nil when the application of PROPS runs now."
+  (let ((running (plist-get props :running)))
+    (or (not running) (and (functionp running) (funcall running)))))
+
+(defun lispm-desktop-skill-apps ()
+  "The applications that can run here, as (KEY . PROPERTIES)."
+  (seq-filter (lambda (app) (lispm-desktop-skill-available-p (cdr app))) lispm-desktop-apps))
+
+(defun lispm-desktop-skill-app (name)
+  "The key of the application NAME, a key or a name, case ignored; an error
+if there is no such application."
+  (let ((wanted (downcase (string-trim name))))
+    (or (car (seq-find (lambda (app)
+                         (or (equal (symbol-name (car app)) wanted)
+                             (equal (downcase (or (plist-get (cdr app) :name) "")) wanted)))
+                       (lispm-desktop-skill-apps)))
+        (error "No application %s here: desktop_apps lists them" name))))
+
+(defun lispm-desktop-skill-origin (key props)
+  "Where the application KEY, of PROPS, comes from, in words."
+  (cond ((plist-get props :store) "installed by the App Store")
+        ((plist-get props :folder) "built in")
+        ((memq key '(desktop editor browser settings store)) "LispM's own")
+        (t "added by a package")))
+
+(defun lispm-desktop-skill-windows ()
+  "The floating windows of the desktop, the one in front first."
+  (let ((screen (lispm-desktop-apps-screen)))
+    (seq-uniq (append (lispm-desktop-apps-windows-in-order screen)
+                      (lispm-desktop-apps-windows-out-in-order screen)
+                      (lispm-desktop-apps-windows screen)))))
+
+(defun lispm-desktop-skill-window (name)
+  "The floating window of the kind NAME, a string; an error if none is open."
+  (or (lispm-desktop-app-window-frame (intern (string-trim name)))
+      (error "No window %s is open: desktop_windows lists them" name)))
+
+(defun lispm-desktop-skill-root ()
+  "The directory relative paths are read from: the acting agent's root."
+  (if (and (boundp 'lispm-current-agent) lispm-current-agent)
+      (lispm-agent-root lispm-current-agent)
+    default-directory))
+
+(lispm-deftool desktop_apps ()
+  "List the applications that can run here: key, name, whether each runs and has a window open, which is in front, and where it comes from."
+  (let ((front (lispm-desktop-apps-frontmost)))
+    (mapconcat (pcase-lambda (`(,key . ,props))
+                 (format "%s %s: %s; %s%s; %s"
+                         (if (eq key front) ">" " ")
+                         key (or (plist-get props :name) key)
+                         (if (lispm-desktop-skill-running-p props) "running" "not running")
+                         (if (lispm-desktop-app-window-of-app key) ", its window open" "")
+                         (lispm-desktop-skill-origin key props)))
+               (lispm-desktop-skill-apps) "\n")))
+
+(lispm-deftool desktop_open
+    ((app string "The application's key, as desktop_apps gives it, or its name."))
+  "Bring an application in front, opening its window."
+  (let ((key (lispm-desktop-skill-app app)))
+    (lispm-desktop-apps-activate key)
+    (format "%s is in front." (or (plist-get (alist-get key lispm-desktop-apps) :name) key))))
+
+(lispm-deftool desktop_folder
+    ((folder string "A directory, or applications, control-panels, home or trash."))
+  "Show a folder in the Finder window over the desktop."
+  (let ((name (string-trim folder)))
+    (pcase name
+      ("trash" (lispm-desktop-open-trash) "The Trash is open.")
+      ("home" (lispm-desktop-finder-open-directory "~") "The home folder shows in the Finder window.")
+      (_ (if-let* ((key (cdr (assoc name lispm-desktop-skill-folders)))
+                   ((assq key lispm-desktop-finder-folders)))
+             (progn (lispm-desktop-finder-open-directory key)
+                    (format "The folder %s shows in the Finder window." name))
+           (let ((directory (expand-file-name name (lispm-desktop-skill-root))))
+             (unless (file-directory-p directory)
+               (error "No folder %s" directory))
+             (lispm-desktop-finder-open-directory directory)
+             (format "%s shows in the Finder window." (abbreviate-file-name directory))))))))
+
+(lispm-deftool desktop_windows ()
+  "List the windows floating over the desktop, the one in front first, and say whether the desktop is hidden in the Dock."
+  (let ((windows (lispm-desktop-skill-windows)))
+    (concat (if (lispm-desktop-apps-hidden-p) "The desktop is hidden in the Dock.\n" "")
+            (if (null windows)
+                "No window floats over the desktop."
+              (mapconcat (lambda (frame)
+                           (format "%s: %s, of %s%s%s%s"
+                                   (or (lispm-desktop-app-window-id frame) "?")
+                                   (frame-parameter frame 'name)
+                                   (or (frame-parameter frame 'lispm-desktop-app) "?")
+                                   (if (lispm-desktop-app-window-rolled-p frame) ", rolled up" "")
+                                   (if (lispm-desktop-apps-out-p frame) ", out on the computer's screen" "")
+                                   (if (frame-visible-p frame) "" ", hidden")))
+                         windows "\n")))))
+
+(lispm-deftool desktop_window
+    ((window string "The window's kind, as desktop_windows gives it, such as finder, settings or store.")
+     (action string "What to do with it." :enum ("raise" "roll-up" "roll-down" "close")))
+  "Bring a floating window to the front, roll it up into its title bar or down, or close it."
+  (let* ((frame (lispm-desktop-skill-window window))
+         (id (lispm-desktop-app-window-id frame)))
+    (pcase action
+      ("raise" (lispm-desktop-app-window-present id))
+      ("roll-up" (lispm-desktop-app-window-roll-up frame))
+      ("roll-down" (lispm-desktop-app-window-roll-down frame))
+      ("close" (when (memq id '(editor browser))
+                 (error "The %s's window goes back to full screen from its own menus" id))
+               (lispm-desktop-app-window-close id)))
+    (format "Done: %s %s." action window)))
+
+(lispm-deftool desktop_hide
+    ((show boolean "Bring the hidden desktop back instead (default false)." :optional t))
+  "Hide the desktop in the Dock, its windows out on the computer's screen; or bring it back."
+  (cond ((and show (lispm-desktop-apps-hidden-p))
+         (lispm-desktop-show-desktop)
+         "The desktop is back.")
+        (show "The desktop is not hidden.")
+        ((lispm-desktop-apps-hidden-p) "The desktop is hidden already.")
+        (t (lispm-desktop-hide-desktop)
+           "The desktop is hidden in the Dock.")))
+
+(lispm-deftool desktop_trash
+    ((paths array "Files or folders to move to the Trash, absolute or relative to your project."
+            :items ((type . "string"))))
+  "Move files or folders to the system's Trash, from where the user can put them back."
+  :permission write
+  :targets (lambda (paths) (mapcar #'expand-file-name (append paths nil)))
+  (let ((root (lispm-desktop-skill-root))
+        (moved nil))
+    (dolist (path (append paths nil))
+      (let ((file (expand-file-name path root)))
+        (unless (file-exists-p file)
+          (error "No such file or folder: %s" file))
+        (move-file-to-trash (directory-file-name file))
+        (push (abbreviate-file-name file) moved)))
+    (lispm-desktop-check-trash)
+    (format "Moved to the Trash: %s." (string-join (nreverse moved) ", "))))
+#+end_src

@@ -63,8 +63,16 @@
 ;; :category, one of `lispm-desktop-store-categories', as Classic AI, the
 ;; programs of AI's first decades, ELIZA's Doctor, SHRDLU and MYCIN, and
 ;; :subtitle, a few words, place an application in the window.  :requires names the
-;; items installed before.  Items of other kinds, as LispM's roles and
-;; skills, are not the App Store's: it passes them over.
+;; items installed before.  Items of other kinds, as LispM's roles, are
+;; not the App Store's: it passes them over.
+;;
+;; A catalog's skills, LispM Agent's manuals of what its applications and
+;; extensions let agents do, come with them: never shown in the grid nor
+;; installed on their own, each is installed once everything it
+;; :requires is, and uninstalled with it, see
+;; `lispm-desktop-store--sync-skills'.  An item's page names the skills
+;; it gives agents, and the alerts installing and uninstalling it say
+;; they come and go.
 ;;
 ;; Nothing new is installed unasked: where a package comes from is shown
 ;; under the window while an alert asks, as before an update asked for,
@@ -321,6 +329,7 @@ arrow; the App Store's status line says it checks."
                              (message (lispm-desktop-tr "App Store: %s: %s") url error))
                            (next)))
                       (lispm-desktop-store-read-catalogs)
+                      (lispm-desktop-store--sync-skills)
                       (lispm-desktop-store--refresh-archives
                        (lambda ()
                          (setq lispm-desktop-store--checking nil
@@ -355,26 +364,37 @@ A catalog that cannot be read is said so and left out, and so is an item
 of it lispm-desktop-catalog.el finds an error in, saying which: one short
 of its listing, as its banner or its introduction, is.  What it only
 warns of, as a subtitle too long, is the catalog's to mend, and does not
-keep an item out.  Items of kinds the App Store does not install are
-passed over without a word."
+keep an item out.  Its skills are kept apart, under :skills, each with
+:hash, that of its file in the clone, see `lispm-desktop-store--skills'.
+Items of kinds the App Store does not install are passed over without a
+word."
   (let* ((directory (lispm-desktop-store--catalog-directory url))
          (file (expand-file-name "catalog.eld" directory)))
     (when (file-readable-p file)
       (condition-case err
-          (let ((data (lispm-desktop-catalog-read directory)))
+          (let* ((data (lispm-desktop-catalog-read directory))
+                 (listed (lambda (item)
+                           (if-let* ((errors (lispm-desktop-catalog-errors
+                                              (lispm-desktop-catalog-item-problems item directory))))
+                               (progn (message (lispm-desktop-tr "App Store: %s lists %S wrongly, left out: %s")
+                                               url (car-safe item) (string-join errors "; "))
+                                      nil)
+                             t))))
             (list :url url :directory directory
                   :name (let ((name (plist-get data :name))) (if (stringp name) name url))
                   :commit (ignore-errors (lispm-desktop-store--git directory "rev-parse" "HEAD"))
-                  :items (seq-filter
-                          (lambda (item)
-                            (and (lispm-desktop-store--kind-p item)
-                                 (if-let* ((errors (lispm-desktop-catalog-errors
-                                                    (lispm-desktop-catalog-item-problems item directory))))
-                                     (progn (message (lispm-desktop-tr "App Store: %s lists %S wrongly, left out: %s")
-                                                     url (car-safe item) (string-join errors "; "))
-                                            nil)
-                                   t)))
-                          (plist-get data :items))))
+                  :items (seq-filter (lambda (item) (and (lispm-desktop-store--kind-p item) (funcall listed item)))
+                                     (plist-get data :items))
+                  :skills (mapcan (lambda (item)
+                                    (when (and (lispm-desktop-catalog-skill-p item) (funcall listed item))
+                                      (condition-case err
+                                          (list (append item (list :hash (lispm-desktop-store--hash
+                                                                          (expand-file-name (plist-get (cdr item) :file)
+                                                                                            directory)))))
+                                        (error (message (lispm-desktop-tr "App Store: the skill %s: %s")
+                                                        (car item) (error-message-string err))
+                                               nil))))
+                                  (plist-get data :items))))
         (error (message (lispm-desktop-tr "App Store: cannot read the catalog of %s: %s")
                         url (error-message-string err))
                nil)))))
@@ -505,8 +525,8 @@ package NAME than the one installed."
                 (version-list-< (package-desc-version installed) (package-desc-version available)))
               (cdr (assq name package-archive-contents)))))
 
-(defun lispm-desktop-store-update-available-p (id)
-  "Return non-nil when the item ID installed can be updated: its package
+(defun lispm-desktop-store--package-update-p (id)
+  "Return non-nil when the package of the item ID installed can be updated:
 pinned by its catalog to another commit than installed, or, from the
 package archives, newer there.  One loaded from the load path, as a
 checkout's, is updated there, not by the App Store."
@@ -519,14 +539,25 @@ checkout's, is updated there, not by the App Store."
        (not (equal (plist-get (cdr package) :rev) (plist-get installed :installed))))
       (package (lispm-desktop-store--archive-newer-p package)))))
 
+(defun lispm-desktop-store-update-available-p (id)
+  "Return non-nil when the item ID installed can be updated: its package,
+see `lispm-desktop-store--package-update-p', or a skill that came with
+it, changed in its catalog since, see `lispm-desktop-store--changed-skills'.
+A skill is no item to update on its own."
+  (and (lispm-desktop-store-installed-p id)
+       (not (eq (plist-get (lispm-desktop-store--installed id) :kind) 'skill))
+       (or (lispm-desktop-store--package-update-p id)
+           (and (lispm-desktop-store--changed-skills id) t))))
+
 (defun lispm-desktop-store-updates ()
   "Return the IDs of the items installed that can be updated."
   (seq-filter #'lispm-desktop-store-update-available-p (mapcar #'car lispm-desktop-store-installed)))
 
 (defun lispm-desktop-store--requirers (id)
-  "Return the names of the installed items requiring the item ID."
+  "Return the names of the installed items requiring the item ID; the
+skills that come with it go with it, and are not among them."
   (mapcan (pcase-lambda (`(,_ . ,props))
-            (when (memq id (plist-get props :requires))
+            (when (and (memq id (plist-get props :requires)) (not (eq (plist-get props :kind) 'skill)))
               (list (plist-get props :name))))
           lispm-desktop-store-installed))
 
@@ -567,6 +598,200 @@ stopping.  An item whose install or update failed is tried again."
          (list (lispm-desktop-tr "Needs Emacs %d" (lispm-desktop-store--newer-emacs props))))
         ((lispm-desktop-store--missing-program props) (list (lispm-desktop-tr "Get")))
         (t (cons (lispm-desktop-tr "Get") 'install))))
+
+;;;; Skills
+;;
+;; A skill comes with the applications and extensions it :requires: once
+;; each is installed, its file, or its directory, is copied from its
+;; catalog's clone to `lispm-desktop-store-skill-directory', where LispM's
+;; agents find it (`lispm-desktop-store-skill-sources'), and kept in
+;; `lispm-desktop-store-installed' with the SHA-256 of the copy; once one
+;; of them is no longer installed, the copy goes.  The clone is checked
+;; out anew at every check of the catalogs, the copy only as an update:
+;; a skill's code never changes unseen.  A skill its catalog changed
+;; makes what it requires updatable, and updating that copies the skill
+;; anew, see `lispm-desktop-store-update-available-p'.
+
+(defun lispm-desktop-store-skill-directory ()
+  "Return the directory the skills the App Store installed are copied to."
+  (file-name-as-directory (expand-file-name "skills" lispm-desktop-store-directory)))
+
+(defun lispm-desktop-store-skill-sources ()
+  "Return where the skills the App Store installed are, as LispM Agent's
+`lispm-skill-sources' are told."
+  (list (list :directory (lispm-desktop-store-skill-directory) :origin "App Store")))
+
+(defun lispm-desktop-store--hash (path)
+  "Return the SHA-256 of PATH: of a file, or of the names and contents of
+the files in a directory."
+  (if (file-directory-p path)
+      (secure-hash 'sha256
+                   (mapconcat (lambda (file)
+                                (concat (file-relative-name file path) "\0"
+                                        (with-temp-buffer
+                                          (insert-file-contents-literally file)
+                                          (buffer-string))
+                                        "\0"))
+                              (sort (directory-files-recursively path "") #'string<)
+                              ""))
+    (with-temp-buffer
+      (insert-file-contents-literally path)
+      (secure-hash 'sha256 (current-buffer)))))
+
+(defun lispm-desktop-store--skills ()
+  "Return the skills the catalogs list: (ID . PROPERTIES), :catalog the
+repository of the catalog listing each, :hash that of its file in the
+clone as read.  An earlier catalog's skill hides a later one's of the
+same name; an application or extension, a skill of its name."
+  (let ((items (lispm-desktop-store-items))
+        (skills nil))
+    (dolist (catalog lispm-desktop-store--catalogs)
+      (pcase-dolist (`(,id . ,props) (plist-get catalog :skills))
+        (unless (or (assq id skills) (assq id items))
+          (push `(,id :catalog ,(plist-get catalog :url) ,@props) skills))))
+    (nreverse skills)))
+
+(defun lispm-desktop-store--skills-for (id)
+  "Return the skills the catalogs list that come with the item ID."
+  (seq-filter (lambda (skill) (memq id (plist-get (cdr skill) :requires)))
+              (lispm-desktop-store--skills)))
+
+(defun lispm-desktop-store--installed-skills (id)
+  "Return the skills installed that came with the item ID, as kept."
+  (seq-filter (pcase-lambda (`(,_ . ,props))
+                (and (eq (plist-get props :kind) 'skill) (memq id (plist-get props :requires))))
+              lispm-desktop-store-installed))
+
+(defun lispm-desktop-store--skill-ready-p (props)
+  "Return non-nil when each item the skill of PROPS requires is installed."
+  (let ((requires (plist-get props :requires)))
+    (and requires (seq-every-p #'lispm-desktop-store-installed-p requires))))
+
+(defun lispm-desktop-store--skills-coming (items)
+  "Return the skills installing ITEMS, (ID . PROPERTIES), brings: those not
+installed that come with one of them, everything else they require
+installed already."
+  (let ((ids (mapcar #'car items)))
+    (seq-filter (pcase-lambda (`(,skill . ,props))
+                  (let ((requires (plist-get props :requires)))
+                    (and (not (lispm-desktop-store-installed-p skill))
+                         (seq-intersection requires ids)
+                         (seq-every-p (lambda (other)
+                                        (or (memq other ids) (lispm-desktop-store-installed-p other)))
+                                      requires))))
+                (lispm-desktop-store--skills))))
+
+(defun lispm-desktop-store--skill-copy (id props)
+  "Return where the skill ID, of PROPS, is copied to: ID.org, or ID/ for a
+skill that is a directory."
+  (expand-file-name (format (if (string-suffix-p "/" (plist-get props :file)) "%s/" "%s.org") id)
+                    (lispm-desktop-store-skill-directory)))
+
+(defun lispm-desktop-store--delete-skill-copy (id props)
+  "Delete the copy of the skill ID, of PROPS, if there is one."
+  (let ((copy (lispm-desktop-store--skill-copy id props)))
+    (cond ((file-directory-p copy) (delete-directory copy t))
+          ((file-exists-p copy) (delete-file copy)))))
+
+(defun lispm-desktop-store--copy-skill (id props)
+  "Copy the skill ID, of PROPS, from its catalog's clone, replacing the
+copy there was; return the SHA-256 of the copy."
+  (let ((source (lispm-desktop-store--file props (plist-get props :file)))
+        (copy (lispm-desktop-store--skill-copy id props)))
+    (make-directory (lispm-desktop-store-skill-directory) t)
+    (lispm-desktop-store--delete-skill-copy id props)
+    (if (file-directory-p source)
+        (copy-directory source copy nil t t)
+      (copy-file source copy t))
+    (lispm-desktop-store--hash copy)))
+
+(defun lispm-desktop-store--skill-try (id function)
+  "Call FUNCTION, doing something with the skill ID; say what fails."
+  (condition-case err
+      (funcall function)
+    (error (message (lispm-desktop-tr "App Store: the skill %s: %s") id (error-message-string err)))))
+
+(defun lispm-desktop-store--sync-skills (&optional updated)
+  "Install the skills whose requirements are all installed, and uninstall
+those one of whose is no longer: copy each from its catalog's clone, or
+delete its copy, and keep it, or forget it.  A skill installed stays as
+it was copied, unless what it requires is among UPDATED, the IDs of
+items just updated, or its copy is gone while its catalog still has it
+as copied: then it is copied anew.  What fails is said, and the rest
+goes on.  This runs at every start, once the catalogs are read, after
+each check of them, and after each install, uninstall and update."
+  (pcase-dolist (`(,id . ,props) lispm-desktop-store-installed)
+    (when (and (eq (plist-get props :kind) 'skill) (not (lispm-desktop-store--skill-ready-p props)))
+      (lispm-desktop-store--skill-try id (lambda ()
+                                           (lispm-desktop-store--delete-skill-copy id props)
+                                           (lispm-desktop-store--forget id)))))
+  (pcase-dolist (`(,id . ,props) (lispm-desktop-store--skills))
+    (let ((installed (lispm-desktop-store--installed id)))
+      (when (and (lispm-desktop-store--skill-ready-p props)
+                 (or (null installed)
+                     (seq-intersection updated (plist-get props :requires))
+                     (and (equal (plist-get props :hash) (plist-get installed :installed))
+                          (not (file-exists-p (lispm-desktop-store--skill-copy id installed))))))
+        (lispm-desktop-store--skill-try
+         id (lambda ()
+              (when installed
+                (lispm-desktop-store--delete-skill-copy id installed))
+              (lispm-desktop-store--keep id (lispm-desktop-store--plist-without props :hash)
+                                         :installed (lispm-desktop-store--copy-skill id props))))))))
+
+(defun lispm-desktop-store--sync-skills-at-start ()
+  "Install and uninstall the skills as what they require is installed, as
+at every start: the catalogs are read from their clones first, when they
+were not yet.  A skill new in a catalog comes so to what was installed
+before."
+  (unless lispm-desktop-store--catalogs
+    (lispm-desktop-store-read-catalogs))
+  (lispm-desktop-store--sync-skills))
+
+(defun lispm-desktop-store--changed-skills (id)
+  "Return the skills installed with the item ID whose file its catalog
+changed since they were copied, as the catalogs list them now."
+  (seq-filter (pcase-lambda (`(,skill . ,props))
+                (when-let* ((installed (lispm-desktop-store--installed skill)))
+                  (and (memq id (plist-get props :requires))
+                       (not (equal (plist-get props :hash) (plist-get installed :installed))))))
+              (lispm-desktop-store--skills)))
+
+(defun lispm-desktop-store--diff (old new)
+  "Return the differences from OLD to NEW, files or directories, unified,
+two files named as installed and as the catalog has it; or NEW's text,
+a file's, where diff cannot be run."
+  (condition-case nil
+      (with-temp-buffer
+        (apply #'call-process "diff" nil t nil "-ru"
+               `(,@(unless (or (file-directory-p old) (file-directory-p new))
+                     '("--label" "installed" "--label" "catalog"))
+                 ,(expand-file-name old) ,(expand-file-name new)))
+        (buffer-string))
+    (file-missing (if (file-regular-p new)
+                      (with-temp-buffer (insert-file-contents new) (buffer-string))
+                    ""))))
+
+(defun lispm-desktop-store--skill-changes (id props)
+  "Return what updating the skill ID to PROPS, as its catalog has it now,
+changes, in the language LispM speaks: the differences of its copy and
+its file in the clone, as a block of org."
+  (concat (lispm-desktop-tr "The skill %s, for agents, changes:"
+                            (lispm-desktop-platinum-quoted-names (list (plist-get props :name))))
+          "\n\n#+begin_src diff\n"
+          ;; Escaped as org escapes code: no line ends the block early.
+          (replace-regexp-in-string
+           "^[ \t]*\\(?:,*[*]\\|,*#\\+\\)" ",\\&"
+           (lispm-desktop-store--diff (lispm-desktop-store--skill-copy id (lispm-desktop-store--installed id))
+                                      (lispm-desktop-store--file props (plist-get props :file))))
+          "#+end_src\n"))
+
+(defun lispm-desktop-store--skill-lines (id)
+  "Return what the page of the item ID says of the skills it gives agents,
+a line each, in the language LispM speaks."
+  (mapcar (pcase-lambda (`(,_ . ,props))
+            (lispm-desktop-tr "For agents: %s — %s" (plist-get props :name) (plist-get props :description)))
+          (lispm-desktop-store--skills-for id)))
 
 ;;;; Installing, removing, updating
 
@@ -676,18 +901,32 @@ installs, a stand-in there or not."
   "Return non-nil when PROPS describe an application built into Emacs."
   (and (eq (plist-get props :kind) 'app) (null (plist-get props :package))))
 
+(defun lispm-desktop-store--skill-preview (skill)
+  "Return what installing SKILL, (ID . PROPERTIES), with what it requires
+brings, as text to read first, in the language LispM speaks."
+  (pcase-let ((`(,_ . ,props) skill))
+    (concat "* " (lispm-desktop-tr "%s, skill for agents" (plist-get props :name)) "\n\n"
+            (plist-get props :description) "\n")))
+
 (defun lispm-desktop-store--confirm-install (items)
   "Show what ITEMS bring and ask whether to install them; non-nil if so.
-Applications built into Emacs are only made applications: nothing asks."
+The skills coming with them are said too.  Applications built into Emacs
+are only made applications: nothing asks."
   (or (seq-every-p (lambda (item) (lispm-desktop-store--built-in-p (cdr item))) items)
-      (lispm-desktop-store--confirm
-       (lispm-desktop-tr "Install %s?" (lispm-desktop-store--names items))
-       (concat (lispm-desktop-tr
-                "Its code will run in Emacs as your own does; where it comes from is shown under the window.")
-               (when-let* ((needs (lispm-desktop-store--items-needs items)))
-                 (concat "  " (lispm-desktop-needs-detail needs t))))
-       (mapconcat #'lispm-desktop-store--preview items "\n")
-       (lispm-desktop-tr "Install"))))
+      (let ((skills (lispm-desktop-store--skills-coming items)))
+        (lispm-desktop-store--confirm
+         (lispm-desktop-tr "Install %s?" (lispm-desktop-store--names items))
+         (concat (lispm-desktop-tr
+                  "Its code will run in Emacs as your own does; where it comes from is shown under the window.")
+                 (when-let* ((needs (lispm-desktop-store--items-needs items)))
+                   (concat "  " (lispm-desktop-needs-detail needs t)))
+                 (when skills
+                   (concat "  " (lispm-desktop-tr-n "It brings agents the skill %s." "It brings agents the skills %s."
+                                                    (length skills) (lispm-desktop-store--names skills)))))
+         (mapconcat #'identity (append (mapcar #'lispm-desktop-store--preview items)
+                                       (mapcar #'lispm-desktop-store--skill-preview skills))
+                    "\n")
+         (lispm-desktop-tr "Install")))))
 
 (defun lispm-desktop-store--to-install (id)
   "Return the items installing the item ID brings, those it requires first
@@ -801,6 +1040,7 @@ part: a package that cannot be loaded is not left installed."
               (lispm-desktop-store--delete-package (plist-get props :package))))
           (lispm-desktop-store--fail job (lispm-desktop-tr "It cannot be loaded: %s" failure)))
       (lispm-desktop-store--keep id props :installed installed :owned owned)
+      (lispm-desktop-store--sync-skills)
       (lispm-desktop-store--done job))))
 
 (defun lispm-desktop-store--failure-of (function)
@@ -809,12 +1049,14 @@ part: a package that cannot be loaded is not left installed."
       (progn (funcall function) nil)
     (error (error-message-string err))))
 
-(defun lispm-desktop-store-install (id)
+(defun lispm-desktop-store-install (id &optional noconfirm)
   "Install the item ID, and the items it requires first, once confirmed.
 They are installed one after another, in the background, see
 `lispm-desktop-store-install-in-background', each item's progress shown
 in its place in the App Store's window; then what they need beyond
-Emacs, in the Installer, the alert having asked for it too."
+Emacs, in the Installer, the alert having asked for it too.  The skills
+coming with them come once they are installed.  NOCONFIRM, as when an
+agent installs it once the user approved, asks nothing."
   (interactive (list (lispm-desktop-store--read-item
                       (lispm-desktop-tr "Install: ") (lambda (id) (not (lispm-desktop-store-installed-p id))))))
   (when (lispm-desktop-store--busy-p id)
@@ -824,7 +1066,7 @@ Emacs, in the Installer, the alert having asked for it too."
     ;; Nothing is asked about what could not run here.
     (dolist (item items)
       (lispm-desktop-store--check-program (cdr item)))
-    (when (and items (lispm-desktop-store--confirm-install items))
+    (when (and items (or noconfirm (lispm-desktop-store--confirm-install items)))
       (lispm-desktop-store--queue
        items 'install
        (when-let* ((needs (lispm-desktop-store--items-needs items)))
@@ -1266,7 +1508,10 @@ language LispM speaks."
            (t (lispm-desktop-tr "Its package %s stays, as it was there before." package)))
      (when requirers
        (concat "  " (lispm-desktop-tr-n "%s needs it." "%s need it." (length requirers)
-                                        (lispm-desktop-platinum-quoted-names requirers)))))))
+                                        (lispm-desktop-platinum-quoted-names requirers))))
+     (when-let* ((skills (lispm-desktop-store--installed-skills id)))
+       (concat "  " (lispm-desktop-tr-n "Agents no longer find its skill %s." "Agents no longer find its skills %s."
+                                        (length skills) (lispm-desktop-store--names skills)))))))
 
 (defun lispm-desktop-store--unload (feature)
   "Unload FEATURE when it is loaded, as `unload-feature' does by force;
@@ -1278,7 +1523,8 @@ what cannot be unloaded is said, and stays until Emacs restarts."
                       feature (error-message-string err))))))
 
 (defun lispm-desktop-store--remove-1 (id props)
-  "Uninstall the item ID, of PROPS, unasked, and forget it."
+  "Uninstall the item ID, of PROPS, unasked, and forget it; the skills that
+came with it go too."
   (pcase (plist-get props :kind)
     ('app (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs id))
           (lispm-desktop-store--unload (plist-get props :feature))
@@ -1288,7 +1534,8 @@ what cannot be unloaded is said, and stays until Emacs restarts."
   (when (plist-get props :owned)
     (lispm-desktop-store--quietly
       (lispm-desktop-store--delete-package (plist-get props :package))))
-  (lispm-desktop-store--forget id))
+  (lispm-desktop-store--forget id)
+  (lispm-desktop-store--sync-skills))
 
 ;;;;; What an item leaves
 
@@ -1405,12 +1652,13 @@ words do."
               (string-trim (concat detail "  " (lispm-desktop-store--leftovers-text needs packages))))
         ((and choice (or 'item 'all)) choice)))))
 
-(defun lispm-desktop-store-uninstall (id)
+(defun lispm-desktop-store-uninstall (id &optional noconfirm)
   "Uninstall the item ID the App Store installed, once confirmed.
 What it alone brought, programs Homebrew installed for it and packages
 its package brought along, are named in the alert: Uninstall, the
 default, leaves them; Uninstall All removes them too, the programs in
-the Installer.
+the Installer.  NOCONFIRM, as when an agent uninstalls it once the user
+approved, asks nothing, and leaves them.
 Return non-nil when it was uninstalled."
   (interactive (list (lispm-desktop-store--read-item (lispm-desktop-tr "Uninstall: ")
                                                      #'lispm-desktop-store-installed-p)))
@@ -1420,7 +1668,7 @@ Return non-nil when it was uninstalled."
       (user-error (lispm-desktop-tr "%s is being updated; stop that first") (plist-get props :name)))
     (let* ((needs (and (eq (plist-get props :kind) 'app) (lispm-desktop-store--needs-leftovers id)))
            (packages (lispm-desktop-store--package-leftovers id props))
-           (choice (lispm-desktop-store--confirm-uninstall id props needs packages)))
+           (choice (if noconfirm 'item (lispm-desktop-store--confirm-uninstall id props needs packages))))
       (when choice
         (lispm-desktop-store--remove-1 id props)
         (when (eq choice 'all)
@@ -1433,30 +1681,39 @@ Return non-nil when it was uninstalled."
 
 (define-obsolete-function-alias 'lispm-desktop-store-remove #'lispm-desktop-store-uninstall "0.9.0")
 
-(defun lispm-desktop-store--changes (installed props)
+(defun lispm-desktop-store--changes (installed props &optional id)
   "Return what updating the item installed as INSTALLED to PROPS changes,
-in the language LispM speaks."
+in the language LispM speaks.  ID being the item's, its package is said
+only when it changes, and so are the skills that came with it changed in
+their catalog, with their differences."
   (concat
    "* " (plist-get props :name) "\n\n"
-   (pcase (plist-get props :package)
-     (`(,name . ,spec)
-      (lispm-desktop-tr "The package %s goes from commit %s to commit %s, of %s."
-                        name (plist-get installed :installed) (plist-get spec :rev) (plist-get spec :url)))
-     (name
-      (lispm-desktop-tr "The package %s goes from version %s to the package archives' newest, %s."
-                        name (plist-get installed :installed)
-                        (if-let* ((available (cadr (assq name package-archive-contents))))
-                            (package-version-join (package-desc-version available))
-                          "?"))))
-   "\n"))
+   (when (or (null id) (lispm-desktop-store--package-update-p id))
+     (concat
+      (pcase (plist-get props :package)
+        (`(,name . ,spec)
+         (lispm-desktop-tr "The package %s goes from commit %s to commit %s, of %s."
+                           name (plist-get installed :installed) (plist-get spec :rev) (plist-get spec :url)))
+        (name
+         (lispm-desktop-tr "The package %s goes from version %s to the package archives' newest, %s."
+                           name (plist-get installed :installed)
+                           (if-let* ((available (cadr (assq name package-archive-contents))))
+                               (package-version-join (package-desc-version available))
+                             "?"))))
+      "\n"))
+   (when id
+     (mapconcat (pcase-lambda (`(,skill . ,skill-props))
+                  (concat "\n" (lispm-desktop-store--skill-changes skill skill-props)))
+                (lispm-desktop-store--changed-skills id) ""))))
 
 (defun lispm-desktop-store-update (id &optional quietly)
   "Bring the item ID to what its catalog lists now, once confirmed: its
 package to the commit the catalog pins, or to the package archives'
 newest.  It is updated in the background, as it is installed, see
 `lispm-desktop-store-install'; an extension is loaded again, so the new
-code takes part at once.  QUIETLY, as when updates install by
-themselves, asks nothing."
+code takes part at once.  The skills that came with it are copied anew
+from its catalog; when only they changed, nothing else is done.
+QUIETLY, as when updates install by themselves, asks nothing."
   (interactive (list (lispm-desktop-store--read-item (lispm-desktop-tr "Update: ")
                                                      #'lispm-desktop-store-update-available-p)))
   (let* ((installed (or (lispm-desktop-store--installed id)
@@ -1469,9 +1726,15 @@ themselves, asks nothing."
     (when (or quietly
               (lispm-desktop-store--confirm (lispm-desktop-tr "Update “%s”?" (plist-get props :name))
                                             (lispm-desktop-tr "What changes is shown under the window.")
-                                            (lispm-desktop-store--changes installed props)
+                                            (lispm-desktop-store--changes installed props id)
                                             (lispm-desktop-tr "Update")))
-      (lispm-desktop-store--queue (list (cons id props)) 'update))))
+      (if (lispm-desktop-store--package-update-p id)
+          (lispm-desktop-store--queue (list (cons id props)) 'update)
+        ;; Only skills that came with it changed: copied anew, nothing to
+        ;; build or load.
+        (lispm-desktop-store--sync-skills (list id))
+        (lispm-desktop-store--render)
+        (run-hooks 'lispm-desktop-update-changed-hook)))))
 
 (defun lispm-desktop-store--update-here (job)
   "Do JOB, an update, in this Emacs, which waits meanwhile, the pointer a
@@ -1495,10 +1758,12 @@ catalog pins, or the package archives' newest installed."
 
 (defun lispm-desktop-store--updated-as (job now)
   "End JOB, an update, its package now as NOW says, a commit or a version:
-keep it, and load an extension again."
+keep it, copy the skills that came with it anew, and load an extension
+again."
   (pcase-let ((`(,id . ,props) (lispm-desktop-store-job-item job)))
     (lispm-desktop-store--keep id props :installed now
                                :owned (plist-get (lispm-desktop-store--installed id) :owned))
+    (lispm-desktop-store--sync-skills (list id))
     (when (eq (plist-get props :kind) 'extension)
       (lispm-desktop-store--unload (plist-get props :feature)))
     (if-let* ((failure (lispm-desktop-store--failure-of
@@ -2859,7 +3124,8 @@ quote's bars beside them, BARS those of the quotes holding BLOCKS."
 (defun lispm-desktop-store--page-rows (id width)
   "Return the rows of the page of the item ID, the window WIDTH pixels
 wide: its head, its banner, a rule, what it lacks, its introduction, or
-its description where it has none, its information a field each.  They
+its description where it has none, the skills it gives agents, its
+information a field each.  They
 are shown in pages, see `lispm-desktop-store--item-pages'.  Each row is
 a plist: its :height, and :head, :banner, :rule, :picture, :text or
 :label and :value; :x, the text's left; its :links, where they stand,
@@ -2897,6 +3163,9 @@ the x of each; :code, the band behind a block of code, (X . WIDTH);
                                (append (lispm-desktop-store--text-rows notes gx room face)
                                        (list (list :height 10))))
                              (lispm-desktop-store--markdown-rows about props gx room face)))
+                 ,@(when-let* ((skills (lispm-desktop-store--skill-lines id)))
+                     (cons (list :height 10)
+                           (mapcan (lambda (line) (lispm-desktop-store--text-rows line gx room face)) skills)))
                  (:height 14)
                  (:height ,(alist-get 2 lispm-desktop-store-heading-heights) :x ,gx :face ,face
                           :text ,(propertize (lispm-desktop-tr "Information")
@@ -3141,8 +3410,9 @@ after a bar, code further in, a rule across, an image by its words."
 cells wide and as many lines as a page of the grid takes in HEIGHT
 lines, the categories still at its left: its icon, name, subtitle and
 catalog, how far it is installed, a rule, what it lacks and its
-introduction, or its description where it has none, and its information
-a field a line; in pages of that many lines, the one
+introduction, or its description where it has none, the skills it gives
+agents, and its information a field a line; in pages of that many lines,
+the one
 `lispm-desktop-store--page-number' says."
   (let* ((id lispm-desktop-store--selected)
          (props (cdr (assq id (lispm-desktop-store-items))))
@@ -3181,6 +3451,9 @@ a field a line; in pages of that many lines, the one
                                 (append (lispm-desktop-store--wrap notes room 'lispm-desktop-platinum-list)
                                         (list "")))
                               (lispm-desktop-store--markdown-lines about room dim)))
+                  ,@(when-let* ((skills (lispm-desktop-store--skill-lines id)))
+                      (cons "" (mapcan (lambda (line) (lispm-desktop-store--wrap line room 'lispm-desktop-platinum-list))
+                                       skills)))
                   ""
                   ,(propertize (lispm-desktop-tr "Information") 'face (lispm-desktop-markdown-heading-face 2))
                   ,@(mapcar (pcase-lambda (`(,label ,value))
@@ -4159,7 +4432,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 The catalogs are fetched the first time it opens after Emacs starts."
   (interactive)
   (unless lispm-desktop-store--catalogs
-    (lispm-desktop-store-read-catalogs))
+    (lispm-desktop-store--sync-skills-at-start))
   (let ((buffer (lispm-desktop-store--buffer)))
     (lispm-desktop-app-window-show 'store :buffer buffer)
     (lispm-desktop-store--render)
@@ -4231,7 +4504,8 @@ page's."
 
 (defun lispm-desktop-setup-store ()
   "Make the App Store an application, the Applications folder a folder of
-the Finder, and the applications and extensions installed take part."
+the Finder, and the applications and extensions installed take part,
+with their skills."
   (lispm-desktop-define-app 'store :name "App Store" :icon "app-store"
                             :menus #'lispm-desktop-store-menus
                             :activate #'lispm-desktop-store-show
@@ -4240,6 +4514,9 @@ the Finder, and the applications and extensions installed take part."
         `(:title ,(lispm-desktop-tr-noop "Applications") :icon "applications"
                  :items lispm-desktop-store--folder-items :trash ,(lispm-desktop-tr-noop "Uninstall…")))
   (lispm-desktop-store--register-installed)
+  ;; Reading the catalogs takes a moment: the skills wait for Emacs to be
+  ;; idle, and LispM's agents find those copied before meanwhile.
+  (run-with-idle-timer 2 nil #'lispm-desktop-store--sync-skills-at-start)
   (add-hook 'lispm-desktop-update-check-hook #'lispm-desktop-store--check-along)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-store--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-store--render)) 95))
