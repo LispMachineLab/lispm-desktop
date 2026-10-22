@@ -877,6 +877,38 @@ release from its repository, lisp/ holding its sources."
                                                  :lisp-dir "lisp")
                                   :last-release)))))))
 
+(ert-deftest lispm-desktop-test-deps-catch-up ()
+  "A project lacking the library the desktop needs of it is brought up to
+its latest release when package-vc installed it, in an Emacs of its own,
+before anything of it loads; a checkout lacking it is an error saying
+what to update."
+  (let* ((desc (package-desc-create :name 'lispm :kind 'vc :dir "/elpa/lispm/"))
+         (package-alist (list (list 'lispm desc)))
+         (main "/elpa/lispm/lisp/lispm.el")
+         (agents nil)
+         (jobs nil))
+    (cl-letf (((symbol-function 'locate-library)
+               (lambda (file &rest _)
+                 (pcase file
+                   ("lispm.el" main)
+                   ("lispm-agents" (and agents "/elpa/lispm/lisp/lispm-agents.el")))))
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release) (lambda (_) "0400"))
+              ((symbol-function 'lispm-desktop-deps--git) (lambda (_directory &rest _) "0300"))
+              ((symbol-function 'lispm-desktop-store-installer-call)
+               (lambda (job) (push job jobs) (setq agents t) "0400"))
+              (inhibit-message t))
+      (lispm-desktop-deps-ensure 'lispm)
+      (should (equal jobs '((update lispm "0400" "0300"))))
+      ;; Up to date already: nothing is done.
+      (lispm-desktop-deps-ensure 'lispm)
+      (should (= (length jobs) 1))
+      ;; A checkout lacking it.
+      (setq agents nil main "/src/lispm-agent/lisp/lispm.el")
+      (should (string-match-p "lispm-agent/lisp/ lacks lispm-agents"
+                              (cadr (should-error (lispm-desktop-deps-ensure 'lispm)))))
+      (should (= (length jobs) 1)))))
+
 (ert-deftest lispm-desktop-test-deps-kernel ()
   "lispm-kernel is got as the other projects are: from a checkout beside the
 desktop's, ../lispm-kernel, else its latest release with package-vc."
@@ -8404,7 +8436,7 @@ packages, those that read back alone, and runs the installer on its task."
   (let ((package-user-dir "/tmp/elpa/")
         (package-archives '(("gnu" . "https://elpa.gnu.org/packages/")))
         (exec-path (list "/opt/bin" (current-buffer))))
-    (let ((program (lispm-desktop-store--job-program '(install (p :url "u" :rev "r")))))
+    (let ((program (lispm-desktop-store-installer-program '(install (p :url "u" :rev "r")))))
       (should (member '(setq package-user-dir '"/tmp/elpa/") program))
       (should (member '(setq package-archives '(("gnu" . "https://elpa.gnu.org/packages/"))) program))
       (should-not (seq-find (lambda (form) (equal (car-safe (cdr-safe form)) 'exec-path)) program))
@@ -9240,15 +9272,18 @@ check was asked for; without its window, a check of its own only says so."
           (should said))))))
 
 (ert-deftest lispm-desktop-test-update-checkouts ()
-  "The checkouts are the projects' git checkouts, each once; a project
-installed as a package is left out."
+  "The checkouts are the projects' git checkouts, each once, and the
+packages package-vc installed from git, known by their names; a package
+from the archives, in no checkout, is left out."
   (skip-unless (executable-find "git"))
   (let* ((root (file-name-as-directory (make-temp-file "lispm-desktop-test-update-projects" t)))
          (package-user-dir (concat root "elpa/"))
-         (lispm-desktop-update-projects '(("One" . "one.el") ("Two" . "two.el") ("Package" . "three.el")))
+         (lispm-desktop-update-projects '(("One" . "one.el") ("Two" . "two.el") ("Package" . "three.el")
+                                          ("Archive" . "four.el")))
          (files `(("one.el" . ,(concat root "repo/lisp/one.el"))
                   ("two.el" . ,(concat root "repo/lisp/two.el"))
-                  ("three.el" . ,(concat root "elpa/three/three.el")))))
+                  ("three.el" . ,(concat root "elpa/three/lisp/three.el"))
+                  ("four.el" . ,(concat root "elpa/four-1.0/four.el")))))
     (unwind-protect
         (progn
           (dolist (file files)
@@ -9258,9 +9293,73 @@ installed as a package is left out."
           (lispm-desktop-test--git (concat root "elpa/three") "init" "--quiet")
           (cl-letf (((symbol-function 'locate-library)
                      (lambda (file &rest _) (cdr (assoc file files)))))
-            (should (equal (lispm-desktop-update-checkouts)
-                           (list (cons "One" (file-name-as-directory (file-truename (concat root "repo")))))))))
+            (let ((checkouts (lispm-desktop-update-checkouts)))
+              (should (equal checkouts
+                             (list (cons "One" (file-name-as-directory (file-truename (concat root "repo"))))
+                                   (cons "Package" (file-name-as-directory
+                                                    (file-truename (concat root "elpa/three")))))))
+              (should-not (lispm-desktop-update--package (cdar checkouts)))
+              (should (eq (lispm-desktop-update--package (cdadr checkouts)) 'three)))))
       (delete-directory root t))))
+
+(defun lispm-desktop-test--update-package (root tag)
+  "Return the package foo of ROOT's origin, made as package-vc makes one
+in ROOT's elpa/ and updated as the App Store updates one: a clone, its
+release TAG checked out on no branch."
+  (let ((package (concat root "elpa/foo/")))
+    (lispm-desktop-test--git root "clone" "--quiet" (concat "file://" root "origin.git") package)
+    (lispm-desktop-test--git package "checkout" "--quiet" "--detach" tag)
+    (file-name-as-directory (file-truename package))))
+
+(ert-deftest lispm-desktop-test-update-packages ()
+  "A package package-vc installed from git is checked as a checkout is,
+on no branch following its origin's main, and installed as the App Store
+updates one: checked out at the release and built again, in an Emacs of
+its own.  It goes before the checkouts, which wait while it fails."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let ((package-user-dir (concat root "elpa/"))
+                (jobs nil)
+                (fails nil))
+            (lispm-desktop-test--update-push work "b.txt" "Second")
+            (lispm-desktop-test--update-release work "v0.1.0")
+            (let ((package (lispm-desktop-test--update-package root "v0.1.0")))
+              (lispm-desktop-test--update-push work "c.txt" "Third")
+              (lispm-desktop-test--update-release work "v0.2.0")
+              (lispm-desktop-test--update-push work "d.txt" "Fourth")
+              (cl-letf (((symbol-function 'lispm-desktop-store-installer-call)
+                         (lambda (job)
+                           (push job jobs)
+                           (when fails (error "No network"))
+                           (pcase-let ((`(update ,_ ,rev ,_) job))
+                             (lispm-desktop-test--git package "checkout" "--quiet" "--detach" rev)
+                             rev))))
+                (let ((update (lispm-desktop-test--update-check package))
+                      (other (lispm-desktop-test--update-check checkout))
+                      (release (lispm-desktop-update--git work "rev-parse" "v0.2.0^{commit}")))
+                  (should (eq (plist-get update :state) 'update))
+                  (should (eq (plist-get update :package) 'foo))
+                  (should (equal (plist-get update :release) "v0.2.0"))
+                  (should (equal (plist-get update :to) release))
+                  (should (equal (plist-get update :changes) '("Third")))
+                  (should (eq (plist-get other :state) 'update))
+                  (should-not (plist-get other :package))
+                  ;; The package fails: the checkout waits.
+                  (setq fails t)
+                  (should-not (lispm-desktop-update-install (list other update)))
+                  (should (equal (car jobs) `(update foo ,release ,(plist-get update :from))))
+                  (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") (plist-get other :from)))
+                  ;; Then both, the package first.
+                  (setq fails nil jobs nil)
+                  (should (equal (lispm-desktop-update-install (list other update)) (list update other)))
+                  (should (equal (length jobs) 1))
+                  (should (equal (lispm-desktop-update--git package "rev-parse" "HEAD") release))
+                  (should (equal (lispm-desktop-update--git checkout "rev-parse" "HEAD") release))
+                  (should (equal (lispm-desktop-update-version package) "0.2.0"))
+                  (should (eq (plist-get (lispm-desktop-test--update-check package) :state) 'current))))))
+        (delete-directory root t)))))
 
 (ert-deftest lispm-desktop-test-update-installer-command ()
   "install.sh runs once this Emacs has quit, for the checkouts' home and
