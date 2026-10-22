@@ -841,6 +841,16 @@ an error loading it is signalled once the redisplay is done."
         (should-not (advice-function-member-p #'lispm-desktop--load-pending-theme
                                               pre-redisplay-function))))))
 
+(ert-deftest lispm-desktop-test-deps-release-tag ()
+  "A project's latest release is its newest tag vX.Y.Z, compared as versions."
+  (cl-letf (((symbol-function 'call-process)
+             (lambda (&rest _)
+               (insert "a1\trefs/tags/v0.9.0\nb2\trefs/tags/v0.10.0\nc3\trefs/tags/v0.10.0-rc1\nd4\trefs/tags/vx\n")
+               0)))
+    (should (equal (lispm-desktop-deps--release-tag "https://example.org/repo") "v0.10.0")))
+  (cl-letf (((symbol-function 'call-process) (lambda (&rest _) 128)))
+    (should-not (lispm-desktop-deps--release-tag "https://example.org/repo"))))
+
 (ert-deftest lispm-desktop-test-deps-requirements ()
   "Of a package's requirements, those not installed are returned; Emacs never."
   (let ((file (make-temp-file "lispm-desktop-test-" nil ".el"
@@ -862,6 +872,7 @@ release from its repository, lisp/ holding its sources."
         (load-path '("/elsewhere")))
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) found))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (setq found "/elsewhere/lispm-browser.el")
       (lispm-desktop-deps-ensure 'lispm-browser)
@@ -911,11 +922,14 @@ what to update."
 
 (ert-deftest lispm-desktop-test-deps-kernel ()
   "lispm-kernel is got as the other projects are: from a checkout beside the
-desktop's, ../lispm-kernel, else its latest release with package-vc."
+desktop's, ../lispm-kernel, else its latest release with package-vc, its
+newest tag, or what package-vc takes for it before the first."
   (let ((installed nil)
+        (release nil)
         (load-path '("/elsewhere")))
     (cl-letf (((symbol-function 'locate-library) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) release))
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
                  (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
@@ -926,7 +940,19 @@ desktop's, ../lispm-kernel, else its latest release with package-vc."
         (lispm-desktop-deps-ensure 'lispm-kernel))
       (should (equal installed '(((lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel"
                                                 :lisp-dir "lisp")
-                                  :last-release)))))))
+                                  :last-release))))
+      (setq release "v0.2.0" installed nil)
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout) #'ignore))
+        (lispm-desktop-deps-ensure 'lispm-kernel))
+      (should (equal installed '(((lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel"
+                                                :lisp-dir "lisp")
+                                  "v0.2.0"))))
+      ;; Here without installing anything: on `load-path', or beside.
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout) #'ignore))
+        (should-not (lispm-desktop-deps-present-p 'lispm-kernel)))
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
+                 (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
+        (should (lispm-desktop-deps-present-p 'lispm-kernel))))))
 
 (defvar lispm-kernel-desktop-mode)
 (defvar lispm-kernel-package-mode)
@@ -936,9 +962,12 @@ desktop's, ../lispm-kernel, else its latest release with package-vc."
 `lispm-desktop-kernel' is nil; set, its Lisp is got and its modes turned
 on, the sessions' and package.el's downloads', the latter where the
 kernel's Lisp has it, at setup or as soon as the option is set, and off
-again when it is set to nil.  A batch Emacs gets the Lisp only, and what
-goes wrong is said, in the echo area only when the kernel was asked for,
-and leaves the desktop as it was."
+again when it is set to nil.  Asked for, what it lacks, its Lisp or its
+program, the Installer gets, and it is turned on once that is done,
+unless it was turned off meanwhile; on by default, that is got quietly.
+A batch Emacs gets the Lisp only, and what goes wrong is said, in the
+echo area only when the kernel was asked for, and leaves the desktop as
+it was."
   (should (eq (eval (car (get 'lispm-desktop-kernel 'standard-value)) t) t))
   (let ((lispm-desktop-kernel nil)
         (lispm-kernel-desktop-mode nil)
@@ -949,6 +978,9 @@ and leaves the desktop as it was."
         (customized (get 'lispm-desktop-kernel 'customized-value))
         (noninteractive nil)
         (inhibit-message nil)
+        (present t)
+        (getting nil)
+        (installs nil)
         (ensured 0)
         (failure nil)
         (messages nil))
@@ -958,11 +990,16 @@ and leaves the desktop as it was."
     (put 'lispm-desktop-kernel 'saved-value nil)
     (put 'lispm-desktop-kernel 'customized-value nil)
     (unwind-protect
-        (cl-letf (((symbol-function 'lispm-desktop-deps-ensure)
+        (cl-letf (((symbol-function 'lispm-desktop-deps-present-p)
+                   (lambda (feature) (should (eq feature 'lispm-kernel)) present))
+                  ((symbol-function 'lispm-desktop-deps-ensure)
                    (lambda (feature)
                      (should (eq feature 'lispm-kernel))
                      (when failure (error "%s" failure))
                      (setq ensured (1+ ensured))))
+                  ((symbol-function 'lispm-desktop-kernel--getting-p) (lambda () getting))
+                  ((symbol-function 'lispm-desktop-needs-install)
+                   (lambda (needs who then) (push (list needs who then) installs)))
                   ((symbol-function 'lispm-kernel-desktop-mode)
                    (lambda (&optional arg)
                      (setq lispm-kernel-desktop-mode (> (prefix-numeric-value arg) 0))))
@@ -1013,7 +1050,48 @@ and leaves the desktop as it was."
           (let ((load-path nil))
             (lispm-desktop-kernel-apply t))
           (should lispm-kernel-desktop-mode)
-          (should-not lispm-kernel-package-mode))
+          (should-not lispm-kernel-package-mode)
+          (provide 'lispm-kernel-package)
+          (lispm-desktop-kernel-apply nil)
+          (should-not installs)
+          ;; Asked for, its Lisp missing: the Installer gets it, then it is on.
+          (put 'lispm-desktop-kernel 'customized-value '(t))
+          (setq lispm-desktop-kernel nil present nil)
+          (setq lispm-desktop-kernel t)
+          (should-not lispm-kernel-desktop-mode)
+          (pcase-let ((`((,need) ,who ,then) (car installs)))
+            (should (equal (lispm-desktop-needs-name need) "lispm-kernel"))
+            (should (eq (lispm-desktop-needs-get need :install) #'lispm-desktop-kernel--install))
+            (should (eq (lispm-desktop-needs-get need :present) #'lispm-desktop-kernel-installed-p))
+            (should (equal who "LispM"))
+            (setq present t)
+            (funcall then t)
+            (should lispm-kernel-desktop-mode)
+            (should lispm-kernel-package-mode))
+          ;; Turned off while the Installer got it, it stays off.
+          (setq lispm-desktop-kernel nil present nil)
+          (setq lispm-desktop-kernel t)
+          (setq lispm-desktop-kernel nil)
+          (setq present t)
+          (funcall (nth 2 (car installs)) t)
+          (should-not lispm-kernel-desktop-mode)
+          (should (= (length installs) 2))
+          ;; Its program downloading, it is on, and the Installer shows how
+          ;; far the download is.
+          (setq getting t)
+          (setq lispm-desktop-kernel t)
+          (should lispm-kernel-desktop-mode)
+          (should (= (length installs) 3))
+          ;; On by default, all that is got quietly.
+          (put 'lispm-desktop-kernel 'customized-value nil)
+          (setq lispm-desktop-kernel nil)
+          (setq lispm-desktop-kernel t)
+          (should lispm-kernel-desktop-mode)
+          (setq getting nil present nil lispm-desktop-kernel nil)
+          (setq lispm-desktop-kernel t)
+          (should lispm-kernel-desktop-mode)
+          (should (= (length installs) 3))
+          (setq lispm-desktop-kernel nil))
       (remove-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed)
       (put 'lispm-desktop-kernel 'saved-value saved)
       (put 'lispm-desktop-kernel 'customized-value customized)
@@ -1022,6 +1100,122 @@ and leaves the desktop as it was."
       (if provided-package
           (provide 'lispm-kernel-package)
         (setq features (delq 'lispm-kernel-package features))))))
+
+(defvar lispm-kernel-program-progress-functions)
+(defvar lispm-kernel-program-obtained-functions)
+(defvar lispm-kernel-program-problem)
+(defvar lispm-kernel-program-progress)
+
+(ert-deftest lispm-desktop-test-kernel-install ()
+  "The Installer gets lispm-kernel's Lisp, then its program: it says how far
+the download is, ends once the program is there, or why it is not, and
+stops the download when stopped."
+  (let ((provided (featurep 'lispm-kernel-desktop))
+        (lispm-kernel-program-progress-functions nil)
+        (lispm-kernel-program-obtained-functions nil)
+        (lispm-kernel-program-problem nil)
+        (lispm-kernel-program-progress nil)
+        (lispm-kernel-program-source 'download)
+        (present nil)
+        (program nil)
+        (obtain 'pending)
+        (reports nil)
+        (ended nil)
+        (stopped 0))
+    (provide 'lispm-kernel-desktop)
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-deps-present-p) (lambda (_) present))
+                  ((symbol-function 'lispm-desktop-deps-ensure) (lambda (_) (setq present t)))
+                  ((symbol-function 'redisplay) #'ignore)
+                  ((symbol-function 'lispm-kernel-program-file) (lambda () program))
+                  ((symbol-function 'lispm-kernel-program-obtain) (lambda () obtain))
+                  ((symbol-function 'lispm-kernel-program-stop) (lambda () (cl-incf stopped))))
+          (let* ((report (lambda (note &optional fraction) (push (list note fraction) reports)))
+                 (done (lambda (&optional error) (push (list error) ended)))
+                 (stop (lispm-desktop-kernel--install report done)))
+            (should (equal (nreverse reports) '(("Getting its Lisp…" nil) ("Downloading its program…" nil))))
+            (should present)
+            (setq reports nil)
+            (run-hook-with-args 'lispm-kernel-program-progress-functions 0.25)
+            (should (equal reports '(("Downloading its program…" 0.25))))
+            (should-not ended)
+            (setq program "/kernel")
+            (run-hook-with-args 'lispm-kernel-program-obtained-functions t)
+            (should (equal ended '((nil))))
+            (should-not lispm-kernel-program-progress-functions)
+            (should-not lispm-kernel-program-obtained-functions)
+            (should (functionp stop))
+            ;; There: nothing to get.
+            (setq ended nil)
+            (should-not (lispm-desktop-kernel--install report done))
+            (should (equal ended '((nil))))
+            (should (lispm-desktop-kernel-installed-p))
+            ;; Not to be had, it says why.
+            (setq program nil ended nil lispm-kernel-program-problem "none is published for this computer")
+            (setq stop (lispm-desktop-kernel--install report done))
+            (run-hook-with-args 'lispm-kernel-program-obtained-functions nil)
+            (should (equal ended '(("none is published for this computer"))))
+            (setq obtain nil ended nil)
+            (lispm-desktop-kernel--install report done)
+            (should (equal ended '(("none is published for this computer"))))
+            ;; Stopped, the download is.
+            (setq obtain 'pending ended nil)
+            (funcall (lispm-desktop-kernel--install report done))
+            (should (= stopped 1))
+            (should-not lispm-kernel-program-obtained-functions)
+            (should-not ended)))
+      (unless provided
+        (setq features (delq 'lispm-kernel-desktop features))))))
+
+(ert-deftest lispm-desktop-test-kernel-status ()
+  "How lispm-kernel stands: off, being got, running, exited or stopped."
+  (let ((lispm-desktop-kernel nil)
+        (lispm-kernel-desktop-mode nil)
+        (lispm-kernel-program-problem nil)
+        (lispm-desktop-needs--jobs nil)
+        (status nil))
+    (cl-letf (((symbol-function 'lispm-kernel-desktop-status) (lambda () status))
+              ((symbol-function 'lispm-desktop-kernel--getting-p) #'ignore))
+      (should (equal (lispm-desktop-kernel-status) '(off)))
+      (setq lispm-desktop-kernel t)
+      (setq lispm-kernel-program-problem "none is published for this computer")
+      (should (equal (lispm-desktop-kernel-status) '(stopped "none is published for this computer")))
+      (setq lispm-desktop-needs--jobs
+            (list (lispm-desktop-needs--make-job :need (lispm-desktop-kernel-need) :who "LispM"
+                                                 :state 'installing :fraction 0.5)))
+      (should (equal (lispm-desktop-kernel-status) '(installing 0.5)))
+      (setq lispm-desktop-needs--jobs nil
+            lispm-kernel-desktop-mode t)
+      (let ((process (make-process :name "lispm-test-kernel" :command '("sleep" "5") :noquery t)))
+        (unwind-protect
+            (progn
+              (setq status (list 'running process 100.0))
+              (should (equal (lispm-desktop-kernel-status) (list 'running (process-id process) 100.0))))
+          (delete-process process)))
+      (setq status '(exited "the kernel exited" 200.0))
+      (should (equal (lispm-desktop-kernel-status) '(exited "the kernel exited" 200.0)))
+      (setq status '(getting nil))
+      (should (equal (lispm-desktop-kernel-status) '(installing nil))))))
+
+(declare-function custom-variable-save "cus-edit" (widget))
+
+(ert-deftest lispm-desktop-test-kernel-custom-toggle ()
+  "In Custom, toggling `lispm-desktop-kernel' applies and saves it at once,
+as a check box does, without waiting for Apply."
+  (let ((lispm-desktop-kernel nil)
+        (saved nil))
+    (save-window-excursion
+      (customize-variable 'lispm-desktop-kernel)
+      (unwind-protect
+          (cl-letf (((symbol-function 'run-at-time)
+                     (lambda (_time _repeat function &rest arguments) (apply function arguments)))
+                    ((symbol-function 'custom-variable-save)
+                     (lambda (widget) (push (widget-get widget :value) saved))))
+            (goto-char (point-min))
+            (search-forward "[Toggle]")
+            (widget-apply-action (widget-at (- (point) 2)))
+            (should (equal saved '(lispm-desktop-kernel))))
+        (kill-buffer)))))
 
 (ert-deftest lispm-desktop-test-directory ()
   "`lispm-desktop-directory' is the checkout, holding the agents' icons."
@@ -4751,6 +4945,48 @@ positions, the keys, the browser's pages."
           (dolist (label labels)
             (should (string-search label text))))
         (should (equal (nth 1 (assq panel lispm-desktop-settings-panels)) lispm-desktop-platinum-title))))))
+
+(ert-deftest lispm-desktop-test-settings-kernel-panel ()
+  "The Kernel panel's check box turns lispm-kernel on and off, saved, and
+the panel says how it stands, with what can be done about it."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (should (file-readable-p (lispm-desktop-platinum-icon-file "kernel-32")))
+  (let ((saved nil)
+        (lispm-desktop-kernel nil)
+        (status '(off)))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (push (cons variable value) saved)))
+              ((symbol-function 'lispm-desktop-kernel-status) (lambda () status))
+              ((symbol-function 'lispm-desktop-settings--kernel-later) #'ignore))
+      (with-current-buffer (lispm-desktop-settings--buffer)
+        (lispm-desktop-settings-select 'kernel)
+        (should (equal lispm-desktop-platinum-title "Kernel"))
+        (should (string-search "Emacs reads the sessions itself" (buffer-string)))
+        (let ((button (next-button (point-min))))
+          (while (and button (not (string-search "Use LispM Kernel" (button-label button))))
+            (setq button (next-button (button-end button))))
+          (should button)
+          (button-activate button))
+        (should (equal (car saved) '(lispm-desktop-kernel . t)))
+        (pcase-dolist (`(,state . ,labels)
+                       `(((installing 0.42) "42%" "Show Installer")
+                         ((running 4242 ,(float-time)) "process 4242" "Restart")
+                         ((exited "the kernel exited (exit 3)" ,(+ (float-time) 60))
+                          "the kernel exited (exit 3)" "starts again by itself" "Restart Now")
+                         ((stopped "none is published for this computer.") "none is published for this computer."
+                          "Try Again")))
+          (setq status state)
+          (lispm-desktop-settings--render)
+          (let ((text (concat (buffer-string)
+                              ;; Push buttons draw their labels in their images.
+                              (mapconcat #'identity
+                                         (delq nil (mapcar (lambda (position)
+                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (number-sequence (point-min) (1- (point-max)))))
+                                         " "))))
+            (dolist (label labels)
+              (should (string-search label text)))))))))
 
 (ert-deftest lispm-desktop-test-settings-radio-saves ()
   "Pressing a radio button saves its choice and draws the panel again."
@@ -10532,6 +10768,62 @@ printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
       (lispm-desktop-needs-retry)
       (lispm-desktop-test--wait (lambda () (not (lispm-desktop-needs-running-p))))
       (should (eq (lispm-desktop-needs--job-state (car lispm-desktop-needs--jobs)) 'installed)))))
+
+(ert-deftest lispm-desktop-test-needs-lisp-install ()
+  "What LispM gets itself installs with a function of its own: the
+Installer shows what it says and how far it is, and ends as it says;
+failed, it tries again; stopped, it stops it, and hears no more of it."
+  (let ((lispm-desktop-needs--jobs nil)
+        (lispm-desktop-needs--requests nil)
+        (lispm-desktop-needs--process nil)
+        (there nil)
+        (report nil)
+        (done nil)
+        (stopped nil)
+        (answer nil))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) #'ignore)
+              ((symbol-function 'lispm-desktop-needs-show) #'ignore))
+      (let ((need (list 'program "lispm-test-kernel" :for "background work"
+                        :present (lambda () there)
+                        :install (lambda (r d) (setq report r done d) (lambda () (setq stopped t))))))
+        (should (equal (lispm-desktop-needs-provider need) (list 'lisp (lispm-desktop-needs-get need :install))))
+        (should (lispm-desktop-needs-installable-p need))
+        (should-not (lispm-desktop-needs-install-command need))
+        (should-not (lispm-desktop-needs-present-p need))
+        (lispm-desktop-needs-install (list need) "LispM" (lambda (present) (setq answer (list present))))
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'installing))
+        (funcall report "Downloading…" 0.5)
+        (should (equal (lispm-desktop-needs-job-state need) '(installing 0.5 nil)))
+        (should (equal (lispm-desktop-needs--status) "Installing lispm-test-kernel (1 of 1)…"))
+        (when (image-type-available-p 'svg)
+          (with-current-buffer (lispm-desktop-needs--buffer)
+            (lispm-desktop-needs--render)
+            (should (string-search "Downloading… 50%" (buffer-string)))))
+        (setq there t)
+        (funcall done nil)
+        (should (equal answer '(t)))
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'installed))
+        ;; Failed, it says why; tried again, it runs again, and stops.
+        (setq there nil answer nil)
+        (lispm-desktop-needs-install (list need) "LispM" (lambda (present) (setq answer (list present))))
+        (funcall done "No program for this computer")
+        (should (equal answer '(nil)))
+        (should (equal (lispm-desktop-needs-job-state need) '(failed nil "No program for this computer")))
+        (lispm-desktop-needs-retry)
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'installing))
+        (lispm-desktop-needs-stop)
+        (should stopped)
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'cancelled))
+        (funcall done nil)
+        (should (eq (car (lispm-desktop-needs-job-state need)) 'cancelled))
+        ;; One that signals fails, saying what it signalled.
+        (setq answer nil)
+        (lispm-desktop-needs-install
+         (list (list 'program "lispm-test-broken" :for "nothing" :present #'ignore
+                     :install (lambda (_r _d) (error "Offline"))))
+         "LispM" (lambda (present) (setq answer (list present))))
+        (should (equal answer '(nil)))
+        (should (equal (nth 2 (lispm-desktop-needs-job-state '(program "lispm-test-broken"))) "Offline"))))))
 
 (ert-deftest lispm-desktop-test-needs-brewed ()
   "What Homebrew installed is found in its Cellar or Caskroom, whoever had
