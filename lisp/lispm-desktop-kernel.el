@@ -1,4 +1,4 @@
-;;; lispm-desktop-kernel.el --- Background work in lispm-kernel, once asked for  -*- lexical-binding: t; -*-
+;;; lispm-desktop-kernel.el --- Background work in lispm-kernel  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
@@ -32,15 +32,15 @@
 ;; sidebar, through the desktop's session readers; see
 ;; lispm-kernel-desktop.el in its repository.
 ;;
-;; It stays off until `lispm-desktop-kernel' turns it on.  Its Lisp is then
-;; found or installed as the other LispM projects are, see
-;; lispm-desktop-deps.el, and it gets its program itself, in the
-;; background: downloaded as built for this computer, and kept only when
-;; its SHA-256 is the one pinned in the kernel's own repository
-;; (lisp/lispm-kernel-program-sums.eld); nobody is made to build it,
-;; though `lispm-kernel-program-source' can ask SBCL to build it.  Until
-;; the program is there, and wherever it cannot be, the sidebar reads
-;; sessions as it does without the kernel, and the kernel says why.
+;; It is on unless `lispm-desktop-kernel' is nil.  Its Lisp is found or
+;; installed as the other LispM projects are, see lispm-desktop-deps.el,
+;; and it gets its program itself, in the background: downloaded as built
+;; for this computer, and kept only when its SHA-256 is the one pinned in
+;; the kernel's own repository (lisp/lispm-kernel-program-sums.eld);
+;; nobody is made to build it, though `lispm-kernel-program-source' can
+;; ask SBCL to build it.  Until the program is there, and wherever it
+;; cannot be, the sidebar reads sessions as it does without the kernel,
+;; and the kernel says why: in *Messages* alone, unless it was asked for.
 
 ;;; Code:
 
@@ -51,7 +51,7 @@
 (defvar lispm-kernel-desktop-mode)
 (declare-function lispm-kernel-desktop-mode "ext:lispm-kernel-desktop" (&optional arg))
 
-(defcustom lispm-desktop-kernel nil
+(defcustom lispm-desktop-kernel t
   "Non-nil reads the agents' sessions in the background with lispm-kernel.
 Its Lisp is found beside the desktop's checkout or installed with
 package-vc, and its program downloaded for this computer, checked against
@@ -60,6 +60,12 @@ sidebar reads the sessions as it does with nil.  Setting it once LispM is
 set up takes effect at once."
   :type 'boolean
   :group 'lispm-desktop)
+
+(defun lispm-desktop-kernel--asked-p ()
+  "Return non-nil when `lispm-desktop-kernel' was set with Custom or
+`setopt', rather than left as it is by default."
+  (or (get 'lispm-desktop-kernel 'saved-value)
+      (get 'lispm-desktop-kernel 'customized-value)))
 
 (defun lispm-desktop-kernel-apply (on)
   "Turn lispm-kernel on when ON is non-nil, else off.
@@ -74,8 +80,11 @@ A batch Emacs, as an installer's, gets the Lisp and leaves the mode off."
             (require 'lispm-kernel-desktop)
             (unless (or noninteractive lispm-kernel-desktop-mode)
               (lispm-kernel-desktop-mode 1)))
-        (error (message (lispm-desktop-tr "lispm-kernel could not be turned on: %s")
-                        (error-message-string err))))
+        ;; On by default, it says so in *Messages* alone, as where no
+        ;; program is published for the computer it would at every start.
+        (error (let ((inhibit-message (or inhibit-message (not (lispm-desktop-kernel--asked-p)))))
+                 (message (lispm-desktop-tr "lispm-kernel could not be turned on: %s")
+                          (error-message-string err)))))
     (when (bound-and-true-p lispm-kernel-desktop-mode)
       (lispm-kernel-desktop-mode -1))))
 
