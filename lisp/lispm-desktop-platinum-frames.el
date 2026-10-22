@@ -704,6 +704,11 @@ large as its window and drawn active with it."
 ;; outline passes the desktop's edge on its way out.  The window system
 ;; inverts nothing an Emacs frame shows, so its dots are the theme's
 ;; outline over the desktop's colour.
+;;
+;; A text terminal draws nothing thinner than a cell, and tells where the
+;; mouse is only in cells of the frame it is over.  There the window
+;; itself follows the mouse, moving or growing as it goes, as windows of
+;; text were dragged, and Escape or C-g puts it back.
 
 (defconst lispm-desktop-platinum-grow-box-size 15
   "Pixels square of the grow box the outline of a window growing marks.")
@@ -1012,19 +1017,42 @@ or (0 . 0) when PARENT is nil, the computer's screen itself."
     (pcase-let ((`(,left ,top . ,_) (frame-edges parent 'native-edges)))
       (cons left top))))
 
+(defun lispm-desktop-platinum-tty-pointer ()
+  "Return where the mouse is on a text terminal, (COLUMN . LINE) counted
+from the top left of its root frame, or nil while that is not known.
+The terminal reports the mouse within the frame it is over, see
+`mouse-position'; a child frame's place within its parent carries that
+out to the root, which holds still while a window over it moves."
+  (pcase-let ((`(,frame ,x . ,y) (mouse-position)))
+    (when (and (frame-live-p frame) (numberp x) (numberp y))
+      (while (frame-parent frame)
+        (pcase-let ((`(,left . ,top) (frame-position frame)))
+          (setq x (+ x left)
+                y (+ y top)
+                frame (frame-parent frame))))
+      (cons x y))))
+
 (defun lispm-desktop-platinum-track (step &optional pointer start)
   "Follow the mouse while its button is held, calling STEP with how far it
 has moved from START, (DX . DY) in pixels, whenever that changes.
 POINTER, a function of no arguments, tells where the mouse is, (X . Y),
-or nil when it cannot; by default, on the computer's screen.  START is
-by default where the mouse is when the drag begins.  The mouse is looked
-at every `lispm-desktop-platinum-drag-interval' seconds.
+or nil when it cannot; by default, on the computer's screen, and on a
+text terminal in cells of its root frame, see
+`lispm-desktop-platinum-tty-pointer'.  START is by default where the
+mouse is when the drag begins.  The mouse is looked at every
+`lispm-desktop-platinum-drag-interval' seconds; on a text terminal,
+which reports every move from cell to cell, as each move or click comes,
+and only then.
 Return (EVENT . DELTA): EVENT the button's release, or nil when Escape
 or C-g gave the drag up; DELTA the last move, or nil when it never moved.
 Mac OS 9's mouse had one button, so any of the three let go ends the
 drag: none leaves it following the mouse once every button is up.
 Other keys and the window system's own events change nothing."
-  (let* ((pointer (or pointer #'mouse-absolute-pixel-position))
+  (let* ((tty (lispm-desktop-tty-p))
+         (pointer (or pointer
+                      (if tty
+                          #'lispm-desktop-platinum-tty-pointer
+                        #'mouse-absolute-pixel-position)))
          (start (or start (funcall pointer) '(0 . 0)))
          (delta nil)
         (event nil)
@@ -1033,14 +1061,25 @@ Other keys and the window system's own events change nothing."
         (track-mouse
           (setq track-mouse 'dragging)
           (while (not done)
-            (setq event (lispm-desktop-modal-read-event lispm-desktop-platinum-drag-interval))
+            ;; A terminal's keys and mouse reports are sequences, which a
+            ;; read given up halfway would lose: there it waits for them.
+            (setq event (lispm-desktop-modal-read-event (unless tty lispm-desktop-platinum-drag-interval)))
             (cond ((memq event '(escape ?\e ?\C-g))
                    (setq done t event nil))
                   ((and event (not (mouse-movement-p event))
                         (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3))
                         (seq-intersection (event-modifiers event) '(click drag)))
                    (setq done t)))
-            (when-let* (((or (not done) event))
+            (when-let* (((if tty
+                             ;; A terminal tells where the mouse is within
+                             ;; the frame under it, as that frame stood when
+                             ;; the event was read: a window moved since
+                             ;; would put it askew, and the release of a drag
+                             ;; comes after the move that brought it there.
+                             (and event
+                                  (or (mouse-movement-p event)
+                                      (memq 'click (event-modifiers event))))
+                           (or (not done) event)))
                         (place (funcall pointer))
                         (now (cons (- (car place) (car start)) (- (cdr place) (cdr start))))
                         ((not (or (equal now delta) (and (null delta) (equal now '(0 . 0)))))))
@@ -1049,13 +1088,24 @@ Other keys and the window system's own events change nothing."
       (quit (setq event nil)))
     (cons event delta)))
 
-(defun lispm-desktop-platinum--moved-p (delta)
+(defun lispm-desktop-platinum--moved-p (delta &optional cells)
   "Return non-nil when DELTA, as `lispm-desktop-platinum-track' returns it,
-is a move rather than a hand's jitter in a click."
-  (lispm-desktop-modal-moved-p delta))
+is a move rather than a hand's jitter in a click; CELLS non-nil when it
+counts a text terminal's cells."
+  (lispm-desktop-modal-moved-p delta cells))
 
 (defconst lispm-desktop-platinum-window-min-size '(200 . 100)
   "The least a window grows to: (WIDTH . HEIGHT) of its text, in pixels.")
+
+(defun lispm-desktop-platinum--window-min-size (frame)
+  "Return the least floating window FRAME grows to, (WIDTH . HEIGHT) of its
+text: `lispm-desktop-platinum-window-min-size', and on a text terminal a
+cell for 8 of its pixels across and 16 down, as a window opens there,
+see `lispm-desktop-app-window--tty-geometry'."
+  (pcase-let ((`(,width . ,height) lispm-desktop-platinum-window-min-size))
+    (if (lispm-desktop-tty-p frame)
+        (cons (/ width 8) (/ height 16))
+      (cons width height))))
 
 (defun lispm-desktop-platinum-drag-outline (frame kind)
   "Move floating window FRAME, KIND `move', or grow it, KIND `grow', by an
@@ -1065,16 +1115,21 @@ The outline follows the mouse from where the button was pressed, see
 when the button rises, comes in front and has the keyboard, and
 `lispm-desktop-platinum-frame-moved-functions' run.  Escape or C-g gives
 up and leaves it where it was; a press let go where it was is a click,
-handed on.  Return non-nil when the window moved or grew."
+handed on.  On a text terminal, which draws no outline, the window
+itself comes in front with the keyboard as the button goes down and
+follows the mouse, and goes back where it was when the drag is given
+up.  Return non-nil when the window moved or grew."
   (let* ((outer (lispm-desktop-platinum-window-outer frame))
          (parent (frame-parent outer))
          (origin (lispm-desktop-platinum-origin parent))
+         (live (lispm-desktop-tty-p frame))
          (position (frame-position outer))
          (width (frame-pixel-width outer))
          (height (frame-pixel-height outer))
+         (text (cons (frame-text-width frame) (frame-text-height frame)))
          (title (and (eq kind 'grow) (not (eq outer frame)) lispm-desktop-platinum-title-bar-height))
-         (least (cons (- (car lispm-desktop-platinum-window-min-size) (frame-text-width frame))
-                      (- (cdr lispm-desktop-platinum-window-min-size) (frame-text-height frame))))
+         (least (let ((smallest (lispm-desktop-platinum--window-min-size frame)))
+                  (cons (- (car smallest) (car text)) (- (cdr smallest) (cdr text)))))
          (rectangle
           (lambda (delta)
             (if (eq kind 'move)
@@ -1082,35 +1137,49 @@ handed on.  Return non-nil when the window moved or grew."
               (list (car position) (cdr position)
                     (+ width (max (min 0 (car least)) (car delta)))
                     (+ height (max (min 0 (cdr least)) (cdr delta)))))))
+         (place
+          (lambda (delta)
+            (pcase-let ((`(,x ,y ,new-width ,new-height) (funcall rectangle delta)))
+              (if (eq kind 'move)
+                  (set-frame-position outer x y)
+                (set-frame-size frame (+ (car text) (- new-width width))
+                                (+ (cdr text) (- new-height height)) t)
+                (lispm-desktop-platinum-frame-update frame)))))
          (result
-          (unwind-protect
-              (lispm-desktop-platinum-track
-               (lambda (delta)
-                 (lispm-desktop-platinum-show-outline
-                  parent (apply #'lispm-desktop-platinum-outline-lines kind
-                                (append (funcall rectangle delta) (list title)))
-                  origin)))
-            (lispm-desktop-platinum-hide-outline)))
+          (progn
+            (when live
+              (select-frame-set-input-focus frame)
+              (lispm-desktop-platinum-raise-window frame))
+            (unwind-protect
+                (lispm-desktop-platinum-track
+                 (if live
+                     place
+                   (lambda (delta)
+                     (lispm-desktop-platinum-show-outline
+                      parent (apply #'lispm-desktop-platinum-outline-lines kind
+                                    (append (funcall rectangle delta) (list title)))
+                      origin))))
+              (lispm-desktop-platinum-hide-outline))))
          (event (car result))
          (delta (cdr result)))
-    (cond ((null event) nil)
-          ((not (lispm-desktop-platinum--moved-p delta))
-           ;; A click: what a click there does, it does.
-           (if (memq 'click (event-modifiers event))
-               (push event unread-command-events)
-             (select-frame-set-input-focus frame))
-           nil)
-          (t
-           (pcase-let ((`(,x ,y ,new-width ,new-height) (funcall rectangle delta)))
-             (if (eq kind 'move)
-                 (set-frame-position outer x y)
-               (set-frame-size frame (+ (frame-text-width frame) (- new-width width))
-                               (+ (frame-text-height frame) (- new-height height)) t)
-               (lispm-desktop-platinum-frame-update frame)))
+    (cond ((and event (lispm-desktop-platinum--moved-p delta live))
+           (unless live
+             (funcall place delta))
            (select-frame-set-input-focus frame)
            (lispm-desktop-platinum-raise-window frame)
            (run-hook-with-args 'lispm-desktop-platinum-frame-moved-functions frame)
-           t))))
+           t)
+          (t
+           ;; Given up, or a click: a window that followed the mouse goes
+           ;; back where it was.
+           (when (and live delta)
+             (funcall place '(0 . 0)))
+           (when event
+             ;; A click: what a click there does, it does.
+             (if (memq 'click (event-modifiers event))
+                 (push event unread-command-events)
+               (select-frame-set-input-focus frame)))
+           nil))))
 
 (provide 'lispm-desktop-platinum-frames)
 ;;; lispm-desktop-platinum-frames.el ends here

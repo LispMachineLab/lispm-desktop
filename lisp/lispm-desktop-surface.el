@@ -60,6 +60,7 @@
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-tty-images)
 
 (declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
 (declare-function lispm-desktop-settings-open-folder "lispm-desktop-settings" ())
@@ -721,41 +722,84 @@ the desktop between them."
               (or (lispm-desktop-platinum-color :content) "#FFFFFF") (lispm-desktop--escape label))
       "</svg>"))))
 
-(defun lispm-desktop--text-desktop (width height)
+(defconst lispm-desktop-text-icon-size 16
+  "Size in pixels the desktop's icons are drawn at on a text terminal, 2 by
+4 pixels a cell; see `lispm-desktop--text-desktop'.  It is a whole part
+of the icons' own sizes, so that none smears; smaller, they could no
+longer be told apart.")
+
+(defun lispm-desktop--text-desktop (width height &optional image)
   "Return the desktop as text WIDTH cells by HEIGHT lines, where images
-cannot be shown, as on a text terminal: its icons stand down the right
-edge, each a character over its name, the Trash in the bottom corner;
-the one selected is inverted.  Both lines of an icon carry its key as
-their `lispm-desktop-item' property, for the mouse."
+cannot be shown, as on a text terminal.  Its icons are drawn in block
+characters, see `lispm-desktop-platinum-icon-picture', each over
+its name: down the right edge from under the menu bar, on in a column to
+the left where they run out of room, the Trash in the bottom corner; the
+one selected darkened, its name inverted, as Mac OS 9 drew it.  They
+are drawn `lispm-desktop-text-icon-size' pixels a side, in as many
+columns as they need; on a terminal too small for that, as a character
+each, see `lispm-desktop-platinum-icon'.  Every cell of an icon and its
+name carries its key as its `lispm-desktop-item' property, for the
+mouse.
+IMAGE, where given, is called with each icon drawn at that size, as
+\(KEY NAME SELECTED LINE COLUMN COLUMNS ROWS): where it returns non-nil,
+the terminal shows the icon NAME as an image COLUMNS by ROWS cells from
+LINE, COLUMN, see `lispm-desktop-tty-images-show', and its cells are
+left blank, for the image to lie on."
   (let* ((items (lispm-desktop--items))
-         (labels (mapcar (lambda (item) (lispm-desktop--item-label (cdr item))) items))
-         (column (+ 2 (apply #'max 8 (mapcar #'string-width labels))))
-         (left (max 0 (- width column 2)))
-         (lines (make-vector (max 1 height) nil))
-         (top 1)
-         (bottom (- height 2)))
-    (cl-flet ((icon (item label row)
-                (when (< -1 row (1- height))
-                  (let ((face (if (eq (car item) lispm-desktop--selected)
-                                  'lispm-desktop-label-selected 'lispm-desktop-label)))
-                    (cl-flet ((centred (text)
-                                (let ((pad (/ (- column (string-width text)) 2)))
-                                  (concat (make-string left ?\s) (make-string (max 0 pad) ?\s)
-                                          (propertize text 'face face
-                                                      'lispm-desktop-item (car item)
-                                                      'help-echo (lispm-desktop-tr
-                                                                  (plist-get (cdr item) :help)))))))
-                      (aset lines row (centred (substring-no-properties
-                                                (lispm-desktop-platinum-icon
-                                                 (lispm-desktop--item-icon (cdr item))))))
-                      (aset lines (1+ row) (centred (concat " " label " "))))))))
-      (seq-mapn (lambda (item label)
-                  (if (plist-get (cdr item) :bottom)
-                      (progn (icon item label (1- bottom)) (setq bottom (- bottom 3)))
-                    (icon item label top)
-                    (setq top (+ top 3))))
-                items labels))
-    (mapconcat (lambda (line) (or line "")) lines "\n")))
+         (labels (mapcar (lambda (item) (concat " " (lispm-desktop--item-label (cdr item)) " ")) items))
+         (picture-size (lispm-desktop-platinum-text-size lispm-desktop-text-icon-size))
+         (column (+ 2 (apply #'max (car picture-size) (mapcar #'string-width labels))))
+         (size (let ((rows (/ (1- height) (+ (cdr picture-size) 2))))
+                 (and (> rows 0)
+                      (<= (* column (ceiling (max 1 (length items)) (float rows))) (- width 2))
+                      lispm-desktop-text-icon-size)))
+         (lines (if size (cdr picture-size) 1))
+         (per (+ lines 2))
+         (bottoms (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items))
+         ;; The bottom corner fills from the last line up.
+         (bottom-top (- height 1 (* per (length bottoms))))
+         (pieces nil))
+    (cl-flet ((place (item label row slot)
+                (let* ((left (- width 2 (* (1+ slot) column)))
+                       (selected (eq (car item) lispm-desktop--selected))
+                       (icon (lispm-desktop--item-icon (cdr item)))
+                       (picture (cond
+                                 ((and size image
+                                       (funcall image (car item) icon selected row
+                                                (+ left (/ (- column (car picture-size)) 2))
+                                                (car picture-size) lines))
+                                  (make-list lines (make-string (car picture-size) ?\s)))
+                                 ((and size (lispm-desktop-platinum-icon-picture icon size selected
+                                                                                 (lispm-desktop--color))))
+                                 (t (list (substring-no-properties (lispm-desktop-platinum-icon icon))))))
+                       (properties (list 'lispm-desktop-item (car item)
+                                         'help-echo (lispm-desktop-tr (plist-get (cdr item) :help)))))
+                  (seq-do-indexed
+                   (lambda (line index)
+                     (push (list (+ row index (- lines (length picture)))
+                                 (+ left (/ (- column (string-width line)) 2))
+                                 (apply #'propertize line properties))
+                           pieces))
+                   picture)
+                  (push (list (+ row lines) (+ left (max 0 (/ (- column (string-width label)) 2)))
+                              (apply #'propertize label
+                                     'face (if selected 'lispm-desktop-label-selected 'lispm-desktop-label)
+                                     properties))
+                        pieces))))
+      (let ((row 1) (slot 0) (bottom-row (1+ bottom-top)))
+        (seq-mapn (lambda (item label)
+                    (if (plist-get (cdr item) :bottom)
+                        (progn (place item label bottom-row 0)
+                               (setq bottom-row (+ bottom-row per)))
+                      ;; A column runs down to the bottom corner's icons, or
+                      ;; the screen's bottom.
+                      (when (> (+ row per -1) (if (= slot 0) bottom-top (1- height)))
+                        (setq slot (1+ slot) row 1))
+                      (place item label row slot)
+                      (setq row (+ row per))))
+                  items labels)))
+    ;; A text terminal keeps a window's last column for a long line's sign.
+    (mapconcat #'identity (lispm-desktop-platinum-text-compose (1- width) height pieces) "\n")))
 
 (defun lispm-desktop--render (&optional window)
   "Draw the desktop for WINDOW, by default the window showing it.
@@ -789,7 +833,12 @@ Where images cannot be shown, it is drawn in text, see
                 (when lispm-desktop--image
                   (image-flush lispm-desktop--image (window-frame window)))
                 (setq lispm-desktop--image image))
-            (insert (lispm-desktop--text-desktop width height)))
+            ;; Icons as images where the terminal shows them.
+            (let ((icons nil))
+              (insert (lispm-desktop--text-desktop
+                       width height (and (lispm-desktop-tty-images-p)
+                                         (lambda (&rest icon) (push icon icons) t))))
+              (lispm-desktop-tty-images-show window icons)))
           (goto-char (point-min))
           (set-window-start window (point-min) t)
           (set-window-point window (point-min)))))))
@@ -1317,7 +1366,8 @@ mode is turned off first: turned off, it restores the lines it found."
   (setq-local revert-buffer-function (lambda (&rest _) (lispm-desktop--render))
               lispm-desktop-context-menu-function #'lispm-desktop--keyboard-menu)
   (add-hook 'window-size-change-functions #'lispm-desktop--render nil t)
-  (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t))
+  (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t)
+  (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop--render))
 
 (defvar-keymap lispm-desktop-empty-mode-map
   :doc "Keymap of the desktop's background: nothing to click."

@@ -58,6 +58,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-surface)
+(require 'lispm-desktop-tty-images)
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
@@ -253,32 +254,68 @@ the disk."
   "Return the pixel left of the window's cell COLUMN."
   (+ 6 (* column lispm-desktop-finder-cell-width)))
 
-(defconst lispm-desktop-finder-text-cell-width 24
+(defconst lispm-desktop-finder-text-cell-width 16
   "Width in cells of an item's cell in the Finder window on a text terminal.")
 
+(defconst lispm-desktop-finder-text-icon-size 16
+  "Size in pixels the Finder window's icons are drawn at on a text terminal,
+2 by 4 pixels a cell.")
+
 (defun lispm-desktop-finder--text-items (window props)
-  "Insert the folder's items for WINDOW on a text terminal, in rows of cells
-of `lispm-desktop-finder-text-cell-width', each the item's icon, a
-character, before its name; the item selected is inverted.  PROPS returns
-the text properties of an item, by name.  Return the columns."
+  "Insert the folder's items for WINDOW on a text terminal, as Finder's
+icon view: in rows of cells of `lispm-desktop-finder-text-cell-width',
+each the item's icon drawn in cells, see
+`lispm-desktop-platinum-icon-picture', or an image where the terminal
+shows images, see `lispm-desktop-tty-images-show', over its name; the
+item selected darkened, its name inverted.  PROPS returns the text
+properties of an item, by name, which its icon and name carry.  Return
+the columns."
   (let* ((cell lispm-desktop-finder-text-cell-width)
-         (columns (max 1 (/ (- (window-body-width window) 3) cell))))
+         (size lispm-desktop-finder-text-icon-size)
+         (picture-size (lispm-desktop-platinum-text-size size))
+         (lines (cdr picture-size))
+         (images (lispm-desktop-tty-images-p))
+         (icons nil)
+         (background (face-background 'lispm-desktop-platinum-list nil t))
+         (columns (max 1 (/ (- (window-body-width window) 3) cell)))
+         (width (* columns cell)))
     (insert "\n")
-    (dolist (row (seq-partition lispm-desktop-finder--items columns))
-      (seq-do-indexed
-       (lambda (item column)
-         (let* ((selected (equal (car item) lispm-desktop-finder--selected))
-                (label (concat (substring-no-properties
-                                (lispm-desktop-platinum-icon
-                                 (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)))
-                               " "
-                               (truncate-string-to-width (car item) (- cell 5) nil nil "…"))))
-           (insert (propertize " " 'display `(space :align-to ,(+ 1 (* column cell))))
-                   (apply #'propertize (concat " " label " ")
-                          'face (if selected 'lispm-desktop-label-selected 'lispm-desktop-finder-label)
-                          (funcall props (car item))))))
-       row)
-      (insert "\n"))
+    (seq-do-indexed
+     (lambda (row block)
+       (let ((pieces nil))
+         (seq-do-indexed
+          (lambda (item column)
+            (let* ((selected (equal (car item) lispm-desktop-finder--selected))
+                   (icon (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item))
+                   (left (* column cell))
+                   (picture (if images
+                                ;; Blank for the image, which lies on it:
+                                ;; its first line is the buffer's after
+                                ;; the blocks before, a space in.
+                                (progn (push (list (car item) icon selected (+ 1 (* block (+ lines 2)))
+                                                   (+ 1 left (/ (- cell (car picture-size)) 2))
+                                                   (car picture-size) lines)
+                                             icons)
+                                       (make-list lines (make-string (car picture-size) ?\s)))
+                              (or (lispm-desktop-platinum-icon-picture icon size selected background)
+                                  (list (substring-no-properties (lispm-desktop-platinum-icon icon))))))
+                   (name (concat " " (truncate-string-to-width (car item) (- cell 4) nil nil "…") " ")))
+              (seq-do-indexed (lambda (line index)
+                                (push (list (+ index (- lines (length picture)))
+                                            (+ left (/ (- cell (string-width line)) 2))
+                                            (apply #'propertize line (funcall props (car item))))
+                                      pieces))
+                              picture)
+              (push (list lines (+ left (max 0 (/ (- cell (string-width name)) 2)))
+                          (apply #'propertize name
+                                 'face (if selected 'lispm-desktop-label-selected 'lispm-desktop-finder-label)
+                                 (funcall props (car item))))
+                    pieces)))
+          row)
+         (dolist (line (lispm-desktop-platinum-text-compose width (+ lines 2) pieces))
+           (insert " " line "\n"))))
+     (seq-partition lispm-desktop-finder--items columns))
+    (lispm-desktop-tty-images-show window icons)
     columns))
 
 (defun lispm-desktop-finder--render (&rest _)
@@ -727,7 +764,8 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
   (face-remap-add-relative 'header-line '(:box nil :underline nil :overline nil))
-  (add-hook 'window-size-change-functions #'lispm-desktop-finder--render nil t))
+  (add-hook 'window-size-change-functions #'lispm-desktop-finder--render nil t)
+  (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop-finder--render))
 
 ;;;; The window
 

@@ -953,6 +953,7 @@
   ("git failed" . "git 執行失敗")
   ("The App Store is checking its catalogs already" . "App Store 已在檢查它的目錄")
   ("Checking the catalogs…" . "正在檢查目錄…")
+  ("Getting what draws images in a terminal…" . "正在取得在終端機裡畫圖的元件…")
   ("App Store: %s: %s" . "App Store：%s：%s")
   ("Could not reach %s" . "無法連線至 %s")
   ("App Store: %s lists %S wrongly, left out: %s" . "App Store：%s 對 %S 的列示有誤，已略過：%s")

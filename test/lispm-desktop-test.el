@@ -4346,12 +4346,20 @@ Mac OS 9's buttons were, and pressed as the mouse rises over them."
 
 (ert-deftest lispm-desktop-test-modal-moved-p ()
   "A move of the mouse by more than `double-click-fuzz' is a drag; less is
-a hand's jitter in a click."
+a hand's jitter in a click.  In a text terminal's cells, of which Emacs
+reads the fuzz as eighths, a cell is a drag."
   (let ((double-click-fuzz 3))
     (should-not (lispm-desktop-modal-moved-p '(3 . -3)))
     (should (lispm-desktop-modal-moved-p '(4 . 0)))
     (should (lispm-desktop-modal-moved-p '(0 . -4)))
-    (should-not (lispm-desktop-modal-moved-p nil))))
+    (should-not (lispm-desktop-modal-moved-p nil))
+    (should (lispm-desktop-modal-moved-p '(1 . 0) t))
+    (should (lispm-desktop-modal-moved-p '(0 . -1) t))
+    (should-not (lispm-desktop-modal-moved-p '(0 . 0) t))
+    (should-not (lispm-desktop-modal-moved-p nil t)))
+  (let ((double-click-fuzz 16))
+    (should-not (lispm-desktop-modal-moved-p '(2 . 0) t))
+    (should (lispm-desktop-modal-moved-p '(3 . 0) t))))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
@@ -12473,23 +12481,244 @@ apart under the message, none overlapping, every line as wide."
         (should (string-match-p "\\[ Save \\]" (car (last lines 2))))))))
 
 (ert-deftest lispm-desktop-test-tty-desktop ()
-  "Where images cannot be shown the desktop is text: its icons down the
-right edge from under the menu bar, each a character over its name, the
-Trash in the bottom corner, the one selected inverted; clicks find them
-by the text."
+  "Where images cannot be shown the desktop is text: its icons drawn in
+cells, each over its name, down the right edge from under the menu bar
+and on in a second column, the Trash in the bottom corner, the one
+selected darkened and its name inverted; clicks find them by the text."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
   (lispm-desktop-test--on-tty
     (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
       (with-temp-buffer
         (setq lispm-desktop--selected 'editor)
-        (let ((lines (split-string (lispm-desktop--text-desktop 60 20) "\n")))
-          (should (= (length lines) 20))
-          (should (> (string-search "Home" (nth 2 lines)) 40))
-          (should (string-match-p "Emacs" (nth 5 lines)))
-          (should (string-match-p "Trash" (nth 18 lines)))
-          (should (eq (get-text-property (string-search "Home" (nth 2 lines)) 'lispm-desktop-item (nth 2 lines))
+        (let ((lines (split-string (lispm-desktop--text-desktop 100 50) "\n")))
+          (should (= (length lines) 50))
+          (should (seq-every-p (lambda (line) (= (string-width line) 99)) lines))
+          ;; 16-pixel icons, 4 lines each, their names under them.
+          (should (> (string-search "Home" (nth 5 lines)) 70))
+          (should (eq (get-text-property (string-search "Home" (nth 5 lines)) 'lispm-desktop-item (nth 5 lines))
                       'home))
-          (should (eq (get-text-property (string-search "Emacs" (nth 5 lines)) 'face (nth 5 lines))
-                      'lispm-desktop-label-selected)))))))
+          (let ((cell (string-match-p "[▀▄▌▐▂▆▘▝▖▗▚▞▙▛▜▟]" (nth 2 lines))))
+            (should cell)
+            (should (memq (get-text-property cell 'lispm-desktop-item (nth 2 lines)) '(home store))))
+          (should (eq (get-text-property (string-search "Emacs" (nth 11 lines)) 'face (nth 11 lines))
+                      'lispm-desktop-label-selected))
+          (should (string-match-p "Trash" (nth 48 lines)))
+          ;; A second column holds the rest.
+          (should (seq-some (lambda (line) (string-match-p "Control Panels" line)) lines)))
+        ;; Icons claimed as images leave their cells blank, and are told
+        ;; where they go.
+        (let* ((icons nil)
+               (lines (split-string (lispm-desktop--text-desktop 100 50 (lambda (&rest icon) (push icon icons) t))
+                                    "\n"))
+               (home (seq-find (lambda (icon) (eq (car icon) 'home)) icons)))
+          (should (= (length icons) (length (lispm-desktop--items))))
+          (should (equal (nthcdr 3 home) (list 1 (nth 4 home) 8 4)))
+          (should (equal (substring-no-properties (nth 2 lines) (nth 4 home) (+ (nth 4 home) 8)) "        "))
+          (should-not (get-text-property (nth 4 home) 'face (nth 2 lines)))
+          (should (eq (get-text-property (nth 4 home) 'lispm-desktop-item (nth 2 lines)) 'home))
+          (should (> (string-search "Home" (nth 5 lines)) 70)))
+        ;; Where the icons no longer fit, they are characters.
+        (let ((lines (split-string (lispm-desktop--text-desktop 40 12) "\n")))
+          (should (= (length lines) 12))
+          (should (seq-every-p (lambda (line) (= (string-width line) 39)) lines))
+          (should-not (seq-some (lambda (line) (string-match-p "[▀▄▌▐▂▆▘▝▖▗▚▞▙▛▜▟]" line)) lines))
+          (should (seq-some (lambda (line) (string-match-p "Home" line)) lines)))))))
+
+(defun lispm-desktop-test--svg (string)
+  "Return the SVG document STRING parsed."
+  (with-temp-buffer
+    (insert string)
+    (libxml-parse-xml-region (point-min) (point-max))))
+
+(ert-deftest lispm-desktop-test-raster-rectangles ()
+  "An icon of rectangles comes out pixel for pixel at its own size, and at
+half its size each pixel the average of the four it stands for; what no
+shape covers is clear."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((dom (lispm-desktop-test--svg
+              "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\">
+                 <rect x=\"0\" y=\"0\" width=\"2\" height=\"2\" fill=\"#FF0000\"/>
+                 <rect x=\"2\" y=\"0\" width=\"2\" height=\"1\" fill=\"#0000FF\"/>
+                 <rect x=\"2\" y=\"1\" width=\"2\" height=\"1\" fill=\"#FFFFFF\"/>
+                 <rect x=\"0\" y=\"2\" width=\"4\" height=\"2\" fill=\"#00FF00\" display=\"none\"/>
+               </svg>")))
+    (let ((pixels (lispm-desktop-platinum-raster-dom dom 4)))
+      (should (equal (aref pixels 0) ["#ff0000" "#ff0000" "#0000ff" "#0000ff"]))
+      (should (equal (aref pixels 1) ["#ff0000" "#ff0000" "#ffffff" "#ffffff"]))
+      (should (equal (aref pixels 2) [nil nil nil nil])))
+    (let ((pixels (lispm-desktop-platinum-raster-dom dom 2)))
+      (should (equal (aref pixels 0) ["#ff0000" "#8080ff"]))
+      (should (equal (aref pixels 1) [nil nil])))))
+
+(ert-deftest lispm-desktop-test-raster-crisp ()
+  "An icon asking for crisp edges keeps its colours at half its size: each
+pixel takes the colour covering most of the four it stands for, the
+darker of two covering as much, so a pixel-wide outline survives, but
+the lighter amid the darker, so what close outlines outline survives."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\" shape-rendering=\"crispEdges\">
+                     <rect x=\"0\" y=\"0\" width=\"2\" height=\"2\" fill=\"#000000\"/>
+                     <rect x=\"1\" y=\"1\" width=\"1\" height=\"1\" fill=\"#FFFFFF\"/>
+                     <rect x=\"2\" y=\"0\" width=\"2\" height=\"1\" fill=\"#0000FF\"/>
+                     <rect x=\"2\" y=\"1\" width=\"2\" height=\"1\" fill=\"#FFFFFF\"/>
+                   </svg>")
+                 2)))
+    (should (equal (aref pixels 0) ["#000000" "#0000ff"]))
+    (should (equal (aref pixels 1) [nil nil])))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\" shape-rendering=\"crispEdges\">
+                     <rect x=\"0\" y=\"0\" width=\"4\" height=\"4\" fill=\"#000000\"/>
+                     <rect x=\"1\" y=\"0\" width=\"1\" height=\"2\" fill=\"#FFFFFF\"/>
+                   </svg>")
+                 2)))
+    (should (equal (aref pixels 0) ["#ffffff" "#000000"]))))
+
+(ert-deftest lispm-desktop-test-raster-shapes ()
+  "Paths are filled, their arcs followed; a circle is round; an outline
+stays a pixel wide however small the icon, and one of no width is none."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\">
+                     <path d=\"M0 0H8L0 8Z\" fill=\"#000000\"/>
+                   </svg>")
+                 8)))
+    ;; The upper left triangle: the corner in, the opposite corner out.
+    (should (aref (aref pixels 0) 0))
+    (should (aref (aref pixels 0) 6))
+    (should-not (aref (aref pixels 7) 7)))
+  (let ((pixels (lispm-desktop-platinum-raster-dom
+                 (lispm-desktop-test--svg
+                  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\">
+                     <path d=\"M0 4A4 4 0 0 1 8 4A4 4 0 0 1 0 4Z\" style=\"fill:#0000ff\"/>
+                   </svg>")
+                 8)))
+    (should (equal (aref (aref pixels 4) 4) "#0000ff"))
+    (should (aref (aref pixels 0) 4))
+    (should-not (aref (aref pixels 0) 0)))
+  (cl-flet ((outlined (width)
+              (lispm-desktop-platinum-raster-dom
+               (lispm-desktop-test--svg
+                (format "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">
+                           <rect x=\"8\" y=\"8\" width=\"48\" height=\"48\" fill=\"none\"
+                                 stroke=\"#000000\" stroke-width=\"%s\"/>
+                         </svg>" width))
+               8)))
+    (should (equal (aref (aref (outlined "1") 1) 4) "#000000"))
+    (should-not (aref (aref (outlined "0") 1) 4))))
+
+(ert-deftest lispm-desktop-test-text-picture ()
+  "Pixels are drawn 2 by 4 a cell, in the block character and two of
+their colours that draw them closest: one colour a blank on it, halves
+the half blocks; what is clear keeps no colour where the character can
+leave it so, and is the background where it cannot.  Darkened, every
+colour is at half its brightness."
+  (let* ((r "#ff0000") (b "#0000ff")
+         (lines (lispm-desktop-platinum-text-picture
+                 (vector (vector r r r r nil nil r b nil nil)
+                         (vector r r r r nil nil r b nil nil)
+                         (vector r r nil nil b b r b nil nil)
+                         (vector r r nil nil b b r b nil nil))
+                 nil "#000000")))
+    (should (equal (mapcar #'substring-no-properties lines) '(" ▀▄▌ ")))
+    (should (equal (get-text-property 0 'face (car lines)) `(:background ,r)))
+    (should (equal (get-text-property 1 'face (car lines)) `(:foreground ,r)))
+    (should (equal (get-text-property 2 'face (car lines)) `(:foreground ,b)))
+    (should (equal (get-text-property 3 'face (car lines)) `(:foreground ,r :background ,b)))
+    (should-not (get-text-property 4 'face (car lines))))
+  (let ((line (car (lispm-desktop-platinum-text-picture
+                    [["#00ff00" "#00ff00"] ["#00ff00" "#00ff00"] ["#00ff00" "#00ff00"] [nil nil]]
+                    nil "#123456"))))
+    (should (equal line "▂"))
+    (should (equal (get-text-property 0 'face line) '(:foreground "#123456" :background "#00ff00"))))
+  (should (equal (get-text-property 0 'face (car (lispm-desktop-platinum-text-picture
+                                                  [["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]
+                                                   ["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]]
+                                                  t)))
+                 '(:background "#800000"))))
+
+(ert-deftest lispm-desktop-test-raster-png ()
+  "Pixels make an opaque PNG: its chunks summed right, the pixels each a
+square SCALE wide in the middle, the rest the background, clear pixels
+too."
+  (should (= (lispm-desktop-platinum--crc "IEND") #xAE426082))
+  (let* ((png (lispm-desktop-platinum-raster-png [["#ff0000" nil] [nil "#0000ff"]] 2 6 4 "#00ff00"))
+         (data-at (string-search "IDAT" png))
+         (length (string-to-number (mapconcat (lambda (byte) (format "%02x" byte))
+                                              (substring png (- data-at 4) data-at) "")
+                                   16))
+         (raw (with-temp-buffer
+                (set-buffer-multibyte nil)
+                (insert (substring png (+ data-at 4) (+ data-at 4 length)))
+                ;; An Emacs built without zlib has none of it.
+                (and (fboundp 'zlib-available-p) (zlib-available-p)
+                     (zlib-decompress-region (point-min) (point-max))
+                     (buffer-string)))))
+    (should (string-prefix-p "\x89PNG\r\n\x1a\n" png))
+    (should-not (multibyte-string-p png))
+    (should (equal (substring png 16 24) (unibyte-string 0 0 0 6 0 0 0 4)))
+    (should (string-suffix-p (unibyte-string #xAE #x42 #x60 #x82) png))
+    (when raw
+      ;; Each row: no filter, then 6 pixels; the picture 4 by 4 from x 1.
+      (should (= (length raw) (* 4 (1+ (* 3 6)))))
+      (cl-flet ((pixel (x y) (let ((at (+ (* y 19) 1 (* 3 x)))) (append (substring raw at (+ at 3)) nil))))
+        (should (equal (pixel 0 0) '(0 255 0)))
+        (should (equal (pixel 1 0) '(255 0 0)))
+        (should (equal (pixel 2 1) '(255 0 0)))
+        (should (equal (pixel 3 0) '(0 255 0)))
+        (should (equal (pixel 4 3) '(0 0 255)))
+        (should (equal (pixel 5 3) '(0 255 0)))))))
+
+(ert-deftest lispm-desktop-test-tty-images-subtract ()
+  "An image's cells less a frame in front of them are the rectangles left:
+none where the frame covers them all, the cells themselves where it
+misses them, up to four round a hole."
+  (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(5 0 6 8)) '((0 0 4 8))))
+  (should-not (lispm-desktop-tty-images--subtract '(1 1 3 3) '(0 0 4 8)))
+  (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(2 4 10 20))
+                 '((0 0 2 8) (2 0 4 4))))
+  (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(1 2 3 6))
+                 '((0 0 1 8) (1 0 3 2) (1 6 3 8) (3 0 4 8)))))
+
+(ert-deftest lispm-desktop-test-tty-images-marked ()
+  "An icon to show as an image is blank lines, the first marking it, found
+after drawing where it went in its window's text; none where the
+terminal shows no images."
+  (should-not (lispm-desktop-tty-images-blank 'key "folder" nil 3 2))
+  (let ((shown nil))
+    (cl-letf (((symbol-function 'lispm-desktop-tty-images-p) (lambda () t))
+              ((symbol-function 'lispm-desktop-tty-images--file) (lambda (&rest _) '("f.png" 16 16)))
+              ((symbol-function 'lispm-desktop-tty-images-show)
+               (lambda (window icons) (setq shown (list window icons)))))
+      (let ((blank (lispm-desktop-tty-images-blank 'key "folder" t 3 2)))
+        (should (equal blank '("   " "   ")))
+        (with-temp-buffer
+          (insert "first line\n  ab" (car blank) "cd\n    " (cadr blank) "\n")
+          (let ((buffer (window-buffer (selected-window))))
+            (unwind-protect
+                (progn
+                  (set-window-buffer (selected-window) (current-buffer))
+                  (lispm-desktop-tty-images-show-marked (selected-window)))
+              (set-window-buffer (selected-window) buffer))))
+        (should (eq (car shown) (selected-window)))
+        (should (equal (cadr shown) '((key "folder" t 1 4 3 2))))))))
+
+(ert-deftest lispm-desktop-test-text-compose ()
+  "Pieces of text stand where they are put on blank lines as wide as asked,
+cut at the right edge."
+  (should (equal (lispm-desktop-platinum-text-compose 8 3 '((0 2 "ab") (2 0 "x") (2 6 "long")))
+                 '("  ab    " "        " "x     lo"))))
+
+(ert-deftest lispm-desktop-test-raster-icon-color ()
+  "Where only a character's room is left, an icon is drawn in the colour it
+is drawn in most: Mac OS 9's folders in their blue."
+  (skip-unless (fboundp 'libxml-parse-xml-region))
+  (let ((color (lispm-desktop-platinum-raster-color
+                (lispm-desktop-platinum-raster (lispm-desktop-platinum-icon-file "folder") 16))))
+    (should (equal color "#9c9cff"))))
 
 (ert-deftest lispm-desktop-test-tty-window-geometry ()
   "On a text terminal a floating window opens in cells: its pixel size a
@@ -12510,6 +12739,48 @@ under the menu bar, on the screen."
     (cl-letf (((symbol-function 'frame-width) (lambda (&optional _) 80)))
       (should (= (lispm-desktop-sidebar-columns) 26)))))
 
+(ert-deftest lispm-desktop-test-tty-moved-frame-redrawn ()
+  "On a text terminal a child frame drawn elsewhere than before has the
+windows of its root, the minibuffer's too, redisplayed once, so no copy
+of it stays where it was; one moved inside a child frame has its root's.
+A child frame shown, hidden or left in place, or one on a graphical
+display, has none redisplayed."
+  (let ((lispm-desktop--tty-child-places (make-hash-table :test #'eq))
+        (parents '((finder . root) (menu . finder) (picture . gui)))
+        (places (list (cons 'finder '(4 . 3)) (cons 'menu '(1 . 1)) (cons 'picture '(0 . 0))))
+        (hidden nil)
+        (updated nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () '(root finder menu gui picture)))
+              ((symbol-function 'frame-parent) (lambda (&optional frame) (alist-get frame parents)))
+              ((symbol-function 'lispm-desktop-tty-p)
+               (lambda (&optional frame) (not (memq frame '(gui picture)))))
+              ((symbol-function 'frame-visible-p) (lambda (frame) (not (memq frame hidden))))
+              ((symbol-function 'frame-position) (lambda (&optional frame) (alist-get frame places)))
+              ((symbol-function 'window-list)
+               (lambda (&optional frame _minibuffer _window) (list (list frame 'desktop) (list frame 'minibuffer))))
+              ((symbol-function 'force-window-update) (lambda (&optional window) (push window updated))))
+      (cl-flet ((redisplayed ()
+                  (setq updated nil)
+                  (lispm-desktop--tty-redraw-moved-frames t)
+                  (reverse updated)))
+        ;; Seen the first time, a frame was drawn nowhere else.
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(40 . 12))
+        (should (equal (redisplayed) '((root desktop) (root minibuffer))))
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(41 . 12)
+              (alist-get 'menu places) '(2 . 1))
+        (should (equal (redisplayed) '((root desktop) (root minibuffer))))
+        ;; Hidden, moved and shown again: Emacs draws it there itself.
+        (push 'finder hidden)
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(60 . 20))
+        (should-not (redisplayed))
+        (setq hidden nil)
+        (should-not (redisplayed))
+        (setf (alist-get 'picture places) '(9 . 9))
+        (should-not (redisplayed))))))
+
 (ert-deftest lispm-desktop-test-tty-meta-brackets ()
   "Meta-[ and Meta-] are bound but on a text terminal, which sends them as
 ESC [ and ESC ], the start of its arrows and mouse reports."
@@ -12520,6 +12791,111 @@ ESC [ and ESC ], the start of its arrows and mouse reports."
       (should (eq (key-binding (kbd "M-[")) 'ignore))
       (lispm-desktop-test--on-tty
         (should-not (key-binding (kbd "M-[")))))))
+
+(ert-deftest lispm-desktop-test-tty-pointer ()
+  "A text terminal reports the mouse in cells of the frame it is over;
+carried out through each child frame's place in its parent, it is a
+cell of the root frame.  Before the terminal reported it, it is nowhere."
+  (lispm-desktop-test--with-frames lispm-desktop-test--window-frames
+      (let ((place '(window 5 . 1)))
+        (cl-letf (((symbol-function 'mouse-position) (lambda () place)))
+          (should (equal (lispm-desktop-platinum-tty-pointer) '(105 . 51)))
+          (setq place '(screen 7 . 3))
+          (should (equal (lispm-desktop-platinum-tty-pointer) '(7 . 3)))
+          (setq place '(screen nil))
+          (should-not (lispm-desktop-platinum-tty-pointer))))))
+
+(defconst lispm-desktop-test--tty-window-frames
+  '((screen (position 0 . 0) (size 160 . 45) (visibility . t))
+    (window (lispm-desktop-window . t) (parent-frame . screen)
+            (position 2 . 2) (size 112 . 32) (visibility . t)))
+  "A floating window over a text terminal's screen, in cells and not
+framed, for `lispm-desktop-test--with-frames'.")
+
+(defmacro lispm-desktop-test--with-tty-drag (script &rest body)
+  "Run BODY as on a text terminal, with the window of
+`lispm-desktop-test--tty-window-frames' and a mouse following SCRIPT, a
+list of ((COLUMN . LINE) . EVENT): each read puts the mouse at COLUMN,
+LINE of the screen and gives EVENT, nil for a read that waited in vain.
+In BODY, `ran' counts the runs of `lispm-desktop-platinum-frame-moved-functions',
+`sizes' holds the sizes given the window, `focused' the frames given the
+keyboard, the latest first, and `limits' the time limits reads had."
+  (declare (indent 1))
+  `(lispm-desktop-test--on-tty
+     (lispm-desktop-test--with-frames lispm-desktop-test--tty-window-frames
+         (let* ((script ,script)
+                (pointer (car (car script)))
+                (ran 0)
+                (sizes nil)
+                (focused nil)
+                (limits nil)
+                (unread-command-events nil)
+                (lispm-desktop-platinum-frame-moved-functions (list (lambda (_) (setq ran (1+ ran))))))
+           (cl-letf (((symbol-function 'mouse-position) (lambda () (cons 'screen pointer)))
+                     ((symbol-function 'read-event)
+                      (lambda (&optional _prompt _input-method limit)
+                        (push limit limits)
+                        (pcase-let ((`(,place . ,event) (pop script)))
+                          (setq pointer place)
+                          event)))
+                     ((symbol-function 'select-frame-set-input-focus)
+                      (lambda (frame &rest _) (push frame focused)))
+                     ((symbol-function 'set-frame-size)
+                      (lambda (frame width height &optional _)
+                        (push (list frame width height) sizes)
+                        (frame-put frame 'size (cons width height)))))
+             ,@body)))))
+
+(ert-deftest lispm-desktop-test-tty-drag-moves-the-window ()
+  "On a text terminal a window dragged by its title bar comes in front with
+the keyboard and follows the mouse cell by cell; the mouse is looked at
+as each move comes, where the terminal reported it, not between reports
+or at the release, and no read is cut short, which would lose half a
+sequence.  Given up, the window goes back; let go where it was pressed,
+the press is a click, handed on."
+  (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil)
+                                           (cons '(43 . 3) '(mouse-movement (nil)))
+                                           (cons '(70 . 9) '(switch-frame screen))
+                                           (cons '(46 . 5) '(mouse-movement (nil)))
+                                           (cons '(90 . 9) '(drag-mouse-1 (nil) (nil))))
+    (should (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should (equal moves '((window 8 5) (window 5 3))))
+    (should (equal (car (last raised)) 'window))
+    (should (equal (car (last focused)) 'window))
+    (should (= ran 1))
+    (should (= (length limits) 5))
+    (should-not (delq nil limits)))
+  (dolist (stop '(27 escape ?\C-g))
+    (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil)
+                                             (cons '(45 . 4) '(mouse-movement (nil)))
+                                             (cons '(45 . 4) stop))
+      (should-not (lispm-desktop-platinum-drag-outline 'window 'move))
+      (should (equal moves '((window 2 2) (window 7 4))))
+      (should (= ran 0))))
+  (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil) (cons '(40 . 2) '(mouse-1 (nil))))
+    (should-not (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should-not moves)
+    (should (= ran 0))
+    (should (equal unread-command-events '((mouse-1 (nil)))))))
+
+(ert-deftest lispm-desktop-test-tty-drag-grows-the-window ()
+  "On a text terminal a window grown from its grow box takes each size as
+the mouse goes, no smaller than its least in cells: a cell for 8 pixels
+across and 16 down."
+  (lispm-desktop-test--with-tty-drag (list (cons '(113 . 33) nil)
+                                           (cons '(103 . 30) '(mouse-movement (nil)))
+                                           (cons '(0 . 0) '(mouse-movement (nil)))
+                                           (cons '(0 . 0) '(drag-mouse-1 (nil) (nil))))
+    (should (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 25 6) (window 102 29))))
+    (should-not moves)
+    (should (= ran 1)))
+  (lispm-desktop-test--with-tty-drag (list (cons '(113 . 33) nil)
+                                           (cons '(120 . 40) '(mouse-movement (nil)))
+                                           (cons '(120 . 40) 'escape))
+    (should-not (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 112 32) (window 119 39))))
+    (should (= ran 0))))
 
 (ert-deftest lispm-desktop-test-store-cuts-to-characters ()
   "Cutting a word to a width no character fits, as on a narrow window,

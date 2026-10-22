@@ -33,6 +33,7 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum-draw)
+(require 'lispm-desktop-platinum-raster)
 
 
 
@@ -90,15 +91,63 @@ terminal whose font is a Nerd Font can be given its icons here."
   :type '(alist :key-type string :value-type string)
   :group 'lispm-desktop)
 
+(defvar lispm-desktop-platinum--icon-colors (make-hash-table :test #'equal)
+  "The colour each icon is drawn in most, by name, see
+`lispm-desktop-platinum--text-icon'.")
+
 (defun lispm-desktop-platinum--text-icon (name)
   "Return what stands for icon NAME on a text terminal, see
-`lispm-desktop-platinum-text-icons'."
-  (let* ((name (if (symbolp name) (symbol-name name) (file-name-base name)))
+`lispm-desktop-platinum-text-icons', in the colour the icon is drawn in
+most, see `lispm-desktop-platinum-raster-color'."
+  (let* ((color (with-memoization (gethash name lispm-desktop-platinum--icon-colors)
+                  (when-let* ((pixels (lispm-desktop-platinum-raster
+                                       (lispm-desktop-platinum-icon-file name) 16)))
+                    (lispm-desktop-platinum-raster-color pixels))))
+         (name (if (symbolp name) (symbol-name name) (file-name-base name)))
          (match (car (sort (seq-filter (lambda (entry) (string-prefix-p (car entry) name))
                                        lispm-desktop-platinum-text-icons)
                            (lambda (a b) (> (length (car a)) (length (car b))))))))
     (propertize (truncate-string-to-width (or (cdr match) "·") 1 nil ?\s)
-                'face 'lispm-desktop-platinum-list)))
+                'face (if color
+                          `(:inherit lispm-desktop-platinum-list :foreground ,color)
+                        'lispm-desktop-platinum-list))))
+
+(defun lispm-desktop-platinum--icon-source (name size)
+  "Return the file to draw icon NAME from at SIZE pixels, 16 or less: its
+own sixteen-pixel drawing where it has one beside the 32-pixel NAME-32,
+so that it comes out pixel for pixel, else NAME's.  An icon drawn at a
+size that is no whole part of its own would smear."
+  (let ((file (lispm-desktop-platinum-icon-file name)))
+    (or (when-let* (((<= size 16))
+                    ((string-match "-32\\.svg\\'" file))
+                    (small (replace-match ".svg" t t file))
+                    ((file-readable-p small)))
+          small)
+        (when-let* (((<= size 16))
+                    ((stringp name))
+                    ((string-suffix-p "-32" name))
+                    (small (lispm-desktop-platinum-icon-file (string-remove-suffix "-32" name)))
+                    ((file-readable-p small)))
+          small)
+        file)))
+
+(defvar lispm-desktop-platinum--icon-pictures (make-hash-table :test #'equal)
+  "Icons drawn in text, by file, size, selection and background, see
+`lispm-desktop-platinum-icon-picture'.")
+
+(defun lispm-desktop-platinum-icon-picture (name size &optional selected background)
+  "Return icon NAME drawn on a text terminal SIZE pixels a side, best 16, as
+lines of text, see `lispm-desktop-platinum-text-picture', darkened when
+SELECTED, over BACKGROUND, the colour where it is drawn; or nil where it
+cannot be drawn, as an icon that is no SVG.  NAME is as
+`lispm-desktop-platinum-icon-file' takes it; it is drawn from its own
+drawing of that size or twice it, see
+`lispm-desktop-platinum--icon-source'.  Each is drawn once."
+  (let ((file (lispm-desktop-platinum--icon-source name size)))
+    (with-memoization (gethash (list file size (and selected t) background)
+                               lispm-desktop-platinum--icon-pictures)
+      (when-let* ((pixels (lispm-desktop-platinum-raster file size)))
+        (lispm-desktop-platinum-text-picture pixels selected background)))))
 
 (defun lispm-desktop-platinum-icon (name)
   "Return the Finder icon NAME as a string one icon wide.

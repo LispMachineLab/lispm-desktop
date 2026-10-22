@@ -58,7 +58,7 @@
 ;;   lispm-desktop-platinum-palette
 ;;   lispm-desktop-platinum-draw
 ;;   lispm-desktop-platinum-controls
-;;   lispm-desktop-platinum-icons
+;;   lispm-desktop-platinum-icons (and lispm-desktop-platinum-raster)
 ;;   lispm-desktop-platinum-frames
 ;;   lispm-desktop-platinum-titlebar
 ;;   lispm-desktop-platinum-coach
