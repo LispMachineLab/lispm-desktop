@@ -5,6 +5,13 @@
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
 ;; Version: 0.9.0
+;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
+;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
+;;                    (eat "0") (embark "0") (embark-consult "0")
+;;                    (exec-path-from-shell "0") (magit "0")
+;;                    (marginalia "0") (markdown-mode "0") (nerd-icons "0")
+;;                    (orderless "0") (tabspaces "0") (treemacs "0")
+;;                    (vertico "0") (yasnippet "0"))
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -60,6 +67,11 @@
 ;;   (add-to-list 'load-path "~/src/lispm-desktop/lisp")
 ;;   (require 'lispm-desktop)
 ;;   (lispm-desktop-setup)
+;;
+;; The setup installs from the package archives the packages its
+;; `use-package' declarations name.  Package-Requires above lists them,
+;; for LispM.app's installer to count, but for those installed only once
+;; chosen, as Evil, or where used, as EXWM.
 ;;
 ;; The first start asks for the editing style (`lispm-desktop-editing-style') and
 ;; the appearance (`lispm-desktop-theme') on a page filling the frame, see

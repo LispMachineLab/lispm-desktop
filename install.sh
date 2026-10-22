@@ -264,15 +264,37 @@ install_app() {
   "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
 }
 
+# Show the packages a batch Emacs says it installs, on lines beginning with
+# LISPM-PACKAGE, and keep the rest of what it says in the log $1; succeed
+# as the Emacs did, which the line LISPM-STATUS ends with.
+show_packages() {
+  status=1
+  while IFS= read -r line; do
+    case $line in
+      "LISPM-PACKAGE "*) note "${line#LISPM-PACKAGE }" ;;
+      "LISPM-STATUS "*) status=${line#LISPM-STATUS } ;;
+      *) printf '%s\n' "$line" >>"$1" ;;
+    esac
+  done
+  return "$status"
+}
+
 # Install the packages LispM Desktop uses, by starting it once without a
 # display, as Emacs starts (a batch Emacs leaves the packages installed
 # before inactive); the first start then asks only how you like to work.
+# Each package is shown as it installs, as "magit (12/33)".
 install_packages() {
   say "Installing LispM's Emacs packages (a few minutes the first time)"
   log=$LISPM_HOME/install.log
-  if ! "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
-    -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
-    -l "$DESKTOP/init.el" >"$log" 2>&1; then
+  : >"$log"
+  if ! {
+    status=0
+    "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
+      -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
+      -L "$DESKTOP/lisp" -l lispm-desktop-deps -f lispm-desktop-deps-batch-progress \
+      -l "$DESKTOP/init.el" 2>>"$log" || status=$?
+    printf '\nLISPM-STATUS %s\n' "$status"
+  } | show_packages "$log"; then
     tail -n 20 "$log" >&2
     fail "the packages could not all be installed; the whole log is in $log"
   fi
