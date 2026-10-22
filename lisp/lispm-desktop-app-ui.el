@@ -758,7 +758,9 @@ rolled up, is left."
                         (- (window-pixel-width window) (window-body-width window t))))
               (height (+ height 2 padding)))
           (unless (and (= width (frame-text-width frame)) (= height (frame-text-height frame)))
-            (set-frame-size frame (max 200 width) (max 100 height) t)
+            (if (lispm-desktop-tty-p frame)
+                (set-frame-size frame (max 25 width) (max 6 height) t)
+              (set-frame-size frame (max 200 width) (max 100 height) t))
             (lispm-desktop-platinum-frame-update frame)
             (lispm-desktop-apps-keep-on-desktop frame)))))))
 
