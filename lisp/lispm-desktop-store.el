@@ -3198,7 +3198,7 @@ one `lispm-desktop-store--page-number' says."
                                                        row categories current))))))
         ;; A row is as tall as its image, though shorter than a line of
         ;; text, as a picture tiled: its pages end where the grid's would.
-        (setf (image-property image :ascent) 100)
+        (plist-put (cdr image) :ascent 100)
         (insert (propertize " " 'display image
                             'lispm-desktop-store-top at
                             'lispm-desktop-store-row row
