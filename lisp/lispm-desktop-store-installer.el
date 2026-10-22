@@ -49,6 +49,12 @@
 ;;   (failed MESSAGE)    why it was not
 ;;
 ;; Everything else it says, on its standard error, is the job's log.
+;;
+;; `lispm-desktop-store-installer-program' makes JOB's program in the
+;; Emacs asking, and `lispm-desktop-store-installer-call' runs it there
+;; and waits, as LispM Desktop does to keep a LispM project installed as
+;; a package at the release it needs (lispm-desktop-deps.el,
+;; lispm-desktop-update.el).
 
 ;;; Code:
 
@@ -142,6 +148,70 @@ it again, as `package-vc-upgrade' would build it."
 
 (defconst lispm-desktop-store-installer-tag "LISPM-STORE "
   "What begins a line in which the installing Emacs says how far it is.")
+
+(defconst lispm-desktop-store-installer-handed-variables
+  '(user-emacs-directory exec-path
+    package-user-dir package-directory-list package-archives package-archive-priorities
+    package-pinned-packages package-load-list package-check-signature package-unsigned-archives
+    package-gnupghome-dir package-selected-packages package-install-upgrade-built-in
+    package-vc-selected-packages package-vc-default-backend package-quickstart package-quickstart-file
+    url-proxy-services url-using-proxy gnutls-trustfiles network-security-level)
+  "What an Emacs installing in the background takes from this one: how
+packages are installed, and how the network is reached.")
+
+(defconst lispm-desktop-store-installer--directory
+  (file-name-directory (or load-file-name buffer-file-name))
+  "The directory this file is in, which an Emacs of its own loads it from.")
+
+(defun lispm-desktop-store-installer--readable-p (value)
+  "Return non-nil when VALUE, printed, reads back as itself."
+  (condition-case nil
+      (let ((print-length nil) (print-level nil))
+        (equal (car (read-from-string (prin1-to-string value))) value))
+    (error nil)))
+
+(defun lispm-desktop-store-installer-program (job)
+  "Return the program an Emacs of its own runs for JOB, as
+`lispm-desktop-store-installer-run' takes it: this Emacs's settings for
+packages and the network, then JOB."
+  `(progn
+     ,@(mapcan (lambda (variable)
+                 (when (and (boundp variable)
+                            (lispm-desktop-store-installer--readable-p (symbol-value variable)))
+                   (list `(setq ,variable ',(symbol-value variable)))))
+               lispm-desktop-store-installer-handed-variables)
+     (push ,lispm-desktop-store-installer--directory load-path)
+     ;; The editor's agents, which an extension adding one requires.
+     ,@(when-let* ((agents (locate-library "lispm-agents")))
+         `((push ,(file-name-directory agents) load-path)))
+     (require 'lispm-desktop-store-installer)
+     (lispm-desktop-store-installer-run ',job)))
+
+(defun lispm-desktop-store-installer-call (job)
+  "Do JOB in an Emacs of its own, as `lispm-desktop-store-installer-run'
+takes it, and wait until it is done; return what it installed.  Signal an
+error saying why, when it was not."
+  (let ((file (make-temp-file "lispm-desktop-store-job" nil ".el"))
+        (process-environment (lispm-desktop-store--git-environment)))
+    (unwind-protect
+        (with-temp-buffer
+          (with-temp-file file
+            (insert ";;; -*- lexical-binding: t -*-\n")
+            (let ((print-length nil) (print-level nil) (print-escape-newlines t))
+              (prin1 (lispm-desktop-store-installer-program job) (current-buffer))))
+          ;; Nothing it asks is answered: it fails instead of waiting.
+          (call-process (expand-file-name invocation-name invocation-directory) nil '(t nil) nil
+                        "-Q" "--batch" "-l" file)
+          (goto-char (point-min))
+          (let ((ended nil))
+            (while (search-forward lispm-desktop-store-installer-tag nil t)
+              (pcase (ignore-errors (read (current-buffer)))
+                ((and `(,(or 'done 'failed) ,_) event) (setq ended event))))
+            (pcase ended
+              (`(done ,installed) installed)
+              (`(failed ,message) (error "%s" message))
+              (_ (error "The Emacs installing stopped without saying why")))))
+      (delete-file file))))
 
 (defvar lispm-desktop-store-installer--reporting nil
   "Non-nil in the Emacs installing for the App Store, which says how far

@@ -456,7 +456,7 @@ This is a `window-selection-change-functions' function."
       (when (frame-parameter frame 'lispm-desktop-window)
         (lispm-desktop-platinum-raise-window frame)))))
 
-(declare-function lispm-desktop-agent-available "lispm-desktop-ai" ())
+(declare-function lispm-agents-available "lispm-agents" ())
 (declare-function lispm-desktop-store-application-items "lispm-desktop-store" ())
 (declare-function lispm-browser-available-p "lispm-browser" ())
 
@@ -468,9 +468,9 @@ This is `lispm-desktop-platinum-lambda-items-function'."
     ,@(mapcar (pcase-lambda (`(,_ . ,props))
                 (list :label (lispm-desktop-tr "New %s Session" (plist-get props :name))
                       :action (plist-get props :command)))
-              (and (fboundp 'lispm-desktop-agent-available) (lispm-desktop-agent-available)))
-    (:label ,(lispm-desktop-tr "Resume Session…") :action lispm-desktop-agent-sessions)
-    (:label ,(lispm-desktop-tr "Send Region to Agent") :action lispm-desktop-agent-send-region
+              (and (fboundp 'lispm-agents-available) (lispm-agents-available)))
+    (:label ,(lispm-desktop-tr "Resume Session…") :action lispm-agents-sessions)
+    (:label ,(lispm-desktop-tr "Send Region to Agent") :action lispm-agents-send-region
             :enabled ,(use-region-p))
     separator
     (:label ,(lispm-desktop-tr "New Shell") :action lispm-desktop-shell-new)
@@ -486,12 +486,19 @@ This is `lispm-desktop-platinum-lambda-items-function'."
     ,@(when (fboundp 'lispm-desktop-settings-panel-items)
         `((:label ,(lispm-desktop-tr "Control Panels") :submenu lispm-desktop-settings-panel-items)))))
 
+(defun lispm-desktop-apps-show-licence ()
+  "Show GNU Emacs's licence in the editor, brought in front.
+This is `lispm-desktop-platinum-licence-function'."
+  (lispm-desktop-apps-activate 'editor)
+  (describe-copying))
+
 (defun lispm-desktop-setup-apps ()
   "Draw the menu bar and the Application menu from the application in front."
   (setq lispm-desktop-platinum-menus-function #'lispm-desktop-apps-menus
         lispm-desktop-platinum-lambda-items-function #'lispm-desktop-lambda-items
         lispm-desktop-platinum-application-function #'lispm-desktop-apps-application
-        lispm-desktop-platinum-applications-function #'lispm-desktop-apps-application-items)
+        lispm-desktop-platinum-applications-function #'lispm-desktop-apps-application-items
+        lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-apps--follow-workspace)
   (add-hook 'window-selection-change-functions #'lispm-desktop-apps--follow-window)
   (add-hook 'window-size-change-functions #'lispm-desktop-apps--screen-resized)

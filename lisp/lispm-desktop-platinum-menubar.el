@@ -219,13 +219,24 @@ See `lispm-desktop-platinum-lambda-items-function'."
     (lispm-desktop-popup-menu (lispm-desktop-platinum-lambda-items) (lispm-desktop-px 4)
                               (lispm-desktop-platinum--menu-y))))
 
+(defvar lispm-desktop-platinum-licence-function #'describe-copying
+  "Function showing GNU Emacs's licence, which About LispM's Licence
+button calls: the desktop shows it in the editor.")
+
 (defun lispm-desktop-platinum-about ()
-  "Tell which LispM and lispm-desktop this is, as About This Computer did."
+  "Tell which LispM and lispm-desktop this is, as About This Computer did,
+and the GNU Emacs it runs on, free software under the GNU GPL; Licence
+shows the licence through `lispm-desktop-platinum-licence-function'."
   (interactive)
-  (lispm-desktop-popup-alert
-   'note (lispm-desktop-tr "LispM, a Lisp Machine for agents, inside Emacs.")
-   `((,(lispm-desktop-tr "OK") ok default))
-   (format "lispm-desktop, Emacs %s.  github.com/LispMachineLab/lispm-desktop" emacs-version)))
+  (when (eq (lispm-desktop-popup-alert
+             'note (lispm-desktop-tr "LispM, a Lisp Machine for agents, inside Emacs.")
+             `((,(lispm-desktop-tr "Licence") licence)
+               (,(lispm-desktop-tr "OK") ok default))
+             (concat (lispm-desktop-tr "lispm-desktop, running on GNU Emacs %s.  GNU Emacs is free software: you may share and change it under the GNU General Public License, version 3 or later."
+                                       emacs-version)
+                     "  github.com/LispMachineLab/lispm-desktop"))
+            'licence)
+    (funcall lispm-desktop-platinum-licence-function)))
 
 (defvar lispm-desktop-platinum-menus-function nil
   "Function returning the frontmost application's menus, or nil.

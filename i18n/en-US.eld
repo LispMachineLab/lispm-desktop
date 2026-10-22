@@ -24,4 +24,5 @@
   ("whole, the colour around" . "whole, the color around")
   ("Colour from the Theme" . "Color from the Theme")
   ("Your Own Colour…" . "Your Own Color…")
+  ("Licence" . "License")
   ("Licence:" . "License:")))
