@@ -897,18 +897,22 @@ desktop's, ../lispm-kernel, else its latest release with package-vc."
                                   :last-release)))))))
 
 (defvar lispm-kernel-desktop-mode)
+(defvar lispm-kernel-package-mode)
 
 (ert-deftest lispm-desktop-test-kernel ()
   "lispm-kernel is on by default, and not even loaded while
-`lispm-desktop-kernel' is nil; set, its Lisp is got and its mode turned
-on, at setup or as soon as the option is set, and off again when it is
-set to nil.  A batch Emacs gets the Lisp only, and what goes wrong is
-said, in the echo area only when the kernel was asked for, and leaves
-the desktop as it was."
+`lispm-desktop-kernel' is nil; set, its Lisp is got and its modes turned
+on, the sessions' and package.el's downloads', the latter where the
+kernel's Lisp has it, at setup or as soon as the option is set, and off
+again when it is set to nil.  A batch Emacs gets the Lisp only, and what
+goes wrong is said, in the echo area only when the kernel was asked for,
+and leaves the desktop as it was."
   (should (eq (eval (car (get 'lispm-desktop-kernel 'standard-value)) t) t))
   (let ((lispm-desktop-kernel nil)
         (lispm-kernel-desktop-mode nil)
+        (lispm-kernel-package-mode nil)
         (provided (featurep 'lispm-kernel-desktop))
+        (provided-package (featurep 'lispm-kernel-package))
         (saved (get 'lispm-desktop-kernel 'saved-value))
         (customized (get 'lispm-desktop-kernel 'customized-value))
         (noninteractive nil)
@@ -918,6 +922,7 @@ the desktop as it was."
         (messages nil))
     ;; The kernel's Lisp, as `require' finds it once it is got.
     (provide 'lispm-kernel-desktop)
+    (provide 'lispm-kernel-package)
     (put 'lispm-desktop-kernel 'saved-value nil)
     (put 'lispm-desktop-kernel 'customized-value nil)
     (unwind-protect
@@ -929,6 +934,9 @@ the desktop as it was."
                   ((symbol-function 'lispm-kernel-desktop-mode)
                    (lambda (&optional arg)
                      (setq lispm-kernel-desktop-mode (> (prefix-numeric-value arg) 0))))
+                  ((symbol-function 'lispm-kernel-package-mode)
+                   (lambda (&optional arg)
+                     (setq lispm-kernel-package-mode (> (prefix-numeric-value arg) 0))))
                   ;; Each message, and whether it stays out of the echo area.
                   ((symbol-function 'message)
                    (lambda (format &rest args)
@@ -939,12 +947,15 @@ the desktop as it was."
           (setq lispm-desktop-kernel t)
           (should (= ensured 1))
           (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-package-mode)
           (setq lispm-desktop-kernel nil)
           (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-package-mode)
           (let ((noninteractive t))
             (lispm-desktop-kernel-apply t))
           (should (= ensured 2))
           (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-package-mode)
           ;; Offline, at the start that would install it: on by default,
           ;; it says so in *Messages* alone; asked for, in the echo area too.
           (setq failure "offline")
@@ -957,16 +968,28 @@ the desktop as it was."
           (should (string-match-p "offline" (caar messages)))
           (should-not (cdar messages))
           (put 'lispm-desktop-kernel 'customized-value nil)
+          (should-not lispm-kernel-package-mode)
           (setq failure nil)
           (let ((lispm-desktop-kernel t))
             (lispm-desktop-setup-kernel)
             (should (= ensured 3))
-            (should lispm-kernel-desktop-mode)))
+            (should lispm-kernel-desktop-mode)
+            (should lispm-kernel-package-mode))
+          ;; A kernel's Lisp from before package.el's downloads.
+          (lispm-desktop-kernel-apply nil)
+          (setq features (delq 'lispm-kernel-package features))
+          (let ((load-path nil))
+            (lispm-desktop-kernel-apply t))
+          (should lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-package-mode))
       (remove-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed)
       (put 'lispm-desktop-kernel 'saved-value saved)
       (put 'lispm-desktop-kernel 'customized-value customized)
       (unless provided
-        (setq features (delq 'lispm-kernel-desktop features))))))
+        (setq features (delq 'lispm-kernel-desktop features)))
+      (if provided-package
+          (provide 'lispm-kernel-package)
+        (setq features (delq 'lispm-kernel-package features))))))
 
 (ert-deftest lispm-desktop-test-directory ()
   "`lispm-desktop-directory' is the checkout, holding the agents' icons."
@@ -7412,10 +7435,10 @@ newest commit after, in the background; then the list shows what it holds."
         (delete-directory source t)))))
 
 (ert-deftest lispm-desktop-test-store-loads-with-the-watch ()
-  "The App Store's window has the watch on the pointer while the App Store
-checks its catalogs, and while this Emacs installs or updates, waiting;
-not while an install runs in the background, its progress bar showing,
-nor after."
+  "The App Store's window has the watch on the pointer while this Emacs
+installs or updates, waiting; not while the App Store checks its
+catalogs, nor while an install runs in the background, its progress bar
+showing, nor after: Emacs waits on neither."
   (lispm-desktop-test--with-store
     (let ((lispm-desktop-loading--loadings nil)
           (lispm-desktop-loading--shown nil)
@@ -7439,8 +7462,43 @@ nor after."
           (lispm-desktop-store--install-here (job 'install) nil)
           (lispm-desktop-store--update-here (job 'update))
           (lispm-desktop-store--start (job 'install))))
-      (should (equal (reverse during) (append (make-list 3 (list lispm-desktop-store-buffer-name)) '(nil))))
+      (should (equal (reverse during) `(nil ,@(make-list 2 (list lispm-desktop-store-buffer-name)) nil)))
       (should-not lispm-desktop-loading--loadings))))
+
+(ert-deftest lispm-desktop-test-store-refreshes-only-its-archives ()
+  "The archives read anew are those holding, as last read, the packages of
+the items installed from them, in their order; all of them when one such
+package is in none.  Only those are downloaded, in the background."
+  (lispm-desktop-test--with-store
+    (let ((package-archives '(("gnu" . "https://elpa.gnu.org/packages/")
+                              ("nongnu" . "https://elpa.nongnu.org/nongnu/")
+                              ("melpa" . "https://melpa.org/packages/")))
+          (package-archive-contents
+           (list (list 'emms (package-desc-create :name 'emms :archive "gnu"))
+                 (list 'magit (package-desc-create :name 'magit :archive "melpa")
+                       (package-desc-create :name 'magit :archive "nongnu"))))
+          (package--downloads-in-progress nil)
+          (refreshed nil))
+      (cl-flet ((archives (&rest packages)
+                  (setq lispm-desktop-store-installed
+                        (mapcar (lambda (package) (list package :kind 'app :package package)) packages))
+                  (mapcar #'car (lispm-desktop-store--archives-to-refresh))))
+        (should (equal (archives 'emms) '("gnu")))
+        (should (equal (archives 'magit) '("nongnu" "melpa")))
+        (should (equal (archives 'emms 'magit) '("gnu" "nongnu" "melpa")))
+        (should (equal (archives 'emms 'gone) '("gnu" "nongnu" "melpa"))))
+      (setq lispm-desktop-store-installed '((emms :kind app :package emms)
+                                            (stickies :kind app :package (stickies :url "https://example.org/s"))))
+      (cl-letf (((symbol-function 'package-refresh-contents)
+                 (lambda (&optional async)
+                   (should async)
+                   (push (mapcar #'car package-archives) refreshed))))
+        (let ((done nil))
+          (lispm-desktop-store--refresh-archives (lambda () (setq done t)))
+          (with-timeout (5 (error "The refresh did not end"))
+            (while (not done) (accept-process-output nil 0.05)))))
+      (should (equal refreshed '(("gnu"))))
+      (should (= (length package-archives) 3)))))
 
 (ert-deftest lispm-desktop-test-store-git-ignores-callers-repository ()
   "Git runs for the App Store in the directory given, whatever repository
