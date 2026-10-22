@@ -184,12 +184,15 @@ up."
       (funcall draw nil))
     chosen))
 
-(defun lispm-desktop-modal-moved-p (delta)
+(defun lispm-desktop-modal-moved-p (delta &optional cells)
   "Return non-nil when DELTA, (DX . DY) in pixels, is a move rather than a
-hand's jitter in a click: more than `double-click-fuzz' either way."
+hand's jitter in a click: more than `double-click-fuzz' either way.
+With CELLS, DELTA counts a text terminal's cells, of which Emacs reads
+`double-click-fuzz' as eighths: there a move by a cell is one."
   (and delta
-       (> (max (abs (car delta)) (abs (cdr delta)))
-          (if (numberp double-click-fuzz) double-click-fuzz 3))))
+       (let ((fuzz (if (numberp double-click-fuzz) double-click-fuzz 3)))
+         (> (max (abs (car delta)) (abs (cdr delta)))
+            (if cells (/ fuzz 8) fuzz)))))
 
 (provide 'lispm-desktop-modal)
 ;;; lispm-desktop-modal.el ends here
