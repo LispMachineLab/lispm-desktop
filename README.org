@@ -32,6 +32,17 @@ and makes =/Applications/LispM.app= from a signed, notarized GNU Emacs of
 Nothing needs to be known about Emacs to use it.  LispM keeps itself up to date (see
 [[*Updating][Updating]]); to uninstall, delete =/Applications/LispM.app= and =~/.lispm=.
 
+LispM.app runs on Emacs 31.  The experimental LispM runs on Emacs 32, still in development, for
+what only it can do, as OpenGL drawn in a buffer ([[https://github.com/LispMachineLab/lispm-gl][lispm-gl]]):
+
+#+begin_src sh
+curl -fsSL https://lispm.ai/install.sh | LISPM_EMACS=32 sh
+#+end_src
+
+Control Panels' Kernel panel switches between the two: it downloads the other Emacs while LispM
+runs, then restarts LispM on it, keeping the LispM.app before in =~/.lispm/backup= to switch back
+to at once.
+
 ** In your own Emacs
 
 Emacs 30.1 or later (31 recommended) built with SVG images, git and curl, on macOS or GNU/Linux:
@@ -85,7 +96,7 @@ Optional, used when present:
   built on [[https://github.com/alacritty/alacritty][Alacritty]]'s terminal (=native/lispm-desktop-term=); Emacs redraws only those on
   screen.  The module is downloaded as built for this computer and kept only when its SHA-256 is
   the one this repository pins; Eat stands in until it is there.
-- *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, Startup
+- *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, Startup, Kernel
   and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
   Traditional; the computer's by default, asked at the first start.

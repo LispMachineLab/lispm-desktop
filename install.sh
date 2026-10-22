@@ -32,18 +32,47 @@
 #   LISPM_HOME     the checkouts, ~/.lispm by default
 #   LISPM_APP_DIR  the folder LispM.app goes in
 #   LISPM_OPEN     0 to leave LispM closed at the end
+#   LISPM_EMACS    the GNU Emacs LispM.app is made of: 31, the default, or
+#                  32, experimental (see below); by default, the one
+#                  LispM.app has, when it is there
+#
+# For example, the experimental LispM:
+#
+#   curl -fsSL https://lispm.ai/install.sh | LISPM_EMACS=32 sh
+#
+# LispM's Kernel panel switches LispM.app to another Emacs in two steps,
+# with LISPM_STEP:
+#
+#   stage   makes LispM.app of LISPM_EMACS's Emacs in ~/.lispm/staging,
+#           LispM running on: downloaded and checked, or the one kept in
+#           ~/.lispm/backup when it is that Emacs
+#   switch  once LispM has quit, keeps LispM.app in ~/.lispm/backup, puts
+#           the staged one in its place, and opens it
 #
 # Everything is in functions, called on the last line, so that a download
 # cut short runs nothing.
 
 set -eu
 
-# The Emacs LispM.app is made of, its build for each processor, and the
-# Developer ID it is signed with.
-EMACS_RELEASE=Emacs-31.1
-EMACS_BUILD=Emacs.2026-08-24.a360712.emacs-31-1.macOS-11
-EMACS_SHA256_ARM64=41d118033eb766f14f853c2cdbce7a27cfed99fe244c7d9c9552a8dc22508480
-EMACS_SHA256_X86_64=83fb3864548eea3803dff2081d9736fbad57e14feb3df1ce5f158bd7834eb028
+# The Emacs LispM.app is made of, by default: its release, its build for
+# each processor, and the version it is.
+EMACS_31_RELEASE=Emacs-31.1
+EMACS_31_BUILD=Emacs.2026-08-24.a360712.emacs-31-1.macOS-11
+EMACS_31_SHA256_ARM64=41d118033eb766f14f853c2cdbce7a27cfed99fe244c7d9c9552a8dc22508480
+EMACS_31_SHA256_X86_64=83fb3864548eea3803dff2081d9736fbad57e14feb3df1ce5f158bd7834eb028
+EMACS_31_VERSION=31.1
+
+# The experimental one: Emacs 32 is not released, so this is a build of
+# its development branch, master, as of the day it was tried with LispM.
+# What only Emacs 32 can do, as OpenGL drawn in a buffer, is LispM's on it
+# alone.
+EMACS_32_RELEASE=Emacs.2026-10-21.3354d07.master
+EMACS_32_BUILD=Emacs.2026-10-21.3354d07.master.macOS-11
+EMACS_32_SHA256_ARM64=28c58868313880b16d483da8534ec983d6ac60c5a8532e5a0f3ef3c16d222ba7
+EMACS_32_SHA256_X86_64=85ee0efdc9e88a35b4fc1677d8c0282ae1c6ca958087d1cf8577921c40e96c1f
+EMACS_32_VERSION=32.0.50
+
+# The Developer ID both are signed with.
 EMACS_TEAM=5HX66GF82Z
 
 REPOSITORIES=https://github.com/LispMachineLab
@@ -79,8 +108,7 @@ check_system() {
     ARCH=arm64
   fi
   case $ARCH in
-    arm64) EMACS_SHA256=$EMACS_SHA256_ARM64 ;;
-    x86_64) EMACS_SHA256=$EMACS_SHA256_X86_64 ;;
+    arm64 | x86_64) ;;
     *) fail "LispM runs on Apple silicon and Intel Macs, not on $ARCH" ;;
   esac
   major=$(sw_vers -productVersion | cut -d. -f1)
@@ -115,6 +143,8 @@ settle_places() {
     APP_DIR=$HOME/Applications
   fi
   APP=$APP_DIR/LispM.app
+  STAGED=$LISPM_HOME/staging/LispM.app
+  BACKUP=$LISPM_HOME/backup/LispM.app
   # The launcher finds the checkout through the home directory of whoever
   # opens LispM, when it is in the installer's: it expands the "~/".
   # shellcheck disable=SC2088
@@ -122,8 +152,53 @@ settle_places() {
     "$HOME"/*) INIT_DIRECTORY="~/${DESKTOP#"$HOME"/}" ;;
     *) INIT_DIRECTORY=$DESKTOP ;;
   esac
-  if pgrep -f "$APP/Contents/MacOS/Emacs" >/dev/null 2>&1; then
+}
+
+lispm_running() {
+  pgrep -f "$APP/Contents/MacOS/Emacs" >/dev/null 2>&1
+}
+
+refuse_running() {
+  if lispm_running; then
     fail "LispM is running: quit it (Command-Q), then run this again"
+  fi
+}
+
+# Print the major version of the Emacs the LispM.app at APP, or at $1,
+# was made of, or nothing: a build of master is 32's, the version master
+# is now.
+installed_emacs() {
+  case $(installed_build "${1:-}") in
+    *.master.*) echo 32 ;;
+    *.emacs-[0-9]*) installed_build "${1:-}" | sed 's/.*\.emacs-\([0-9]*\)-.*/\1/' ;;
+  esac
+}
+
+# Settle the Emacs LispM.app is made of: LISPM_EMACS's, else the one it
+# has, else 31.
+choose_emacs() {
+  EMACS_BEFORE=$(installed_emacs)
+  EMACS=${LISPM_EMACS:-${EMACS_BEFORE:-31}}
+  case $EMACS in
+    31)
+      EMACS_RELEASE=$EMACS_31_RELEASE EMACS_BUILD=$EMACS_31_BUILD EMACS_VERSION=$EMACS_31_VERSION
+      EMACS_NAME="GNU Emacs $EMACS_VERSION"
+      ;;
+    32)
+      EMACS_RELEASE=$EMACS_32_RELEASE EMACS_BUILD=$EMACS_32_BUILD EMACS_VERSION=$EMACS_32_VERSION
+      EMACS_NAME="GNU Emacs 32, in development"
+      ;;
+    *) fail "LISPM_EMACS is 31 or 32, not $EMACS" ;;
+  esac
+  case $EMACS.$ARCH in
+    31.arm64) EMACS_SHA256=$EMACS_31_SHA256_ARM64 ;;
+    31.x86_64) EMACS_SHA256=$EMACS_31_SHA256_X86_64 ;;
+    32.arm64) EMACS_SHA256=$EMACS_32_SHA256_ARM64 ;;
+    32.x86_64) EMACS_SHA256=$EMACS_32_SHA256_X86_64 ;;
+  esac
+  if [ "$EMACS" = 32 ]; then
+    say "This is the experimental LispM, on $EMACS_NAME"
+    note "Back to the one on Emacs 31: curl -fsSL https://lispm.ai/install.sh | LISPM_EMACS=31 sh"
   fi
 }
 
@@ -177,20 +252,23 @@ fetch_projects() {
   done
 }
 
-# Print the Emacs build LispM.app at APP was made of, or nothing.
+# Print the Emacs build the LispM.app at APP, or at $1, was made of, or
+# nothing.
 installed_build() {
-  /usr/libexec/PlistBuddy -c 'Print :LispMEmacsBuild' "$APP/Contents/Info.plist" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c 'Print :LispMEmacsBuild' "${1:-$APP}/Contents/Info.plist" 2>/dev/null || true
 }
 
-# Put Emacs.app, checked, at $WORK/LispM.app: the one in LispM.app when it
-# is the build wanted, else downloaded.
+# Put Emacs.app, checked, at $WORK/LispM.app: the one in LispM.app, or in
+# its backup, when it is the build wanted, else downloaded.
 fetch_emacs() {
   wanted=$EMACS_BUILD.$ARCH
-  if [ "$(installed_build)" = "$wanted" ]; then
-    ditto "$APP" "$WORK/LispM.app"
-    return
-  fi
-  say "Downloading GNU Emacs ($EMACS_RELEASE, about 190 MB)"
+  for kept in "$APP" "$BACKUP"; do
+    if [ "$(installed_build "$kept")" = "$wanted" ]; then
+      ditto "$kept" "$WORK/LispM.app"
+      return
+    fi
+  done
+  say "Downloading $EMACS_NAME (about 190 MB)"
   dmg=$WORK/emacs.dmg
   curl -fL --progress-bar -o "$dmg" \
     "https://github.com/jimeh/emacs-builds/releases/download/$EMACS_RELEASE/$wanted.dmg"
@@ -226,7 +304,7 @@ make_app() {
   plist_set "$plist" CFBundleIdentifier "$APP_ID"
   plist_set "$plist" CFBundleExecutable LispM
   plist_set "$plist" CFBundleIconFile LispM.icns
-  plist_set "$plist" CFBundleGetInfoString "LispM, on GNU Emacs ${EMACS_RELEASE#Emacs-}"
+  plist_set "$plist" CFBundleGetInfoString "LispM, on GNU Emacs $EMACS_VERSION"
   plist_set "$plist" LispMEmacsBuild "$EMACS_BUILD.$ARCH"
   # Emacs's icon from the asset catalog would win over LispM's.
   /usr/libexec/PlistBuddy -c 'Delete :CFBundleIconName' "$plist" >/dev/null 2>&1 || true
@@ -270,11 +348,28 @@ install_app() {
 install_packages() {
   say "Installing LispM's Emacs packages (a few minutes the first time)"
   log=$LISPM_HOME/install.log
+  recompile_packages || {
+    tail -n 20 "$LISPM_HOME/compile.log" >&2
+    fail "the packages could not be compiled again; the whole log is in $LISPM_HOME/compile.log"
+  }
   if ! "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
     -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
     -l "$DESKTOP/init.el" >"$log" 2>&1; then
     tail -n 20 "$log" >&2
     fail "the packages could not all be installed; the whole log is in $log"
+  fi
+}
+
+# Compile the packages again when EMACS_BEFORE, the Emacs they were
+# compiled by, is not EMACS, whose LispM.app is at APP: this one might not
+# load that one's compiled code.  It runs before LispM loads them; the
+# output is in compile.log.
+recompile_packages() {
+  if [ -n "$EMACS_BEFORE" ] && [ "$EMACS_BEFORE" != "$EMACS" ]; then
+    note "Compiling LispM's packages again for Emacs $EMACS"
+    "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
+      -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
+      --eval '(package-recompile-all)' >"$LISPM_HOME/compile.log" 2>&1
   fi
 }
 
@@ -306,15 +401,62 @@ cleanup() {
   fi
 }
 
-main() {
-  check_system
-  check_tools
-  settle_places
-  fetch_projects
+begin_work() {
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/lispm.XXXXXX")
   MOUNT=
   trap cleanup EXIT
   trap 'exit 130' INT TERM
+}
+
+# Make LispM.app of LISPM_EMACS's Emacs at STAGED, LispM running on.
+stage() {
+  check_tools
+  settle_places
+  choose_emacs
+  [ -d "$DESKTOP" ] || fail "LispM is not installed in $LISPM_HOME"
+  begin_work
+  fetch_emacs
+  make_app
+  rm -rf "$STAGED"
+  mkdir -p "$(dirname "$STAGED")"
+  mv "$WORK/LispM.app" "$STAGED"
+  say "LispM.app on $EMACS_NAME is ready"
+}
+
+# Once LispM has quit, keep LispM.app at BACKUP, put the one at STAGED in
+# its place, compile the packages again for its Emacs if need be, and
+# open it.  A switch that fails puts LispM.app back.
+switch() {
+  settle_places
+  [ -d "$STAGED" ] || fail "no LispM.app is staged in $(dirname "$STAGED"); nothing was switched"
+  refuse_running
+  EMACS_BEFORE=$(installed_emacs)
+  EMACS=$(installed_emacs "$STAGED")
+  say "Switching LispM.app to Emacs $EMACS"
+  if [ -d "$APP" ]; then
+    rm -rf "$BACKUP"
+    mkdir -p "$(dirname "$BACKUP")"
+    mv "$APP" "$BACKUP"
+  fi
+  if ! mv "$STAGED" "$APP"; then
+    [ -d "$BACKUP" ] && mv "$BACKUP" "$APP"
+    fail "the staged LispM.app could not be put in place; LispM.app is as it was"
+  fi
+  "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
+  recompile_packages || note "The packages could not all be compiled again (see $LISPM_HOME/compile.log)"
+  note "The one before is kept in $BACKUP"
+  if [ "${LISPM_OPEN:-1}" != 0 ]; then
+    open "$APP"
+  fi
+}
+
+install() {
+  check_tools
+  settle_places
+  refuse_running
+  choose_emacs
+  fetch_projects
+  begin_work
   fetch_emacs
   make_app
   install_app
@@ -325,6 +467,16 @@ main() {
     note "Opening it now; next time, open it from Launchpad, Spotlight or the Dock."
     open "$APP"
   fi
+}
+
+main() {
+  check_system
+  case ${LISPM_STEP:-} in
+    '') install ;;
+    stage) stage ;;
+    switch) switch ;;
+    *) fail "LISPM_STEP is stage or switch, not $LISPM_STEP" ;;
+  esac
 }
 
 main "$@"
