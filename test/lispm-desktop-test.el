@@ -29,95 +29,27 @@
 ;;; Code:
 
 (require 'ert)
-(require 'lispm-desktop)
+(require 'lispm-desktop-deps)
+;; lispm-agent is on the load path, used as it is: what its package
+;; requires is for LispM's own agents, which no test runs.
+(cl-letf (((symbol-function 'lispm-desktop-deps--requirements) #'ignore))
+  (require 'lispm-desktop))
 
 ;; The words as the code writes them, whatever the computer's language.
-(setq lispm-desktop-language 'en)
+(setq lispm-desktop-language 'en
+      lispm-language 'en)
 
 (defmacro lispm-desktop-test--with-agents (agents &rest body)
   "Run BODY with AGENTS, (AGENT . PROPERTIES), the only agents defined,
 their keys bound in keymaps of the test's own."
   (declare (indent 1))
-  `(let ((lispm-desktop-agents nil)
-         (lispm-desktop-agent--keys nil)
-         (lispm-desktop-agent-map (make-sparse-keymap))
+  `(let ((lispm-agents-defined nil)
+         (lispm-agents--keys nil)
+         (lispm-agents-map (make-sparse-keymap))
          (lispm-desktop-agent-list-mode-map (make-sparse-keymap)))
      (pcase-dolist (`(,agent . ,props) ,agents)
-       (apply #'lispm-desktop-agent-define agent props))
+       (apply #'lispm-agents-define agent props))
      ,@body))
-
-(ert-deftest lispm-desktop-test-agent-available-p ()
-  "An agent run as a CLI can run exactly when its program is on PATH; one
-running inside Emacs always can; one never defined cannot."
-  (lispm-desktop-test--with-agents
-      '((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program")
-        (codex :name "Codex" :program "emacs")
-        (lispm :name "LispM" :new ignore))
-    (should-not (lispm-desktop-agent-available-p 'claude))
-    (should (lispm-desktop-agent-available-p 'codex))
-    (should (lispm-desktop-agent-available-p 'lispm))
-    (should-not (lispm-desktop-agent-available-p 'hermes))
-    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(codex lispm)))))
-
-(ert-deftest lispm-desktop-test-agents-built-in-first ()
-  "Agents are offered those built in first, then in the order defined."
-  (lispm-desktop-test--with-agents
-      '((hermes :name "Hermes" :new ignore)
-        (lispm :name "LispM" :new ignore :built-in t)
-        (claude :name "Claude Code" :new ignore :built-in t))
-    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(lispm claude hermes)))
-    (lispm-desktop-agent-define 'hermes :name "Hermes, again" :new #'ignore)
-    (should (equal (mapcar #'car lispm-desktop-agents) '(hermes lispm claude)))
-    (lispm-desktop-agent-undefine 'lispm)
-    (should (equal (mapcar #'car (lispm-desktop-agent-available)) '(claude hermes)))))
-
-(ert-deftest lispm-desktop-test-agent-keys-follow-the-agent ()
-  "An agent's key starts it, under C-c a and in the agents sidebar, while
-it can run; it does nothing once its program is gone or it is undefined."
-  (let ((program "emacs"))
-    (lispm-desktop-test--with-agents
-        `((codex :name "Codex" :program "emacs" :key "x" :command lispm-desktop-agent-codex-new))
-      (should (eq (keymap-lookup lispm-desktop-agent-map "x") 'lispm-desktop-agent-codex-new))
-      (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "x") 'lispm-desktop-agent-codex-new))
-      (setf (plist-get (alist-get 'codex lispm-desktop-agents) :program) "lispm-desktop-test-no-such-program")
-      (should-not (keymap-lookup lispm-desktop-agent-map "x"))
-      (setf (plist-get (alist-get 'codex lispm-desktop-agents) :program) program)
-      (lispm-desktop-agent-undefine 'codex)
-      (should-not (keymap-lookup lispm-desktop-agent-map "x"))
-      (should-not (keymap-lookup lispm-desktop-agent-list-mode-map "x")))))
-
-(ert-deftest lispm-desktop-test-agent-keys-leave-other-commands-be ()
-  "An agent's key taken by another command stays that command's, and its
-parent's bindings do not count; an agent taking another's key gives it
-back when it goes."
-  (lispm-desktop-test--with-agents nil
-    (keymap-set lispm-desktop-agent-map "r" #'lispm-desktop-agent-send-region)
-    (set-keymap-parent lispm-desktop-agent-list-mode-map special-mode-map)
-    (let ((inhibit-message t))
-      (lispm-desktop-agent-define 'greedy :name "Greedy" :new #'ignore :key "r" :command #'ignore))
-    (should (eq (keymap-lookup lispm-desktop-agent-map "r") 'lispm-desktop-agent-send-region))
-    (lispm-desktop-agent-undefine 'greedy)
-    (should (eq (keymap-lookup lispm-desktop-agent-map "r") 'lispm-desktop-agent-send-region))
-    ;; h is the sidebar's parent's, describe-mode: Hermes may have it.
-    (lispm-desktop-agent-define 'hermes :name "Hermes" :new #'ignore :key "h" :command 'lispm-hermes-new)
-    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'lispm-hermes-new))
-    (lispm-desktop-agent-define 'other :name "Other" :new #'ignore :key "h" :command 'other-new)
-    (should (eq (keymap-lookup lispm-desktop-agent-map "h") 'other-new))
-    (lispm-desktop-agent-undefine 'other)
-    (should (eq (keymap-lookup lispm-desktop-agent-map "h") 'lispm-hermes-new))
-    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'lispm-hermes-new))
-    (lispm-desktop-agent-undefine 'hermes)
-    (should-not (keymap-lookup lispm-desktop-agent-map "h"))
-    (should (eq (keymap-lookup lispm-desktop-agent-list-mode-map "h") 'describe-mode))))
-
-(ert-deftest lispm-desktop-test-launch-requires-installed-cli ()
-  "Starting an agent whose CLI is missing, or no agent at all, is a user
-error, before anything runs."
-  (lispm-desktop-test--with-agents
-      '((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program"))
-    (should-error (lispm-desktop-agent--launch 'claude temporary-file-directory "x" nil)
-                  :type 'user-error)
-    (should-error (lispm-desktop-agent-new 'hermes temporary-file-directory) :type 'user-error)))
 
 (ert-deftest lispm-desktop-test-claude-follows-emacs-theme ()
   "Claude Code starts with its theme \"auto\", asking the terminal for
@@ -134,106 +66,33 @@ local settings, or in its old global configuration other than the default
       (unwind-protect
           (progn
             (make-directory project)
-            (should (equal (lispm-desktop-agent-claude--arguments project) auto))
+            (should (equal (lispm-agents-claude--arguments project) auto))
             (put-json (expand-file-name ".claude.json" home) "{\"numStartups\":3,\"theme\":\"dark\"}")
             (put-json (expand-file-name ".claude/settings.json" home) "{\"theme\":")
-            (should (equal (lispm-desktop-agent-claude--arguments project) auto))
+            (should (equal (lispm-agents-claude--arguments project) auto))
             (dolist (file (list (expand-file-name ".claude.json" home)
                                 (expand-file-name ".claude/settings.json" home)
                                 (expand-file-name ".claude/settings.json" project)
                                 (expand-file-name ".claude/settings.local.json" project)))
               (put-json file "{\"permissions\":{},\"theme\":\"light-daltonized\"}")
-              (should-not (lispm-desktop-agent-claude--arguments project))
+              (should-not (lispm-agents-claude--arguments project))
               (put-json file "[]"))
             ;; Launched, Claude gets the arguments before its own.
             (let (command)
               (lispm-desktop-test--with-agents nil
-                (lispm-desktop-setup-claude)
-                (cl-letf (((symbol-function 'lispm-desktop-agent-available-p) #'always)
-                          ((symbol-function 'lispm-desktop-agent-ide-start) #'ignore)
+                (lispm-agents-setup-claude)
+                (cl-letf (((symbol-function 'lispm-agents-available-p) #'always)
+                          ((symbol-function 'lispm-agents-ide-start) #'ignore)
                           ((symbol-function 'lispm-desktop-terminal-make)
                            (lambda (_name &rest program)
                              (setq command program)
                              (get-buffer-create " *lispm-desktop-test-launch*"))))
                   (unwind-protect
-                      (lispm-desktop-agent--launch 'claude project "lispm-desktop-test-launch"
-                                                   '("--session-id" "x"))
+                      (lispm-agents--launch 'claude project "lispm-desktop-test-launch"
+                                            '("--session-id" "x"))
                     (kill-buffer " *lispm-desktop-test-launch*"))))
               (should (equal command `("claude" ,@auto "--session-id" "x")))))
         (delete-directory home t)))))
-
-(ert-deftest lispm-desktop-test-sessions-skip-missing-agents ()
-  "No record of an agent whose CLI is missing is read or listed."
-  (let ((read nil))
-    (lispm-desktop-test--with-agents
-        `((claude :name "Claude Code" :program "lispm-desktop-test-no-such-program"
-                  :sessions ,(lambda () (setq read t) nil)))
-      (should (null (lispm-desktop-agent-sessions-list)))
-      (should-not read))))
-
-(ert-deftest lispm-desktop-test-sessions-of-every-agent ()
-  "Every agent's sessions are listed, newest first; an agent whose
-sessions cannot be read lists none, and the others still list theirs."
-  (lispm-desktop-test--with-agents
-      `((lispm :name "LispM" :new ignore
-               :sessions ,(lambda ()
-                            (list (list :agent 'lispm :id "a" :time 1.0)
-                                  (list :agent 'lispm :id "b" :time 3.0))))
-        (codex :name "Codex" :program "emacs"
-               :sessions ,(lambda () (list (list :agent 'codex :id "c" :time 2.0))))
-        (broken :name "Broken" :new ignore :sessions ,(lambda () (error "No store"))))
-    (let ((inhibit-message t))
-      (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
-                     '("b" "c" "a"))))))
-
-(ert-deftest lispm-desktop-test-session-readers-feed-the-sidebar-only ()
-  "The sidebar's sessions come from an agent's session reader where it has
-one, without waiting: an agent whose reader has nothing yet is pending,
-one whose reader fails lists none, and agents without a reader are read
-as they are.  The session list and the picker never ask a reader."
-  (let ((lispm-desktop-agent--session-readers nil)
-        (lispm-desktop-agent--candidates nil)
-        (lispm-desktop-agent-sessions-arrived-hook nil)
-        (arrived 0))
-    (add-hook 'lispm-desktop-agent-sessions-arrived-hook (lambda () (setq arrived (1+ arrived))))
-    (cl-flet ((session (agent id time title)
-                (list :agent agent :id id :time time :title title :cwd "/tmp/project/")))
-      (lispm-desktop-test--with-agents
-          `((lispm :name "LispM" :new ignore
-                   :sessions ,(lambda () (list (session 'lispm "l" 2.0 "L"))))
-            (codex :name "Codex" :new ignore
-                   :sessions ,(lambda () (list (session 'codex "c" 3.0 "C"))))
-            (claude :name "Claude Code" :new ignore
-                    :sessions ,(lambda () (list (session 'claude "a" 1.0 "A"))))
-            (hermes :name "Hermes" :new ignore
-                    :sessions ,(lambda () (list (session 'hermes "h" 5.0 "H")))))
-        (should (eq (lispm-desktop-agent-add-session-reader 'codex (lambda () 'pending)) 'codex))
-        (lispm-desktop-agent-add-session-reader
-         'claude (lambda () (list (session 'claude "a" 4.0 "A, read") nil)))
-        (lispm-desktop-agent-add-session-reader 'hermes (lambda () (error "No store")))
-        ;; Each change of readers draws the sidebar again.
-        (should (= arrived 3))
-        (let ((inhibit-message t))
-          (pcase-let ((`(,sessions . ,pending) (lispm-desktop-agent-sessions-snapshot)))
-            (should (equal (mapcar (lambda (s) (plist-get s :title)) sessions) '("A, read" "L")))
-            (should (equal pending '(codex)))))
-        ;; One reader per agent: a new one replaces the old.
-        (dolist (agent '(codex claude hermes))
-          (lispm-desktop-agent-add-session-reader agent (lambda () (error "A reader was asked"))))
-        (should (= (length lispm-desktop-agent--session-readers) 3))
-        (should (equal (mapcar (lambda (s) (plist-get s :id)) (lispm-desktop-agent-sessions-list))
-                       '("h" "c" "l" "a")))
-        (cl-letf (((symbol-function 'completing-read)
-                   (lambda (_prompt table &rest _) (car (all-completions "" table)))))
-          (should (equal (plist-get (lispm-desktop-agent--read-session "Agent session: ") :id) "h")))
-        (lispm-desktop-agent-remove-session-reader 'codex)
-        (lispm-desktop-agent-remove-session-reader 'claude)
-        (lispm-desktop-agent-remove-session-reader 'hermes)
-        (lispm-desktop-agent-remove-session-reader 'hermes)
-        (should-not lispm-desktop-agent--session-readers)
-        (should (= arrived 9))
-        (should (equal (lispm-desktop-agent-sessions-snapshot)
-                       (cons (lispm-desktop-agent-sessions-list) nil)))))))
 
 (ert-deftest lispm-desktop-test-agent-list-says-it-is-reading ()
   "The agents sidebar's bottom edge counts the sessions and the terminals
@@ -255,19 +114,19 @@ that agent is defined; a shell is no agent's."
           (progn
             (dolist (buffer (list named tagged shell))
               (with-current-buffer buffer (setq major-mode 'lispm-desktop-term-mode)))
-            (with-current-buffer tagged (setq lispm-desktop-agent-buffer-agent 'codex))
-            (should (eq (lispm-desktop-agent-of-buffer named) 'codex))
-            (should (eq (lispm-desktop-agent-of-buffer tagged) 'codex))
-            (should-not (lispm-desktop-agent-buffer-p shell))
-            (lispm-desktop-agent-undefine 'codex)
-            (should-not (lispm-desktop-agent-buffer-p named)))
+            (with-current-buffer tagged (setq lispm-agents-buffer-agent 'codex))
+            (should (eq (lispm-agents-of-buffer named) 'codex))
+            (should (eq (lispm-agents-of-buffer tagged) 'codex))
+            (should-not (lispm-agents-buffer-p shell))
+            (lispm-agents-undefine 'codex)
+            (should-not (lispm-agents-buffer-p named)))
         (mapc #'kill-buffer (list named tagged shell))))))
 
 (cl-defstruct (lispm-desktop-test--server (:constructor lispm-desktop-test--server-make))
   "A server bound to a terminal in a test; STOPPED once it was stopped."
   stopped)
 
-(cl-defmethod lispm-desktop-agent-context-stop ((server lispm-desktop-test--server))
+(cl-defmethod lispm-agents-context-stop ((server lispm-desktop-test--server))
   "Note that SERVER was stopped."
   (setf (lispm-desktop-test--server-stopped server) t))
 
@@ -283,124 +142,22 @@ the match data a caller holds survives telling terminals apart."
           (claude-server (lispm-desktop-test--server-make)))
       (unwind-protect
           (progn
-            (with-current-buffer codex (setq lispm-desktop-agent-buffer-agent 'codex))
-            (with-current-buffer claude (setq lispm-desktop-agent-buffer-agent 'claude))
-            (lispm-desktop-agent-context-bind codex-server codex)
-            (lispm-desktop-agent-context-bind claude-server claude)
+            (with-current-buffer codex (setq lispm-agents-buffer-agent 'codex))
+            (with-current-buffer claude (setq lispm-agents-buffer-agent 'claude))
+            (lispm-agents-context-bind codex-server codex)
+            (lispm-agents-context-bind claude-server claude)
             (with-temp-buffer
               (setq major-mode 'lispm-desktop-term-mode)
               (rename-buffer "*claude:lispm-desktop-test-2*")
               (string-match "\\(test\\)" "a test")
-              (lispm-desktop-agent-buffer-p (current-buffer))
+              (lispm-agents-buffer-p (current-buffer))
               (should (equal (match-beginning 1) 2)))
-            (lispm-desktop-agent-undefine 'codex)
+            (lispm-agents-undefine 'codex)
             (should (lispm-desktop-test--server-stopped codex-server))
             (should-not (lispm-desktop-test--server-stopped claude-server))
             (should (buffer-live-p codex)))
-        (lispm-desktop-agent-context-release-all)
+        (lispm-agents-context-release-all)
         (mapc #'kill-buffer (list codex claude))))))
-
-(ert-deftest lispm-desktop-test-agent-worktrees-join-their-projects ()
-  "A Claude worktree joins its repository and a Codex worktree the known
-project of its name; the Codex app's scratch tree holds chats."
-  (lispm-desktop-test--with-agents nil
-    (lispm-desktop-setup-claude)
-    (lispm-desktop-setup-codex)
-    (let* ((repo (make-temp-file "lispm-desktop-test-repo" t))
-           (claude (expand-file-name ".claude/worktrees/feature" repo))
-           (codex (expand-file-name (format "~/.codex/worktrees/1a2b/%s" (file-name-nondirectory repo))))
-           (scratch (expand-file-name "2026-10-20/chat" lispm-desktop-agent-codex-chats-directory)))
-      (unwind-protect
-          (progn
-            (make-directory claude t)
-            (let ((roots (lispm-desktop-agent--resolve-roots (list repo claude codex scratch))))
-              (should (equal (cdr (assoc claude roots)) (directory-file-name repo)))
-              (should (equal (cdr (assoc codex roots)) (directory-file-name repo)))
-              (should (eq (cdr (assoc scratch roots)) 'chats)))
-            (should (equal (lispm-desktop-agent-location-label claude (directory-file-name repo))
-                           "⎇ feature"))
-            (should (equal (lispm-desktop-agent-location-label codex (directory-file-name repo))
-                           "⎇ codex worktree")))
-        (clrhash lispm-desktop-agent--root-cache)
-        (delete-directory repo t)))))
-
-(ert-deftest lispm-desktop-test-agent-archive-survives-an-unreadable-state ()
-  "Archived sessions are kept across starts; a state file that does not
-read is moved aside, not replaced by the next archiving."
-  (let* ((directory (make-temp-file "lispm-desktop-test-state" t))
-         (lispm-desktop-agent-state-file (expand-file-name "agent-sessions.eld" directory))
-         (lispm-desktop-agent--archived 'unloaded)
-         (cut-short "(:archived (\"claude:1\" \"cod")
-         (one '(:agent claude :id "1"))
-         (two '(:agent codex :id "2")))
-    (unwind-protect
-        (progn
-          (lispm-desktop-agent--set-archived one t)
-          (should-not (file-exists-p (concat lispm-desktop-agent-state-file ".part")))
-          (setq lispm-desktop-agent--archived 'unloaded)
-          (should (lispm-desktop-agent-archived-p one))
-          (should-not (lispm-desktop-agent-archived-p two))
-          ;; A write cut short leaves a file that does not read.
-          (with-temp-file lispm-desktop-agent-state-file (insert cut-short))
-          (setq lispm-desktop-agent--archived 'unloaded)
-          (let ((inhibit-message t))
-            (should-not (lispm-desktop-agent-archived-p one)))
-          (lispm-desktop-agent--set-archived two t)
-          (should (equal (with-temp-buffer
-                           (insert-file-contents (concat lispm-desktop-agent-state-file ".unreadable"))
-                           (buffer-string))
-                         cut-short))
-          (setq lispm-desktop-agent--archived 'unloaded)
-          (should (equal (lispm-desktop-agent--archived-keys) '("codex:2"))))
-      (delete-directory directory t))))
-
-(ert-deftest lispm-desktop-test-codex-sessions-named-by-the-index ()
-  "A Codex session is titled by its thread name in the index, else by its
-first prompt; context Codex injects is no prompt."
-  (let* ((home (make-temp-file "lispm-desktop-test-codex" t))
-         (lispm-desktop-agent-codex-sessions-directory (expand-file-name "sessions/" home))
-         (lispm-desktop-agent-codex-index-file (expand-file-name "session_index.jsonl" home))
-         (file (expand-file-name "2026/10/20/rollout-1.jsonl" lispm-desktop-agent-codex-sessions-directory)))
-    (unwind-protect
-        (progn
-          (make-directory (file-name-directory file) t)
-          (with-temp-file file
-            (insert "{\"type\":\"session_meta\",\"payload\":{\"id\":\"0199\",\"cwd\":\"/tmp\",\"timestamp\":\"2026-10-20T08:00:00Z\"}}\n"
-                    "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions\"}]}}\n"
-                    "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Fix the build\"}}\n"))
-          (let ((session (car (lispm-desktop-agent-codex-sessions))))
-            (should (equal (plist-get session :title) "Fix the build"))
-            (should (equal (plist-get session :id) "0199"))
-            (should (numberp (plist-get session :started))))
-          (lispm-desktop-agent-codex--rename (list :id "0199") "Build fix")
-          (should (equal (plist-get (car (lispm-desktop-agent-codex-sessions)) :title) "Build fix")))
-      (remhash file lispm-desktop-agent--session-cache)
-      (delete-directory home t))))
-
-(ert-deftest lispm-desktop-test-claude-sessions-titled-by-their-name ()
-  "A Claude session is titled by its first prompt until it is named.  The
-name lives beside the transcript, which Claude rewrites, and a blank one
-names nothing.  A transcript without a prompt is no session."
-  (let* ((lispm-desktop-agent-claude-projects-directory (make-temp-file "lispm-desktop-test-claude" t))
-         (file (expand-file-name "-tmp/0199.jsonl" lispm-desktop-agent-claude-projects-directory))
-         (empty (expand-file-name "-tmp/0200.jsonl" lispm-desktop-agent-claude-projects-directory))
-         (title (lambda () (plist-get (car (lispm-desktop-agent-claude-sessions)) :title))))
-    (unwind-protect
-        (progn
-          (make-directory (file-name-directory file) t)
-          (with-temp-file file
-            (insert "{\"type\":\"user\",\"cwd\":\"/tmp\",\"message\":{\"role\":\"user\",\"content\":\"Fix the build\"}}\n"))
-          (with-temp-file empty
-            (insert "{\"type\":\"system\",\"cwd\":\"/tmp\"}\n"))
-          (should (= (length (lispm-desktop-agent-claude-sessions)) 1))
-          (should (equal (funcall title) "Fix the build"))
-          (lispm-desktop-agent-claude--rename (car (lispm-desktop-agent-claude-sessions)) "Build fix")
-          (should (equal (funcall title) "Build fix"))
-          (lispm-desktop-agent-claude--rename (car (lispm-desktop-agent-claude-sessions)) " ")
-          (should (equal (funcall title) "Fix the build")))
-      (remhash file lispm-desktop-agent--session-cache)
-      (remhash empty lispm-desktop-agent--session-cache)
-      (delete-directory lispm-desktop-agent-claude-projects-directory t))))
 
 (ert-deftest lispm-desktop-test-first-start-in-batch ()
   "A batch Emacs settles on Emacs keys and Dracula without asking.
@@ -2526,7 +2283,7 @@ by widening the fringe; the width dragged to is the one kept after."
 different buttons: pressing one draws only it pushed in."
   (let* ((icon (lambda (file) (propertize " " 'display (list 'image :type 'png :file file))))
          (hermes (lispm-desktop-sidebar-toolbar-button (concat (funcall icon "hermes.png") "+")
-                                                        #'lispm-desktop-agent-codex-new "Hermes" 'header-line))
+                                                        #'lispm-agents-codex-new "Hermes" 'header-line))
          (lispm (lispm-desktop-sidebar-toolbar-button (concat (funcall icon "lispm.png") "+")
                                                        #'lispm-desktop-agent-lispm-new "LispM" 'header-line)))
     (should (equal hermes lispm))
@@ -4494,13 +4251,6 @@ Strip."
   (let ((global-mode-string nil) (display-time-mode nil))
     (should-not (lispm-desktop-platinum-menu-status))))
 
-(ert-deftest lispm-desktop-test-age-short-date ()
-  "Old sessions are dated as Finder dated files; recent ones by their age."
-  (let ((now (float-time (encode-time '(0 0 12 13 10 2026 nil -1 nil)))))
-    (should (equal (lispm-desktop-agent-age (- now 120) now) "2m"))
-    (should (equal (lispm-desktop-agent-age (float-time (encode-time '(0 0 12 13 5 2026 nil -1 nil))) now)
-                   "5/13/26"))))
-
 (ert-deftest lispm-desktop-test-row-shades-sorted-column ()
   "A row's right-hand column carries the sorted column's face to the edge."
   (cl-letf (((symbol-function 'lispm-desktop-sidebar--column-pixels) (lambda () 100)))
@@ -5919,9 +5669,9 @@ and the clients after it wait too."
 (ert-deftest lispm-desktop-test-agent-list-follows-the-agents ()
   "The agents sidebar draws a session the user acted on at once, and what
 the agents changed themselves once Emacs is idle, and only when it is up."
-  (dlet ((lispm-desktop-agents-changed-hook nil)
-         (lispm-desktop-agent-sessions-changed-hook nil)
-         (lispm-desktop-agent-sessions-arrived-hook nil)
+  (dlet ((lispm-agents-changed-hook nil)
+         (lispm-agents-sessions-changed-hook nil)
+         (lispm-agents-sessions-arrived-hook nil)
          (eat-exit-hook nil)
          (lispm-desktop-term-exit-functions nil)
          (lispm-desktop-term-status-functions nil))
@@ -5933,15 +5683,15 @@ the agents changed themselves once Emacs is idle, and only when it is up."
                 ((symbol-function 'lispm-desktop-agent-list-refresh)
                  (lambda () (setq refreshed (1+ refreshed)))))
         (lispm-desktop-setup-agent-list)
-        (run-hooks 'lispm-desktop-agent-sessions-changed-hook)
+        (run-hooks 'lispm-agents-sessions-changed-hook)
         (should (= refreshed 1))
         (should-not (get-buffer lispm-desktop-agent-list-buffer-name))
-        (run-hooks 'lispm-desktop-agents-changed-hook)
+        (run-hooks 'lispm-agents-changed-hook)
         (should (= scheduled 0))
         (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
           (unwind-protect
               (progn
-                (run-hooks 'lispm-desktop-agents-changed-hook)
+                (run-hooks 'lispm-agents-changed-hook)
                 (should (= scheduled 1)))
             (kill-buffer)))
         (should (= refreshed 1))))))
@@ -5975,10 +5725,10 @@ refreshes it or acts on a session.  Sessions arriving from a reader, the
 agents changing, an agent's status or exit, a group folded, draw it again
 with what the readers have, those once Emacs is idle; arrivals are drawn
 whenever the sidebar is there, shown or not."
-  (dlet ((lispm-desktop-agents-changed-hook nil)
-         (lispm-desktop-agent-sessions-changed-hook nil)
-         (lispm-desktop-agent-sessions-arrived-hook nil)
-         (lispm-desktop-agent-reread-sessions-hook nil)
+  (dlet ((lispm-agents-changed-hook nil)
+         (lispm-agents-sessions-changed-hook nil)
+         (lispm-agents-sessions-arrived-hook nil)
+         (lispm-agents-reread-sessions-hook nil)
          (eat-exit-hook nil)
          (lispm-desktop-term-exit-functions nil)
          (lispm-desktop-term-status-functions nil))
@@ -5996,22 +5746,22 @@ whenever the sidebar is there, shown or not."
                   (happened ()
                     (prog1 (reverse events) (setq events nil))))
           (lispm-desktop-setup-agent-list)
-          (add-hook 'lispm-desktop-agent-reread-sessions-hook (lambda () (push 'reread events)))
+          (add-hook 'lispm-agents-reread-sessions-hook (lambda () (push 'reread events)))
           ;; No sidebar, nothing to draw.
-          (lispm-desktop-agent-sessions-arrived)
+          (lispm-agents-sessions-arrived)
           (should-not idle)
           (let ((sidebar (get-buffer-create lispm-desktop-agent-list-buffer-name))
                 (terminal (get-buffer-create "*codex:lispm-desktop-test*")))
             (unwind-protect
                 (lispm-desktop-test--with-agents '((codex :name "Codex" :program "emacs"))
                   (should-not (get-buffer-window sidebar 'visible))
-                  (lispm-desktop-agent-sessions-arrived)
-                  (lispm-desktop-agent-sessions-arrived)
+                  (lispm-agents-sessions-arrived)
+                  (lispm-agents-sessions-arrived)
                   (should (= (length idle) 1))
                   (should-not events)
                   (when-idle)
                   (should (equal (happened) '((draw agents))))
-                  (run-hooks 'lispm-desktop-agents-changed-hook)
+                  (run-hooks 'lispm-agents-changed-hook)
                   (when-idle)
                   (should (equal (happened) '((draw agents))))
                   (with-current-buffer terminal
@@ -6029,7 +5779,7 @@ whenever the sidebar is there, shown or not."
                   ;; Asked: read anew, then drawn, at once.
                   (lispm-desktop-agent-list-refresh)
                   (should (equal (happened) '(reread (draw agents))))
-                  (run-hooks 'lispm-desktop-agent-sessions-changed-hook)
+                  (run-hooks 'lispm-agents-sessions-changed-hook)
                   (should (equal (happened) '(reread (draw agents))))
                   (should-not idle))
               (kill-buffer sidebar)
@@ -6140,7 +5890,7 @@ its label says what the program waits for."
 (ert-deftest lispm-desktop-test-agent-next-waiting ()
   "\\`C-c a n' goes to the terminals waiting for the user, those blocked
 first, then those failed or done, and round again."
-  (should (eq (keymap-lookup lispm-desktop-agent-map "n") #'lispm-desktop-agent-next-waiting))
+  (should (eq (keymap-lookup lispm-agents-map "n") #'lispm-desktop-agent-next-waiting))
   (should-error (lispm-desktop-agent-next-waiting) :type 'user-error)
   (let ((buffers nil)
         (shown nil))
@@ -6154,7 +5904,7 @@ first, then those failed or done, and round again."
               (push (current-buffer) buffers)))
           (setq buffers (nreverse buffers))
           (should (equal (lispm-desktop-term-waiting-buffers) (list (nth 2 buffers) (nth 1 buffers))))
-          (cl-letf (((symbol-function 'lispm-desktop-agent-show) (lambda (buffer) (push buffer shown)))
+          (cl-letf (((symbol-function 'lispm-agents-show) (lambda (buffer) (push buffer shown)))
                     ((symbol-function 'lispm-desktop-sidebar-show-in-main) (lambda (buffer) (push buffer shown))))
             (lispm-desktop-agent-next-waiting)
             (should (eq (car shown) (nth 2 buffers)))
@@ -9604,16 +9354,6 @@ for an id alone, as YouTube wants to know the page it is in; it is 16 by
   (pcase-let ((`(,w . ,h) (lispm-desktop-app-yeetube-page-player-size 832 300)))
     (should (= h 198))
     (should (= w (round (/ 198 0.5625))))))
-
-(ert-deftest lispm-desktop-test-local-http-content-type ()
-  "A local server's answer is JSON unless its handler names its type."
-  (let ((sent nil))
-    (cl-letf (((symbol-function 'process-send-string) (lambda (_ string) (push string sent)))
-              ((symbol-function 'process-send-eof) #'ignore))
-      (lispm-desktop-local-http--reply 'connection '("200 OK" "{}"))
-      (lispm-desktop-local-http--reply 'connection '("200 OK" "<p>" "text/html; charset=utf-8")))
-    (should (string-search "Content-Type: application/json\r\n" (nth 1 sent)))
-    (should (string-search "Content-Type: text/html; charset=utf-8\r\n" (nth 0 sent)))))
 
 (ert-deftest lispm-desktop-test-app-yeetube-addresses ()
   "Yeetube's addresses are read for what they search and how they sort,

@@ -227,7 +227,7 @@ Agent terminals are named by their session title."
                                (cons (selected-window) (window-list nil 'no-mini)))
                      (selected-window)))
          (buffer (window-buffer window)))
-    (or (lispm-desktop-agent-buffer-label buffer) (buffer-name buffer))))
+    (or (lispm-agents-buffer-label buffer) (buffer-name buffer))))
 
 (defconst lispm-desktop-default-font-families '("Monaco" "Menlo" "DejaVu Sans Mono")
   "Font families for the default face, in order of preference.

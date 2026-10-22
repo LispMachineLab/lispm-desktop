@@ -55,7 +55,7 @@
 (require 'tabulated-list)
 (require 'url-parse)
 (require 'url-util)
-(require 'lispm-desktop-local-http)
+(require 'lispm-local-http)
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-app-yeetube-page)
 (require 'lispm-desktop-i18n)
@@ -588,8 +588,8 @@ else.  This is the handler of `lispm-desktop-app-yeetube--server'."
 its server started the first time."
   (unless (process-live-p lispm-desktop-app-yeetube--server)
     (setq lispm-desktop-app-yeetube--server
-          (lispm-desktop-local-http-serve "lispm-desktop-yeetube-player" #'always
-                                          #'lispm-desktop-app-yeetube-serve)))
+          (lispm-local-http-serve "lispm-desktop-yeetube-player" #'always
+                                  #'lispm-desktop-app-yeetube-serve)))
   (format "http://127.0.0.1:%d/%s/%s" (process-contact lispm-desktop-app-yeetube--server :service)
           (if (eq (plist-get item :type) 'playlist) "playlist" "watch")
           (url-hexify-string (plist-get item :id))))

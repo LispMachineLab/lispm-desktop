@@ -451,7 +451,7 @@ This is a `window-selection-change-functions' function."
       (when (frame-parameter frame 'lispm-desktop-window)
         (lispm-desktop-platinum-raise-window frame)))))
 
-(declare-function lispm-desktop-agent-available "lispm-desktop-ai" ())
+(declare-function lispm-agents-available "lispm-agents" ())
 (declare-function lispm-desktop-store-application-items "lispm-desktop-store" ())
 (declare-function lispm-browser-available-p "lispm-browser" ())
 
@@ -463,9 +463,9 @@ This is `lispm-desktop-platinum-lambda-items-function'."
     ,@(mapcar (pcase-lambda (`(,_ . ,props))
                 (list :label (lispm-desktop-tr "New %s Session" (plist-get props :name))
                       :action (plist-get props :command)))
-              (and (fboundp 'lispm-desktop-agent-available) (lispm-desktop-agent-available)))
-    (:label ,(lispm-desktop-tr "Resume Session…") :action lispm-desktop-agent-sessions)
-    (:label ,(lispm-desktop-tr "Send Region to Agent") :action lispm-desktop-agent-send-region
+              (and (fboundp 'lispm-agents-available) (lispm-agents-available)))
+    (:label ,(lispm-desktop-tr "Resume Session…") :action lispm-agents-sessions)
+    (:label ,(lispm-desktop-tr "Send Region to Agent") :action lispm-agents-send-region
             :enabled ,(use-region-p))
     separator
     (:label ,(lispm-desktop-tr "New Shell") :action lispm-desktop-shell-new)

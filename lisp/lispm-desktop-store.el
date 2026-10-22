@@ -31,7 +31,7 @@
 ;;                 reader of feeds, a music player, Emacs's calculator,
 ;;                 its games
 ;;   Extensions    packages adding to the editor, as an agent its CLI
-;;                 runs (`lispm-desktop-agent-define'): Hermes
+;;                 runs (`lispm-agents-define'): Hermes
 ;;
 ;; It lists them from catalogs: git repositories holding a catalog.eld,
 ;; LispMachineLab/lispm-store by default (`lispm-desktop-store-catalogs').
@@ -1008,6 +1008,9 @@ packages and the network, then TASK."
                      (list `(setq ,variable ',(symbol-value variable)))))
                  lispm-desktop-store--handed-variables)
        (push ,(file-name-directory library) load-path)
+       ;; The editor's agents, which an extension adding one requires.
+       ,@(when-let* ((agents (locate-library "lispm-agents")))
+           `((push ,(file-name-directory agents) load-path)))
        (require 'lispm-desktop-store-installer)
        (lispm-desktop-store-installer-run ',task))))
 
