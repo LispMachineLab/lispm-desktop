@@ -1,0 +1,309 @@
+#+title: Change settings
+#+description: Read and change LispM's settings, as Control Panels holds them: the look and the colour theme, the language, the keys, the proxy, the agents' sandbox, what opens at login and at startup, and how software updates; open a panel for the user.
+
+Control Panels is LispM Desktop's settings application: a window of panels, each a tab, which the
+user opens from the menu bar's λ menu or the desktop's Control Panels folder.  Each choice
+takes effect at once where it can, and is saved for later starts.  This skill gives you tools to
+read the settings, change them, and show the user a panel; and names the functions behind them
+for ~eval_elisp~.
+
+* Reading
+
+- ~settings_get~: every setting, by name, with its value, the values it takes, and the panel it
+  is on; with SETTING, that one alone.
+- ~settings_show~ PANEL: open Control Panels on a panel, for the user to look or choose
+  themselves: ~themes~ (Appearance), ~desktop~, ~keyboard~, ~language~, ~browser~ (Internet),
+  ~network~, ~sandbox~, ~startup~, ~kernel~ or ~update~ (Software Update).  It changes nothing.
+
+* Changing
+
+- ~settings_set~ SETTING VALUE: change a setting, now and for later starts.  It is of the
+  permission class ~write~.  The settings:
+
+  - ~look~: the forms the windows, menus and title bars are drawn in, ~platinum~ (classic), ~win3~,
+    ~os2~, ~phosphor~ or ~neon~; a look brings its own colours unless the user chose a theme.
+  - ~theme~: the colour theme, ~dracula~, ~platinum~, ~win3~, ~os2~, ~phosphor~, ~neon~, or any
+    other theme installed.
+  - ~language~: the language LispM's menus and windows speak, ~computer~ for the computer's own,
+    or ~en-US~, ~en-GB~, ~de~, ~fr~, ~ja~, ~zh-Hans~, ~zh-Hant~.  What agents say is not changed.
+  - ~editing-style~: ~vim~ or ~emacs~ keys in files; it takes effect at the next start.
+  - ~proxy-type~: ~none~, ~http~ or ~socks5~, the proxy every connection LispM makes goes through;
+    ~proxy-server~, its address, HOST:PORT; ~proxy-exceptions~, the hosts reached directly,
+    separated by commas.
+  - ~sandbox~: how strictly agents' shell commands and MCP servers are confined: ~none~, ~low~,
+    ~middle~, ~high~, or ~custom~, the user's own rules.  ~settings_set~ only makes it stricter;
+    see below.
+  - ~open-at-login~: ~true~ to have the computer open LispM when the user logs in.
+  - ~startup-item~, with ITEM: what LispM opens once started.  VALUE ~on~ or ~off~ turns the
+    item named ITEM on or off, ~remove~ takes it out; ~add~ adds ITEM, an application's key or a
+    file or folder, at the end.  Programs and Emacs commands, which run at every start, the user
+    adds in the Startup panel.
+  - ~update-check-automatically~ (~true~ or ~false~), ~update-schedule~ (~daily~ or ~weekly~),
+    ~update-install-automatically~ (~true~ installs LispM's updates by themselves, as it quits;
+    ~false~ asks first) and ~store-update-automatically~ (whether the App Store's applications
+    update by themselves).
+  - ~kernel~: ~true~ to have LispM Kernel run LispM's background work.
+
+* The sandbox
+
+The sandbox confines you and the other agents.  Make it stricter with ~settings_set~ when the
+user asks.  To lower it, or to choose or leave ~custom~, use ~settings_lower_sandbox~ LEVEL,
+which asks the user every time, whatever their policy says; do so only when the user asked for
+that level, and never to get around something the sandbox stopped: tell the user what was
+stopped instead.  The domains sandboxed commands may reach are the user's to change, in the
+Sandbox panel.
+
+* Care
+
+Change a setting only when the user asked for it, and tell them what you changed.  When they ask
+for something no setting here holds, show them the panel nearest to it rather than guessing.
+
+* Beyond the tools
+
+With ~eval_elisp~: ~(lispm-desktop-set-theme 'THEME)~, ~(lispm-desktop-set-look 'LOOK)~ and
+~(lispm-desktop-set-language 'TAG)~ change what their settings do; ~lispm-desktop-settings-panels~
+lists the panels; ~(lispm-desktop-settings-show 'PANEL)~ opens one; ~lispm-desktop-startup-items~
+holds the startup items, documented there.
+
+* The code
+
+#+begin_src emacs-lisp :lispm load
+;; Copyright (C) 2026  Ryan.K
+;; SPDX-License-Identifier: AGPL-3.0-or-later
+
+(require 'seq)
+(require 'subr-x)
+(require 'lispm-desktop-settings)
+(require 'lispm-desktop-look)
+(require 'lispm-desktop-proxy)
+(require 'lispm-desktop-startup)
+(require 'lispm-desktop-update)
+(require 'lispm-desktop-store)
+(require 'lispm-desktop-kernel)
+
+;; LispM's sandbox, loaded with its tools.
+(defvar lispm-sandbox-level)
+(defvar lispm-sandbox-levels)
+(defvar lispm-sandbox-allowed-domains)
+(defvar lispm-current-agent)
+(declare-function lispm-sandbox-set-level "lispm-sandbox" (level &optional save))
+(declare-function lispm-agent-root "lispm-core" (agent))
+
+(defconst lispm-desktop-skill-themes '(dracula platinum win3 os2 phosphor neon)
+  "The colour themes LispM Desktop brings.")
+
+(defconst lispm-desktop-skill-strictness '(none low middle high)
+  "The sandbox levels from the loosest to the strictest; custom is the user's own.")
+
+(defun lispm-desktop-skill-boolean (value)
+  "VALUE, a string, as t or nil; an error if it says neither."
+  (pcase (downcase (string-trim value))
+    ((or "true" "t" "on" "yes" "1") t)
+    ((or "false" "nil" "off" "no" "0") nil)
+    (_ (error "%s is neither true nor false" value))))
+
+(defun lispm-desktop-skill-choice (value choices)
+  "VALUE, a string, as the symbol of CHOICES it names; an error if none."
+  (let ((symbol (intern (string-trim value))))
+    (if (memq symbol choices)
+        symbol
+      (error "%s is not one of %s" value (mapconcat #'symbol-name choices ", ")))))
+
+(defun lispm-desktop-skill-save (variable value)
+  "Set VARIABLE to VALUE now and for later starts, as Control Panels does."
+  (customize-save-variable variable value))
+
+(defun lispm-desktop-skill-sandbox-levels ()
+  "The sandbox levels, or nil when LispM's sandbox is not loaded."
+  (and (boundp 'lispm-sandbox-levels) (mapcar #'car lispm-sandbox-levels)))
+
+(defun lispm-desktop-skill-stricter-p (level)
+  "Non-nil when sandbox LEVEL confines more than the level now."
+  (let ((from (seq-position lispm-desktop-skill-strictness lispm-sandbox-level))
+        (to (seq-position lispm-desktop-skill-strictness level)))
+    (and from to (> to from))))
+
+(defun lispm-desktop-skill-startup-index (name)
+  "The index of the startup item NAME, case ignored; an error if none."
+  (or (seq-position (mapcar (lambda (item) (downcase (lispm-desktop-startup-item-name item)))
+                            lispm-desktop-startup-items)
+                    (downcase (string-trim name)))
+      (error "No startup item %s: settings_get startup-item lists them" name)))
+
+(defun lispm-desktop-skill-startup-item (what)
+  "The startup item opening WHAT: an application's key, else a file or folder."
+  (let ((app (intern (string-trim what))))
+    (if (assq app lispm-desktop-apps)
+        (list :app app)
+      (let ((file (expand-file-name what (if (and (boundp 'lispm-current-agent) lispm-current-agent)
+                                             (lispm-agent-root lispm-current-agent)
+                                           default-directory))))
+        (unless (file-exists-p file)
+          (error "%s is no application's key, nor a file or folder" what))
+        (list :file (abbreviate-file-name file))))))
+
+(defun lispm-desktop-skill-startup-change (item value)
+  "Turn the startup item ITEM on or off, remove it, or add it, as VALUE says."
+  (pcase (downcase (string-trim value))
+    ("add"
+     (let ((new (lispm-desktop-skill-startup-item item)))
+       (when (member (lispm-desktop-startup-item-name new)
+                     (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items))
+         (error "There is already a startup item called %s" (lispm-desktop-startup-item-name new)))
+       (lispm-desktop-skill-save 'lispm-desktop-startup-items (append lispm-desktop-startup-items (list new)))))
+    ((and action (or "on" "off" "remove"))
+     (let ((index (lispm-desktop-skill-startup-index item)))
+       (lispm-desktop-skill-save
+        'lispm-desktop-startup-items
+        (if (equal action "remove")
+            (append (seq-take lispm-desktop-startup-items index)
+                    (seq-drop lispm-desktop-startup-items (1+ index)))
+          (seq-map-indexed (lambda (old i)
+                             (if (= i index)
+                                 (lispm-desktop-startup-item-with old :disabled (equal action "off"))
+                               old))
+                           lispm-desktop-startup-items)))))
+    (_ (error "A startup item's VALUE is on, off, remove or add"))))
+
+(defun lispm-desktop-skill-startup-text ()
+  "The startup items, a line each."
+  (if (null lispm-desktop-startup-items)
+      "none"
+    (mapconcat (lambda (item)
+                 (format "%s (%s %s%s)" (lispm-desktop-startup-item-name item)
+                         (lispm-desktop-startup-item-kind item)
+                         (plist-get item (intern (format ":%s" (lispm-desktop-startup-item-kind item))))
+                         (if (plist-get item :disabled) ", off" "")))
+               lispm-desktop-startup-items "; ")))
+
+(defun lispm-desktop-skill-settings ()
+  "The settings: (NAME PANEL GET CHOICES SET), GET a function returning the
+value, CHOICES a string saying what it takes, SET a function of the
+value, a string, and the item, or nil for one settings_set does not
+change."
+  `(("look" themes ,(lambda () lispm-desktop-look)
+     ,(mapconcat (lambda (look) (symbol-name (car look))) lispm-desktop-looks ", ")
+     ,(lambda (value _) (lispm-desktop-set-look (lispm-desktop-skill-choice value (mapcar #'car lispm-desktop-looks)))))
+    ("theme" themes ,(lambda () lispm-desktop-theme)
+     ,(concat (mapconcat #'symbol-name lispm-desktop-skill-themes ", ") ", or any theme installed")
+     ,(lambda (value _)
+        (lispm-desktop-set-theme (lispm-desktop-skill-choice
+                                  value (append lispm-desktop-skill-themes (custom-available-themes))))))
+    ("language" language ,(lambda () (or lispm-desktop-language "computer"))
+     ,(concat "computer, " (mapconcat (lambda (language) (symbol-name (car language))) lispm-desktop-languages ", "))
+     ,(lambda (value _)
+        (lispm-desktop-set-language
+         (unless (equal (string-trim value) "computer")
+           (lispm-desktop-skill-choice value (mapcar #'car lispm-desktop-languages))))))
+    ("editing-style" keyboard ,(lambda () lispm-desktop-editing-style) "vim, emacs"
+     ,(lambda (value _)
+        (lispm-desktop-skill-save 'lispm-desktop-editing-style (lispm-desktop-skill-choice value '(vim emacs)))))
+    ("proxy-type" network ,(lambda () (or lispm-desktop-proxy-type 'none)) "none, http, socks5"
+     ,(lambda (value _)
+        (let ((type (lispm-desktop-skill-choice value '(none http socks5))))
+          (unless (or (eq type 'none) (lispm-desktop-proxy-parse-server lispm-desktop-proxy-server))
+            (error "Set proxy-server, HOST:PORT, first"))
+          (lispm-desktop-skill-save 'lispm-desktop-proxy-type (unless (eq type 'none) type)))))
+    ("proxy-server" network ,(lambda () (or lispm-desktop-proxy-server "none")) "HOST:PORT"
+     ,(lambda (value _)
+        (unless (lispm-desktop-proxy-parse-server value)
+          (error "Write the proxy server as host:port, as 127.0.0.1:7890"))
+        (lispm-desktop-skill-save 'lispm-desktop-proxy-server (string-trim value))))
+    ("proxy-exceptions" network ,(lambda () (string-join lispm-desktop-proxy-exceptions ", "))
+     "hosts, separated by commas"
+     ,(lambda (value _) (lispm-desktop-skill-save 'lispm-desktop-proxy-exceptions (split-string value "[, ]+" t))))
+    ,@(when (lispm-desktop-skill-sandbox-levels)
+        `(("sandbox" sandbox ,(lambda () lispm-sandbox-level)
+           ,(mapconcat #'symbol-name (lispm-desktop-skill-sandbox-levels) ", ")
+           ,(lambda (value _)
+              (let ((level (lispm-desktop-skill-choice value (lispm-desktop-skill-sandbox-levels))))
+                (cond ((eq level lispm-sandbox-level))
+                      ((lispm-desktop-skill-stricter-p level) (lispm-sandbox-set-level level t))
+                      (t (error "That loosens the sandbox: only settings_lower_sandbox does, asking the user"))))))
+          ("sandbox-domains" sandbox ,(lambda () (string-join lispm-sandbox-allowed-domains ", "))
+           "the user's to change, in the Sandbox panel" nil)))
+    ("open-at-login" startup ,(lambda () (and (lispm-desktop-startup-login-p) t)) "true, false"
+     ,(lambda (value _) (lispm-desktop-open-at-login (lispm-desktop-skill-boolean value))))
+    ("startup-item" startup lispm-desktop-skill-startup-text
+     "with ITEM: on, off, remove; or add, ITEM an application's key, a file or a folder"
+     ,(lambda (value item)
+        (unless item (error "Name the startup item, ITEM"))
+        (lispm-desktop-skill-startup-change item value)))
+    ("update-check-automatically" update ,(lambda () lispm-desktop-update-check-automatically) "true, false"
+     ,(lambda (value _)
+        (lispm-desktop-skill-save 'lispm-desktop-update-check-automatically (lispm-desktop-skill-boolean value))))
+    ("update-schedule" update ,(lambda () lispm-desktop-update-schedule) "daily, weekly"
+     ,(lambda (value _)
+        (lispm-desktop-skill-save 'lispm-desktop-update-schedule (lispm-desktop-skill-choice value '(daily weekly)))))
+    ("update-install-automatically" update ,(lambda () lispm-desktop-update-install-automatically) "true, false"
+     ,(lambda (value _)
+        (lispm-desktop-skill-save 'lispm-desktop-update-install-automatically (lispm-desktop-skill-boolean value))))
+    ("store-update-automatically" update ,(lambda () lispm-desktop-store-update-automatically) "true, false"
+     ,(lambda (value _)
+        (lispm-desktop-skill-save 'lispm-desktop-store-update-automatically (lispm-desktop-skill-boolean value))))
+    ("kernel" kernel ,(lambda () lispm-desktop-kernel) "true, false"
+     ,(lambda (value _) (lispm-desktop-skill-save 'lispm-desktop-kernel (lispm-desktop-skill-boolean value))))))
+
+(defun lispm-desktop-skill-setting (name)
+  "The setting NAME of `lispm-desktop-skill-settings'; an error if none."
+  (or (assoc (string-trim name) (lispm-desktop-skill-settings))
+      (error "No setting %s: settings_get lists them" name)))
+
+(defun lispm-desktop-skill-setting-text (setting)
+  "SETTING, an entry of `lispm-desktop-skill-settings', as a line."
+  (pcase-let ((`(,name ,panel ,get ,choices ,set) setting))
+    (format "%s = %s  (%s%s; panel %s)" name
+            (let ((value (funcall get)))
+              (cond ((eq value t) "true")
+                    ((equal value "") "none")
+                    (value value)
+                    ((string-prefix-p "true" choices) "false")
+                    (t "not chosen")))
+            choices (if set "" ", read only") panel)))
+
+(defun lispm-desktop-skill-settings-changed ()
+  "Draw Control Panels again while they are open, as a choice made there does."
+  (when (lispm-desktop-settings-open-p)
+    (lispm-desktop-settings--render)))
+
+(lispm-deftool settings_get
+    ((setting string "One setting's name; without it, all of them." :optional t))
+  "Read LispM's settings: each one's value, the values it takes, and its Control Panels panel."
+  (if setting
+      (lispm-desktop-skill-setting-text (lispm-desktop-skill-setting setting))
+    (mapconcat #'lispm-desktop-skill-setting-text (lispm-desktop-skill-settings) "\n")))
+
+(lispm-deftool settings_show
+    ((panel string "The panel to show; without it, the one shown last." :optional t
+            :enum ("themes" "desktop" "keyboard" "language" "browser" "network" "sandbox" "startup"
+                   "kernel" "update")))
+  "Open Control Panels on a panel, for the user to look or choose themselves."
+  (let ((key (and panel (intern panel))))
+    (when (and key (not (assq key (lispm-desktop-settings--panels))))
+      (error "The panel %s does not show here" panel))
+    (lispm-desktop-settings-show key)
+    (format "Control Panels show %s." (or panel "the panel shown last"))))
+
+(lispm-deftool settings_set
+    ((setting string "The setting's name, as settings_get gives it.")
+     (value string "Its new value, as settings_get says it takes.")
+     (item string "For startup-item: the item's name, or what to add." :optional t))
+  "Change one of LispM's settings, now and for later starts; then say its value."
+  :permission write
+  (let* ((entry (lispm-desktop-skill-setting setting))
+         (set (or (nth 4 entry) (error "%s is not changed here: %s" setting (nth 3 entry)))))
+    (funcall set value item)
+    (lispm-desktop-skill-settings-changed)
+    (lispm-desktop-skill-setting-text (lispm-desktop-skill-setting setting))))
+
+(lispm-deftool settings_lower_sandbox
+    ((level string "The sandbox level to run agents' commands at." :enum ("none" "low" "middle" "high" "custom")))
+  "Set the sandbox level when that loosens it, or chooses or leaves custom: every call asks the user."
+  :permission write
+  :always-ask t
+  (unless (lispm-desktop-skill-sandbox-levels)
+    (error "LispM's sandbox is not loaded"))
+  (lispm-sandbox-set-level (lispm-desktop-skill-choice level (lispm-desktop-skill-sandbox-levels)) t)
+  (lispm-desktop-skill-settings-changed)
+  (format "The sandbox level is %s now." lispm-sandbox-level))
+#+end_src

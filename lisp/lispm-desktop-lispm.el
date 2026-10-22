@@ -64,6 +64,8 @@
 (declare-function lispm-agent-view "lispm-core" (agent))
 (declare-function lispm--read-role "lispm" (prompt))
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
+(declare-function lispm-desktop-store-skill-sources "lispm-desktop-store" ())
+(defvar lispm-skill-sources)
 
 ;;;; Sessions as lispm-desktop-ai sees them
 
@@ -154,10 +156,24 @@ With a prefix argument, choose its ROLE."
       (lispm-agents-show (lispm-desktop-lispm-new (lispm-agents-default-directory) role))
     (lispm-agents-new 'lispm)))
 
+(defun lispm-desktop--system-skills ()
+  "Return where the desktop's own skills are, as LispM Agent's
+`lispm-skill-sources' are told: the manuals of the desktop, its Control
+Panels and its App Store, `lispm-desktop-skill-directory'."
+  (list (list :directory lispm-desktop-skill-directory :origin "LispM Desktop")))
+
 (defun lispm-desktop-setup-lispm ()
   "Load LispM and register its agents with the agent tools."
   (lispm-desktop-deps-ensure 'lispm)
   (require 'lispm)
+  ;; LispM's agents find the desktop's skills, and those the App Store
+  ;; installed with its applications; LispM knows nothing of the desktop,
+  ;; so the desktop tells it.  The desktop's come last: a skill of a later
+  ;; source replaces one of the same name, and no catalog's replaces one
+  ;; of the desktop's own.
+  (when (boundp 'lispm-skill-sources)
+    (add-hook 'lispm-skill-sources #'lispm-desktop-store-skill-sources)
+    (add-hook 'lispm-skill-sources #'lispm-desktop--system-skills 90))
   (lispm-agents-define
    'lispm
    :name "LispM"

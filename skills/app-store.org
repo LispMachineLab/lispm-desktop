@@ -1,0 +1,320 @@
+#+title: Use the App Store
+#+description: Find applications and extensions in LispM's App Store, read what each is and does, and install, update or uninstall them once the user approves; show the App Store to the user.
+
+The App Store installs what LispM runs beyond what it ships with: applications, Emacs packages
+each in a window of its own on the desktop (a feed reader, a music player, chat clients, games),
+and extensions, which add to the editor (other agents, Common Lisp).  It lists them from
+catalogs, git repositories it fetches.  Many come with skills, manuals that let agents use them:
+those are installed and uninstalled with them, never on their own.  This skill gives you tools
+over the App Store, and names the functions behind them for ~eval_elisp~.
+
+* Finding
+
+- ~store_search~: the items the catalogs list, the best matches first: each one's ID, name, kind
+  and category, a few words on it, whether it is installed or can be updated, and the skills it
+  gives agents.  QUERY looks for words in names and descriptions; CATEGORY keeps one category
+  (~news~, ~music~, ~social~, ~productivity~, ~utilities~, ~games~, ~classic-ai~, ~extensions~ or
+  ~updates~, those an update is ready for); INSTALLED keeps those installed.
+- ~store_item~ ID: all the App Store knows of one item: its description and introduction, who
+  made it and under what licence, where it comes from, what it requires and needs beyond Emacs
+  (a program such as a music player), whether it is installed, being installed, or failed, and
+  the skills it gives agents.
+- ~store_show~: open the App Store's window, on an item's page with ID, for the user to look.
+- ~store_check~: fetch the catalogs now, to see new items and updates; LispM checks by itself
+  daily, so do it only when the user asks or the catalogs were never fetched.
+
+* Installing, updating, uninstalling
+
+- ~store_install~ ID: install an item, and what it requires first; what it needs beyond Emacs is
+  installed with it, in the Installer.  Its skills come once it is installed: load them with the
+  skill tool, or find their tools with search_tools.
+- ~store_update~ ID: update an item to what its catalog lists now: its package, and the skills
+  that came with it.
+- ~store_uninstall~ ID: uninstall an item; the skills that came with it go too.  What it brought
+  beyond its own package, programs and packages nothing else uses, stays; the user removes them
+  with Uninstall All in the App Store.
+
+All three run code the user has not read, so each asks the user every time, whatever their
+policy says, showing what it brings or changes.  Install, update or uninstall only what the
+user asked for; when they asked for something it could do, propose the item, and say what it
+is, before installing it.  Installs and updates run in the background, a minute or more: the
+tools wait for them and say how they ended.
+
+* Beyond the tools
+
+With ~eval_elisp~: ~(lispm-desktop-store-items)~ is every item, ~(ID . PROPERTIES)~;
+~(lispm-desktop-store-installed-p 'ID)~ and ~(lispm-desktop-store-update-available-p 'ID)~ say
+what they say; ~(lispm-desktop-store-open 'ID)~ opens an application installed in its window, as
+~desktop_open~ of the skill desktop does; ~(lispm-desktop-store-search "TEXT")~ shows the user
+what the App Store's search finds.
+
+* The code
+
+#+begin_src emacs-lisp :lispm load
+;; Copyright (C) 2026  Ryan.K
+;; SPDX-License-Identifier: AGPL-3.0-or-later
+
+(require 'seq)
+(require 'subr-x)
+(require 'lispm-desktop-store)
+
+(defvar lispm-desktop-skill-store-timeout 1800
+  "Seconds store_install and store_update wait for the App Store to be done.")
+
+(defvar lispm-desktop-skill-store-about-length 4000
+  "Characters of an item's introduction store_item gives at most.")
+
+(defun lispm-desktop-skill-store-items ()
+  "The items the App Store lists, the catalogs read from their clones first."
+  (unless lispm-desktop-store--catalogs
+    (lispm-desktop-store-read-catalogs))
+  (lispm-desktop-store-items))
+
+(defun lispm-desktop-skill-store-item (name)
+  "The item NAME, an ID or a name, case ignored, as (ID . PROPERTIES); an
+error if the App Store lists none."
+  (let ((wanted (downcase (string-trim name)))
+        (items (lispm-desktop-skill-store-items)))
+    (or (seq-find (lambda (item) (equal (symbol-name (car item)) wanted)) items)
+        (seq-find (lambda (item) (equal (downcase (plist-get (cdr item) :name)) wanted)) items)
+        (error "The App Store lists no %s: store_search finds items" name))))
+
+(defun lispm-desktop-skill-store-category (props)
+  "The category of the item of PROPS, in English."
+  (let ((category (lispm-desktop-store--category-of props)))
+    (or (cadr (assq category lispm-desktop-store-categories)) (and category (symbol-name category)) "none")))
+
+(defun lispm-desktop-skill-store-status (id)
+  "Whether the item ID is installed, being installed or updated, or failed."
+  (let ((job (lispm-desktop-store--job id)))
+    (cond ((and job (eq (lispm-desktop-store-job-state job) 'failed))
+           (format "its %s failed: %s" (lispm-desktop-store-job-action job) (lispm-desktop-store-job-error job)))
+          (job (format "%s, %s" (if (eq (lispm-desktop-store-job-action job) 'install) "being installed" "being updated")
+                       (nth 2 (assq (lispm-desktop-store-job-stage job) lispm-desktop-store-stages))))
+          ((lispm-desktop-store-update-available-p id) "installed, an update is ready")
+          ((lispm-desktop-store-installed-p id) "installed")
+          (t "not installed"))))
+
+(defun lispm-desktop-skill-store-skills (id)
+  "The skills the item ID gives agents, as words."
+  (mapconcat (pcase-lambda (`(,skill . ,props)) (format "%s (%s)" skill (plist-get props :name)))
+             (lispm-desktop-store--skills-for id) ", "))
+
+(defun lispm-desktop-skill-store-line (item)
+  "ITEM, (ID . PROPERTIES), as a line of store_search."
+  (pcase-let ((`(,id . ,props) item))
+    (let ((skills (lispm-desktop-skill-store-skills id)))
+      (format "%s: %s, %s in %s: %s; %s%s" id (plist-get props :name)
+              (if (eq (plist-get props :kind) 'extension) "an extension" "an application")
+              (lispm-desktop-skill-store-category props)
+              (or (plist-get props :subtitle) (plist-get props :description))
+              (lispm-desktop-skill-store-status id)
+              (if (string-empty-p skills) "" (format "; skills for agents: %s" skills))))))
+
+(defun lispm-desktop-skill-store-names (ids)
+  "The names of the items IDS, as words."
+  (mapconcat (lambda (id) (or (plist-get (cdr (assq id (lispm-desktop-store-items))) :name) (symbol-name id)))
+             ids ", "))
+
+(defun lispm-desktop-skill-store-install-preview (name)
+  "What installing the item NAME brings, as the App Store shows it."
+  (let* ((items (lispm-desktop-store--to-install (car (lispm-desktop-skill-store-item name))))
+         (skills (lispm-desktop-store--skills-coming items)))
+    (mapconcat #'identity (append (mapcar #'lispm-desktop-store--preview items)
+                                  (mapcar #'lispm-desktop-store--skill-preview skills))
+               "\n")))
+
+(defun lispm-desktop-skill-store-failure ()
+  "What the install or update that failed last says, or nil."
+  (when-let* ((job (seq-find (lambda (job) (eq (lispm-desktop-store-job-state job) 'failed))
+                             (reverse lispm-desktop-store--jobs))))
+    (format "%s: %s" (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
+            (lispm-desktop-store-job-error job))))
+
+(defun lispm-desktop-skill-store-wait (id done ended)
+  "Call DONE once the App Store no longer installs or updates the item ID:
+with what ENDED, a function of no argument, returns, (TEXT . FAILED)."
+  (let* ((deadline (+ (float-time) lispm-desktop-skill-store-timeout))
+         (timer nil)
+         (check (lambda ()
+                  (condition-case err
+                      (cond ((lispm-desktop-store--busy-p id)
+                             (when (> (float-time) deadline)
+                               (cancel-timer timer)
+                               (funcall done (format "%s is still going on in the background: store_item says how far."
+                                                     (lispm-desktop-skill-store-names (list id))))))
+                            (t (cancel-timer timer)
+                               (let ((result (funcall ended)))
+                                 (funcall done (car result) (cdr result)))))
+                    (error (cancel-timer timer)
+                           (funcall done (error-message-string err) t))))))
+    (setq timer (run-at-time 0 0.5 check))))
+
+(lispm-deftool store_search
+    ((query string "Words to look for in names, subtitles, descriptions and categories." :optional t)
+     (category string "Only the items of this category." :optional t
+               :enum ("news" "music" "social" "productivity" "utilities" "games" "classic-ai" "extensions"
+                      "updates"))
+     (installed boolean "Only the items installed (default false)." :optional t))
+  "List the App Store's applications and extensions, the best matches first, with their status and the skills they give agents."
+  (let* ((items (lispm-desktop-skill-store-items))
+         (words (lispm-desktop-store--words query))
+         (found (seq-filter (lambda (item)
+                              (and (or (null category) (lispm-desktop-store--in-category-p item (intern category)))
+                                   (or (not installed) (lispm-desktop-store-installed-p (car item)))
+                                   (or (null words) (lispm-desktop-store--rank item words))))
+                            items))
+         (by-name (lambda (a b) (string-lessp (downcase (plist-get (cdr a) :name))
+                                              (downcase (plist-get (cdr b) :name)))))
+         (sorted (sort found (lambda (a b)
+                               (let ((ra (if words (lispm-desktop-store--rank a words) 0))
+                                     (rb (if words (lispm-desktop-store--rank b words) 0)))
+                                 (if (= ra rb) (funcall by-name a b) (< ra rb)))))))
+    (cond ((null items) "The App Store has no catalog yet: store_check fetches them.")
+          ((null sorted) "Nothing matches.")
+          (t (mapconcat #'lispm-desktop-skill-store-line sorted "\n")))))
+
+(lispm-deftool store_item
+    ((id string "The item's ID, as store_search gives it, or its name."))
+  "Say all the App Store knows of one item: what it is, its status, where it comes from, what it needs, and the skills it gives agents."
+  (pcase-let* ((`(,id . ,props) (lispm-desktop-skill-store-item id))
+               (about (lispm-desktop-store--about-file props))
+               (needs (plist-get props :needs)))
+    (concat
+     (format "%s (%s), %s in %s, from the catalog %s.\n"
+             (plist-get props :name) id
+             (if (eq (plist-get props :kind) 'extension) "an extension" "an application")
+             (lispm-desktop-skill-store-category props)
+             (lispm-desktop-store--catalog-name (plist-get props :catalog)))
+     (format "%s\n" (plist-get props :description))
+     (format "Status: %s.\n" (lispm-desktop-skill-store-status id))
+     (format "Made by %s; licence %s; version %s.\n" (plist-get props :author) (plist-get props :license)
+             (lispm-desktop-store--version id props))
+     (format "From: %s.\n" (lispm-desktop-store--origin props))
+     (if-let* ((requires (plist-get props :requires)))
+         (format "Requires: %s.\n" (lispm-desktop-skill-store-names requires))
+       "")
+     (if-let* ((program (plist-get props :program)))
+         (format "Needs the program %s%s.\n" program
+                 (if (executable-find program) "" (format ", not on PATH; installed with: %s"
+                                                          (or (plist-get props :install) "?"))))
+       "")
+     (mapconcat (lambda (need)
+                  (format "Needs %s, for %s: %s.\n" (lispm-desktop-needs-name need)
+                          (lispm-desktop-needs-get need :for)
+                          (if (lispm-desktop-needs-present-p need) "there" "missing")))
+                needs "")
+     (mapconcat (pcase-lambda (`(,skill . ,skill-props))
+                  (format "Skill for agents: %s, %s: %s\n" skill (plist-get skill-props :name)
+                          (plist-get skill-props :description)))
+                (lispm-desktop-store--skills-for id) "")
+     (if (and about (file-readable-p about))
+         (let ((text (with-temp-buffer (insert-file-contents about) (buffer-string))))
+           (concat "\nIntroduction:\n" (truncate-string-to-width text lispm-desktop-skill-store-about-length
+                                                                 nil nil "…")))
+       ""))))
+
+(lispm-deftool store_show
+    ((id string "The item whose page to show; without it, the App Store as it was." :optional t))
+  "Open the App Store's window for the user, on an item's page with ID."
+  (let ((item (and id (lispm-desktop-skill-store-item id))))
+    (lispm-desktop-store-show)
+    (when item
+      (lispm-desktop-store-show-item (car item)))
+    (if item (format "The App Store shows %s." (plist-get (cdr item) :name)) "The App Store is open.")))
+
+(lispm-deftool store_check ()
+  "Fetch the App Store's catalogs now, then say how many items they list and which can be updated."
+  :permission web
+  :async t
+  (unless lispm-desktop-store--checking
+    (lispm-desktop-store-check-for-updates))
+  (let ((timer nil)
+        (deadline (+ (float-time) 300)))
+    (setq timer
+          (run-at-time 0.5 0.5
+                       (lambda ()
+                         (when (or (not lispm-desktop-store--checking) (> (float-time) deadline))
+                           (cancel-timer timer)
+                           (let ((updates (lispm-desktop-store-updates))
+                                 (count (length (lispm-desktop-store-items))))
+                             (funcall done
+                                      (format "The catalogs list %d %s%s.%s"
+                                              count (if (= count 1) "item" "items")
+                                              (if lispm-desktop-store--checking ", still being fetched" "")
+                                              (if updates
+                                                  (format " Updates are ready for %s."
+                                                          (lispm-desktop-skill-store-names updates))
+                                                " Everything installed is up to date."))))))))))
+
+(lispm-deftool store_install
+    ((id string "The item's ID, as store_search gives it, or its name."))
+  "Install an application or extension, what it requires and needs, and the skills that come with it; wait until it is done."
+  :permission exec
+  :always-ask t
+  :async t
+  :preview #'lispm-desktop-skill-store-install-preview
+  (let ((id (car (lispm-desktop-skill-store-item id))))
+    (if (lispm-desktop-store-installed-p id)
+        (funcall done (format "%s is installed already." (lispm-desktop-skill-store-names (list id))))
+      (lispm-desktop-store-install id t)
+      (lispm-desktop-skill-store-wait
+       id done
+       (lambda ()
+         (if (lispm-desktop-store-installed-p id)
+             (cons (concat (format "%s is installed." (lispm-desktop-skill-store-names (list id)))
+                           (if-let* ((skills (lispm-desktop-store--installed-skills id)))
+                               (format " Its skills for agents: %s." (mapconcat (lambda (skill) (symbol-name (car skill)))
+                                                                                skills ", "))
+                             ""))
+                   nil)
+           (cons (format "%s was not installed%s." (lispm-desktop-skill-store-names (list id))
+                         (if-let* ((failure (lispm-desktop-skill-store-failure))) (format ": %s" failure) ""))
+                 t)))))))
+
+(lispm-deftool store_update
+    ((id string "The item's ID, as store_search gives it, or its name."))
+  "Update an installed item to what its catalog lists now, its skills too; wait until it is done."
+  :permission exec
+  :always-ask t
+  :async t
+  :preview (lambda (name)
+             (pcase-let ((`(,id . ,props) (lispm-desktop-skill-store-item name)))
+               (lispm-desktop-store--changes (lispm-desktop-store--installed id) props id)))
+  (let ((id (car (lispm-desktop-skill-store-item id))))
+    (unless (lispm-desktop-store-update-available-p id)
+      (error "%s is up to date" (lispm-desktop-skill-store-names (list id))))
+    (lispm-desktop-store-update id t)
+    (lispm-desktop-skill-store-wait
+     id done
+     (lambda ()
+       (if-let* ((job (lispm-desktop-store--job id)))
+           (cons (format "%s was not updated: %s" (lispm-desktop-skill-store-names (list id))
+                         (lispm-desktop-store-job-error job))
+                 t)
+         (cons (format "%s is updated." (lispm-desktop-skill-store-names (list id))) nil))))))
+
+(lispm-deftool store_uninstall
+    ((id string "The item's ID, as store_search gives it, or its name."))
+  "Uninstall an item the App Store installed, and the skills that came with it."
+  :permission write
+  :always-ask t
+  :preview (lambda (name)
+             (pcase-let ((`(,id . ,props) (lispm-desktop-skill-store-item name)))
+               (lispm-desktop-store--remove-detail id (or (lispm-desktop-store--installed id) props))))
+  (pcase-let ((`(,id . ,_) (lispm-desktop-skill-store-item id)))
+    (unless (lispm-desktop-store-installed-p id)
+      (error "%s is not installed" (lispm-desktop-skill-store-names (list id))))
+    (let ((name (lispm-desktop-skill-store-names (list id)))
+          (leftovers (append (mapcar #'lispm-desktop-needs-name
+                                     (and (eq (plist-get (lispm-desktop-store--installed id) :kind) 'app)
+                                          (lispm-desktop-store--needs-leftovers id)))
+                             (mapcar #'symbol-name
+                                     (lispm-desktop-store--package-leftovers id (lispm-desktop-store--installed id))))))
+      (lispm-desktop-store-uninstall id t)
+      (concat (format "%s is uninstalled." name)
+              (if leftovers
+                  (format " What it brought stays: %s; Uninstall All in the App Store removes it."
+                          (string-join leftovers ", "))
+                "")))))
+#+end_src

@@ -37,6 +37,10 @@
   "The desktop's directory, a checkout of lispm-desktop: the parent of its
 lisp/ directory.")
 
+(defconst lispm-desktop-skill-directory (expand-file-name "skills/" lispm-desktop-directory)
+  "The desktop's own skills, LispM Agent's manuals of the desktop, its
+Control Panels and its App Store, see lispm-desktop-lispm.el.")
+
 (defgroup lispm-desktop nil
   "LispM's Emacs distribution."
   :group 'convenience
