@@ -5127,6 +5127,10 @@ srt makes the status `installing'.  Custom's rules may not have the key
          (chosen nil))
      (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
                ((symbol-function 'lispm-sandbox-level-name) (lambda (level) (capitalize (symbol-name level))))
+               ;; As LispM Agent 0.3.0 says it; another test may have
+               ;; loaded a later one.
+               ((symbol-function 'lispm-sandbox-level-description)
+                (lambda (&optional level) (alist-get (or level lispm-sandbox-level) lispm-sandbox-levels)))
                ((symbol-function 'lispm-sandbox-srt-status) (lambda () status))
                ((symbol-function 'lispm-sandbox-install) (lambda () (setq status 'installing)))
                ((symbol-function 'lispm-sandbox-set-level)
@@ -5152,10 +5156,182 @@ srt makes the status `installing'.  Custom's rules may not have the key
 loaded, and not before."
   (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore))
     (should-not (assq 'sandbox (lispm-desktop-settings--panels))))
-  (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--lispm-p) #'ignore))
     (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
       (should (equal (cadr (memq 'network keys)) 'sandbox))))
   (should (file-readable-p (lispm-desktop-platinum-icon-file "sandbox-32"))))
+
+(ert-deftest lispm-desktop-test-settings-lispm-with-lispm-agent ()
+  "The LispM panel shows, between Network and Sandbox, once LispM Agent's
+settings are loaded, and not before."
+  (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'ignore))
+    (should-not (assq 'lispm (lispm-desktop-settings--panels))))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--sandbox-p) #'always))
+    (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
+      (should (equal (seq-take (memq 'network keys) 3) '(network lispm sandbox)))))
+  (should (file-readable-p (lispm-desktop-platinum-icon-file "lispm-32"))))
+
+(defmacro lispm-desktop-test--with-lispm-settings (&rest body)
+  "Run BODY with LispM Agent's settings loaded and set as a test's own: the
+backend `test', which needs no key, two roles, no skill directory but
+LispM's own, and a scratch `lispm-directory'.  Customize saves nothing:
+`saved' lists the variables it was asked to save, the last first.  The
+test is skipped with a LispM Agent older than 0.6.0."
+  (declare (indent 0))
+  `(progn
+     (skip-unless (require 'lispm-settings nil t))
+     (let* ((lispm-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-lispm" t)))
+            (lispm-backends (cons '(test :api anthropic :url "http://fake.invalid" :model "test-model"
+                                         :models ("test-small"))
+                                  lispm-backends))
+            (lispm-backend 'test)
+            (lispm-model nil)
+            (lispm-effort "medium")
+            (lispm-default-policy (copy-tree lispm-default-policy))
+            (lispm-trusted-skills nil)
+            (lispm-compact-threshold 120000)
+            (lispm-compact-save-memory t)
+            (lispm-git t)
+            (lispm--roles nil)
+            (lispm-default-role 'assistant)
+            (lispm-skill-directories (list lispm-skills--builtin))
+            (lispm-model-choices-functions nil)
+            (lispm-backend-status-functions nil)
+            (lispm-backend-action-functions nil)
+            (lispm-settings-change-hook nil)
+            (lispm-desktop-finder-folders nil)
+            (enable-theme-functions nil)
+            (lispm-desktop-update-changed-hook nil)
+            (lispm-desktop-startup-changed-hook nil)
+            (saved nil))
+       (lispm-register-role 'assistant :description "A general assistant.")
+       (lispm-register-role 'reviewer :description "Reviews changes.")
+       (cl-letf (((symbol-function 'customize-save-variable)
+                  (lambda (variable value &rest _)
+                    (push variable saved)
+                    (customize-set-variable variable value))))
+         (unwind-protect (progn ,@body)
+           (delete-directory lispm-directory t))))))
+
+(defun lispm-desktop-test--press (label)
+  "Press the button of the current panel whose label, or help, holds LABEL,
+and draw the panel again as a change made elsewhere would."
+  (let ((button (lispm-desktop-test--settings-button label)))
+    (unless button
+      (let ((position (point-min)))
+        (while (and (setq position (next-button position))
+                    (not (string-search label (or (get-text-property position 'help-echo) ""))))
+          (setq position (button-end position)))
+        (setq button position)))
+    (should button)
+    (button-activate (button-at button))
+    (run-hooks 'lispm-settings-change-hook)))
+
+(ert-deftest lispm-desktop-test-settings-lispm-panel ()
+  "The LispM panel shows the model and how its backend stands, the default
+policy as a table, the sizes conversations are summed up at, the roles
+and the directories of skills; each control changes its setting, saved,
+and the panel shows what was chosen."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-lispm-settings
+    (lispm-desktop-setup-settings)
+    (with-current-buffer (lispm-desktop-settings--buffer)
+      (lispm-desktop-settings-select 'lispm)
+      (should (equal lispm-desktop-platinum-title "LispM"))
+      (dolist (text '("Model" "test-model" "via test" "Ready; it needs no key." "Effort: " "Extra high"
+                      "Choose…" "Backends…" "Permissions" "Allow" "Ask" "Deny" "Run shell commands"
+                      "Memory" "Small" "Only when asked" "Save memory before summing up" "Show Memory…"
+                      "Roles & Skills" "assistant" "A general assistant." "reviewer"
+                      "LispM's own skills" "Add…"))
+        (should (string-search text (lispm-desktop-test--settings-text))))
+      ;; Only LispM's own skills: nothing to remove.
+      (should-not (lispm-desktop-test--settings-button "Remove…"))
+      (should (lispm-desktop-test--radio-on-p "Medium"))
+      (lispm-desktop-test--press "Extra high")
+      (should (equal lispm-effort "xhigh"))
+      (should (lispm-desktop-test--radio-on-p "Extra high"))
+      (lispm-desktop-test--press "Allow: Run shell commands")
+      (should (eq (alist-get 'shell lispm-default-policy) 'auto))
+      (lispm-desktop-test--press "Deny: Search the web and fetch pages")
+      (should (eq (alist-get 'web lispm-default-policy) 'deny))
+      (lispm-desktop-test--press "Large")
+      (should (= lispm-compact-threshold 240000))
+      (should (lispm-desktop-test--radio-on-p "Large"))
+      (lispm-desktop-test--press "Keep a history in git")
+      (should-not lispm-git)
+      (lispm-desktop-test--press "reviewer")
+      (should (eq lispm-default-role 'reviewer))
+      (should (equal (seq-uniq saved)
+                     '(lispm-default-role lispm-git lispm-compact-threshold lispm-default-policy lispm-effort)))
+      ;; A size of the user's own shows as such.
+      (setq lispm-compact-threshold 99999)
+      (run-hooks 'lispm-settings-change-hook)
+      (should (string-search "summed up past 99999 tokens" (buffer-string)))
+      ;; A program providing models tells how the backend stands, and
+      ;; offers what can be done about it.
+      (add-hook 'lispm-backend-status-functions
+                (lambda (_name _backend) '(:state starting :message "The gateway is starting.")))
+      (add-hook 'lispm-backend-action-functions
+                (lambda (_name) (list (list "Set Up Gateway…" #'ignore "Set the gateway up"))))
+      (run-hooks 'lispm-settings-change-hook)
+      (should (string-search "The gateway is starting." (buffer-string)))
+      (should (lispm-desktop-test--settings-button "Set Up Gateway…"))
+      ;; The trusted skills, with what forgets them.
+      (setq lispm-trusted-skills '(("~/p/.lispm/skills/tidy.org" . "h")))
+      (run-hooks 'lispm-settings-change-hook)
+      (should (string-search "Projects' skills whose code runs unasked: tidy." (buffer-string)))
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "~/p/.lispm/skills/tidy.org")))
+        (lispm-desktop-test--press "Have agents ask again"))
+      (should-not lispm-trusted-skills)
+      (should (string-search "you trust none yet" (buffer-string))))))
+
+(ert-deftest lispm-desktop-test-settings-lispm-model-menu ()
+  "The model's menu lists each backend's models, the one used checked, a
+separator between backends, then Other Model…; choosing one has agents
+use it, saved."
+  (lispm-desktop-test--with-lispm-settings
+    (let ((items (lispm-desktop-settings--model-items)))
+      (should (member "test-model (test)" (mapcar (lambda (item) (plist-get item :label)) (remq 'separator items))))
+      (should (plist-get (seq-find (lambda (item) (equal (plist-get item :label) "test-model (test)")) items)
+                         :checked))
+      (should (memq 'separator items))
+      (should (equal (plist-get (car (last items)) :label) "Other Model…"))
+      (funcall (plist-get (seq-find (lambda (item) (equal (plist-get item :label) "test-small (test)")) items)
+                          :action))
+      (should (equal (list lispm-backend lispm-model) '(test "test-small")))
+      (should (memq 'lispm-model saved)))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) " test-large ")))
+      (lispm-desktop-settings--other-model))
+    (should (equal lispm-model "test-large"))
+    ;; One backend: its models need no name of it.
+    (let ((lispm-backends (list (assq 'test lispm-backends))))
+      (should (equal (mapcar (lambda (item) (plist-get item :label)) (remq 'separator (lispm-desktop-settings--model-items)))
+                     '("test-model" "test-small" "test-large" "Other Model…"))))))
+
+(ert-deftest lispm-desktop-test-settings-lispm-skill-directories ()
+  "Directories of skills are added, last, and taken out; LispM's own is
+never offered to take out."
+  (lispm-desktop-test--with-lispm-settings
+    (let ((directory (file-name-as-directory (expand-file-name "skills" lispm-directory)))
+          (offered nil))
+      (make-directory directory)
+      (with-temp-file (expand-file-name "tidy.org" directory) (insert "* Tidy\n"))
+      (cl-letf (((symbol-function 'read-directory-name) (lambda (&rest _) directory))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _) (setq offered collection) (car collection))))
+        (lispm-desktop-settings--add-skill-directory)
+        (should (equal (cadr lispm-skill-directories) (abbreviate-file-name directory)))
+        (with-current-buffer (lispm-desktop-settings--buffer)
+          (lispm-desktop-settings-select 'lispm)
+          (should (string-search "1 skill" (buffer-string)))
+          (should (lispm-desktop-test--settings-button "Remove…")))
+        (lispm-desktop-settings--remove-skill-directory)
+        (should (equal offered (list (abbreviate-file-name directory))))
+        (should (equal lispm-skill-directories (list lispm-skills--builtin)))
+        (should (equal saved '(lispm-skill-directories lispm-skill-directories)))))))
 
 (ert-deftest lispm-desktop-test-settings-sandbox-srt ()
   "The Sandbox panel says whether srt is installed, being installed, or why
