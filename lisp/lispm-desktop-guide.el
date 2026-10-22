@@ -160,6 +160,8 @@ whenever asked."
      :mark (icon . store)
      :when lispm-desktop-guide--store-p
      :text ,(lispm-desktop-tr-noop "Applications and extensions to install: games, news, music and more agents.  The applications installed are in the Applications folder.")
+     :keys (("/" ,(lispm-desktop-tr-noop "searches the App Store"))
+            ("RET" ,(lispm-desktop-tr-noop "opens the selected item's page, DEL goes back")))
      :show lispm-desktop-guide--show-store)
     (strip
      :title ,(lispm-desktop-tr-noop "The Control Strip")

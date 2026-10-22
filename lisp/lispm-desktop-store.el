@@ -95,15 +95,21 @@
 ;; Emacs said.
 ;;
 ;; The window is laid out as the Mac App Store's, in Mac OS 9's forms:
-;; the categories down the left, the items of the one chosen as icons in
-;; a grid, each with its button, Get, Open or Update; push buttons under
-;; the grid, and the selected item's information below them, shown or
-;; hidden.  The keyboard does all of it: C-f, C-b, C-n and C-p go from
-;; icon to icon, M-n and M-p from category to category, RET or Space
-;; press the selected item's button, / searches, i shows or hides the
-;; information, u updates, D uninstalls, . stops an install, l shows the
-;; log of one that failed, g checks the catalogs, + installs from a git
-;; URL, Tab goes to the push buttons and q closes.
+;; a search field over the categories down the left, the items of the
+;; one chosen as icons in a grid, each with its button, Get, Open or
+;; Update, in pages of as many as fit, Previous and Next under them.
+;; What is typed in the field is looked for in every category as typing
+;; pauses, the best matches first.  An item clicked opens its page in
+;; place of the grid: its icon and name large, its description and
+;; information, its push buttons under them; Go Back goes back to the
+;; grid, on the page it was.  The keyboard does all of it: C-f, C-b, C-n
+;; and C-p go from icon to icon, ] and [, or C-v and M-v, from page to
+;; page, M-n and M-p from category to category, RET or i opens the
+;; selected item's page, DEL or M-[ goes back, Space presses its button,
+;; / or C-s goes to the search field, which RET or C-n leaves and C-g
+;; empties, u updates, D uninstalls, . stops an install, l shows the log
+;; of one that failed, g checks the catalogs, + installs from a git URL,
+;; Tab goes to the push buttons and q closes.
 
 ;;; Code:
 
@@ -111,6 +117,7 @@
 (require 'subr-x)
 (require 'cl-lib)
 (require 'package)
+(require 'delsel)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-modal)
@@ -198,13 +205,11 @@ for; a category holding nothing is left out.")
   "The category shown, a key of `lispm-desktop-store-categories'.")
 
 (defvar-local lispm-desktop-store--filter nil
-  "What the items shown match, see `lispm-desktop-store-search', or nil.")
+  "What the search field holds, which the items shown match, see
+`lispm-desktop-store-search', or nil.")
 
 (defvar-local lispm-desktop-store--selected nil
   "The ID of the item selected, or nil.")
-
-(defvar-local lispm-desktop-store--information t
-  "Non-nil while the selected item's information shows under the grid.")
 
 (defvar-local lispm-desktop-store--status-text nil
   "What the App Store is doing, for its placard, or nil.")
@@ -234,7 +239,6 @@ for; a category holding nothing is left out.")
   "Height in pixels of an item of the grid, and of a line of the grid.")
 
 (defvar lispm-desktop-store-grid-map)
-(defvar lispm-desktop-store-disclosure-map)
 (defvar lispm-desktop-store--jobs)
 
 ;;;; Catalogs
@@ -1810,6 +1814,38 @@ thrown away, from the folder's menu or onto the Trash."
 
 ;;;; The window
 
+(defvar-local lispm-desktop-store--view 'grid
+  "What the window shows: `grid', a page of the items of its category or of
+its search, or `item', the page of the item selected.")
+
+(defvar-local lispm-desktop-store--drawn nil
+  "What the window showed when last drawn, as `lispm-desktop-store--view'
+says it, or nil before.")
+
+(defvar-local lispm-desktop-store--height nil
+  "The height in pixels the window was drawn for.")
+
+(defvar-local lispm-desktop-store--rows-height nil
+  "The height in pixels of the rows over and under the grid, as measured
+once drawn: the fonts set it.")
+
+(defvar-local lispm-desktop-store--field nil
+  "The overlay over the search field's text, once the window is drawn.")
+
+(defvar-local lispm-desktop-store--field-focused nil
+  "Non-nil while the search field was last drawn with the keyboard.")
+
+(defvar-local lispm-desktop-store--search-timer nil
+  "The timer showing what the search field holds matches, once typing pauses.")
+
+(defconst lispm-desktop-store-search-delay 0.15
+  "Seconds typing in the search field pauses before the grid shows what
+the search matches.")
+
+(defvar lispm-desktop-store-field-map)
+(defvar lispm-desktop-store-clear-map)
+(defvar lispm-desktop-store-page-map)
+
 (defun lispm-desktop-store-open-p ()
   "Return non-nil while the App Store's window is open."
   (lispm-desktop-app-window-open-p 'store))
@@ -1848,14 +1884,38 @@ Store's window when that is current, else one read with PROMPT."
     ('updates (lispm-desktop-store-update-available-p (car item)))
     (_ (eq (lispm-desktop-store--category-of (cdr item)) category))))
 
+(defun lispm-desktop-store--words (filter)
+  "Return the words of FILTER, what is searched, in lower case, or nil."
+  (and filter (split-string (downcase filter) "[ \t\n]+" t)))
+
+(defun lispm-desktop-store--rank (item words)
+  "Return how well ITEM, (ID . PROPERTIES), matches WORDS, each of which it
+must hold somewhere: 0 when its name starts with the first, 1 when its
+name holds them all, 2 otherwise; nil when one of them is nowhere in its
+name, subtitle, description or category, named in English or in the
+language LispM speaks."
+  (let* ((props (cdr item))
+         (name (downcase (plist-get props :name)))
+         (category (lispm-desktop-store--category-of props))
+         (text (downcase (string-join (delq nil (list name (plist-get props :subtitle)
+                                                      (plist-get props :description)
+                                                      (cadr (assq category lispm-desktop-store-categories))
+                                                      (lispm-desktop-store--category-name category)))
+                                      "\n"))))
+    (when (seq-every-p (lambda (word) (string-search word text)) words)
+      (cond ((string-prefix-p (car words) name) 0)
+            ((seq-every-p (lambda (word) (string-search word name)) words) 1)
+            (t 2)))))
+
 (defun lispm-desktop-store--matches-p (item filter)
-  "Return non-nil when FILTER is nil, or ITEM's name, subtitle or
-description holds it, whatever its case."
-  (or (null filter)
-      (seq-some (lambda (key)
-                  (let ((text (plist-get (cdr item) key)))
-                    (and (stringp text) (string-search (downcase filter) (downcase text)))))
-                '(:name :subtitle :description))))
+  "Return non-nil when FILTER is nil, or ITEM holds each of its words, see
+`lispm-desktop-store--rank'."
+  (let ((words (lispm-desktop-store--words filter)))
+    (or (null words) (and (lispm-desktop-store--rank item words) t))))
+
+(defun lispm-desktop-store--searching-p ()
+  "Return non-nil while the window shows what a search matches."
+  (and (lispm-desktop-store--words lispm-desktop-store--filter) t))
 
 (defun lispm-desktop-store--categories ()
   "Return the categories listed down the window's left: All, those holding
@@ -1874,21 +1934,44 @@ LispM speaks."
   (when-let* ((name (cadr (assq category lispm-desktop-store-categories))))
     (lispm-desktop-tr name)))
 
+(defun lispm-desktop-store--current-category ()
+  "Return the category the list highlights: the one shown, or nil while a
+search is."
+  (unless (lispm-desktop-store--searching-p)
+    lispm-desktop-store--category))
+
 (defun lispm-desktop-store--shown ()
-  "Return the items the window shows: its category's matching its search,
-by name."
-  (sort (seq-filter (lambda (item)
-                      (and (lispm-desktop-store--in-category-p item lispm-desktop-store--category)
-                           (lispm-desktop-store--matches-p item lispm-desktop-store--filter)))
-                    (lispm-desktop-store-items))
-        (lambda (a b) (string-lessp (downcase (plist-get (cdr a) :name))
-                                    (downcase (plist-get (cdr b) :name))))))
+  "Return the items the window shows: those its search matches, the best
+first, then by name; without a search, its category's, by name.  A
+search looks through every category."
+  (let ((words (lispm-desktop-store--words lispm-desktop-store--filter))
+        (by-name (lambda (a b) (string-lessp (downcase (plist-get (cdr a) :name))
+                                             (downcase (plist-get (cdr b) :name))))))
+    (if words
+        (mapcar #'cdr (sort (delq nil (mapcar (lambda (item)
+                                                (when-let* ((rank (lispm-desktop-store--rank item words)))
+                                                  (cons rank item)))
+                                              (lispm-desktop-store-items)))
+                            (lambda (a b) (if (= (car a) (car b))
+                                              (funcall by-name (cdr a) (cdr b))
+                                            (< (car a) (car b))))))
+      (sort (seq-filter (lambda (item) (lispm-desktop-store--in-category-p item lispm-desktop-store--category))
+                        (lispm-desktop-store-items))
+            by-name))))
 
 (defun lispm-desktop-store--empty-text ()
   "Return what the grid says when it shows nothing."
-  (cond (lispm-desktop-store--filter (lispm-desktop-tr "Nothing matches “%s”." lispm-desktop-store--filter))
+  (cond ((lispm-desktop-store--searching-p)
+         (lispm-desktop-tr "Nothing matches “%s”." (string-trim lispm-desktop-store--filter)))
         ((eq lispm-desktop-store--category 'updates) (lispm-desktop-tr "Everything is up to date."))
         (t (lispm-desktop-tr "Nothing here yet."))))
+
+(defun lispm-desktop-store--title ()
+  "Return what the row over the grid names: the category shown, or Search
+Results while a search shows."
+  (if (lispm-desktop-store--searching-p)
+      (lispm-desktop-tr "Search Results")
+    (or (lispm-desktop-store--category-name lispm-desktop-store--category) "")))
 
 ;;;;; Geometry (pure)
 
@@ -1904,13 +1987,24 @@ TILE-WIDTH), X where it starts, right of the categories."
   "Return the height in pixels of the list of COUNT categories."
   (+ 2 (* count lispm-desktop-store-category-height)))
 
-(defun lispm-desktop-store--lines (count columns categories)
-  "Return how many lines the grid of COUNT items in COLUMNS takes: at least
-one, and enough for the list of CATEGORIES, a count, beside it."
+(defconst lispm-desktop-store-rows-height 100
+  "Height in pixels of the window's rows over and under the grid, their
+gaps included: the search field's and the push buttons', until they are
+drawn and measured, see `lispm-desktop-store--rows-height'.")
+
+(defun lispm-desktop-store--page-lines (height categories &optional rows)
+  "Return how many lines a page of the grid takes in a window HEIGHT pixels
+tall: as many as fit between the rows over and under it, ROWS pixels
+tall, by default `lispm-desktop-store-rows-height'; at least one, and
+enough for the list of CATEGORIES, a count, beside them."
   (max 1
-       (ceiling count (float columns))
        (ceiling (lispm-desktop-store--categories-height categories)
-                (float lispm-desktop-store-tile-height))))
+                (float lispm-desktop-store-tile-height))
+       (/ (- height (or rows lispm-desktop-store-rows-height)) lispm-desktop-store-tile-height)))
+
+(defun lispm-desktop-store--pages (count size)
+  "Return how many pages COUNT items take, SIZE of them a page; one at least."
+  (max 1 (ceiling count (float size))))
 
 (defun lispm-desktop-store--button-box (x width label)
   "Return where the button reading LABEL of the item drawn at X, WIDTH
@@ -1918,19 +2012,24 @@ pixels wide, stands: (X Y WIDTH), Y from the top of the item's line."
   (let ((w (lispm-desktop-platinum-push-button-width label)))
     (list (+ x (/ (- width w) 2)) 84 w)))
 
+(defun lispm-desktop-store--category-hit (x y categories)
+  "Return (category . CATEGORY) when X, Y falls on one of CATEGORIES, as the
+list down the window's left shows them, Y from the list's top; else nil."
+  (when (and (>= x lispm-desktop-store-margin)
+             (< x (+ lispm-desktop-store-margin lispm-desktop-store-sidebar-width)))
+    (let ((index (floor (1- y) lispm-desktop-store-category-height)))
+      (when (and (>= y 1) (< index (length categories)))
+        (cons 'category (car (nth index categories)))))))
+
 (defun lispm-desktop-store--hit (width line x y categories items)
   "Return what stands at X, Y of the grid's LINE, the window WIDTH pixels
-wide, listing CATEGORIES beside ITEMS: (category . CATEGORY), (button .
-ID), the button of the item ID, (item . ID), or nil.  The progress bar
-standing in place of a button is the item's."
-  (pcase-let* ((`(,gx ,columns ,tw) (lispm-desktop-store--grid width))
-               (top (+ (* line lispm-desktop-store-tile-height) y)))
+wide, listing CATEGORIES beside ITEMS, those of the page shown: (category
+. CATEGORY), (button . ID), the button of the item ID, (item . ID), or
+nil.  The progress bar standing in place of a button is the item's."
+  (pcase-let* ((`(,gx ,columns ,tw) (lispm-desktop-store--grid width)))
     (cond
-     ((and (>= x lispm-desktop-store-margin)
-           (< x (+ lispm-desktop-store-margin lispm-desktop-store-sidebar-width)))
-      (let ((index (floor (1- top) lispm-desktop-store-category-height)))
-        (when (and (>= top 1) (< index (length categories)))
-          (cons 'category (car (nth index categories))))))
+     ((< x (+ lispm-desktop-store-margin lispm-desktop-store-sidebar-width))
+      (lispm-desktop-store--category-hit x (+ (* line lispm-desktop-store-tile-height) y) categories))
      ((>= x gx)
       (let* ((column (floor (- x gx) tw))
              (item (and (< column columns) (nth (+ (* line columns) column) items))))
@@ -1942,6 +2041,28 @@ standing in place of a button is the item's."
                      (lispm-desktop-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y))
                 (cons 'button (car item))
               (cons 'item (car item))))))))))
+
+;;;;; Pages of the grid
+
+(defun lispm-desktop-store--page-size ()
+  "Return how many items a page of the grid holds, in the window as last
+drawn."
+  (* (nth 1 (lispm-desktop-store--grid (or lispm-desktop-store--width 640)))
+     (lispm-desktop-store--page-lines (or lispm-desktop-store--height 600)
+                                      (length (lispm-desktop-store--categories))
+                                      lispm-desktop-store--rows-height)))
+
+(defun lispm-desktop-store--page-of (items size)
+  "Return which page of ITEMS, SIZE of them a page, holds the item
+selected, the first counted 0: 0 when none does."
+  (/ (or (seq-position (mapcar #'car items) lispm-desktop-store--selected) 0) size))
+
+(defun lispm-desktop-store--page-items ()
+  "Return the items of the grid's page shown: the one holding the item
+selected."
+  (let* ((items (lispm-desktop-store--shown))
+         (size (lispm-desktop-store--page-size)))
+    (seq-take (nthcdr (* size (lispm-desktop-store--page-of items size)) items) size)))
 
 ;;;;; Drawing
 
@@ -2034,23 +2155,28 @@ stands, in place of its button: (X Y WIDTH), Y from the top of the line."
           (+ 84 (/ (- lispm-desktop-platinum-button-height lispm-desktop-platinum-progress-height) 2))
           w)))
 
+(defun lispm-desktop-store--draw-icon (svg file x y size &optional darkened)
+  "Draw the icon FILE on SVG at X, Y, SIZE pixels square, DARKENED as Mac OS
+9 darkened an icon selected."
+  (cond ((not (file-readable-p file)))
+        ((not (string-suffix-p ".svg" file))
+         (lispm-desktop-platinum-svg-emacs-image svg (create-image file) x y size size))
+        (darkened
+         (when-let* ((dom (lispm-desktop-store--darkened file)))
+           (lispm-desktop-platinum-svg-embed svg dom x y size size)))
+        (t (lispm-desktop-platinum-svg-icon svg file x y size))))
+
 (defun lispm-desktop-store--draw-tile (svg palette tile x width)
   "Draw TILE, as `lispm-desktop-store--tile' makes it, on SVG at X, WIDTH
 pixels wide: its icon, darkened when selected, its name, highlighted
 when selected, its subtitle and its button, or its progress bar."
   (let* ((center (+ x (/ width 2)))
-         (file (lispm-desktop-platinum-icon-file (plist-get tile :icon)))
          (selected (plist-get tile :selected))
          (highlight (lispm-desktop-store--selected-face))
          (face 'lispm-desktop-platinum-list)
          (small 'lispm-desktop-platinum-small))
-    (cond ((not (file-readable-p file)))
-          ((not (string-suffix-p ".svg" file))
-           (lispm-desktop-platinum-svg-emacs-image svg (create-image file) (- center 16) 8 32 32))
-          (selected
-           (when-let* ((dom (lispm-desktop-store--darkened file)))
-             (lispm-desktop-platinum-svg-embed svg dom (- center 16) 8 32 32)))
-          (t (lispm-desktop-platinum-svg-icon svg file (- center 16) 8 32)))
+    (lispm-desktop-store--draw-icon svg (lispm-desktop-platinum-icon-file (plist-get tile :icon))
+                                    (- center 16) 8 32 selected)
     (let* ((name (lispm-desktop-store--fit (plist-get tile :name) (- width 10) face))
            (w (lispm-desktop-platinum-content-width name face))
            (nx (- center (/ w 2))))
@@ -2093,15 +2219,18 @@ says why there are none."
          (lispm-desktop-platinum-grey palette #x66) face)))
     svg))
 
-(defun lispm-desktop-store--insert-grid (width)
-  "Insert the categories and the grid of the items shown, a window WIDTH
-pixels wide: a line of items each, drawn as one image."
+(defun lispm-desktop-store--insert-grid (width height)
+  "Insert the categories and the page of the grid holding the item
+selected, the window WIDTH by HEIGHT pixels: a line of items each, drawn
+as one image, as many lines as a page takes, so that the push buttons
+under them stay where they are from page to page."
   (pcase-let* ((`(,_ ,columns ,_) (lispm-desktop-store--grid width))
                (categories (lispm-desktop-store--categories))
-               (items (lispm-desktop-store--shown))
+               (items (lispm-desktop-store--page-items))
                (empty (and (null items) (lispm-desktop-store--empty-text)))
-               (current lispm-desktop-store--category))
-    (dotimes (line (lispm-desktop-store--lines (length items) columns (length categories)))
+               (current (lispm-desktop-store--current-category)))
+    (dotimes (line (lispm-desktop-store--page-lines height (length categories)
+                                                    lispm-desktop-store--rows-height))
       (let ((tiles (mapcar #'lispm-desktop-store--tile
                            (seq-take (nthcdr (* line columns) items) columns)))
             (empty (and (= line 0) empty)))
@@ -2116,23 +2245,6 @@ pixels wide: a line of items each, drawn as one image."
                             'pointer 'arrow)
                 "\n")))))
 
-(defun lispm-desktop-store--rule (width &optional bottom)
-  "Return a line WIDTH pixels wide, as an image: black, lit below when
-BOTTOM, else etched."
-  (propertize
-   " " 'display
-   (lispm-desktop-platinum-image
-    (list 'store-rule width bottom)
-    (lambda ()
-      (let* ((palette lispm-desktop-platinum-current-palette)
-             (svg (svg-create (+ width 2) 2)))
-        (lispm-desktop-platinum-svg-fill svg 0 0 (+ width 2) 2 (plist-get palette :chrome))
-        (if bottom
-            (progn (lispm-desktop-platinum-svg-row svg 0 (1+ width) 0 (plist-get palette :outline))
-                   (lispm-desktop-platinum-svg-row svg 0 (1+ width) 1 (lispm-desktop-platinum-grey palette #xFF)))
-          (lispm-desktop-platinum-svg-row svg 0 (1+ width) 1 (lispm-desktop-platinum-grey palette #xAA)))
-        svg)))))
-
 (defun lispm-desktop-store--button-width (label &optional default)
   "Return the width in pixels a push button reading LABEL takes on its line,
 its rings' room included: the default button's ring too when DEFAULT."
@@ -2142,74 +2254,117 @@ its rings' room included: the default button's ring too when DEFAULT."
                          t)))
       (+ (lispm-desktop-platinum-push-button-width label) (if default 16 10))))
 
+;;;;; The rows over and under the grid
+
+(defun lispm-desktop-store--insert-field ()
+  "Insert the search field's text, the search, at point; return where it
+stands, (START . END).  Its overlay is put over it once the whole window
+is drawn, see `lispm-desktop-store--protect'."
+  (let ((start (point)))
+    (insert (or lispm-desktop-store--filter ""))
+    (cons start (point))))
+
 (defun lispm-desktop-store--insert-top (width)
-  "Insert the row above the grid: the catalogs listed, or what the items
-shown match, and Check for Updates."
+  "Insert the row over the grid, the window WIDTH pixels wide: the search
+field, over the categories; then what the grid shows, or on an item's
+page Go Back; and Check for Updates.  Return where the field's text is, as
+`lispm-desktop-store--insert-field' does."
   (insert (propertize " " 'display '(space :height (8))) "\n")
   (let* ((label (lispm-desktop-tr "Check for Updates"))
-         (bold '(:inherit lispm-desktop-platinum-list :weight bold))
-         (heading (propertize (if lispm-desktop-store--filter
-                                  (lispm-desktop-tr "Search: ")
-                                (lispm-desktop-tr "Catalogs: "))
-                              'face bold))
-         ;; What follows the heading, measured, as a translation may be
-         ;; longer: the button's room and the gaps around them.
-         (room (- width 70 (string-pixel-width heading) (lispm-desktop-platinum-push-button-width label))))
-    (insert (propertize " " 'display `(space :width (,lispm-desktop-store-margin)))
-            heading
-            (lispm-desktop-store--fit (cond (lispm-desktop-store--filter
-                                             (lispm-desktop-tr "“%s”" lispm-desktop-store--filter))
-                                            (lispm-desktop-store--catalogs
-                                             (mapconcat (lambda (catalog) (plist-get catalog :name))
-                                                        lispm-desktop-store--catalogs ", "))
-                                            (t (lispm-desktop-tr "none read yet")))
-                                      room 'lispm-desktop-platinum-list)
-            (propertize " " 'display `(space :align-to (- right (,(+ lispm-desktop-store-margin
-                                                                    (lispm-desktop-store--button-width label)))))))
+         (gx (car (lispm-desktop-store--grid width)))
+         (right (+ lispm-desktop-store-margin (lispm-desktop-store--button-width label)))
+         field)
+    (insert (propertize " " 'display `(space :width (,lispm-desktop-store-margin))))
+    (setq field (lispm-desktop-store--insert-field))
+    (insert (propertize " " 'display `(space :align-to (,gx))))
+    (if (eq lispm-desktop-store--view 'item)
+        (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Go Back") #'lispm-desktop-store-back
+                                                   :help (lispm-desktop-tr "Go back to the items"))
+      (insert (lispm-desktop-store--fit (lispm-desktop-store--title) (- width gx right 12)
+                                        '(:inherit lispm-desktop-platinum-list :weight bold))))
+    (insert (propertize " " 'display `(space :align-to (- right (,right)))))
     (lispm-desktop-platinum-insert-push-button label #'lispm-desktop-store-check-for-updates
                                                :help (lispm-desktop-tr "Fetch the catalogs again")
                                                :disabled lispm-desktop-store--checking)
-    (insert "\n" (propertize " " 'display '(space :height (8))) "\n")))
+    (insert "\n" (propertize " " 'display '(space :height (8))) "\n")
+    field))
 
-(defun lispm-desktop-store--insert-buttons (width)
-  "Insert the push buttons under the grid, flush with its right edge:
-Install from URL…, Show Log for an item that failed to install or
-update, Install Missing for an item whose needs the Installer installs,
-Copy Install Command for one whose program it does not, Uninstall…, and the
-selected item's button, Get, Open, Update, Stop or Try Again."
+(defun lispm-desktop-store--insert-row (left right)
+  "Insert a row of push buttons, LEFT from the window's left edge and RIGHT
+flush with its right edge, each (LABEL COMMAND DISABLED DEFAULT), or a
+string, said between them."
+  (let* ((gap 10)
+         (face 'lispm-desktop-platinum-list)
+         (width (lambda (button)
+                  (if (stringp button)
+                      (lispm-desktop-platinum-content-width button face)
+                    (lispm-desktop-store--button-width (car button) (nth 3 button)))))
+         (room (+ (apply #'+ (mapcar width right)) (* gap (max 0 (1- (length right))))))
+         (insert-all
+          (lambda (buttons)
+            (seq-do-indexed
+             (lambda (button index)
+               (when (> index 0)
+                 (insert (lispm-desktop-platinum-space gap)))
+               (pcase button
+                 ((pred stringp) (insert (propertize button 'face face)))
+                 (`(,label ,command ,disabled . ,default)
+                  (lispm-desktop-platinum-insert-push-button label (lambda () (call-interactively command))
+                                                             :disabled disabled :default (car default)))))
+             buttons))))
+    (insert (propertize " " 'display '(space :height (6))) "\n"
+            (lispm-desktop-platinum-space lispm-desktop-store-margin))
+    (funcall insert-all left)
+    (insert (propertize " " 'display `(space :align-to (- right (,(+ lispm-desktop-store-margin room))))))
+    (funcall insert-all right)
+    (insert "\n")))
+
+(defun lispm-desktop-store--insert-buttons ()
+  "Insert the push buttons under the grid: Install from URL…, and, while
+there are pages, Previous and Next with the page between; under an
+item's page, its buttons, see `lispm-desktop-store--item-buttons'."
+  (if (eq lispm-desktop-store--view 'item)
+      (lispm-desktop-store--insert-row nil (lispm-desktop-store--item-buttons))
+    (let* ((items (lispm-desktop-store--shown))
+           (size (lispm-desktop-store--page-size))
+           (pages (lispm-desktop-store--pages (length items) size))
+           (page (lispm-desktop-store--page-of items size)))
+      (lispm-desktop-store--insert-row
+       `((,(lispm-desktop-tr "Install from URL…") lispm-desktop-store-install-from-url nil))
+       (when (> pages 1)
+         `((,(lispm-desktop-tr-in "page" "Previous") lispm-desktop-store-previous-page ,(= page 0))
+           ,(lispm-desktop-tr "Page %d of %d" (1+ page) pages)
+           (,(lispm-desktop-tr-in "page" "Next") lispm-desktop-store-next-page ,(= page (1- pages)))))))))
+
+(defun lispm-desktop-store--item-buttons ()
+  "Return the push buttons under the selected item's page, as
+`lispm-desktop-store--insert-row' takes them: Show Log for an item that
+failed to install or update, Install Missing for one whose needs the
+Installer installs, Copy Install Command for one whose program it does
+not, Uninstall…, and the item's button, Get, Open, Update, Stop or Try
+Again, the default."
   (let* ((id lispm-desktop-store--selected)
          (props (and id (cdr (assq id (lispm-desktop-store-items)))))
          (action (and props (lispm-desktop-store--action id props)))
-         (job (and id (lispm-desktop-store--job id)))
-         (buttons `((,(lispm-desktop-tr "Install from URL…") lispm-desktop-store-install-from-url nil)
-                    ,@(when (and job (eq (lispm-desktop-store-job-state job) 'failed)
-                                 (buffer-live-p (lispm-desktop-store-job-log job)))
-                        `((,(lispm-desktop-tr "Show Log") lispm-desktop-store-show-log-selected nil)))
-                    ,@(cond ((and props (lispm-desktop-store--needs-to-install props))
-                             `((,(lispm-desktop-tr "Install Missing") lispm-desktop-store-install-missing nil)))
-                            ((and props (lispm-desktop-store--install-commands props))
-                             `((,(lispm-desktop-tr "Copy Install Command")
-                                lispm-desktop-store-copy-install-command nil))))
-                    (,(lispm-desktop-tr "Uninstall…") lispm-desktop-store-uninstall-selected
-                     ,(not (and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id)))))
-                    (,(or (car action) (lispm-desktop-tr "Get")) lispm-desktop-store-act-selected
-                     ,(not (cdr action)) t)))
-         (gap 10)
-         (room (+ (apply #'+ (mapcar (lambda (button)
-                                       (lispm-desktop-store--button-width (car button) (nth 3 button)))
-                                     buttons))
-                  (* gap (1- (length buttons))))))
-    (ignore width)
-    (insert (propertize " " 'display '(space :height (6))) "\n"
-            (propertize " " 'display `(space :align-to (- right (,(+ lispm-desktop-store-margin room))))))
-    (seq-do-indexed
-     (pcase-lambda (`(,label ,command ,disabled ,default) index)
-       (when (> index 0)
-         (insert (propertize " " 'display `(space :width (,gap)))))
-       (lispm-desktop-platinum-insert-push-button label (lambda () (call-interactively command))
-                                                  :disabled disabled :default default))
-     buttons)
-    (insert "\n")))
+         (job (and id (lispm-desktop-store--job id))))
+    `(,@(when (and job (eq (lispm-desktop-store-job-state job) 'failed)
+                   (buffer-live-p (lispm-desktop-store-job-log job)))
+          `((,(lispm-desktop-tr "Show Log") lispm-desktop-store-show-log-selected nil)))
+      ,@(cond ((and props (lispm-desktop-store--needs-to-install props))
+               `((,(lispm-desktop-tr "Install Missing") lispm-desktop-store-install-missing nil)))
+              ((and props (lispm-desktop-store--install-commands props))
+               `((,(lispm-desktop-tr "Copy Install Command") lispm-desktop-store-copy-install-command nil))))
+      (,(lispm-desktop-tr "Uninstall…") lispm-desktop-store-uninstall-selected
+       ,(not (and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id)))))
+      (,(or (car action) (lispm-desktop-tr "Get")) lispm-desktop-store-act-selected ,(not (cdr action)) t))))
+
+;;;;; An item's page
+
+(defconst lispm-desktop-store-head-height 92
+  "Height in pixels of the head of an item's page: its icon, name and more.")
+
+(defconst lispm-desktop-store-row-height 16
+  "Height in pixels of a line of text of an item's page.")
 
 (defun lispm-desktop-store--pieces (word width face)
   "Return WORD in FACE cut into pieces of at most WIDTH pixels, after a
@@ -2287,98 +2442,6 @@ an app's needs is missing, in the language LispM speaks."
                       (install (lispm-desktop-store--install-commands props)))
             (concat "  " (lispm-desktop-tr "Install them with: %s" install)))))
 
-(defun lispm-desktop-store--draw-information (palette width id)
-  "Return an SVG of the information of the item ID, WIDTH pixels wide, in
-PALETTE, laid out as Extensions Manager's: the icon and name, the fields
-under them, the description in a box at the right."
-  (let* ((height 128)
-         (svg (svg-create width height))
-         (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
-         (text (plist-get palette :text))
-         (small 'lispm-desktop-platinum-small)
-         (props (and id (cdr (assq id (lispm-desktop-store-items)))))
-         (box-x (max 220 (/ width 2)))
-         (box-w (- width box-x lispm-desktop-store-margin)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
-    (when props
-      (let ((icon (lispm-desktop-platinum-icon-file (lispm-desktop-store--icon props t))))
-        (if (string-suffix-p ".svg" icon)
-            (lispm-desktop-platinum-svg-icon svg icon lispm-desktop-store-margin 4 32)
-          (lispm-desktop-platinum-svg-emacs-image svg (create-image icon) lispm-desktop-store-margin 4 32 32)))
-      (lispm-desktop-platinum-svg-content svg (plist-get props :name) (+ lispm-desktop-store-margin 40) 6 14 text small)
-      (lispm-desktop-platinum-svg-content
-       svg (lispm-desktop-store--catalog-name (plist-get props :catalog))
-       (+ lispm-desktop-store-margin 40) 20 14 text small)
-      (let* ((y 44)
-             (fields (lispm-desktop-store--fields id))
-             ;; The labels' right edge: past the widest, as a translation
-             ;; may be wider than the room English takes.
-             (label-end (+ lispm-desktop-store-margin
-                           (apply #'max 66 (mapcar (lambda (field)
-                                                     (lispm-desktop-platinum-content-width
-                                                      (propertize (car field) 'face 'bold) small))
-                                                   fields)))))
-        (pcase-dolist (`(,label ,value) fields)
-          (let ((bold (propertize label 'face 'bold)))
-            (lispm-desktop-platinum-svg-content
-             svg bold (- label-end (lispm-desktop-platinum-content-width bold small)) y 13 text small)
-            (lispm-desktop-platinum-svg-content
-             svg (lispm-desktop-platinum-fit (propertize value 'face small) (- box-x label-end 18))
-             (+ label-end 4) y 13 text small))
-          (setq y (+ y 13)))))
-    ;; The box, sunk in the platinum: etched, outlined, white.
-    (lispm-desktop-platinum-svg-fill svg (1- box-x) 3 (+ box-w 2) (- height 7) (funcall grey #xAA))
-    (lispm-desktop-platinum-svg-fill svg box-x 4 (1+ box-w) (- height 7) (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-fill svg box-x 4 box-w (- height 8) (plist-get palette :outline))
-    (lispm-desktop-platinum-svg-fill svg (1+ box-x) 5 (- box-w 2) (- height 10) (plist-get palette :content))
-    (when props
-      (let ((y 8))
-        (dolist (line (cons (propertize (plist-get props :name) 'face 'bold)
-                            (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
-                                                               (lispm-desktop-store--description props))
-                                                       (- box-w 12) small)))
-          (when (< y (- height 20))
-            (lispm-desktop-platinum-svg-content svg line (+ box-x 6) y 13 text small)
-            (setq y (+ y 13))))))
-    svg))
-
-(defun lispm-desktop-store--insert-information (width)
-  "Insert the disclosure of the item's information and, shown, the
-information, WIDTH pixels wide."
-  (let ((start (point)))
-    (insert (propertize " " 'display `(space :width (,lispm-desktop-store-margin)))
-            (lispm-desktop-platinum-triangle lispm-desktop-store--information)
-            (propertize " " 'display '(space :width (6)))
-            (propertize (if lispm-desktop-store--information
-                            (lispm-desktop-tr "Hide Item Information")
-                          (lispm-desktop-tr "Show Item Information"))
-                        'face '(:inherit lispm-desktop-platinum-small :weight bold)))
-    (make-text-button start (point) 'action (lambda (_) (lispm-desktop-store-toggle-information))
-                      'keymap lispm-desktop-store-disclosure-map
-                      'face '(:inherit lispm-desktop-platinum-small :weight bold)
-                      'help-echo (lispm-desktop-tr "Show or hide the item's information")
-                      'lispm-desktop-platinum-label "Item Information")
-    (insert "\n"))
-  (insert (propertize " " 'display `(space :width (,lispm-desktop-store-margin)))
-          (lispm-desktop-store--rule (- width (* 2 lispm-desktop-store-margin) 2))
-          "\n")
-  (when lispm-desktop-store--information
-    (let ((id lispm-desktop-store--selected))
-      (insert (propertize " " 'display
-                          (lispm-desktop-platinum-image
-                           (list 'store-information width id (lispm-desktop-store--information-key id))
-                           (lambda ()
-                             (lispm-desktop-store--draw-information lispm-desktop-platinum-current-palette width id))))
-              "\n"))))
-
-(defun lispm-desktop-store--information-key (id)
-  "Return what the information of the item ID depends on, to draw it again
-when it changes."
-  (and id (let ((props (cdr (assq id (lispm-desktop-store-items)))))
-            (list (lispm-desktop-store--fields id) props (lispm-desktop-store--description props)
-                  (lispm-desktop-store--failure id)
-                  (lispm-desktop-store--catalog-name (plist-get props :catalog))))))
-
 (defun lispm-desktop-store--failure (id)
   "Return why installing or updating the item ID failed, as sentences to
 put before its description, in the language LispM speaks, or \"\"."
@@ -2390,6 +2453,129 @@ put before its description, in the language LispM speaks, or \"\"."
                     (lispm-desktop-tr "It could not be updated: %s." why))
                   "  "))
       "")))
+
+(defun lispm-desktop-store--head (id)
+  "Return what the head of the page of the item ID shows, as a plist: its
+:icon, :name, :subtitle, the name of its :catalog, and while it is
+installed or updated, how far, :progress, as its tile shows it."
+  (let* ((item (assq id (lispm-desktop-store-items)))
+         (tile (lispm-desktop-store--tile item)))
+    (list :icon (plist-get tile :icon) :name (plist-get tile :name) :subtitle (plist-get tile :subtitle)
+          :catalog (lispm-desktop-store--catalog-name (plist-get (cdr item) :catalog))
+          :progress (plist-get tile :progress))))
+
+(defun lispm-desktop-store--page-rows (id width height categories)
+  "Return the rows of the page of the item ID, the window WIDTH by HEIGHT
+pixels, listing CATEGORIES, a count, at its left: its head, a rule, its
+description a line each, its information a field each, then a blank row
+as tall as needed for the page to end where the grid's page ends, so
+that the push buttons under it stay where they are.  Each row is a
+plist: its :height, and :head, :rule, :text or :label and :value."
+  (let* ((props (cdr (assq id (lispm-desktop-store-items))))
+         (gx (car (lispm-desktop-store--grid width)))
+         (room (- width gx lispm-desktop-store-margin))
+         (face 'lispm-desktop-platinum-list)
+         (small 'lispm-desktop-platinum-small)
+         (fields (lispm-desktop-store--fields id))
+         ;; The labels' right edge: past the widest, as a translation may
+         ;; be wider than the room English takes.
+         (label-end (apply #'max 72 (mapcar (lambda (field)
+                                               (+ 4 (lispm-desktop-platinum-content-width
+                                                     (propertize (car field) 'face 'bold) small)))
+                                             fields)))
+         (rows `((:height ,lispm-desktop-store-head-height :head ,(lispm-desktop-store--head id))
+                 (:height 13 :rule t)
+                 ,@(mapcar (lambda (line) (list :height lispm-desktop-store-row-height :text line :face face))
+                           (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
+                                                              (lispm-desktop-store--description props))
+                                                      room face))
+                 (:height 10)
+                 ,@(mapcar (pcase-lambda (`(,label ,value))
+                             (list :height lispm-desktop-store-row-height :label label :label-end label-end
+                                   :value (lispm-desktop-platinum-fit (propertize value 'face small)
+                                                                      (- room label-end 8))))
+                           fields)))
+         (drawn (apply #'+ (mapcar (lambda (row) (plist-get row :height)) rows)))
+         (wanted (* lispm-desktop-store-tile-height
+                    (lispm-desktop-store--page-lines height categories lispm-desktop-store--rows-height))))
+    (if (> wanted drawn)
+        (append rows (list (list :height (- wanted drawn))))
+      rows)))
+
+(defun lispm-desktop-store--draw-head (svg palette x width head)
+  "Draw HEAD, as `lispm-desktop-store--head' makes it, on SVG from X, the
+page WIDTH pixels wide: the icon twice its size, the name large, the
+subtitle and the catalog under it, and the progress bar while the item
+is installed or updated."
+  (let* ((tx (+ x 80))
+         (room (- width tx lispm-desktop-store-margin))
+         (text (plist-get palette :text))
+         (grey (lispm-desktop-platinum-grey palette #x66))
+         (small 'lispm-desktop-platinum-small))
+    (lispm-desktop-store--draw-icon svg (lispm-desktop-platinum-icon-file (plist-get head :icon)) x 10 64)
+    (lispm-desktop-platinum-svg-content
+     svg (lispm-desktop-store--fit (plist-get head :name) room '(:weight bold :height 1.5))
+     tx 10 26 text 'lispm-desktop-platinum-list)
+    (when-let* ((subtitle (plist-get head :subtitle)))
+      (lispm-desktop-platinum-svg-content svg (lispm-desktop-store--fit subtitle room small)
+                                          tx 38 14 grey small))
+    (lispm-desktop-platinum-svg-content svg (lispm-desktop-store--fit (plist-get head :catalog) room small)
+                                        tx 54 14 grey small)
+    (when-let* ((progress (plist-get head :progress)))
+      (lispm-desktop-platinum-svg-progress-bar svg tx 72 (min 160 room) progress palette))))
+
+(defun lispm-desktop-store--draw-row (palette width top row categories current)
+  "Return an SVG of ROW of an item's page, as
+`lispm-desktop-store--page-rows' makes it, TOP pixels down the page,
+WIDTH pixels wide, in PALETTE: its part of the list of CATEGORIES,
+CURRENT highlighted, and what it shows."
+  (let* ((height (plist-get row :height))
+         (svg (svg-create width height))
+         (x (car (lispm-desktop-store--grid width)))
+         (text (plist-get palette :text))
+         (small 'lispm-desktop-platinum-small))
+    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
+    (lispm-desktop-store--draw-categories svg palette categories current (- top))
+    (cond
+     ((plist-get row :head)
+      (lispm-desktop-store--draw-head svg palette x width (plist-get row :head)))
+     ;; Etched, as Mac OS 9's separators were.
+     ((plist-get row :rule)
+      (let ((end (- width lispm-desktop-store-margin 1)))
+        (lispm-desktop-platinum-svg-row svg x end 6 (lispm-desktop-platinum-grey palette #x88))
+        (lispm-desktop-platinum-svg-row svg x end 7 (lispm-desktop-platinum-grey palette #xFF))))
+     ((plist-get row :text)
+      (lispm-desktop-platinum-svg-content svg (plist-get row :text) x 0 height text (plist-get row :face)))
+     ((plist-get row :label)
+      (let* ((label (propertize (plist-get row :label) 'face 'bold))
+             (end (+ x (plist-get row :label-end))))
+        (lispm-desktop-platinum-svg-content
+         svg label (- end 4 (lispm-desktop-platinum-content-width label small)) 0 height text small)
+        (lispm-desktop-platinum-svg-content svg (plist-get row :value) (+ end 4) 0 height text small))))
+    svg))
+
+(defun lispm-desktop-store--insert-page (width height)
+  "Insert the page of the item selected, the window WIDTH by HEIGHT pixels,
+the categories still at its left: a row each, drawn as one image."
+  (let ((categories (lispm-desktop-store--categories))
+        (current (lispm-desktop-store--current-category))
+        (top 0))
+    (dolist (row (lispm-desktop-store--page-rows lispm-desktop-store--selected width height
+                                                 (length categories)))
+      (let ((at top))
+        (insert (propertize " " 'display
+                            (lispm-desktop-platinum-image
+                             (list 'store-row width at categories current row)
+                             (lambda ()
+                               (lispm-desktop-store--draw-row lispm-desktop-platinum-current-palette width at
+                                                              row categories current)))
+                            'lispm-desktop-store-top at
+                            'keymap lispm-desktop-store-page-map
+                            'pointer 'arrow)
+                "\n"))
+      (setq top (+ top (plist-get row :height))))))
+
+;;;;; Drawing the window
 
 (defun lispm-desktop-store--placard ()
   "Return what the placard says: the App Store's doing, what it installs
@@ -2412,47 +2598,339 @@ or updates, or its count."
         (lispm-desktop-tr-n "%d item, %d installed" "%d items, %d installed" (length items)
                             (length items) installed))))
 
+(defun lispm-desktop-store--keep-selection ()
+  "Keep the item selected one the window shows: on the grid, one of its
+items, the first otherwise; on an item's page, one listed still, else
+the grid shows again."
+  (when (and (eq lispm-desktop-store--view 'item)
+             (not (assq lispm-desktop-store--selected (lispm-desktop-store-items))))
+    (setq lispm-desktop-store--view 'grid))
+  (when (eq lispm-desktop-store--view 'grid)
+    (let ((shown (lispm-desktop-store--shown)))
+      (unless (assq lispm-desktop-store--selected shown)
+        (setq lispm-desktop-store--selected (caar shown))))))
+
+(defun lispm-desktop-store--protect (field)
+  "Make the window's text read-only, but the search field's, FIELD, (START
+. END), and put the field's overlay over it.  Text typed in the field
+takes none of the properties of the text around it."
+  (pcase-let ((`(,start . ,end) field))
+    (add-text-properties (point-min) start '(read-only t))
+    (add-text-properties end (point-max) '(read-only t))
+    ;; Nothing goes before the window's first line either.
+    (put-text-property (point-min) (1+ (point-min)) 'front-sticky '(read-only))
+    (put-text-property (1- start) start 'rear-nonsticky t)
+    (unless lispm-desktop-store--field
+      (setq lispm-desktop-store--field (make-overlay start end nil nil t))
+      (overlay-put lispm-desktop-store--field 'field 'lispm-desktop-store-search)
+      (overlay-put lispm-desktop-store--field 'keymap lispm-desktop-store-field-map)
+      (overlay-put lispm-desktop-store--field 'pointer 'text))
+    (move-overlay lispm-desktop-store--field start end)))
+
 (defun lispm-desktop-store--render ()
-  "Draw the App Store's window again, the button point was on kept."
+  "Draw the App Store's window again, what has the keyboard kept: a push
+button, or the search field, where in it point and the mark were.  On
+the page drawn before, point and the scroll stay too.  While an input
+method composes in the field, it is drawn once the composing ends."
   (when-let* ((buffer (get-buffer lispm-desktop-store-buffer-name)))
     (with-current-buffer buffer
-      (let* ((inhibit-read-only t)
-             (window (get-buffer-window buffer t))
-             (width (if window (window-body-width window t) 640))
-             (button (get-text-property (if window (window-point window) (point))
-                                        'lispm-desktop-platinum-label)))
-        (setq lispm-desktop-store--width width)
-        (unless (assq lispm-desktop-store--category (lispm-desktop-store--categories))
-          (setq lispm-desktop-store--category 'all))
-        (let ((shown (lispm-desktop-store--shown)))
-          (unless (assq lispm-desktop-store--selected shown)
-            (setq lispm-desktop-store--selected (caar shown))))
-        (when lispm-desktop-store--face-cookie
-          (face-remap-remove-relative lispm-desktop-store--face-cookie))
-        (setq lispm-desktop-store--face-cookie
-              (face-remap-add-relative 'default `(:background ,(lispm-desktop-platinum-color :chrome))))
-        (erase-buffer)
-        (lispm-desktop-store--insert-top width)
-        (lispm-desktop-store--insert-grid width)
-        (lispm-desktop-store--insert-buttons width)
-        (lispm-desktop-store--insert-information width)
-        (goto-char (point-min))
-        (when button
-          (let ((position (point-min)))
-            (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
-                        (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
-            (goto-char (or position (point-min)))))
-        (when window
-          (set-window-point window (point)))
-        (setq lispm-desktop-platinum-focus nil)
-        (lispm-desktop-platinum-show-focus)
-        (force-mode-line-update)))))
+      (if (lispm-desktop-store--composing-p)
+          (run-with-timer lispm-desktop-store-search-delay nil #'lispm-desktop-store--render)
+        (let* ((inhibit-read-only t)
+               (inhibit-modification-hooks t)
+               (window (get-buffer-window buffer t))
+               (width (if window (window-body-width window t) 640))
+               (height (if window (window-body-height window t) 600))
+               (here (if window (window-point window) (point)))
+               (start (and window (window-start window)))
+               (button (get-text-property here 'lispm-desktop-platinum-label))
+               (bounds (lispm-desktop-store--field-bounds))
+               (in-field (and bounds (<= (car bounds) here (cdr bounds))
+                              (list (- here (car bounds))
+                                    (and (mark t) (<= (car bounds) (mark t) (cdr bounds))
+                                         (- (mark t) (car bounds))))))
+               field)
+          (setq lispm-desktop-store--width width
+                lispm-desktop-store--height height)
+          (unless (assq lispm-desktop-store--category (lispm-desktop-store--categories))
+            (setq lispm-desktop-store--category 'all))
+          (lispm-desktop-store--keep-selection)
+          (when lispm-desktop-store--face-cookie
+            (face-remap-remove-relative lispm-desktop-store--face-cookie))
+          (setq lispm-desktop-store--face-cookie
+                (face-remap-add-relative 'default `(:background ,(lispm-desktop-platinum-color :chrome))))
+          (when lispm-desktop-store--field
+            (delete-overlay lispm-desktop-store--field))
+          (erase-buffer)
+          (setq field (lispm-desktop-store--insert-top width))
+          (if (eq lispm-desktop-store--view 'item)
+              (lispm-desktop-store--insert-page width height)
+            (lispm-desktop-store--insert-grid width height))
+          (lispm-desktop-store--insert-buttons)
+          (lispm-desktop-store--protect field)
+          (goto-char (point-min))
+          (cond
+           (in-field
+            (pcase-let ((`(,point ,mark) in-field)
+                        (`(,from . ,to) field))
+              (goto-char (min to (+ from point)))
+              (when mark
+                (set-marker (mark-marker) (min to (+ from mark))))))
+           (button
+            (let ((position (point-min)))
+              (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
+                          (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
+              (goto-char (or position (point-min)))))
+           ((eq lispm-desktop-store--view lispm-desktop-store--drawn)
+            (goto-char (min here (point-max)))))
+          (when window
+            (when (and start (eq lispm-desktop-store--view lispm-desktop-store--drawn))
+              (set-window-start window (min start (point-max)) t))
+            (set-window-point window (point)))
+          (setq lispm-desktop-store--drawn lispm-desktop-store--view)
+          (lispm-desktop-store--dress-field)
+          (setq lispm-desktop-platinum-focus nil)
+          (lispm-desktop-platinum-show-focus)
+          (force-mode-line-update)
+          (when (and window (eq lispm-desktop-store--view 'grid))
+            (lispm-desktop-store--measure window height)))))))
+
+(defun lispm-desktop-store--measure (window height)
+  "Measure the rows over and under the grid as WINDOW, HEIGHT pixels tall,
+shows them, and draw the window again when the page should hold more
+lines or fewer, so that its push buttons show whole."
+  (let* ((categories (length (lispm-desktop-store--categories)))
+         (lines (lispm-desktop-store--page-lines height categories lispm-desktop-store--rows-height))
+         (rows (- (cdr (window-text-pixel-size window nil nil nil nil))
+                  (* lines lispm-desktop-store-tile-height))))
+    (unless (eql rows lispm-desktop-store--rows-height)
+      (setq lispm-desktop-store--rows-height rows)
+      (unless (= lines (lispm-desktop-store--page-lines height categories rows))
+        (lispm-desktop-store--render)))))
 
 (defun lispm-desktop-store--refit (window)
-  "Draw the window again once WINDOW's width changed.
-This is a buffer-local `window-size-change-functions' function."
-  (unless (eql (window-body-width window t) lispm-desktop-store--width)
+  "Draw the window again once WINDOW's size changed: the grid's pages hold
+what fits.  This is a buffer-local `window-size-change-functions' function."
+  (unless (and (eql (window-body-width window t) lispm-desktop-store--width)
+               (eql (window-body-height window t) lispm-desktop-store--height))
     (lispm-desktop-store--render)))
+
+;;;;; The search field
+
+(defun lispm-desktop-store--field-bounds ()
+  "Return where the search field's text is, (START . END), or nil."
+  (when-let* ((field lispm-desktop-store--field)
+              ((overlay-buffer field)))
+    (cons (overlay-start field) (overlay-end field))))
+
+(defun lispm-desktop-store--in-field-p (&optional position)
+  "Return non-nil when POSITION, by default point, is in the search field."
+  (when-let* ((bounds (lispm-desktop-store--field-bounds)))
+    (<= (car bounds) (or position (point)) (cdr bounds))))
+
+(defun lispm-desktop-store--field-focused-p ()
+  "Return non-nil while the search field has the keyboard: point in it, in
+the window selected."
+  (and (eq (window-buffer) (current-buffer))
+       (lispm-desktop-store--in-field-p (window-point))))
+
+(defun lispm-desktop-store--dress-field ()
+  "Draw the search field as Mac OS 9's edit text field, as wide as the list
+of categories under it: framed, ringed while it has the keyboard, and
+the cursor in it then; empty, it reads Search, dimmed, else a × at its
+end empties it."
+  (when-let* ((field lispm-desktop-store--field)
+              ((overlay-buffer field)))
+    (let* ((focused (lispm-desktop-store--field-focused-p))
+           (face (if focused 'lispm-desktop-platinum-field-focused 'lispm-desktop-platinum-field))
+           (empty (= (overlay-start field) (overlay-end field)))
+           (end (+ lispm-desktop-store-margin lispm-desktop-store-sidebar-width))
+           (cursor (and focused '(bar . 1))))
+      (setq lispm-desktop-store--field-focused focused)
+      (overlay-put field 'face face)
+      (overlay-put field 'help-echo (lispm-desktop-tr "Search the App Store"))
+      ;; Each string over the field starts a frame of its own: while it
+      ;; is empty, one string draws it all.
+      (overlay-put field 'before-string (unless empty (propertize " " 'face face 'display '(space :width (4)))))
+      ;; The cursor at the text's end stands on what follows it.
+      (overlay-put field 'after-string
+                   (concat (if empty
+                               (concat (propertize " " 'face face 'display '(space :width (4)))
+                                       (propertize (lispm-desktop-tr "Search") 'cursor t
+                                                   'face `(:inherit ,face :foreground
+                                                                    ,(lispm-desktop-platinum-grey
+                                                                      lispm-desktop-platinum-current-palette #x88))))
+                             (propertize " " 'face face 'cursor t))
+                           (propertize " " 'face face 'display `(space :align-to (,(- end (if empty 4 18)))))
+                           (if empty
+                               ""
+                             (propertize "×" 'face face 'keymap lispm-desktop-store-clear-map
+                                         'pointer 'hand 'help-echo (lispm-desktop-tr "Clear the search")))
+                           (propertize " " 'face face 'display `(space :align-to (,end)))))
+      (setq-local cursor-type cursor
+                  evil-emacs-state-cursor (list cursor)
+                  evil-normal-state-cursor (list cursor)))))
+
+(defun lispm-desktop-store--follow-focus (&rest _)
+  "Draw the search field again when it took or lost the keyboard, from the
+buffer's `post-command-hook' and `window-selection-change-functions'."
+  (when-let* ((buffer (get-buffer lispm-desktop-store-buffer-name)))
+    (with-current-buffer buffer
+      (unless (eq (lispm-desktop-store--field-focused-p) lispm-desktop-store--field-focused)
+        (lispm-desktop-store--dress-field)))))
+
+(defun lispm-desktop-store--composing-p ()
+  "Return non-nil while an input method composes text in the current
+buffer, the text it shows there not yet typed."
+  (seq-some (lambda (symbol)
+              (and (boundp symbol)
+                   (let ((overlay (symbol-value symbol)))
+                     (and (overlayp overlay) (eq (overlay-buffer overlay) (current-buffer))
+                          (< (overlay-start overlay) (overlay-end overlay))))))
+            '(ns-working-overlay quail-overlay)))
+
+(defun lispm-desktop-store--field-changed (start end _length)
+  "Take the search field's text as what is searched once it changed; the
+grid shows what it matches as typing pauses.  This is a buffer-local
+`after-change-functions' function."
+  (when-let* ((bounds (lispm-desktop-store--field-bounds))
+              ((<= (car bounds) start end (cdr bounds))))
+    (let ((text (buffer-substring-no-properties (car bounds) (cdr bounds))))
+      (setq lispm-desktop-store--filter (unless (string-empty-p text) text)))
+    (lispm-desktop-store--dress-field)
+    (lispm-desktop-store--search-soon)))
+
+(defun lispm-desktop-store--search-soon ()
+  "Show what the search matches once typing pauses, from the first page."
+  (when (timerp lispm-desktop-store--search-timer)
+    (cancel-timer lispm-desktop-store--search-timer))
+  (let ((buffer (current-buffer)))
+    (setq lispm-desktop-store--search-timer
+          (run-with-timer lispm-desktop-store-search-delay nil
+                          (lambda ()
+                            (when (buffer-live-p buffer)
+                              (with-current-buffer buffer
+                                (if (lispm-desktop-store--composing-p)
+                                    (lispm-desktop-store--search-soon)
+                                  (lispm-desktop-store--searched)))))))))
+
+(defun lispm-desktop-store--searched ()
+  "Show the grid of what the search matches, the best selected, or the
+category's again after the search was emptied."
+  (when (timerp lispm-desktop-store--search-timer)
+    (cancel-timer lispm-desktop-store--search-timer))
+  (setq lispm-desktop-store--search-timer nil
+        lispm-desktop-store--view 'grid
+        lispm-desktop-store--selected nil)
+  (lispm-desktop-store--render))
+
+(defun lispm-desktop-store--leave-field ()
+  "Take the keyboard from the search field for the grid or the item's page."
+  (when (lispm-desktop-store--in-field-p)
+    (goto-char (point-min))
+    (deactivate-mark))
+  (when-let* ((window (get-buffer-window (current-buffer) t))
+              ((lispm-desktop-store--in-field-p (window-point window))))
+    (set-window-point window (point-min))))
+
+(defun lispm-desktop-store--replace-marked ()
+  "Delete the text marked in the search field before a command that types
+or pastes there, as `delete-selection-mode' does, from the buffer's
+`pre-command-hook': the desktop leaves that mode off, and the field
+behaves so all the same, its text marked as it takes the keyboard."
+  (when (and (not delete-selection-mode) (use-region-p)
+             (lispm-desktop-store--in-field-p (region-beginning))
+             (lispm-desktop-store--in-field-p (region-end)))
+    (let ((delete-selection-mode t))
+      (delete-selection-pre-hook))))
+
+(defun lispm-desktop-store-search (&optional text)
+  "Search the App Store: the search field takes the keyboard, its text
+marked, so that what is typed replaces it, and the grid shows what
+matches as typing pauses.  From Lisp, search for TEXT at once; an empty
+TEXT shows the category again."
+  (interactive)
+  (if text
+      (lispm-desktop-store--in-window
+       (lambda ()
+         (setq lispm-desktop-store--filter (unless (string-blank-p text) (string-trim text)))
+         (lispm-desktop-store--searched)))
+    (let ((buffer (lispm-desktop-store--buffer)))
+      (unless (get-buffer-window buffer t)
+        (lispm-desktop-store-show))
+      (let ((window (get-buffer-window buffer t)))
+        (unless (eq (selected-window) window)
+          (lispm-desktop-app-window-present 'store)
+          (select-window window))
+        (with-current-buffer buffer
+          (pcase-let ((`(,start . ,end) (lispm-desktop-store--field-bounds)))
+            (goto-char end)
+            (set-window-point window end)
+            (when (< start end)
+              (push-mark start t t))
+            (lispm-desktop-store--dress-field)))))))
+
+(defun lispm-desktop-store-search-done ()
+  "Leave the search field for the grid, which shows what the search
+matches at once."
+  (interactive)
+  (when (timerp lispm-desktop-store--search-timer)
+    (lispm-desktop-store--searched))
+  (lispm-desktop-store--leave-field)
+  (lispm-desktop-store--dress-field))
+
+(defun lispm-desktop-store-clear-search ()
+  "Empty the search field: the category searched from shows again."
+  (interactive)
+  (lispm-desktop-store--in-window
+   (lambda ()
+     (setq lispm-desktop-store--filter nil)
+     (lispm-desktop-store--searched))))
+
+(defun lispm-desktop-store-search-cancel ()
+  "Empty the search field, the category showing again; empty already,
+leave it for the grid."
+  (interactive)
+  (if lispm-desktop-store--filter
+      (lispm-desktop-store-clear-search)
+    (lispm-desktop-store--leave-field)
+    (lispm-desktop-store--dress-field)))
+
+(defun lispm-desktop-store-field-forward ()
+  "Move point a character on in the search field, never past its end."
+  (interactive)
+  (when (< (point) (cdr (lispm-desktop-store--field-bounds)))
+    (forward-char 1)))
+
+(defun lispm-desktop-store-field-backward ()
+  "Move point a character back in the search field, never before its start."
+  (interactive)
+  (when (> (point) (car (lispm-desktop-store--field-bounds)))
+    (backward-char 1)))
+
+(defvar lispm-desktop-store-field-map
+  (let ((map (define-keymap :full t
+               "RET" #'lispm-desktop-store-search-done
+               "C-n" #'lispm-desktop-store-search-done
+               "<down>" #'lispm-desktop-store-search-done
+               "C-g" #'lispm-desktop-store-search-cancel
+               "DEL" #'delete-backward-char
+               "C-f" #'lispm-desktop-store-field-forward
+               "C-b" #'lispm-desktop-store-field-backward
+               "<right>" #'lispm-desktop-store-field-forward
+               "<left>" #'lispm-desktop-store-field-backward)))
+    ;; What is typed goes in the field, the window's letter keys aside.
+    (set-char-table-range (nth 1 map) '(32 . 126) #'self-insert-command)
+    (lispm-desktop-bind-clipboard-keys map)
+    map)
+  "Keymap of the App Store's search field: what is typed goes in it, and
+Emacs's keys edit it, the window's own letter keys left aside.  Return,
+C-n and Tab leave it for the grid; C-g empties it, then leaves it.")
+
+(defvar-keymap lispm-desktop-store-clear-map
+  :doc "Keymap of the × at the end of the search field, which empties it."
+  "<down-mouse-1>" #'ignore
+  "<mouse-1>" #'lispm-desktop-store-clear-search)
 
 ;;;;; Commands of the window
 
@@ -2462,7 +2940,8 @@ This is a buffer-local `window-size-change-functions' function."
     (funcall function)))
 
 (defun lispm-desktop-store--select (id)
-  "Select the item ID and draw the window again."
+  "Select the item ID and draw the window again: the grid turns to the page
+holding it; an item's page shows its page."
   (lispm-desktop-store--in-window
    (lambda ()
      (unless (eq id lispm-desktop-store--selected)
@@ -2483,28 +2962,67 @@ first or the last past either end."
          (lispm-desktop-store--select
           (nth (if index (max 0 (min (1- (length ids)) (+ index step))) 0) ids)))))))
 
+(defun lispm-desktop-store--item-page-p ()
+  "Return non-nil while the App Store's window shows an item's page."
+  (eq (buffer-local-value 'lispm-desktop-store--view (lispm-desktop-store--buffer)) 'item))
+
+(defun lispm-desktop-store--scroll (function)
+  "Call FUNCTION, a command scrolling, in the App Store's window; at either
+end it does nothing."
+  (when-let* ((window (get-buffer-window (lispm-desktop-store--buffer) t)))
+    (with-selected-window window
+      (ignore-errors (funcall function)))))
+
 (defun lispm-desktop-store-forward ()
-  "Select the next item of the grid."
+  "Select the next item of the grid; on an item's page, show the next's."
   (interactive)
   (lispm-desktop-store--move 1))
 
 (defun lispm-desktop-store-backward ()
-  "Select the previous item of the grid."
+  "Select the previous item of the grid; on an item's page, show the
+previous one's."
   (interactive)
   (lispm-desktop-store--move -1))
 
 (defun lispm-desktop-store-down ()
-  "Select the item under the one selected in the grid."
+  "Select the item under the one selected in the grid; on an item's page,
+scroll it a line."
   (interactive)
-  (lispm-desktop-store--move (lispm-desktop-store--in-window #'lispm-desktop-store--columns)))
+  (if (lispm-desktop-store--item-page-p)
+      (lispm-desktop-store--scroll #'scroll-up-line)
+    (lispm-desktop-store--move (lispm-desktop-store--in-window #'lispm-desktop-store--columns))))
 
 (defun lispm-desktop-store-up ()
-  "Select the item over the one selected in the grid."
+  "Select the item over the one selected in the grid; on an item's page,
+scroll it back a line."
   (interactive)
-  (lispm-desktop-store--move (- (lispm-desktop-store--in-window #'lispm-desktop-store--columns))))
+  (if (lispm-desktop-store--item-page-p)
+      (lispm-desktop-store--scroll #'scroll-down-line)
+    (lispm-desktop-store--move (- (lispm-desktop-store--in-window #'lispm-desktop-store--columns)))))
+
+(defun lispm-desktop-store-next-page (&optional back)
+  "Show the grid's next page, its first item selected, or the previous
+page when BACK; on an item's page, scroll it, as \\`C-v' and \\`M-v' do."
+  (interactive)
+  (if (lispm-desktop-store--item-page-p)
+      (lispm-desktop-store--scroll (if back #'scroll-down-command #'scroll-up-command))
+    (lispm-desktop-store--in-window
+     (lambda ()
+       (let* ((items (lispm-desktop-store--shown))
+              (size (lispm-desktop-store--page-size))
+              (page (+ (lispm-desktop-store--page-of items size) (if back -1 1))))
+         (when (< -1 page (lispm-desktop-store--pages (length items) size))
+           (lispm-desktop-store--select (car (nth (* page size) items)))))))))
+
+(defun lispm-desktop-store-previous-page ()
+  "Show the grid's previous page, its first item selected; on an item's
+page, scroll it back."
+  (interactive)
+  (lispm-desktop-store-next-page t))
 
 (defun lispm-desktop-store-show-category (category)
-  "Show the items of CATEGORY, a key of `lispm-desktop-store-categories'."
+  "Show the items of CATEGORY, a key of `lispm-desktop-store-categories',
+in the grid; the search field empties."
   (interactive (list (lispm-desktop-store--in-window
                       (lambda ()
                         (let ((names (mapcar (pcase-lambda (`(,category ,name . ,_)) (cons name category))
@@ -2512,7 +3030,9 @@ first or the last past either end."
                           (cdr (assoc (completing-read (lispm-desktop-tr "Category: ") names nil t) names)))))))
   (lispm-desktop-store--in-window
    (lambda ()
-     (setq lispm-desktop-store--category category)
+     (setq lispm-desktop-store--category category
+           lispm-desktop-store--filter nil
+           lispm-desktop-store--view 'grid)
      (lispm-desktop-store--render))))
 
 (defun lispm-desktop-store-next-category (&optional back)
@@ -2530,15 +3050,49 @@ first or the last past either end."
   (interactive)
   (lispm-desktop-store-next-category t))
 
-(defun lispm-desktop-store-search (text)
-  "Show only the items whose name, subtitle or description holds TEXT;
-an empty TEXT shows every item again."
-  (interactive (list (read-string (lispm-desktop-tr "Search the App Store: ")
-                                  (lispm-desktop-store--in-window (lambda () lispm-desktop-store--filter)))))
+(defun lispm-desktop-store-show-item (&optional id)
+  "Show the page of the item ID, by default the one selected, in place of
+the grid: its icon, name and description, its information, and its push
+buttons under them.  Go Back, \\`DEL' or \\`M-[', goes back to the grid."
+  (interactive)
   (lispm-desktop-store--in-window
    (lambda ()
-     (setq lispm-desktop-store--filter (unless (string-blank-p text) (string-trim text)))
+     (setq lispm-desktop-store--selected
+           (or id lispm-desktop-store--selected (user-error (lispm-desktop-tr "Select an item first")))
+           lispm-desktop-store--view 'item)
+     (lispm-desktop-store--leave-field)
      (lispm-desktop-store--render))))
+
+(defun lispm-desktop-store-back ()
+  "Go back from an item's page to the grid, on the page holding the item;
+from the grid of a search, back to the category searched from."
+  (interactive)
+  (lispm-desktop-store--in-window
+   (lambda ()
+     (cond ((eq lispm-desktop-store--view 'item)
+            (setq lispm-desktop-store--view 'grid)
+            (lispm-desktop-store--render))
+           ((lispm-desktop-store--searching-p)
+            (lispm-desktop-store-clear-search))))))
+
+(defun lispm-desktop-store-toggle-item ()
+  "Show the selected item's page, as Get Info showed an item's
+information; on its page, go back to the grid."
+  (interactive)
+  (if (lispm-desktop-store--item-page-p)
+      (lispm-desktop-store-back)
+    (lispm-desktop-store-show-item)))
+
+(define-obsolete-function-alias 'lispm-desktop-store-toggle-information
+  #'lispm-desktop-store-toggle-item "0.9.0")
+
+(defun lispm-desktop-store-enter ()
+  "Show the selected item's page; on it, press the item's button, as Return
+pressed the default button."
+  (interactive)
+  (if (lispm-desktop-store--item-page-p)
+      (lispm-desktop-store-act-selected)
+    (lispm-desktop-store-show-item)))
 
 (defun lispm-desktop-store-act (id)
   "Press the button of the item ID: get it, open it, update it, or stop
@@ -2622,13 +3176,7 @@ or nil: an extension's program, an app's needs, theirs joined."
     (kill-new install)
     (message (lispm-desktop-tr "Copied: %s") install)))
 
-(defun lispm-desktop-store-toggle-information ()
-  "Show or hide the information of the item selected."
-  (interactive)
-  (lispm-desktop-store--in-window
-   (lambda ()
-     (setq lispm-desktop-store--information (not lispm-desktop-store--information))
-     (lispm-desktop-store--render))))
+;;;;; The mouse
 
 (defun lispm-desktop-store--grid-event (event)
   "Return what the mouse EVENT on the grid is on, see `lispm-desktop-store--hit'."
@@ -2640,15 +3188,15 @@ or nil: an extension's program, an app's needs, theirs joined."
     (when (and line xy)
       (with-current-buffer buffer
         (lispm-desktop-store--hit lispm-desktop-store--width line (car xy) (cdr xy)
-                                  (lispm-desktop-store--categories) (lispm-desktop-store--shown))))))
+                                  (lispm-desktop-store--categories) (lispm-desktop-store--page-items))))))
 
 (defun lispm-desktop-store--grid-click (event)
-  "Act on the click EVENT on the grid: show the category clicked, select
-the item clicked, or press the button clicked."
+  "Act on the click EVENT on the grid: show the category clicked, the page
+of the item clicked, or press the button clicked."
   (interactive "e")
   (pcase (lispm-desktop-store--grid-event event)
     (`(category . ,category) (lispm-desktop-store-show-category category))
-    (`(item . ,id) (lispm-desktop-store--select id))
+    (`(item . ,id) (lispm-desktop-store-show-item id))
     (`(button . ,id) (lispm-desktop-store--select id)
      (lispm-desktop-store-act id))))
 
@@ -2672,58 +3220,98 @@ for its click."
                 (redisplay t)))
          (lispm-desktop-store-act id))))))
 
-(defun lispm-desktop-store--grid-double-click (event)
-  "Press the button of the item EVENT clicked twice."
-  (interactive "e")
-  (pcase (lispm-desktop-store--grid-event event)
-    (`(item . ,id) (lispm-desktop-store-act id))))
+(defun lispm-desktop-store--page-event (event)
+  "Return what the mouse EVENT on an item's page is on: (category .
+CATEGORY), a category of the list at its left, (item . ID), the item
+whose page it is, or nil."
+  (let* ((position (event-start event))
+         (buffer (window-buffer (posn-window position)))
+         (xy (posn-object-x-y position))
+         (top (and (posn-point position)
+                   (get-text-property (posn-point position) 'lispm-desktop-store-top buffer))))
+    (when (and top xy)
+      (with-current-buffer buffer
+        (or (lispm-desktop-store--page-hit top (car xy) (cdr xy) (lispm-desktop-store--categories))
+            (and (>= (car xy) (car (lispm-desktop-store--grid lispm-desktop-store--width)))
+                 (cons 'item lispm-desktop-store--selected)))))))
 
-(defvar-keymap lispm-desktop-store-disclosure-map
-  :doc "Keymap of the disclosure of the item's information: Space shows or
-hides it, as Return does, rather than pressing the item's button."
-  :parent button-map
-  "SPC" #'push-button)
+(defun lispm-desktop-store--page-hit (top x y categories)
+  "Return what stands at X, Y of the row of an item's page TOP pixels down
+it, listing CATEGORIES at its left: (category . CATEGORY), or nil."
+  (lispm-desktop-store--category-hit x (+ top y) categories))
+
+(defun lispm-desktop-store--page-click (event)
+  "Act on the click EVENT on an item's page: show the category clicked."
+  (interactive "e")
+  (pcase (lispm-desktop-store--page-event event)
+    (`(category . ,category) (lispm-desktop-store-show-category category))))
 
 (defun lispm-desktop-store--item-items ()
   "Return the menu of the item selected: the File menu's items acting on
-it, its button's action first, then Uninstall…."
+it, its button's action first, then its page and Uninstall…."
   (seq-take-while (lambda (item) (not (eq item 'separator))) (lispm-desktop-store--file-items)))
 
-(defun lispm-desktop-store--grid-context-menu (event)
-  "Pop up the menu of the item right-clicked by EVENT, which it selects,
-as Mac OS 9's contextual menus came up on a Control click."
+(defun lispm-desktop-store--context-menu (event)
+  "Pop up the menu of the item right-clicked by EVENT, on the grid or its
+page, which it selects, as Mac OS 9's contextual menus came up on a
+Control click."
   (interactive "e")
-  (pcase (lispm-desktop-store--grid-event event)
+  (pcase (or (lispm-desktop-store--page-event event) (lispm-desktop-store--grid-event event))
     (`(,(or 'item 'button) . ,id)
      (lispm-desktop-store--select id)
      (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
        (lispm-desktop-popup-menu (lispm-desktop-store--item-items) x y)))))
 
 (defun lispm-desktop-store--keyboard-menu ()
-  "Pop up the menu of the item selected, under its button, from the
-keyboard, see `lispm-desktop-context-menu-function'."
+  "Pop up the menu of the item selected from the keyboard, see
+`lispm-desktop-context-menu-function': under its button on the grid,
+under its icon on its page."
   (lispm-desktop-store--in-window
    (lambda ()
-     (let* ((ids (mapcar #'car (lispm-desktop-store--shown)))
-            (index (or (seq-position ids lispm-desktop-store--selected) (user-error (lispm-desktop-tr "Select an item first")))))
-       (pcase-let* ((`(,gx ,columns ,tw) (lispm-desktop-store--grid (or lispm-desktop-store--width 640)))
-                    (line (text-property-any (point-min) (point-max) 'lispm-desktop-store-line (/ index columns)))
-                    (`(,x . ,y) (lispm-desktop-popup-frame-xy line))
-                    (`(,bx ,by ,_) (lispm-desktop-store--button-box
-                                    (+ gx (* (% index columns) tw)) tw
-                                    (car (lispm-desktop-store--action
-                                          lispm-desktop-store--selected
-                                          (cdr (assq lispm-desktop-store--selected (lispm-desktop-store-items))))))))
-         (lispm-desktop-popup-menu (lispm-desktop-store--item-items)
-                                   (+ x bx) (+ y by lispm-desktop-platinum-button-height)))))))
+     (pcase-let ((`(,gx ,columns ,tw) (lispm-desktop-store--grid (or lispm-desktop-store--width 640))))
+       (if (eq lispm-desktop-store--view 'item)
+           (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy
+                                    (text-property-not-all (point-min) (point-max) 'lispm-desktop-store-top nil))))
+             (lispm-desktop-popup-menu (lispm-desktop-store--item-items) (+ x gx) (+ y 76)))
+         (let ((index (or (seq-position (mapcar #'car (lispm-desktop-store--page-items))
+                                        lispm-desktop-store--selected)
+                          (user-error (lispm-desktop-tr "Select an item first")))))
+           (pcase-let* ((line (text-property-any (point-min) (point-max) 'lispm-desktop-store-line (/ index columns)))
+                        (`(,x . ,y) (lispm-desktop-popup-frame-xy line))
+                        (`(,bx ,by ,_) (lispm-desktop-store--button-box
+                                        (+ gx (* (% index columns) tw)) tw
+                                        (car (lispm-desktop-store--action
+                                              lispm-desktop-store--selected
+                                              (cdr (assq lispm-desktop-store--selected (lispm-desktop-store-items))))))))
+             (lispm-desktop-popup-menu (lispm-desktop-store--item-items)
+                                       (+ x bx) (+ y by lispm-desktop-platinum-button-height)))))))))
 
 (defvar-keymap lispm-desktop-store-grid-map
-  :doc "Keymap of the App Store's grid, for the mouse."
+  :doc "Keymap of the App Store's grid, for the mouse.  The second click of
+a double click lands on the item's page the first opened: it does nothing."
   "<down-mouse-1>" #'lispm-desktop-store--grid-press
   "<mouse-1>" #'lispm-desktop-store--grid-click
-  "<double-mouse-1>" #'lispm-desktop-store--grid-double-click
-  "<down-mouse-3>" #'lispm-desktop-store--grid-context-menu
+  "<double-down-mouse-1>" #'ignore
+  "<double-mouse-1>" #'ignore
+  "<triple-down-mouse-1>" #'ignore
+  "<triple-mouse-1>" #'ignore
+  "<down-mouse-3>" #'lispm-desktop-store--context-menu
   "<mouse-3>" #'ignore)
+
+(defvar-keymap lispm-desktop-store-page-map
+  :doc "Keymap of an item's page, for the mouse: its categories show their
+items, the right button pops up the item's menu, and the click after
+the one that opened the page does nothing."
+  "<down-mouse-1>" #'ignore
+  "<mouse-1>" #'lispm-desktop-store--page-click
+  "<double-down-mouse-1>" #'ignore
+  "<double-mouse-1>" #'ignore
+  "<triple-down-mouse-1>" #'ignore
+  "<triple-mouse-1>" #'ignore
+  "<down-mouse-3>" #'lispm-desktop-store--context-menu
+  "<mouse-3>" #'ignore)
+
+;;;;; The window's keys and mode
 
 (defun lispm-desktop-store-close ()
   "Close the App Store's window."
@@ -2747,13 +3335,22 @@ keyboard, see `lispm-desktop-context-menu-function'."
   "<up>" #'lispm-desktop-store-up
   "n" #'lispm-desktop-store-forward
   "p" #'lispm-desktop-store-backward
+  "C-v" #'lispm-desktop-store-next-page
+  "M-v" #'lispm-desktop-store-previous-page
+  "]" #'lispm-desktop-store-next-page
+  "[" #'lispm-desktop-store-previous-page
+  "<next>" #'lispm-desktop-store-next-page
+  "<prior>" #'lispm-desktop-store-previous-page
   "M-n" #'lispm-desktop-store-next-category
   "M-p" #'lispm-desktop-store-previous-category
   "c" #'lispm-desktop-store-show-category
-  "RET" #'lispm-desktop-store-act-selected
+  "RET" #'lispm-desktop-store-enter
   "SPC" #'lispm-desktop-store-act-selected
+  "i" #'lispm-desktop-store-toggle-item
+  "DEL" #'lispm-desktop-store-back
+  "M-[" #'lispm-desktop-store-back
   "/" #'lispm-desktop-store-search
-  "i" #'lispm-desktop-store-toggle-information
+  "C-s" #'lispm-desktop-store-search
   "u" #'lispm-desktop-store-update-selected
   "D" #'lispm-desktop-store-uninstall-selected
   "." #'lispm-desktop-store-stop-selected
@@ -2766,10 +3363,12 @@ keyboard, see `lispm-desktop-context-menu-function'."
   "M-w" #'lispm-desktop-store-close)
 
 (define-derived-mode lispm-desktop-store-mode lispm-desktop-app-window-mode "App Store"
-  "Major mode of the App Store's window: categories, a grid of icons and
-the selected item's information.
+  "Major mode of the App Store's window: the search field, the categories,
+a grid of icons in pages, or an item's page in its place.
 \\{lispm-desktop-store-mode-map}"
-  (setq-local line-spacing 0
+  ;; Read-only but for the search field, whose text is typed in.
+  (setq-local buffer-read-only nil
+              line-spacing 0
               lispm-desktop-context-menu-function #'lispm-desktop-store--keyboard-menu
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
               lispm-desktop-platinum-title "App Store"
@@ -2777,7 +3376,11 @@ the selected item's information.
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-store--close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
   (add-hook 'window-size-change-functions #'lispm-desktop-store--refit nil t)
+  (add-hook 'window-selection-change-functions #'lispm-desktop-store--follow-focus nil t)
+  (add-hook 'after-change-functions #'lispm-desktop-store--field-changed nil t)
+  (add-hook 'pre-command-hook #'lispm-desktop-store--replace-marked nil t)
   (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
+  (add-hook 'post-command-hook #'lispm-desktop-store--follow-focus nil t)
   (hl-line-mode -1))
 
 (lispm-desktop-app-window-define 'store
@@ -2803,8 +3406,10 @@ The catalogs are fetched the first time it opens after Emacs starts."
   (let* ((id (lispm-desktop-store--selected-id))
          (props (and id (cdr (assq id (lispm-desktop-store-items)))))
          (action (and props (lispm-desktop-store--action id props))))
-    `((:label ,(or (car action) (lispm-desktop-tr "Get")) :action lispm-desktop-store-act-selected :key "RET"
+    `((:label ,(or (car action) (lispm-desktop-tr "Get")) :action lispm-desktop-store-act-selected :key "SPC"
               :enabled ,(and (cdr action) t))
+      (:label ,(lispm-desktop-tr "Get Info") :action lispm-desktop-store-show-item :key "i"
+              :enabled ,(and id (not (lispm-desktop-store--item-page-p))))
       (:label ,(lispm-desktop-tr "Uninstall…") :action lispm-desktop-store-uninstall-selected :key "D"
               :enabled ,(and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id))))
       (:label ,(lispm-desktop-tr "Stop") :action lispm-desktop-store-stop-selected :key "."
@@ -2826,18 +3431,26 @@ The catalogs are fetched the first time it opens after Emacs starts."
 
 (defun lispm-desktop-store--view-items ()
   "Return the items of the App Store's View menu: a category each, the one
-shown checked, Search and the item's information."
+shown checked; Search, Back, and the grid's pages."
   (with-current-buffer (lispm-desktop-store--buffer)
-    `(,@(mapcar (pcase-lambda (`(,category ,name . ,_))
-                  (list :label name :action (lambda () (lispm-desktop-store-show-category category))
-                        :checked (eq category lispm-desktop-store--category)))
-                (lispm-desktop-store--categories))
-      separator
-      (:label ,(lispm-desktop-tr "Search…") :action lispm-desktop-store-search :key "/")
-      (:label ,(if lispm-desktop-store--information
-                   (lispm-desktop-tr "Hide Item Information")
-                 (lispm-desktop-tr "Show Item Information"))
-              :action lispm-desktop-store-toggle-information :key "i"))))
+    (let* ((grid (eq lispm-desktop-store--view 'grid))
+           (items (lispm-desktop-store--shown))
+           (size (lispm-desktop-store--page-size))
+           (page (lispm-desktop-store--page-of items size))
+           (pages (lispm-desktop-store--pages (length items) size)))
+      `(,@(mapcar (pcase-lambda (`(,category ,name . ,_))
+                    (list :label name :action (lambda () (lispm-desktop-store-show-category category))
+                          :checked (eq category (lispm-desktop-store--current-category))))
+                  (lispm-desktop-store--categories))
+        separator
+        (:label ,(lispm-desktop-tr "Search…") :action lispm-desktop-store-search :key "/")
+        (:label ,(lispm-desktop-tr "Go Back") :action lispm-desktop-store-back :key "DEL"
+                :enabled ,(or (not grid) (lispm-desktop-store--searching-p)))
+        separator
+        (:label ,(lispm-desktop-tr "Previous Page") :action lispm-desktop-store-previous-page :key "M-v"
+                :enabled ,(and grid (> page 0)))
+        (:label ,(lispm-desktop-tr "Next Page") :action lispm-desktop-store-next-page :key "C-v"
+                :enabled ,(and grid (< page (1- pages))))))))
 
 (defun lispm-desktop-store-menus ()
   "Return the App Store's menus, for the menu bar while it is in front."

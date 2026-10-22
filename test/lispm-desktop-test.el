@@ -7882,22 +7882,6 @@ saying why, and its button tries again."
         (should (string-prefix-p "It could not be installed: It cannot be loaded"
                                  (lispm-desktop-store--failure 'ext)))))))
 
-(ert-deftest lispm-desktop-test-store-space-on-the-disclosure ()
-  "Space on the disclosure of the item's information shows or hides it,
-rather than pressing the selected item's button."
-  (lispm-desktop-test--with-store
-    (lispm-desktop-test--store-catalog "https://example.org/store"
-                                       '((calculator :kind app :name "Calculator" :command calc)))
-    (with-current-buffer (lispm-desktop-store--buffer)
-      (lispm-desktop-store--render)
-      (goto-char (point-min))
-      (while (not (equal (get-text-property (point) 'lispm-desktop-platinum-label) "Item Information"))
-        (forward-char 1))
-      (should (eq (key-binding (kbd "SPC")) 'push-button))
-      (should lispm-desktop-store--information)
-      (call-interactively (key-binding (kbd "SPC")))
-      (should-not lispm-desktop-store--information))))
-
 (ert-deftest lispm-desktop-test-store-built-in-asks-nothing ()
   "An application built into Emacs is only made an application: nothing is
 asked and no package installed."
@@ -8056,7 +8040,8 @@ uninstall the programs."
 
 (ert-deftest lispm-desktop-test-store-item-menu ()
   "An item's right-click menu holds what the File menu does to it: its
-button's action, then Uninstall…, which only an item installed enables."
+button's action, Get Info, opening its page, which its page disables,
+then Uninstall…, which only an item installed enables."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--store-catalog "https://example.org/first"
                                        '((calculator :kind app :name "Calculator" :command calc)))
@@ -8064,11 +8049,16 @@ button's action, then Uninstall…, which only an item installed enables."
       (setq lispm-desktop-store--selected 'calculator))
     (let ((items (lispm-desktop-store--item-items)))
       (should (equal (plist-get (car items) :label) "Get"))
-      (should (equal (plist-get (nth 1 items) :label) "Uninstall…"))
-      (should-not (plist-get (nth 1 items) :enabled))
+      (should (equal (plist-get (nth 1 items) :label) "Get Info"))
+      (should (plist-get (nth 1 items) :enabled))
+      (should (equal (plist-get (nth 2 items) :label) "Uninstall…"))
+      (should-not (plist-get (nth 2 items) :enabled))
       (should-not (memq 'separator items)))
     (setq lispm-desktop-store-installed '((calculator :kind app :name "Calculator" :command calc :installed "built-in")))
-    (should (plist-get (nth 1 (lispm-desktop-store--item-items)) :enabled))))
+    (should (plist-get (nth 2 (lispm-desktop-store--item-items)) :enabled))
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (setq lispm-desktop-store--view 'item))
+    (should-not (plist-get (nth 1 (lispm-desktop-store--item-items)) :enabled))))
 
 (ert-deftest lispm-desktop-test-popup-position-of-a-buffer-position ()
   "A buffer position is placed where it shows, not taken for a character
@@ -8493,8 +8483,11 @@ item, or on the item's button; the list goes on down the grid's lines."
          (lispm-desktop-store--catalogs nil))
     (pcase-let ((`(,gx ,columns ,tw) (lispm-desktop-store--grid width)))
       (should (= columns 4))
-      (should (= (lispm-desktop-store--lines 5 columns 3) 2))
-      (should (= (lispm-desktop-store--lines 0 columns 3) 1))
+      (should (= (lispm-desktop-store--page-lines 600 3) 4))
+      (should (= (lispm-desktop-store--page-lines 100 3) 1))
+      (should (= (lispm-desktop-store--page-lines 100 9) 2))
+      (should (= (lispm-desktop-store--pages 17 16) 2))
+      (should (= (lispm-desktop-store--pages 0 16) 1))
       (should (equal (lispm-desktop-store--hit width 0 20 25 categories items) '(category . games)))
       (should (equal (lispm-desktop-store--hit width 0 20 60 categories items) '(category . updates)))
       (should-not (lispm-desktop-store--hit width 0 20 90 categories items))
@@ -8521,8 +8514,8 @@ extensions."
 
 (ert-deftest lispm-desktop-test-store-window-keys ()
   "The App Store's window shows its categories and items, the push
-buttons under them; the keyboard goes from item to item and category to
-category, and RET presses the selected item's button."
+buttons over and under them; the keyboard goes from item to item and
+category to category, and Space presses the selected item's button."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--store-catalog
      "https://example.org/store"
@@ -8538,8 +8531,10 @@ category, and RET presses the selected item's button."
           (let ((labels (delq nil (mapcar (lambda (position)
                                             (get-text-property position 'lispm-desktop-platinum-label))
                                           (number-sequence (point-min) (1- (point-max)))))))
-            (dolist (label '("Check for Updates" "Install from URL…" "Uninstall…" "Get"))
-              (should (member label labels))))
+            (dolist (label '("Check for Updates" "Install from URL…"))
+              (should (member label labels)))
+            (dolist (label '("Uninstall…" "Get" "Previous" "Next"))
+              (should-not (member label labels))))
           (should (equal (lispm-desktop-store--placard) "7 items, 0 installed"))
           (should (eq lispm-desktop-store--category 'all))
           (should (eq lispm-desktop-store--selected 'calculator))
@@ -8563,8 +8558,162 @@ category, and RET presses the selected item's button."
           (should (eq lispm-desktop-store--category 'updates))
           (should-not lispm-desktop-store--selected)
           (lispm-desktop-store-show-category 'games)
+          (should (eq (key-binding (kbd "SPC")) 'lispm-desktop-store-act-selected))
           (lispm-desktop-store-act-selected)
           (should (eq pressed 'game1)))))))
+
+;; A catalog of N games and an app or two, for the window's tests.
+(defun lispm-desktop-test--store-games (n)
+  "Put a catalog holding N games, Game 1 to Game N, a calculator and
+Tetris, listed and read."
+  (lispm-desktop-test--store-catalog
+   "https://example.org/store"
+   (append '((calculator :kind app :name "Calculator" :command calc :category utilities
+                         :subtitle "Arithmetic")
+             (tetris :kind app :name "Tetris" :command tetris :category games :subtitle "Falling blocks"))
+           (mapcar (lambda (n) (list (intern (format "game%02d" n)) :kind 'app :name (format "Game %02d" n)
+                                     :command 'ignore :category 'games
+                                     :description (if (= n 3) "Stack the tetrominoes." "A game.")))
+                   (number-sequence 1 n)))))
+
+(ert-deftest lispm-desktop-test-store-search-field ()
+  "The search field over the categories takes what is typed, the window's
+letter keys aside, the text around it read-only; what it holds is looked
+for in every category as typing pauses, a name starting with it first,
+and the field keeps its text and point as the window is drawn again.
+Return leaves it for the grid; C-g empties it."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-games 3)
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (setq lispm-desktop-store--category 'utilities)
+      (lispm-desktop-store--render)
+      (pcase-let ((`(,start . ,end) (lispm-desktop-store--field-bounds)))
+        (should (= start end))
+        (should-not (lispm-desktop-store--in-field-p (point-min)))
+        (should (eq (key-binding "n") 'lispm-desktop-store-forward))
+        (goto-char start)
+        (should (eq (key-binding "n") 'self-insert-command))
+        (should (eq (key-binding (kbd "RET")) 'lispm-desktop-store-search-done))
+        (should (eq (key-binding (kbd "M-v")) 'lispm-desktop-paste))
+        (dolist (char (string-to-list "tet"))
+          (let ((last-command-event char))
+            (self-insert-command 1)))
+        (should (equal lispm-desktop-store--filter "tet"))
+        (should (timerp lispm-desktop-store--search-timer))
+        (should-not (text-properties-at (1- (point))))
+        (should-error (save-excursion (goto-char (point-min)) (insert "x")) :type 'text-read-only)
+        (should-error (save-excursion (goto-char (1- start)) (insert "x")) :type 'text-read-only))
+      (lispm-desktop-store--searched)
+      (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(tetris game03)))
+      (should (eq lispm-desktop-store--selected 'tetris))
+      (should-not (lispm-desktop-store--current-category))
+      (should (equal (lispm-desktop-store--title) "Search Results"))
+      (pcase-let ((`(,start . ,end) (lispm-desktop-store--field-bounds)))
+        (should (equal (buffer-substring-no-properties start end) "tet"))
+        (should (= (point) end)))
+      (lispm-desktop-store-search-done)
+      (should-not (lispm-desktop-store--in-field-p))
+      (should (equal lispm-desktop-store--filter "tet"))
+      (goto-char (car (lispm-desktop-store--field-bounds)))
+      (lispm-desktop-store-search-cancel)
+      (should-not lispm-desktop-store--filter)
+      (should (eq lispm-desktop-store--category 'utilities))
+      (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(calculator)))
+      (should (lispm-desktop-store--in-field-p))
+      (lispm-desktop-store-search-cancel)
+      (should-not (lispm-desktop-store--in-field-p))
+      (lispm-desktop-store-search "game 0")
+      (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(game01 game02 game03)))
+      (lispm-desktop-store-show-category 'games)
+      (should-not lispm-desktop-store--filter))))
+
+(ert-deftest lispm-desktop-test-store-pages ()
+  "The grid shows the items in pages, as many as fit; the page holding the
+item selected shows, so that moving past its end turns it, and C-v and
+M-v turn it, the first item of the page selected.  Previous and Next,
+with the page between, show when there are pages."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-games 20)
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (lispm-desktop-store--render)
+      (should (= (lispm-desktop-store--page-size) 16))
+      (cl-flet ((labels ()
+                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                                    (number-sequence (point-min) (1- (point-max))))))
+                (page () (mapcar #'car (lispm-desktop-store--page-items))))
+        (should (equal (car (page)) 'calculator))
+        (should (= (length (page)) 16))
+        (should (= (seq-count (lambda (position) (get-text-property position 'lispm-desktop-store-line))
+                              (number-sequence (point-min) (1- (point-max))))
+                   4))
+        (should (member "Previous" (labels)))
+        (should (member "Next" (labels)))
+        (should (string-search "Page 1 of 2" (buffer-string)))
+        (should (eq (key-binding (kbd "C-v")) 'lispm-desktop-store-next-page))
+        (lispm-desktop-store-next-page)
+        (should (eq lispm-desktop-store--selected 'game16))
+        (should (equal (page) '(game16 game17 game18 game19 game20 tetris)))
+        (should (string-search "Page 2 of 2" (buffer-string)))
+        (lispm-desktop-store-next-page)
+        (should (eq lispm-desktop-store--selected 'game16))
+        (lispm-desktop-store-up)
+        (should (eq lispm-desktop-store--selected 'game12))
+        (should (equal (car (page)) 'calculator))
+        (lispm-desktop-store-previous-page)
+        (should (eq lispm-desktop-store--selected 'game12))
+        (lispm-desktop-store-show-category 'utilities)
+        (should-not (member "Next" (labels)))))))
+
+(ert-deftest lispm-desktop-test-store-item-page ()
+  "An item opens its page in place of the grid, from RET, i or a click:
+the categories still at its left, its head, its description and its
+information, its push buttons under them, the item's own the default;
+the page ends where the grid's would.  Go Back, DEL or M-[, goes back to
+the grid on the page holding it; C-f goes to the next item's page and
+RET presses the item's button.  The click after the one opening it does
+nothing."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-games 20)
+    (let ((pressed nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store-install) (lambda (id) (setq pressed id))))
+        (with-current-buffer (lispm-desktop-store--buffer)
+          (lispm-desktop-store--render)
+          (lispm-desktop-store-next-page)
+          (should (eq (key-binding (kbd "RET")) 'lispm-desktop-store-enter))
+          (lispm-desktop-store-enter)
+          (should (eq lispm-desktop-store--view 'item))
+          (should (eq lispm-desktop-store--selected 'game16))
+          (let* ((rows (lispm-desktop-store--page-rows 'game16 640 600 4))
+                 (labels (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                                           (number-sequence (point-min) (1- (point-max)))))))
+            (should (plist-get (car rows) :head))
+            (should (equal (plist-get (plist-get (car rows) :head) :name) "Game 16"))
+            (should (plist-get (nth 1 rows) :rule))
+            (should (equal (plist-get (nth 2 rows) :text) "A game."))
+            (should (seq-find (lambda (row) (equal (plist-get row :label) "Version:")) rows))
+            (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) rows))
+                       (* 4 lispm-desktop-store-tile-height)))
+            (dolist (label '("Go Back" "Uninstall…" "Get"))
+              (should (member label labels)))
+            (dolist (label '("Previous" "Next" "Install from URL…"))
+              (should-not (member label labels))))
+          (should (eq (lookup-key lispm-desktop-store-page-map [double-mouse-1]) 'ignore))
+          (lispm-desktop-store-forward)
+          (should (eq lispm-desktop-store--view 'item))
+          (should (eq lispm-desktop-store--selected 'game17))
+          (lispm-desktop-store-enter)
+          (should (eq pressed 'game17))
+          (should (eq (key-binding (kbd "DEL")) 'lispm-desktop-store-back))
+          (should (eq (key-binding (kbd "M-[")) 'lispm-desktop-store-back))
+          (lispm-desktop-store-back)
+          (should (eq lispm-desktop-store--view 'grid))
+          (should (eq lispm-desktop-store--selected 'game17))
+          (should (memq 'game17 (mapcar #'car (lispm-desktop-store--page-items))))
+          (lispm-desktop-store-toggle-item)
+          (should (eq lispm-desktop-store--view 'item))
+          (lispm-desktop-store-show-category 'utilities)
+          (should (eq lispm-desktop-store--view 'grid))
+          (should (eq lispm-desktop-store--selected 'calculator)))))))
 
 ;;;; Software Update
 
