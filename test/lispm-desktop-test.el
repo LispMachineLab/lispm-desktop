@@ -11710,6 +11710,48 @@ under the menu bar, on the screen."
     (cl-letf (((symbol-function 'frame-width) (lambda (&optional _) 80)))
       (should (= (lispm-desktop-sidebar-columns) 26)))))
 
+(ert-deftest lispm-desktop-test-tty-moved-frame-redrawn ()
+  "On a text terminal a child frame drawn elsewhere than before has the
+windows of its root, the minibuffer's too, redisplayed once, so no copy
+of it stays where it was; one moved inside a child frame has its root's.
+A child frame shown, hidden or left in place, or one on a graphical
+display, has none redisplayed."
+  (let ((lispm-desktop--tty-child-places (make-hash-table :test #'eq))
+        (parents '((finder . root) (menu . finder) (picture . gui)))
+        (places (list (cons 'finder '(4 . 3)) (cons 'menu '(1 . 1)) (cons 'picture '(0 . 0))))
+        (hidden nil)
+        (updated nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () '(root finder menu gui picture)))
+              ((symbol-function 'frame-parent) (lambda (&optional frame) (alist-get frame parents)))
+              ((symbol-function 'lispm-desktop-tty-p)
+               (lambda (&optional frame) (not (memq frame '(gui picture)))))
+              ((symbol-function 'frame-visible-p) (lambda (frame) (not (memq frame hidden))))
+              ((symbol-function 'frame-position) (lambda (&optional frame) (alist-get frame places)))
+              ((symbol-function 'window-list)
+               (lambda (&optional frame _minibuffer _window) (list (list frame 'desktop) (list frame 'minibuffer))))
+              ((symbol-function 'force-window-update) (lambda (&optional window) (push window updated))))
+      (cl-flet ((redisplayed ()
+                  (setq updated nil)
+                  (lispm-desktop--tty-redraw-moved-frames t)
+                  (reverse updated)))
+        ;; Seen the first time, a frame was drawn nowhere else.
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(40 . 12))
+        (should (equal (redisplayed) '((root desktop) (root minibuffer))))
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(41 . 12)
+              (alist-get 'menu places) '(2 . 1))
+        (should (equal (redisplayed) '((root desktop) (root minibuffer))))
+        ;; Hidden, moved and shown again: Emacs draws it there itself.
+        (push 'finder hidden)
+        (should-not (redisplayed))
+        (setf (alist-get 'finder places) '(60 . 20))
+        (should-not (redisplayed))
+        (setq hidden nil)
+        (should-not (redisplayed))
+        (setf (alist-get 'picture places) '(9 . 9))
+        (should-not (redisplayed))))))
+
 (ert-deftest lispm-desktop-test-tty-meta-brackets ()
   "Meta-[ and Meta-] are bound but on a text terminal, which sends them as
 ESC [ and ESC ], the start of its arrows and mouse reports."

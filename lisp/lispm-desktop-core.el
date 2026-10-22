@@ -214,6 +214,39 @@ into it, so a terminal aligns a cell short of that again."
   (let ((pixels (+ (or pixels 0) (if (lispm-desktop-tty-p) 2 0))))
     (if (zerop pixels) 'right `(- right (,pixels)))))
 
+(defvar lispm-desktop--tty-child-places (make-hash-table :test #'eq :weakness 'key)
+  "Where each child frame on a text terminal stood when last drawn:
+FRAME to its position, (X . Y), or nil while it was hidden.")
+
+(defun lispm-desktop--tty-redraw-moved-frames (&rest _)
+  "Redraw the text terminal where a child frame moved away from.
+Emacs 31 draws a text terminal's child frames over their root frame,
+and takes the rows the root's windows do not redraw from what the
+terminal shows, so a child frame moved by `set-frame-position' left a
+copy of itself where it stood until the screen was drawn anew.  The
+windows of the root of a child frame drawn elsewhere than before are
+therefore redisplayed, which writes only the cells that change: the
+root garbaged would be written whole, and cleared first, as
+`redraw-frame' clears it, it would flicker.  Emacs itself redraws
+where a child frame was shown, hidden, resized or deleted.  This is
+advice before `pre-redisplay-function', run once a redisplay."
+  (let (roots)
+    (dolist (frame (frame-list))
+      (when (and (frame-parent frame) (lispm-desktop-tty-p frame))
+        (let ((place (and (frame-visible-p frame) (frame-position frame)))
+              (was (gethash frame lispm-desktop--tty-child-places)))
+          (unless (equal place was)
+            (puthash frame place lispm-desktop--tty-child-places)
+            (when (and place was)
+              (let ((root frame))
+                (while (frame-parent root)
+                  (setq root (frame-parent root)))
+                (unless (memq root roots)
+                  (push root roots))))))))
+    (dolist (root roots)
+      (dolist (window (window-list root t))
+        (force-window-update window)))))
+
 (defun lispm-desktop-setup-meta-key-issue ()
   "Map macOS command key to Meta."
   (when (lispm-desktop-macos-p)
