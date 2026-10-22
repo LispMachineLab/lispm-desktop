@@ -69,6 +69,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-frame)
+(require 'lispm-desktop-modal)
 
 (declare-function lispm-desktop-term-module-init-channel "lispm-desktop-term-module" (process))
 (declare-function lispm-desktop-term-module-close-channel "lispm-desktop-term-module" ())
@@ -1031,7 +1032,7 @@ release.  The press selects the terminal's window, as a click does."
           (lispm-desktop-term--send (lispm-desktop-term--mouse-report button cell))
           (track-mouse
             (while (not done)
-              (let ((next (read-event)))
+              (let ((next (lispm-desktop-modal-read-event)))
                 (cond
                  ((mouse-movement-p next)
                   (let ((posn (event-start next)))

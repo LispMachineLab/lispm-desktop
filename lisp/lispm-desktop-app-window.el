@@ -150,9 +150,30 @@ defined; see `lispm-desktop-app-window-define'.")
             lispm-desktop-app-window--frames))
 
 (defun lispm-desktop-app-window-menu-bar-height (screen)
-  "Return the height in pixels of SCREEN's menu bar, its tab bar; 0 where
-Emacs has no window system, and so no tab bar."
-  (if (fboundp 'tab-bar-height) (tab-bar-height screen t) 0))
+  "Return the height in pixels of SCREEN's menu bar, its tab bar; its lines
+on a text terminal; 0 where Emacs has no window system, and so no tab bar."
+  (cond ((lispm-desktop-tty-p screen) (or (frame-parameter screen 'tab-bar-lines) 0))
+        ((fboundp 'tab-bar-height) (tab-bar-height screen t))
+        (t 0)))
+
+(defun lispm-desktop-app-window--tty-geometry (screen size)
+  "Return where a window opens first over SCREEN, a text terminal, as
+\(LEFT TOP WIDTH HEIGHT) in cells.  SIZE, (WIDTH . HEIGHT) in pixels or
+nil, is the size it has on a graphical display, here a cell for 8
+pixels across and 16 down; a window without one takes most of the
+screen.  Windows cascade from under the menu bar's left, a cell across
+and a line down from each other, and stay on the screen."
+  (let* ((screen-width (frame-width screen))
+         (top (1+ (lispm-desktop-app-window-menu-bar-height screen)))
+         (room (- (frame-height screen) top 2))
+         (step (seq-count (pcase-lambda (`(,_ . ,frame)) (frame-live-p frame))
+                          lispm-desktop-app-window--frames))
+         (width (min (- screen-width 4)
+                     (if size (max 40 (round (car size) 8)) (max 60 (round (* screen-width 0.7))))))
+         (height (min room (if size (max 10 (round (cdr size) 16)) (max 12 (round (* room 0.8)))))))
+    (list (min (+ 2 (* 2 step)) (max 0 (- screen-width width 2)))
+          (min (+ top step) (max top (- (frame-height screen) height 2)))
+          width height)))
 
 (defun lispm-desktop-app-window--cascade (screen width height)
   "Return where a window WIDTH by HEIGHT pixels opens first over SCREEN.
@@ -179,9 +200,13 @@ else its kind's :name in the language LispM speaks, else ID's name."
   "Return a new window of kind ID over SCREEN's desktop, not yet shown.
 It opens where the window of its kind was last, else where its kind puts
 it first.  NAME and SIZE stand in for the kind's :name and :size."
-  (pcase-let* ((size (or size (lispm-desktop-app-window--get id :size) lispm-desktop-app-window-size))
+  (pcase-let* ((given (or size (lispm-desktop-app-window--get id :size)))
+               (size (or given lispm-desktop-app-window-size))
                (`(,left ,top ,width ,height)
                 (or (alist-get id lispm-desktop-app-window--geometry)
+                    ;; A kind's place is reckoned in pixels.
+                    (and (lispm-desktop-tty-p screen)
+                         (lispm-desktop-app-window--tty-geometry screen given))
                     (if-let* ((geometry (lispm-desktop-app-window--get id :geometry)))
                         (funcall geometry screen)
                       (lispm-desktop-app-window--cascade screen (car size) (cdr size)))))

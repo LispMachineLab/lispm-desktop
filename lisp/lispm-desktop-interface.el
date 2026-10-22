@@ -308,9 +308,22 @@ function never sets, so re-running it is idempotent."
     (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
     (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
 
+(defcustom lispm-desktop-tty-mouse t
+  "Non-nil lets the mouse work in LispM on a text terminal.
+Clicks then reach the menu bar, the title bars, the lists and the
+desktop, and the wheel scrolls, as on a graphical display; the terminal
+selects text itself only with Shift held (Option in macOS's Terminal),
+since the clicks are Emacs's.  See `xterm-mouse-mode'."
+  :type 'boolean
+  :group 'lispm-desktop)
+
 (defun lispm-desktop-setup-interface ()
   "Set up interface."
   (electric-pair-mode 1)
+  ;; A terminal reports the mouse only when asked to; on a graphical
+  ;; display this changes nothing.
+  (when lispm-desktop-tty-mouse
+    (xterm-mouse-mode 1))
   (when (lispm-desktop-macos-p)
     (define-key global-map [ns-drag-file] 'ns-find-file))
   (when (lispm-desktop-gui-p)
