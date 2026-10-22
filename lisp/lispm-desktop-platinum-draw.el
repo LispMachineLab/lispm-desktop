@@ -315,14 +315,17 @@ drawn as SVG is as heavy as the titles and menus Emacs draws beside it."
 
 (defun lispm-desktop-platinum--label (svg text x y color font &optional anchor)
   "Write TEXT on SVG at X, its baseline at Y, in COLOR and FONT.
-FONT is a value of `lispm-desktop-platinum-svg-font'; ANCHOR is SVG's
-text anchor, by default the middle."
+FONT is a value of `lispm-desktop-platinum-svg-font', with its :style,
+as \"italic\", and its :decoration, as \"underline\", where given;
+ANCHOR is SVG's text anchor, by default the middle."
   (dolist (dx (if (plist-get font :synthetic) '(0 0.5) '(0)))
     ;; Spaces are kept, as Emacs shows them, at a run's ends too.
-    (svg-text svg (substring-no-properties text) :x (+ x dx) :y y :text-anchor (or anchor "middle")
-              :xml:space "preserve"
-              :font-family (plist-get font :family) :font-size (plist-get font :size)
-              :font-weight (plist-get font :weight) :fill color)))
+    (apply #'svg-text svg (substring-no-properties text) :x (+ x dx) :y y :text-anchor (or anchor "middle")
+           :xml:space "preserve"
+           :font-family (plist-get font :family) :font-size (plist-get font :size)
+           :font-weight (plist-get font :weight) :fill color
+           (append (and (plist-get font :style) (list :font-style (plist-get font :style)))
+                   (and (plist-get font :decoration) (list :text-decoration (plist-get font :decoration)))))))
 
 ;;;;; Labels
 ;;
@@ -451,7 +454,9 @@ Return the x where CONTENT ends."
                  (family (lispm-desktop-platinum--face-attribute faces :family))
                  (base (face-attribute face :height nil t))
                  (scale (seq-reduce (lambda (size face)
-                                      (let ((h (and (consp face) (plist-get face :height))))
+                                      (let ((h (cond ((consp face) (plist-get face :height))
+                                                     ((and (symbolp face) (facep face))
+                                                      (face-attribute face :height nil t)))))
                                         (if (floatp h) (* size h) size)))
                                     (ensure-list faces) 1.0))
                  (size (* scale (/ (if (numberp base) base 120) 10.0)))
@@ -459,12 +464,18 @@ Return the x where CONTENT ends."
                              '(semi-bold bold extra-bold ultra-bold heavy black)))
                  (synthetic (and bold (display-graphic-p)
                                  (lispm-desktop-platinum--synthetic-bold-p `(:family ,family))))
-                 (ink (or (lispm-desktop-platinum--face-attribute faces :foreground) color)))
+                 (ink (or (lispm-desktop-platinum--face-attribute faces :foreground) color))
+                 (lines (delq nil (list (and (lispm-desktop-platinum--face-attribute faces :underline) "underline")
+                                        (and (lispm-desktop-platinum--face-attribute faces :strike-through)
+                                             "line-through")))))
             (lispm-desktop-platinum--label
              svg run x (+ top (round (/ (+ height (* 0.7 size)) 2.0))) ink
              (list :family (lispm-desktop-platinum--svg-families family)
                    :size size :weight (if (and bold (not synthetic)) "bold" "normal")
-                   :synthetic synthetic)
+                   :synthetic synthetic
+                   :style (and (memq (lispm-desktop-platinum--face-attribute faces :slant) '(italic oblique))
+                               "italic")
+                   :decoration (and lines (string-join lines " ")))
              "start"))))
         (setq x (+ x width)
               start end)))

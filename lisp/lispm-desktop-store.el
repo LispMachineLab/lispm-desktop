@@ -60,8 +60,9 @@
 ;; in the Installer, the alert asking for both; its information says what
 ;; is missing, Install Missing installs it, and its window offers it, see
 ;; lispm-desktop-app-ui.el; the commands a need names offer it too.
-;; :category, one of `lispm-desktop-store-categories', and :subtitle, a
-;; few words, place an application in the window.  :requires names the
+;; :category, one of `lispm-desktop-store-categories', as Classic AI, the
+;; programs of AI's first decades, ELIZA's Doctor, SHRDLU and MYCIN, and
+;; :subtitle, a few words, place an application in the window.  :requires names the
 ;; items installed before.  Items of other kinds, as LispM's roles and
 ;; skills, are not the App Store's: it passes them over.
 ;;
@@ -91,16 +92,21 @@
 ;; Update, in pages of as many as fit, Previous and Next under them.
 ;; What is typed in the field is looked for in every category as typing
 ;; pauses, the best matches first.  An item clicked opens its page in
-;; place of the grid: its icon and name large, its description and
-;; information, its push buttons under them; Go Back goes back to the
-;; grid, on the page it was.  The keyboard does all of it: C-f, C-b, C-n
+;; place of the grid: its icon and name large, its banner, its
+;; introduction, Markdown its catalog gives (lispm-desktop-markdown.el),
+;; whose links open as clicked, and its information, who made it and
+;; under what licence among it; its push buttons under them; Go Back
+;; goes back to the grid, on the page it was.  An item a catalog lists
+;; without the whole of its listing, its banner and introduction among
+;; it, is not shown.  The keyboard does all of it: C-f, C-b, C-n
 ;; and C-p go from icon to icon, ] and [, or C-v and M-v, from page to
 ;; page, M-n and M-p from category to category, RET or i opens the
 ;; selected item's page, DEL or M-[ goes back, Space presses its button,
 ;; / or C-s goes to the search field, which RET or C-n leaves and C-g
 ;; empties, u updates, D uninstalls, . stops an install, l shows the log
-;; of one that failed, g checks the catalogs, + installs from a git URL,
-;; Tab goes to the push buttons and q closes.
+;; of one that failed, o opens a link of an item's introduction, g checks
+;; the catalogs, + installs from a git URL, Tab goes to the push buttons
+;; and q closes.
 
 ;;; Code:
 
@@ -121,6 +127,7 @@
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-catalog)
+(require 'lispm-desktop-markdown)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
@@ -182,6 +189,7 @@ NAME in English, translated where shown.")
     (productivity ,(lispm-desktop-tr-noop "Productivity"))
     (utilities ,(lispm-desktop-tr-noop "Utilities"))
     (games ,(lispm-desktop-tr-noop "Games"))
+    (classic-ai ,(lispm-desktop-tr-noop "Classic AI"))
     (extensions ,(lispm-desktop-tr-noop "Extensions"))
     (updates ,(lispm-desktop-tr-noop "Updates")))
   "The categories down the App Store's left side, in order: (CATEGORY NAME),
@@ -343,9 +351,10 @@ installs, see `lispm-desktop-store-kinds'."
 (defun lispm-desktop-store--read-catalog (url)
   "Return the catalog at URL as its clone holds it, or nil without a clone.
 A catalog that cannot be read is said so and left out, and so is an item
-of it lispm-desktop-catalog.el finds an error in, saying which; what it
-only warns of, as a subtitle missing, is the catalog's to mend, and does
-not keep an item out.  Items of kinds the App Store does not install are
+of it lispm-desktop-catalog.el finds an error in, saying which: one short
+of its listing, as its banner or its introduction, is.  What it only
+warns of, as a subtitle too long, is the catalog's to mend, and does not
+keep an item out.  Items of kinds the App Store does not install are
 passed over without a word."
   (let* ((directory (lispm-desktop-store--catalog-directory url))
          (file (expand-file-name "catalog.eld" directory)))
@@ -359,7 +368,7 @@ passed over without a word."
                           (lambda (item)
                             (and (lispm-desktop-store--kind-p item)
                                  (if-let* ((errors (lispm-desktop-catalog-errors
-                                                    (lispm-desktop-catalog-item-problems item))))
+                                                    (lispm-desktop-catalog-item-problems item directory))))
                                      (progn (message (lispm-desktop-tr "App Store: %s lists %S wrongly, left out: %s")
                                                      url (car-safe item) (string-join errors "; "))
                                             nil)
@@ -1838,8 +1847,15 @@ thrown away, from the folder's menu or onto the Trash."
 its search, or `item', the page of the item selected.")
 
 (defvar-local lispm-desktop-store--drawn nil
-  "What the window showed when last drawn, as `lispm-desktop-store--view'
+  "What the window showed when last drawn, as `lispm-desktop-store--page'
 says it, or nil before.")
+
+(defun lispm-desktop-store--page ()
+  "Return what the window shows, telling one page from another: `grid', or
+\(item . ID) for the page of the item ID."
+  (if (eq lispm-desktop-store--view 'item)
+      (cons 'item lispm-desktop-store--selected)
+    lispm-desktop-store--view))
 
 (defvar-local lispm-desktop-store--height nil
   "The height in pixels the window was drawn for.")
@@ -2497,12 +2513,12 @@ Again, the default."
   "Height in pixels of a line of text of an item's page.")
 
 (defun lispm-desktop-store--pieces (word width face)
-  "Return WORD in FACE cut into pieces of at most WIDTH pixels, after a
-slash or a hyphen where one is: a file name or a URL, as an error names.
-A word that fits is its own piece; so is a character, however narrow
-WIDTH, so that cutting ends."
+  "Return WORD in FACE, under the faces of its own, cut into pieces of at
+most WIDTH pixels, after a slash or a hyphen where one is: a file name
+or a URL, as an error names.  A word that fits is its own piece; so is a
+character, however narrow WIDTH, so that cutting ends."
   (let ((pieces nil))
-    (cl-flet ((fits (text) (<= (string-pixel-width (propertize text 'face face)) width)))
+    (cl-flet ((fits (text) (<= (lispm-desktop-platinum-content-width text face) width)))
       (while (and (> (length word) 1) (not (fits word)))
         (let* ((fit (let ((n (1- (length word))))
                       (while (and (> n 1) (not (fits (substring word 0 n))))
@@ -2517,13 +2533,19 @@ WIDTH, so that cutting ends."
     (nreverse (cons word pieces))))
 
 (defun lispm-desktop-store--wrap (text width face)
-  "Return TEXT in FACE broken into lines of at most WIDTH pixels, between
-words or the characters of Chinese and Japanese; a word too long for a
-line is cut, see `lispm-desktop-store--pieces'."
-  (mapcan (lambda (line) (lispm-desktop-store--pieces line width face))
-          (lispm-desktop-i18n-wrap
-           (or text "")
-           (lambda (line) (<= (string-pixel-width (propertize line 'face face)) width)))))
+  "Return TEXT in FACE, under the faces of its own, broken into lines of
+at most WIDTH pixels, between words or the characters of Chinese and
+Japanese, and where it holds a newline; a word too long for a line is
+cut, see `lispm-desktop-store--pieces'.  The lines keep TEXT's
+properties."
+  (unless (member text '(nil ""))
+    (mapcan (lambda (paragraph)
+              (mapcan (lambda (line) (lispm-desktop-store--pieces line width face))
+                      (or (lispm-desktop-i18n-wrap
+                           paragraph
+                           (lambda (line) (<= (lispm-desktop-platinum-content-width line face) width)))
+                          (list ""))))
+            (split-string text "\n"))))
 
 (defun lispm-desktop-store--where (props)
   "Return where the item of PROPS, installed, lives, in words."
@@ -2535,6 +2557,15 @@ line is cut, see `lispm-desktop-store--pieces'."
              (abbreviate-file-name (file-name-directory library))))
           ((null package) "Emacs")
           (t "–"))))
+
+(defun lispm-desktop-store--license (license)
+  "Return LICENSE, an SPDX expression, as an item's information shows it: a
+licence SPDX does not list, LicenseRef-NAME, in words."
+  (if license
+      (replace-regexp-in-string "LicenseRef-\\([-.A-Za-z0-9]+\\)"
+                                (lambda (ref) (string-replace "-" " " (match-string 1 ref)))
+                                license t t)
+    "–"))
 
 (defun lispm-desktop-store--fields (id)
   "Return the information shown of the item ID, as (LABEL VALUE), in the
@@ -2551,15 +2582,25 @@ language LispM speaks."
               (installed (lispm-desktop-tr "Installed"))
               (program (lispm-desktop-tr "Needs %s, not on PATH" program))
               (t (lispm-desktop-tr "Not installed"))))
+      (,(lispm-desktop-tr "Developer:") ,(or (plist-get props :author) "–"))
+      (,(lispm-desktop-tr "Licence:") ,(lispm-desktop-store--license (plist-get props :license)))
+      ,@(when-let* ((requires (plist-get props :requires)))
+          `((,(lispm-desktop-tr "Requires:")
+             ,(mapconcat (lambda (other)
+                           (or (plist-get (cdr (assq other (lispm-desktop-store-items))) :name)
+                               (symbol-name other)))
+                         requires ", "))))
+      ,@(when-let* ((needs (append (ensure-list (plist-get props :program))
+                                   (mapcar #'cadr (plist-get props :needs)))))
+          `((,(lispm-desktop-tr "Needs:") ,(string-join needs ", "))))
       (,(lispm-desktop-tr "From:") ,(lispm-desktop-store--origin props))
       (,(lispm-desktop-tr "Where:") ,(if installed (lispm-desktop-store--where installed) "–")))))
 
-(defun lispm-desktop-store--description (props)
-  "Return the description of the item of PROPS, as its catalog gives it,
-with how to install the program it needs when PATH lacks it, and what of
-an app's needs is missing, in the language LispM speaks."
-  (concat (or (plist-get props :description) "")
-          (when-let* ((program (lispm-desktop-store--missing-program props)))
+(defun lispm-desktop-store--notes (props)
+  "Return what the item of PROPS lacks, in sentences of the language LispM
+speaks, each after two spaces, or \"\": how to install the program it
+needs when PATH lacks it, and what of an app's needs is missing."
+  (concat (when-let* ((program (lispm-desktop-store--missing-program props)))
             (concat "  " (if-let* ((install (plist-get props :install)))
                              (lispm-desktop-tr "It needs %s, which is not on PATH; install it with: %s"
                                                program install)
@@ -2572,6 +2613,79 @@ an app's needs is missing, in the language LispM speaks."
                       ((not (lispm-desktop-store--needs-to-install props)))
                       (install (lispm-desktop-store--install-commands props)))
             (concat "  " (lispm-desktop-tr "Install them with: %s" install)))))
+
+(defun lispm-desktop-store--description (props)
+  "Return the description of the item of PROPS, as its catalog gives it,
+with what it lacks, see `lispm-desktop-store--notes'."
+  (concat (or (plist-get props :description) "") (lispm-desktop-store--notes props)))
+
+(defvar lispm-desktop-store--abouts (make-hash-table :test #'equal)
+  "The introductions read, by (FILE . MODIFIED): their blocks.")
+
+(defun lispm-desktop-store--about-file (props)
+  "Return the file of the introduction of the item of PROPS in its
+catalog's clone, in the language LispM speaks where the catalog has it
+translated, or nil when the clone holds none."
+  (when-let* ((name (plist-get props :about))
+              ((lispm-desktop-catalog-safe-file-p name))
+              ((plist-get props :catalog)))
+    (seq-find #'file-readable-p
+              (list (lispm-desktop-store--file
+                     props (format "about/%s.%s.md" name (lispm-desktop-current-language)))
+                    (lispm-desktop-store--file props (format "about/%s.md" name))))))
+
+(defun lispm-desktop-store--about (props)
+  "Return the blocks of the introduction of the item of PROPS, Markdown
+read as lispm-desktop-markdown.el reads it, or nil when it has none.  It
+is read again once its file changed."
+  (when-let* ((file (lispm-desktop-store--about-file props)))
+    (with-memoization (gethash (cons file (file-attribute-modification-time (file-attributes file)))
+                               lispm-desktop-store--abouts)
+      (condition-case err
+          (lispm-desktop-catalog--about-blocks file)
+        (error (message (lispm-desktop-tr "App Store: cannot read %s: %s") file (error-message-string err))
+               nil)))))
+
+(defun lispm-desktop-store--banner (props)
+  "Return the file of the banner of the item of PROPS in its catalog's
+clone, or nil when the clone holds none."
+  (when-let* ((name (plist-get props :banner))
+              ((lispm-desktop-catalog-safe-file-p name))
+              ((plist-get props :catalog))
+              (file (lispm-desktop-store--file props (format "banners/%s.svg" name)))
+              ((file-readable-p file)))
+    file))
+
+(defconst lispm-desktop-store-picture-scale 3
+  "Most times its own pixels an SVG of pixels, as a banner, is drawn, in
+a window wide enough, unless it says it is larger.")
+
+(defun lispm-desktop-store--picture-size (file room)
+  "Return the size to draw the picture FILE at on an item's page, ROOM
+pixels wide, as (WIDTH . HEIGHT), or nil when it cannot be read.  An SVG
+of pixels, as a banner, is drawn at a whole multiple of its pixels, as
+large as fits, up to `lispm-desktop-store-picture-scale' times them, but
+never smaller than its size, unless narrower to fit; another picture at
+its size, or narrower to fit."
+  (when-let* ((size (if (string-suffix-p ".svg" file)
+                        (when-let* ((dom (lispm-desktop-platinum-svg-dom file)))
+                          (let* ((box (mapcar #'string-to-number
+                                              (split-string (or (dom-attr dom 'viewBox) "") "[ ,]+" t)))
+                                 (width (string-to-number (or (dom-attr dom 'width) "0")))
+                                 (height (string-to-number (or (dom-attr dom 'height) "0"))))
+                            (cond ((and (= (length box) 4) (> (nth 2 box) 0) (> (nth 3 box) 0))
+                                   (list (nth 2 box) (nth 3 box) (max width (nth 2 box))))
+                                  ((and (> width 0) (> height 0)) (list width height width)))))
+                      (ignore-errors (pcase-let ((`(,w . ,h) (image-size (create-image file) t)))
+                                       (list w h w)))))
+              ((> (car size) 0)))
+    (pcase-let* ((`(,unit ,unit-height ,own) size)
+                 (width (cond ((< room own) room)
+                              ((string-suffix-p ".svg" file)
+                               (* unit (min (floor room unit)
+                                            (max lispm-desktop-store-picture-scale (floor own unit)))))
+                              (t own))))
+      (cons (round width) (round (* width (/ (float unit-height) unit)))))))
 
 (defun lispm-desktop-store--failure (id)
   "Return why installing or updating the item ID failed, as sentences to
@@ -2595,13 +2709,116 @@ installed or updated, how far, :progress, as its tile shows it."
           :catalog (lispm-desktop-store--catalog-name (plist-get (cdr item) :catalog))
           :progress (plist-get tile :progress))))
 
+(defconst lispm-desktop-store-markdown-indent 18
+  "Pixels a list's items and a quote's lines stand in from what holds them.")
+
+(defconst lispm-desktop-store-heading-heights '((1 . 28) (2 . 22) (3 . 18))
+  "Height in pixels of a line of a heading of each level of an item's
+introduction; one deeper is a third level's.")
+
+(defconst lispm-desktop-store-code-height 15
+  "Height in pixels of a line of code of an item's introduction.")
+
+(defun lispm-desktop-store--in-face (text face)
+  "Return TEXT with FACE under the faces of its own."
+  (let ((text (copy-sequence text)))
+    (add-face-text-property 0 (length text) face t text)
+    text))
+
+(defun lispm-desktop-store--links-of (line x face)
+  "Return where the links of LINE, drawn in FACE from X, stand on its row,
+as (FROM TO URL)s."
+  (let ((links nil) (at 0))
+    (while (setq at (text-property-not-all at (length line) 'lispm-desktop-markdown-link nil line))
+      (let ((end (next-single-property-change at 'lispm-desktop-markdown-link line (length line))))
+        (push (list (+ x (lispm-desktop-platinum-content-width (substring line 0 at) face))
+                    (+ x (lispm-desktop-platinum-content-width (substring line 0 end) face))
+                    (get-text-property at 'lispm-desktop-markdown-link line))
+              links)
+        (setq at end)))
+    (nreverse links)))
+
+(defun lispm-desktop-store--text-rows (text x room face &optional height bars)
+  "Return the rows of TEXT broken into lines ROOM pixels wide in FACE, from
+X, HEIGHT pixels tall, by default `lispm-desktop-store-row-height', BARS
+the quotes' bars beside them: a row a line, its links where they stand."
+  (mapcar (lambda (line)
+            (list :height (or height lispm-desktop-store-row-height) :text line :face face :x x
+                  :links (lispm-desktop-store--links-of line x face) :bars bars))
+          (lispm-desktop-store--wrap text room face)))
+
+(defun lispm-desktop-store--markdown-rows (blocks props x room face &optional bars)
+  "Return the rows of an item's page showing BLOCKS, of the introduction
+of the item of PROPS, from X, ROOM pixels wide, in FACE, as
+`lispm-desktop-store--page-rows' makes rows: a line a row, a space
+between blocks, a list's items and a quote's blocks further in, a
+quote's bars beside them, BARS those of the quotes holding BLOCKS."
+  (let ((rows nil)
+        (indent lispm-desktop-store-markdown-indent))
+    (cl-flet ((add (more) (setq rows (append (reverse more) rows)))
+              (gap (height) (push (list :height height :bars bars) rows)))
+      (dolist (block blocks)
+        (when rows
+          (gap 6))
+        (pcase block
+          (`(heading ,level ,text)
+           (when (and rows (<= level 2))
+             (gap 6))
+           (add (lispm-desktop-store--text-rows
+                 (lispm-desktop-store--in-face text (lispm-desktop-markdown-heading-face level))
+                 x room face (alist-get (min level 3) lispm-desktop-store-heading-heights) bars)))
+          (`(paragraph ,text)
+           (add (lispm-desktop-store--text-rows text x room face nil bars)))
+          (`(code ,_ ,text)
+           (let ((band (cons x room)))
+             (push (list :height 4 :code band :bars bars) rows)
+             (dolist (line (split-string text "\n"))
+               (push (list :height lispm-desktop-store-code-height :code band :bars bars :x (+ x 8) :face face
+                           :text (lispm-desktop-platinum-fit
+                                  (propertize line 'face (list 'lispm-desktop-markdown-code face))
+                                  (- room 16)))
+                     rows))
+             (push (list :height 4 :code band :bars bars) rows)))
+          (`(blockquote ,inner)
+           (add (lispm-desktop-store--markdown-rows inner props (+ x indent) (- room indent) face
+                                                    (append bars (list x)))))
+          (`(list ,start ,items)
+           (let ((number (or start 1)))
+             (dolist (item items)
+               (let* ((more (lispm-desktop-store--markdown-rows item props (+ x indent) (- room indent)
+                                                                face bars))
+                      (first (seq-find (lambda (row) (plist-get row :text)) more)))
+                 (when first
+                   (nconc first (list :marker (if start (format "%d." number) "•") :marker-x x)))
+                 (add more)
+                 (gap 2)
+                 (cl-incf number)))))
+          (`(rule)
+           (push (list :height 13 :rule t :x x :room room :bars bars) rows))
+          (`(image ,alt ,source)
+           (let* ((file (and (lispm-desktop-catalog-safe-file-p source)
+                             (not (string-match-p "\\`[a-zA-Z][a-zA-Z0-9+.-]*:" source))
+                             (plist-get props :catalog)
+                             (lispm-desktop-store--file props source)))
+                  (size (and file (file-readable-p file) (lispm-desktop-store--picture-size file room))))
+             (if size
+                 (push (list :height (cdr size) :picture file :size size :x x :bars bars) rows)
+               (add (lispm-desktop-store--text-rows
+                     (propertize (format "[%s]" alt) 'face 'lispm-desktop-markdown-emphasis)
+                     x room face nil bars))))))))
+    (nreverse rows)))
+
 (defun lispm-desktop-store--page-rows (id width height categories)
   "Return the rows of the page of the item ID, the window WIDTH by HEIGHT
-pixels, listing CATEGORIES, a count, at its left: its head, a rule, its
-description a line each, its information a field each, then a blank row
-as tall as needed for the page to end where the grid's page ends, so
-that the push buttons under it stay where they are.  Each row is a
-plist: its :height, and :head, :rule, :text or :label and :value."
+pixels, listing CATEGORIES, a count, at its left: its head, its banner,
+a rule, what it lacks, its introduction, or its description where it has
+none, its information a field each, then a blank row as tall as needed
+for the page to end where the grid's page ends, so that the push
+buttons under it stay where they are.  Each row is a plist: its :height,
+and :head, :banner, :rule, :picture, :text or :label and :value; :x, the
+text's left; its :links, where they stand, as (FROM TO URL)s; a list
+item's :marker at :marker-x; a quote's :bars, the x of each; :code, the
+band behind a block of code, (X . WIDTH)."
   (let* ((props (cdr (assq id (lispm-desktop-store-items))))
          (gx (car (lispm-desktop-store--grid width)))
          (room (- width gx lispm-desktop-store-margin))
@@ -2614,13 +2831,30 @@ plist: its :height, and :head, :rule, :text or :label and :value."
                                                (+ 4 (lispm-desktop-platinum-content-width
                                                      (propertize (car field) 'face 'bold) small)))
                                              fields)))
+         (about (lispm-desktop-store--about props))
+         (banner (lispm-desktop-store--banner props))
+         ;; A banner runs into the margin on the right: a pixel banner
+         ;; is drawn twice its pixels in a window of the default width.
+         (size (and banner (lispm-desktop-store--picture-size banner (- width gx 4))))
+         (notes (string-trim (concat (lispm-desktop-store--failure id) (lispm-desktop-store--notes props))))
          (rows `((:height ,lispm-desktop-store-head-height :head ,(lispm-desktop-store--head id))
+                 ,@(when size
+                     (list (list :height (+ (cdr size) 8) :banner banner :size size
+                                 :modified (file-attribute-modification-time (file-attributes banner)))))
                  (:height 13 :rule t)
-                 ,@(mapcar (lambda (line) (list :height lispm-desktop-store-row-height :text line :face face))
-                           (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
-                                                              (lispm-desktop-store--description props))
-                                                      room face))
-                 (:height 10)
+                 ,@(if (not about)
+                       (lispm-desktop-store--text-rows (concat (lispm-desktop-store--failure id)
+                                                               (lispm-desktop-store--description props))
+                                                       gx room face)
+                     (append (unless (string-empty-p notes)
+                               (append (lispm-desktop-store--text-rows notes gx room face)
+                                       (list (list :height 10))))
+                             (lispm-desktop-store--markdown-rows about props gx room face)))
+                 (:height 14)
+                 (:height ,(alist-get 2 lispm-desktop-store-heading-heights) :x ,gx :face ,face
+                          :text ,(propertize (lispm-desktop-tr "Information")
+                                             'face (lispm-desktop-markdown-heading-face 2)))
+                 (:height 4)
                  ,@(mapcar (pcase-lambda (`(,label ,value))
                              (list :height lispm-desktop-store-row-height :label label :label-end label-end
                                    :value (lispm-desktop-platinum-fit (propertize value 'face small)
@@ -2655,6 +2889,12 @@ is installed or updated."
     (when-let* ((progress (plist-get head :progress)))
       (lispm-desktop-platinum-svg-progress-bar svg tx 72 (min 160 room) progress palette))))
 
+(defun lispm-desktop-store--draw-picture (svg file x y size)
+  "Draw the picture FILE on SVG at X, Y, SIZE, (WIDTH . HEIGHT), pixels."
+  (lispm-desktop-platinum-svg-emacs-image
+   svg (list 'image :file file :type (if (string-suffix-p ".svg" file) 'svg (image-supported-file-p file)))
+   x y (car size) (cdr size)))
+
 (defun lispm-desktop-store--draw-row (palette width top row categories current)
   "Return an SVG of ROW of an item's page, as
 `lispm-desktop-store--page-rows' makes it, TOP pixels down the page,
@@ -2667,16 +2907,33 @@ CURRENT highlighted, and what it shows."
          (small 'lispm-desktop-platinum-small))
     (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
     (lispm-desktop-store--draw-categories svg palette categories current (- top))
+    ;; A quote's bars, and the band behind code, run on from row to row.
+    (dolist (bar (plist-get row :bars))
+      (lispm-desktop-platinum-svg-fill svg (+ bar 4) 0 3 height (lispm-desktop-platinum-grey palette #xAA)))
+    (when-let* ((band (plist-get row :code)))
+      (lispm-desktop-platinum-svg-fill svg (car band) 0 (cdr band) height (lispm-desktop-platinum-grey palette #xEE)))
+    (when-let* ((marker (plist-get row :marker)))
+      (lispm-desktop-platinum-svg-content svg marker (plist-get row :marker-x) 0 height text (plist-get row :face)))
     (cond
      ((plist-get row :head)
       (lispm-desktop-store--draw-head svg palette x width (plist-get row :head)))
+     ;; Inset in a well, as Mac OS 9 framed a picture.
+     ((plist-get row :banner)
+      (pcase-let ((`(,w . ,h) (plist-get row :size)))
+        (lispm-desktop-platinum-svg-fill svg (1- x) 3 (+ w 2) (+ h 2) (lispm-desktop-platinum-grey palette #xFF))
+        (lispm-desktop-platinum-svg-fill svg (1- x) 3 (1+ w) (1+ h) (lispm-desktop-platinum-grey palette #x88))
+        (lispm-desktop-store--draw-picture svg (plist-get row :banner) x 4 (plist-get row :size))))
+     ((plist-get row :picture)
+      (lispm-desktop-store--draw-picture svg (plist-get row :picture) (plist-get row :x) 0 (plist-get row :size)))
      ;; Etched, as Mac OS 9's separators were.
      ((plist-get row :rule)
-      (let ((end (- width lispm-desktop-store-margin 1)))
-        (lispm-desktop-platinum-svg-row svg x end 6 (lispm-desktop-platinum-grey palette #x88))
-        (lispm-desktop-platinum-svg-row svg x end 7 (lispm-desktop-platinum-grey palette #xFF))))
+      (let* ((from (or (plist-get row :x) x))
+             (end (if (plist-get row :room) (+ from (plist-get row :room) -1) (- width lispm-desktop-store-margin 1))))
+        (lispm-desktop-platinum-svg-row svg from end 6 (lispm-desktop-platinum-grey palette #x88))
+        (lispm-desktop-platinum-svg-row svg from end 7 (lispm-desktop-platinum-grey palette #xFF))))
      ((plist-get row :text)
-      (lispm-desktop-platinum-svg-content svg (plist-get row :text) x 0 height text (plist-get row :face)))
+      (lispm-desktop-platinum-svg-content svg (plist-get row :text) (or (plist-get row :x) x) 0 height text
+                                          (plist-get row :face)))
      ((plist-get row :label)
       (let* ((label (propertize (plist-get row :label) 'face 'bold))
              (end (+ x (plist-get row :label-end))))
@@ -2685,12 +2942,67 @@ CURRENT highlighted, and what it shows."
         (lispm-desktop-platinum-svg-content svg (plist-get row :value) (+ end 4) 0 height text small))))
     svg))
 
+(defun lispm-desktop-store--markdown-lines (blocks room dim)
+  "Return the lines of a text terminal showing BLOCKS, Markdown's, ROOM
+cells wide, DIM the face of what only frames them: a blank line between
+blocks, a list's items after their bullets or numbers, a quote's lines
+after a bar, code further in, a rule across, an image by its words."
+  (let ((lines nil)
+        (face 'lispm-desktop-platinum-list))
+    (cl-flet ((add (more) (setq lines (append (reverse more) lines)))
+              (prefixed (first then more)
+                (seq-map-indexed (lambda (line index) (concat (if (= index 0) first then) line)) more)))
+      (dolist (block blocks)
+        (when lines
+          (push "" lines))
+        (pcase block
+          (`(heading ,level ,text)
+           (add (lispm-desktop-store--wrap
+                 (lispm-desktop-store--in-face text (lispm-desktop-markdown-heading-face level)) room face)))
+          (`(paragraph ,text)
+           (add (lispm-desktop-store--wrap text room face)))
+          (`(code ,_ ,text)
+           (add (mapcar (lambda (line)
+                          (concat "  " (truncate-string-to-width
+                                        (propertize line 'face 'lispm-desktop-markdown-code)
+                                        (max 1 (- room 2)) nil nil "…")))
+                        (split-string text "\n"))))
+          (`(blockquote ,inner)
+           (let ((bar (propertize "│ " 'face dim)))
+             (add (prefixed bar bar (lispm-desktop-store--markdown-lines inner (max 4 (- room 2)) dim)))))
+          (`(list ,start ,items)
+           (let ((number (or start 1)))
+             (dolist (item items)
+               (let* ((marker (if start (format "%d. " number) "• "))
+                      (more (lispm-desktop-store--markdown-lines
+                             item (max 4 (- room (string-width marker))) dim)))
+                 (add (prefixed marker (make-string (string-width marker) ?\s)
+                                (seq-remove #'string-empty-p more)))
+                 (cl-incf number)))))
+          (`(rule)
+           (push (propertize (make-string room ?─) 'face dim) lines))
+          (`(image ,alt ,_)
+           (push (propertize (format "[%s]" alt) 'face 'lispm-desktop-markdown-emphasis) lines)))))
+    (nreverse lines)))
+
+(defun lispm-desktop-store--hits (line hit)
+  "Return LINE, a link's words where they stand saying they are, (link
+. URL), and the rest HIT, for the mouse."
+  (let ((line (copy-sequence line)) (at 0))
+    (while (< at (length line))
+      (let ((end (next-single-property-change at 'lispm-desktop-markdown-link line (length line)))
+            (url (get-text-property at 'lispm-desktop-markdown-link line)))
+        (put-text-property at end 'lispm-desktop-store-hit (if url (cons 'link url) hit) line)
+        (setq at end)))
+    line))
+
 (defun lispm-desktop-store--insert-text-page (width height)
   "Insert the page of the item selected on a text terminal, as text WIDTH
 cells wide and as many lines as a page of the grid takes in HEIGHT
 lines, the categories still at its left: its icon, name, subtitle and
-catalog, how far it is installed, a rule, its description, and its
-information a field a line."
+catalog, how far it is installed, a rule, what it lacks and its
+introduction, or its description where it has none, and its information
+a field a line."
   (let* ((id lispm-desktop-store--selected)
          (props (cdr (assq id (lispm-desktop-store-items))))
          (head (lispm-desktop-store--head id))
@@ -2699,6 +3011,8 @@ information a field a line."
          (dim `(:foreground ,(lispm-desktop-platinum-color :muted)))
          (fields (lispm-desktop-store--fields id))
          (label-width (apply #'max 0 (mapcar (lambda (field) (string-width (car field))) fields)))
+         (about (lispm-desktop-store--about props))
+         (notes (string-trim (concat (lispm-desktop-store--failure id) (lispm-desktop-store--notes props))))
          (lines `(,(concat (substring-no-properties (lispm-desktop-platinum-icon (plist-get head :icon)))
                            " " (propertize (plist-get head :name) 'face 'bold)
                            (when-let* ((subtitle (plist-get head :subtitle)))
@@ -2707,10 +3021,16 @@ information a field a line."
                   ,@(when-let* ((progress (plist-get head :progress)))
                       (list (lispm-desktop-store--text-progress progress)))
                   ,(propertize (make-string room ?─) 'face dim)
-                  ,@(lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
-                                                       (lispm-desktop-store--description props))
-                                               room 'lispm-desktop-platinum-list)
+                  ,@(if (not about)
+                        (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
+                                                           (lispm-desktop-store--description props))
+                                                   room 'lispm-desktop-platinum-list)
+                      (append (unless (string-empty-p notes)
+                                (append (lispm-desktop-store--wrap notes room 'lispm-desktop-platinum-list)
+                                        (list "")))
+                              (lispm-desktop-store--markdown-lines about room dim)))
                   ""
+                  ,(propertize (lispm-desktop-tr "Information") 'face (lispm-desktop-markdown-heading-face 2))
                   ,@(mapcar (pcase-lambda (`(,label ,value))
                               (concat (propertize (string-pad label label-width nil t) 'face 'bold)
                                       " " value))
@@ -2720,8 +3040,8 @@ information a field a line."
                                                           lispm-desktop-store--rows-height)))
       (let ((start (point)))
         (insert (lispm-desktop-store--text-category (nth index categories))
-                (propertize (truncate-string-to-width (or (nth index lines) "") room nil nil "…")
-                            'lispm-desktop-store-hit (cons 'item id)))
+                (lispm-desktop-store--hits (truncate-string-to-width (or (nth index lines) "") room nil nil "…")
+                                           (cons 'item id)))
         (add-text-properties start (point) (list 'lispm-desktop-store-top index
                                                  'keymap lispm-desktop-store-page-map
                                                  'pointer 'arrow))
@@ -2746,15 +3066,24 @@ HEIGHT pixels, see `lispm-desktop-store--insert-page'."
       (let ((at top))
         (insert (propertize " " 'display
                             (lispm-desktop-platinum-image
-                             (list 'store-row width at categories current row)
+                             (list 'store-row width at categories current (lispm-desktop-store--row-key row))
                              (lambda ()
                                (lispm-desktop-store--draw-row lispm-desktop-platinum-current-palette width at
                                                               row categories current)))
                             'lispm-desktop-store-top at
+                            'lispm-desktop-store-row row
                             'keymap lispm-desktop-store-page-map
                             'pointer 'arrow)
                 "\n"))
       (setq top (+ top (plist-get row :height))))))
+
+(defun lispm-desktop-store--row-key (row)
+  "Return what tells ROW of an item's page apart from other rows, for
+memoizing its image: its words with their faces, which `equal' alone
+ignores."
+  (mapcar (lambda (value)
+            (if (stringp value) (cons (substring-no-properties value) (object-intervals value)) value))
+          row))
 
 ;;;;; Drawing the window
 
@@ -2850,25 +3179,27 @@ method composes in the field, it is drawn once the composing ends."
           (lispm-desktop-store--insert-buttons)
           (lispm-desktop-store--protect field)
           (goto-char (point-min))
-          (cond
-           (in-field
-            (pcase-let ((`(,point ,mark) in-field)
-                        (`(,from . ,to) field))
-              (goto-char (min to (+ from point)))
-              (when mark
-                (set-marker (mark-marker) (min to (+ from mark))))))
-           (button
-            (let ((position (point-min)))
-              (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
-                          (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
-              (goto-char (or position (point-min)))))
-           ((eq lispm-desktop-store--view lispm-desktop-store--drawn)
-            (goto-char (min here (point-max)))))
-          (when window
-            (when (and start (eq lispm-desktop-store--view lispm-desktop-store--drawn))
-              (set-window-start window (min start (point-max)) t))
-            (set-window-point window (point)))
-          (setq lispm-desktop-store--drawn lispm-desktop-store--view)
+          ;; A page shown anew shows from its top, an item's page longer
+          ;; than the window too; one drawn again stays where it was.
+          (let ((same (equal (lispm-desktop-store--page) lispm-desktop-store--drawn)))
+            (cond
+             (in-field
+              (pcase-let ((`(,point ,mark) in-field)
+                          (`(,from . ,to) field))
+                (goto-char (min to (+ from point)))
+                (when mark
+                  (set-marker (mark-marker) (min to (+ from mark))))))
+             ((and button same)
+              (let ((position (point-min)))
+                (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
+                            (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
+                (goto-char (or position (point-min)))))
+             (same
+              (goto-char (min here (point-max)))))
+            (when window
+              (set-window-start window (if (and start same) (min start (point-max)) (point-min)) t)
+              (set-window-point window (point))))
+          (setq lispm-desktop-store--drawn (lispm-desktop-store--page))
           (lispm-desktop-store--dress-field)
           (setq lispm-desktop-platinum-focus nil)
           (lispm-desktop-platinum-show-focus)
@@ -3342,6 +3673,35 @@ or nil: an extension's program, an app's needs, theirs joined."
                                       (lispm-desktop-needs-missing (plist-get props :needs) t))))))
     (and commands (string-join commands " && "))))
 
+(defun lispm-desktop-store--open-url (url)
+  "Open URL, a link of an item's introduction, as `browse-url' opens it:
+a page or an address only, see `lispm-desktop-catalog-link-schemes'."
+  (if (and (string-match "\\`\\([a-zA-Z][a-zA-Z0-9+.-]*\\):" url)
+           (member (downcase (match-string 1 url)) lispm-desktop-catalog-link-schemes))
+      (browse-url url)
+    (user-error (lispm-desktop-tr "The App Store opens no link to %s" url))))
+
+(defun lispm-desktop-store--page-links ()
+  "Return the links of the introduction of the item whose page shows, as
+\(WORDS . URL)s, or nil."
+  (lispm-desktop-store--in-window
+   (lambda ()
+     (and (eq lispm-desktop-store--view 'item) lispm-desktop-store--selected
+          (lispm-desktop-markdown-links
+           (lispm-desktop-store--about (cdr (assq lispm-desktop-store--selected (lispm-desktop-store-items)))))))))
+
+(defun lispm-desktop-store-open-link ()
+  "Open a link of the introduction of the item whose page shows: its only
+one, or the one chosen of them."
+  (interactive)
+  (let ((links (or (lispm-desktop-store--page-links)
+                   (user-error (lispm-desktop-tr "This page has no links")))))
+    (lispm-desktop-store--open-url
+     (if (cdr links)
+         (let ((choices (mapcar (pcase-lambda (`(,words . ,url)) (cons (format "%s  %s" words url) url)) links)))
+           (cdr (assoc (completing-read (lispm-desktop-tr "Open link: ") choices nil t) choices)))
+       (cdar links)))))
+
 (defun lispm-desktop-store-install-missing ()
   "Install what the item selected needs and lacks, once confirmed."
   (interactive)
@@ -3411,8 +3771,8 @@ for its click."
 
 (defun lispm-desktop-store--page-event (event)
   "Return what the mouse EVENT on an item's page is on: (category .
-CATEGORY), a category of the list at its left, (item . ID), the item
-whose page it is, or nil."
+CATEGORY), a category of the list at its left, (link . URL), a link of
+its introduction, (item . ID), the item whose page it is, or nil."
   (let* ((position (event-start event))
          (buffer (window-buffer (posn-window position)))
          (xy (posn-object-x-y position))
@@ -3423,6 +3783,10 @@ whose page it is, or nil."
     (when (and top xy)
       (with-current-buffer buffer
         (or (lispm-desktop-store--page-hit top (car xy) (cdr xy) (lispm-desktop-store--categories))
+            (when-let* ((row (get-text-property (posn-point position) 'lispm-desktop-store-row))
+                        (link (seq-find (pcase-lambda (`(,from ,to ,_)) (<= from (car xy) to))
+                                        (plist-get row :links))))
+              (cons 'link (nth 2 link)))
             (and (>= (car xy) (car (lispm-desktop-store--grid lispm-desktop-store--width)))
                  (cons 'item lispm-desktop-store--selected))))))))
 
@@ -3432,10 +3796,12 @@ it, listing CATEGORIES at its left: (category . CATEGORY), or nil."
   (lispm-desktop-store--category-hit x (+ top y) categories))
 
 (defun lispm-desktop-store--page-click (event)
-  "Act on the click EVENT on an item's page: show the category clicked."
+  "Act on the click EVENT on an item's page: show the category clicked, or
+open the link."
   (interactive "e")
   (pcase (lispm-desktop-store--page-event event)
-    (`(category . ,category) (lispm-desktop-store-show-category category))))
+    (`(category . ,category) (lispm-desktop-store-show-category category))
+    (`(link . ,url) (lispm-desktop-store--open-url url))))
 
 (defun lispm-desktop-store--item-items ()
   "Return the menu of the item selected: the File menu's items acting on
@@ -3560,6 +3926,7 @@ the one that opened the page does nothing."
   "l" #'lispm-desktop-store-show-log-selected
   "w" #'lispm-desktop-store-copy-install-command
   "I" #'lispm-desktop-store-install-missing
+  "o" #'lispm-desktop-store-open-link
   "+" #'lispm-desktop-store-install-from-url
   "g" #'lispm-desktop-store-check-for-updates
   "q" #'lispm-desktop-store-close
@@ -3625,6 +3992,8 @@ The catalogs are fetched the first time it opens after Emacs starts."
               :enabled ,(and props (lispm-desktop-store--needs-to-install props) t))
       (:label ,(lispm-desktop-tr "Copy Install Command") :action lispm-desktop-store-copy-install-command :key "w"
               :enabled ,(and props (lispm-desktop-store--install-commands props) t))
+      (:label ,(lispm-desktop-tr "Open Link…") :action lispm-desktop-store-open-link :key "o"
+              :enabled ,(and (lispm-desktop-store--page-links) t))
       separator
       (:label ,(lispm-desktop-tr "Install from URL…") :action lispm-desktop-store-install-from-url :key "+")
       (:label ,(lispm-desktop-tr "Check for Updates") :action lispm-desktop-store-check-for-updates :key "g"
