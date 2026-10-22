@@ -2014,7 +2014,7 @@ Results while a search shows."
   "Width in cells of the list of categories on a text terminal.")
 
 (defconst lispm-desktop-store-text-icon-size 16
-  "Size in pixels the items' icons are drawn at on a text terminal, two
+  "Size in pixels the items' icons are drawn at on a text terminal, 2 by 4
 pixels a cell.")
 
 (defconst lispm-desktop-store-text-tile-width 20
@@ -2024,7 +2024,7 @@ pixels a cell.")
   "Return the height in pixels of a line of the grid; on a text terminal,
 in lines: an item's icon, its name, subtitle and button, and a blank."
   (if (lispm-desktop-tty-p)
-      (+ (/ lispm-desktop-store-text-icon-size 2) 4)
+      (+ (cdr (lispm-desktop-platinum-text-size lispm-desktop-store-text-icon-size)) 4)
     lispm-desktop-store-tile-height))
 
 (defun lispm-desktop-store--grid (width)
@@ -2324,7 +2324,8 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                (empty (and (null items) (lispm-desktop-store--empty-text)))
                (dim `(:foreground ,(lispm-desktop-platinum-color :muted)))
                (size lispm-desktop-store-text-icon-size)
-               (icon-lines (/ size 2))
+               (icon-lines (cdr (lispm-desktop-platinum-text-size size)))
+               (background (lispm-desktop-platinum-color :chrome))
                (tile (lispm-desktop-store--tile-height))
                (tiles (mapcar #'lispm-desktop-store--tile items)))
     (dotimes (row (lispm-desktop-store--page-lines height (length categories)
@@ -2336,7 +2337,7 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                   (left (* column tile-width))
                   (item (cons 'item id))
                   (picture (or (lispm-desktop-platinum-icon-picture (plist-get tile :icon) size
-                                                                    (plist-get tile :selected))
+                                                                    (plist-get tile :selected) background)
                                (list (substring-no-properties
                                       (lispm-desktop-platinum-icon (plist-get tile :icon))))))
                   (button (if-let* ((progress (plist-get tile :progress)))
@@ -3044,19 +3045,21 @@ a field a line."
          (label-width (apply #'max 0 (mapcar (lambda (field) (string-width (car field))) fields)))
          (about (lispm-desktop-store--about props))
          (notes (string-trim (concat (lispm-desktop-store--failure id) (lispm-desktop-store--notes props))))
-         ;; The head: the icon large, its name, subtitle, catalog and how
-         ;; far it is installed beside it.
-         (picture (or (lispm-desktop-platinum-icon-picture (plist-get head :icon) 16)
+         ;; The head: the icon, its name, subtitle, catalog and how far
+         ;; it is installed beside it.
+         (picture (or (lispm-desktop-platinum-icon-picture (plist-get head :icon) lispm-desktop-store-text-icon-size
+                                                           nil (lispm-desktop-platinum-color :chrome))
                       (list (substring-no-properties (lispm-desktop-platinum-icon (plist-get head :icon))))))
+         (picture-width (apply #'max (mapcar #'string-width picture)))
          (beside `(,(propertize (plist-get head :name) 'face '(:weight bold))
                    ,(propertize (or (plist-get head :subtitle) "") 'face dim)
                    ,(propertize (plist-get head :catalog) 'face dim)
                    ,@(when-let* ((progress (plist-get head :progress)))
                        (list (lispm-desktop-store--text-progress progress)))))
-         (lines `(,@(seq-map-indexed (lambda (line index)
-                                       ;; From the icon's second line.
-                                       (concat line "  " (or (and (> index 0) (nth (1- index) beside)) "")))
-                                     picture)
+         (lines `(,@(mapcar (lambda (index)
+                              (concat (or (nth index picture) (make-string picture-width ?\s))
+                                      "  " (or (nth index beside) "")))
+                            (number-sequence 0 (1- (max (length picture) (length beside)))))
                   ,(propertize (make-string room ?─) 'face dim)
                   ,@(if (not about)
                         (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)

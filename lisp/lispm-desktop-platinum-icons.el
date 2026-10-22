@@ -131,15 +131,23 @@ size that is no whole part of its own would smear."
           small)
         file)))
 
-(defun lispm-desktop-platinum-icon-picture (name size &optional selected)
+(defvar lispm-desktop-platinum--icon-pictures (make-hash-table :test #'equal)
+  "Icons drawn in text, by file, size, selection and background, see
+`lispm-desktop-platinum-icon-picture'.")
+
+(defun lispm-desktop-platinum-icon-picture (name size &optional selected background)
   "Return icon NAME drawn on a text terminal SIZE pixels a side, best 16, as
-lines of text, two rows of pixels a line, darkened when SELECTED, see
-`lispm-desktop-platinum-text-picture'; or nil where it cannot be drawn,
-as an icon that is no SVG.  NAME is as `lispm-desktop-platinum-icon-file'
-takes it; it is drawn from its own drawing of that size or twice it,
-see `lispm-desktop-platinum--icon-source'."
-  (when-let* ((pixels (lispm-desktop-platinum-raster (lispm-desktop-platinum--icon-source name size) size)))
-    (lispm-desktop-platinum-text-picture pixels selected)))
+lines of text, see `lispm-desktop-platinum-text-picture', darkened when
+SELECTED, over BACKGROUND, the colour where it is drawn; or nil where it
+cannot be drawn, as an icon that is no SVG.  NAME is as
+`lispm-desktop-platinum-icon-file' takes it; it is drawn from its own
+drawing of that size or twice it, see
+`lispm-desktop-platinum--icon-source'.  Each is drawn once."
+  (let ((file (lispm-desktop-platinum--icon-source name size)))
+    (with-memoization (gethash (list file size (and selected t) background)
+                               lispm-desktop-platinum--icon-pictures)
+      (when-let* ((pixels (lispm-desktop-platinum-raster file size)))
+        (lispm-desktop-platinum-text-picture pixels selected background)))))
 
 (defun lispm-desktop-platinum-icon (name)
   "Return the Finder icon NAME as a string one icon wide.

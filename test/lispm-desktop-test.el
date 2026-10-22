@@ -11851,14 +11851,14 @@ selected darkened and its name inverted; clicks find them by the text."
         (let ((lines (split-string (lispm-desktop--text-desktop 100 50) "\n")))
           (should (= (length lines) 50))
           (should (seq-every-p (lambda (line) (= (string-width line) 99)) lines))
-          ;; 16-pixel icons, 8 lines each, their names under them.
-          (should (> (string-search "Home" (nth 9 lines)) 70))
-          (should (eq (get-text-property (string-search "Home" (nth 9 lines)) 'lispm-desktop-item (nth 9 lines))
+          ;; 16-pixel icons, 4 lines each, their names under them.
+          (should (> (string-search "Home" (nth 5 lines)) 70))
+          (should (eq (get-text-property (string-search "Home" (nth 5 lines)) 'lispm-desktop-item (nth 5 lines))
                       'home))
-          (let ((cell (string-match-p "[▀▄]" (nth 4 lines))))
+          (let ((cell (string-match-p "[▀▄▌▐▂▆▘▝▖▗▚▞▙▛▜▟]" (nth 2 lines))))
             (should cell)
-            (should (memq (get-text-property cell 'lispm-desktop-item (nth 4 lines)) '(home store))))
-          (should (eq (get-text-property (string-search "Emacs" (nth 19 lines)) 'face (nth 19 lines))
+            (should (memq (get-text-property cell 'lispm-desktop-item (nth 2 lines)) '(home store))))
+          (should (eq (get-text-property (string-search "Emacs" (nth 11 lines)) 'face (nth 11 lines))
                       'lispm-desktop-label-selected))
           (should (string-match-p "Trash" (nth 48 lines)))
           ;; A second column holds the rest.
@@ -11867,7 +11867,7 @@ selected darkened and its name inverted; clicks find them by the text."
         (let ((lines (split-string (lispm-desktop--text-desktop 40 12) "\n")))
           (should (= (length lines) 12))
           (should (seq-every-p (lambda (line) (= (string-width line) 39)) lines))
-          (should-not (seq-some (lambda (line) (string-match-p "[▀▄]" line)) lines))
+          (should-not (seq-some (lambda (line) (string-match-p "[▀▄▌▐▂▆▘▝▖▗▚▞▙▛▜▟]" line)) lines))
           (should (seq-some (lambda (line) (string-match-p "Home" line)) lines)))))))
 
 (defun lispm-desktop-test--svg (string)
@@ -11957,16 +11957,34 @@ stays a pixel wide however small the icon, and one of no width is none."
     (should-not (aref (aref (outlined "0") 1) 4))))
 
 (ert-deftest lispm-desktop-test-text-picture ()
-  "Pixels are drawn two rows a line: the upper half block in the top
-pixel's colour over the bottom one's, the lower half block under a clear
-pixel, a blank for two; darkened, every colour at half its brightness."
-  (let ((lines (lispm-desktop-platinum-text-picture
-                [["#ff0000" nil nil] ["#0000ff" "#00ff00" nil]])))
-    (should (equal (mapcar #'substring-no-properties lines) '("▀▄ ")))
-    (should (equal (get-text-property 0 'face (car lines)) '(:foreground "#ff0000" :background "#0000ff")))
-    (should (equal (get-text-property 1 'face (car lines)) '(:foreground "#00ff00"))))
-  (should (equal (get-text-property 0 'face (car (lispm-desktop-platinum-text-picture [["#ff0000"]] t)))
-                 '(:foreground "#800000"))))
+  "Pixels are drawn 2 by 4 a cell, in the block character and two of
+their colours that draw them closest: one colour a blank on it, halves
+the half blocks; what is clear keeps no colour where the character can
+leave it so, and is the background where it cannot.  Darkened, every
+colour is at half its brightness."
+  (let* ((r "#ff0000") (b "#0000ff")
+         (lines (lispm-desktop-platinum-text-picture
+                 (vector (vector r r r r nil nil r b nil nil)
+                         (vector r r r r nil nil r b nil nil)
+                         (vector r r nil nil b b r b nil nil)
+                         (vector r r nil nil b b r b nil nil))
+                 nil "#000000")))
+    (should (equal (mapcar #'substring-no-properties lines) '(" ▀▄▌ ")))
+    (should (equal (get-text-property 0 'face (car lines)) `(:background ,r)))
+    (should (equal (get-text-property 1 'face (car lines)) `(:foreground ,r)))
+    (should (equal (get-text-property 2 'face (car lines)) `(:foreground ,b)))
+    (should (equal (get-text-property 3 'face (car lines)) `(:foreground ,r :background ,b)))
+    (should-not (get-text-property 4 'face (car lines))))
+  (let ((line (car (lispm-desktop-platinum-text-picture
+                    [["#00ff00" "#00ff00"] ["#00ff00" "#00ff00"] ["#00ff00" "#00ff00"] [nil nil]]
+                    nil "#123456"))))
+    (should (equal line "▂"))
+    (should (equal (get-text-property 0 'face line) '(:foreground "#123456" :background "#00ff00"))))
+  (should (equal (get-text-property 0 'face (car (lispm-desktop-platinum-text-picture
+                                                  [["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]
+                                                   ["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]]
+                                                  t)))
+                 '(:background "#800000"))))
 
 (ert-deftest lispm-desktop-test-text-compose ()
   "Pieces of text stand where they are put on blank lines as wide as asked,

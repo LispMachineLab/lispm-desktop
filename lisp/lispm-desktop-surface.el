@@ -722,15 +722,15 @@ the desktop between them."
       "</svg>"))))
 
 (defconst lispm-desktop-text-icon-size 16
-  "Size in pixels the desktop's icons are drawn at on a text terminal, two
-pixels a cell; see `lispm-desktop--text-desktop'.  It is a whole part
+  "Size in pixels the desktop's icons are drawn at on a text terminal, 2 by
+4 pixels a cell; see `lispm-desktop--text-desktop'.  It is a whole part
 of the icons' own sizes, so that none smears; smaller, they could no
 longer be told apart.")
 
 (defun lispm-desktop--text-desktop (width height)
   "Return the desktop as text WIDTH cells by HEIGHT lines, where images
-cannot be shown, as on a text terminal.  Its icons are drawn in cells,
-two pixels a cell, see `lispm-desktop-platinum-icon-picture', each over
+cannot be shown, as on a text terminal.  Its icons are drawn in block
+characters, see `lispm-desktop-platinum-icon-picture', each over
 its name: down the right edge from under the menu bar, on in a column to
 the left where they run out of room, the Trash in the bottom corner; the
 one selected darkened, its name inverted, as Mac OS 9 drew it.  They
@@ -741,12 +741,13 @@ name carries its key as its `lispm-desktop-item' property, for the
 mouse."
   (let* ((items (lispm-desktop--items))
          (labels (mapcar (lambda (item) (concat " " (lispm-desktop--item-label (cdr item)) " ")) items))
-         (column (+ 2 (apply #'max lispm-desktop-text-icon-size (mapcar #'string-width labels))))
-         (size (let ((rows (/ (1- height) (+ (/ lispm-desktop-text-icon-size 2) 2))))
+         (picture-size (lispm-desktop-platinum-text-size lispm-desktop-text-icon-size))
+         (column (+ 2 (apply #'max (car picture-size) (mapcar #'string-width labels))))
+         (size (let ((rows (/ (1- height) (+ (cdr picture-size) 2))))
                  (and (> rows 0)
                       (<= (* column (ceiling (max 1 (length items)) (float rows))) (- width 2))
                       lispm-desktop-text-icon-size)))
-         (lines (if size (/ size 2) 1))
+         (lines (if size (cdr picture-size) 1))
          (per (+ lines 2))
          (bottoms (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items))
          ;; The bottom corner fills from the last line up.
@@ -756,7 +757,8 @@ mouse."
                 (let* ((left (- width 2 (* (1+ slot) column)))
                        (selected (eq (car item) lispm-desktop--selected))
                        (icon (lispm-desktop--item-icon (cdr item)))
-                       (picture (or (and size (lispm-desktop-platinum-icon-picture icon size selected))
+                       (picture (or (and size (lispm-desktop-platinum-icon-picture icon size selected
+                                                                                    (lispm-desktop--color)))
                                     (list (substring-no-properties (lispm-desktop-platinum-icon icon)))))
                        (properties (list 'lispm-desktop-item (car item)
                                          'help-echo (lispm-desktop-tr (plist-get (cdr item) :help)))))

@@ -23,13 +23,13 @@
 
 ;;; Commentary:
 
-;; A text terminal shows no images, but a cell shows two pixels, one over
-;; the other: the upper half block ▀ in the top pixel's colour, over the
-;; bottom pixel's as its background.  Icons are drawn so on a terminal,
-;; their SVG rasterized here, in Lisp:
+;; A text terminal shows no images, but a cell shows a block character
+;; in two colours: ▀, ▌, ▚ and the like split it into the pixels of a 2
+;; by 4 grid.  Icons are drawn so on a terminal, a 16-pixel icon 8 cells
+;; by 4 lines, their SVG rasterized here, in Lisp:
 ;;
 ;;   SVG --shapes--> polygons --samples, 4 by 4 a pixel--> pixels
-;;       --two rows of pixels a line--> lines of ▀ and ▄
+;;       --2 by 4 pixels a cell--> lines of block characters
 ;;
 ;; Mac OS 9's icons are pixels drawn as rectangles, so at their own size
 ;; they come out exactly, and at half of it each pixel keeps a colour of
@@ -622,27 +622,123 @@ a selected icon."
   (apply #'lispm-desktop-platinum-raster--hex
          (mapcar (lambda (value) (/ value 2)) (lispm-desktop-platinum--rgb color))))
 
-(defun lispm-desktop-platinum-text-picture (pixels &optional darkened)
+(defconst lispm-desktop-platinum-text-cell '(2 . 4)
+  "Pixels a cell of text shows of a picture, (ACROSS . DOWN): a cell is
+about twice as tall as it is wide, so they are square.")
+
+(defun lispm-desktop-platinum-text-size (size)
+  "Return how large a picture SIZE pixels a side is drawn in text, see
+`lispm-desktop-platinum-text-picture': (COLUMNS . LINES)."
+  (cons (ceiling size (car lispm-desktop-platinum-text-cell))
+        (ceiling size (cdr lispm-desktop-platinum-text-cell))))
+
+(defconst lispm-desktop-platinum--blocks
+  '(("▀" "▄" . #b00001111) ("▌" "▐" . #b01010101)
+    ("▂" nil . #b11000000) ("▆" nil . #b11111100)
+    ("▘" "▟" . #b00000101) ("▝" "▙" . #b00001010)
+    ("▖" "▜" . #b01010000) ("▗" "▛" . #b10100000)
+    ("▚" "▞" . #b10100101))
+  "The block characters a cell of a picture is drawn with: (CHARACTER
+OTHER . PIXELS).  PIXELS has a bit for each of the cell's 2 by 4
+pixels, the top row's left one lowest, set where CHARACTER is drawn in
+its foreground; OTHER, where there is one, is drawn just where it is
+not.  The simplest come first.")
+
+(defun lispm-desktop-platinum--cell (pixels distance)
+  "Return the block that draws PIXELS, the eight of a cell, closest, as
+\(CHARACTER IN OUT): of `lispm-desktop-platinum--blocks', the
+character, the colour of the pixels it covers and that of the rest,
+each one of theirs and nil for clear; CHARACTER nil where they are all
+one colour.  DISTANCE says how far apart two pixels' colours are."
+  (let* ((colors (seq-uniq pixels))
+         (count (length colors)))
+    (if (= count 1)
+        (list nil (car colors) (car colors))
+      ;; The pixels as indexes into COLORS, and the distances between
+      ;; those, reckoned once.
+      (let* ((colors (vconcat colors))
+             (indexes (vconcat (mapcar (lambda (pixel) (seq-position colors pixel)) pixels)))
+             (distances (make-vector (* count count) 0))
+             (best nil) (best-error nil))
+        (dotimes (i count)
+          (dotimes (j i)
+            (let ((d (funcall distance (aref colors i) (aref colors j))))
+              (aset distances (+ (* i count) j) d)
+              (aset distances (+ (* j count) i) d))))
+        (cl-flet ((closest (bits side)
+                    ;; The colour of the pixels on SIDE of BITS, t for
+                    ;; those set, nearest them all, and how far they are
+                    ;; from it in all: (ERROR . INDEX).
+                    (let ((found nil))
+                      (dotimes (candidate 8)
+                        (when (eq side (/= 0 (logand bits (ash 1 candidate))))
+                          (let ((color (aref indexes candidate)) (sum 0))
+                            (dotimes (pixel 8)
+                              (when (eq side (/= 0 (logand bits (ash 1 pixel))))
+                                (setq sum (+ sum (aref distances (+ (* color count) (aref indexes pixel)))))))
+                            (when (or (null found) (< sum (car found)))
+                              (setq found (cons sum color))))))
+                      found)))
+          (pcase-dolist (`(,character ,_ . ,bits) lispm-desktop-platinum--blocks)
+            (let* ((in (closest bits t))
+                   (out (closest bits nil))
+                   (error (+ (car in) (car out))))
+              (when (or (null best-error) (< error best-error))
+                (setq best-error error
+                      best (list character (aref colors (cdr in)) (aref colors (cdr out))))))))
+        best))))
+
+(defun lispm-desktop-platinum-text-picture (pixels &optional darkened background)
   "Return PIXELS, as `lispm-desktop-platinum-raster-dom' returns them, as
-lines of text two rows of pixels each: a cell is the upper half block in
-the top pixel's colour over the bottom pixel's, the lower half block
-where only the bottom one is drawn, a blank where neither is, so that
-what is under the picture shows there.  DARKENED halves every colour."
-  (let ((rows (length pixels)))
-    (cl-loop for row from 0 below rows by 2
-             collect (mapconcat
-                      (lambda (column)
-                        (let ((top (aref (aref pixels row) column))
-                              (bottom (and (< (1+ row) rows) (aref (aref pixels (1+ row)) column))))
-                          (when darkened
-                            (setq top (and top (lispm-desktop-platinum--darker top))
-                                  bottom (and bottom (lispm-desktop-platinum--darker bottom))))
-                          (cond ((and top bottom) (propertize "▀" 'face `(:foreground ,top :background ,bottom)))
-                                (top (propertize "▀" 'face `(:foreground ,top)))
-                                (bottom (propertize "▄" 'face `(:foreground ,bottom)))
-                                (t " "))))
-                      (number-sequence 0 (1- (length (aref pixels row))))
-                      ""))))
+lines of text, a cell for each 2 by 4 of them, see
+`lispm-desktop-platinum-text-cell': the block character and two of its
+pixels' colours that draw them closest, see
+`lispm-desktop-platinum--blocks'.  What is clear is left without a
+colour where it can be, so that what is under the picture shows there;
+BACKGROUND, the colour under it, by default the frame's, stands in for
+it in the reckoning, and where a character cannot leave it so.
+DARKENED halves every colour."
+  (pcase-let* ((`(,across . ,down) lispm-desktop-platinum-text-cell)
+               (rows (length pixels))
+               (columns (if (> rows 0) (length (aref pixels 0)) 0))
+               (background (or (and (stringp background) (color-defined-p background) background)
+                               (let ((color (face-background 'default nil t)))
+                                 (and (stringp color) (color-defined-p color) color))
+                               "#000000"))
+               (rgbs (make-hash-table :test #'equal))
+               (rgb (lambda (color)
+                      (with-memoization (gethash color rgbs)
+                        (let ((color (or color background)))
+                          (if (string-match-p "\\`#[[:xdigit:]]\\{6\\}\\'" color)
+                              (lispm-desktop-platinum--rgb color)
+                            (color-name-to-rgb color))))))
+               (distance (lambda (a b)
+                           (if (equal a b) 0
+                             (apply #'+ (cl-mapcar (lambda (x y) (* (- x y) (- x y)))
+                                                   (funcall rgb a) (funcall rgb b)))))))
+    (cl-loop
+     for top from 0 below rows by down
+     collect
+     (mapconcat
+      (lambda (left)
+        (let ((cell (cl-loop for row from top below (+ top down)
+                             append (cl-loop for column from left below (+ left across)
+                                             collect (let ((pixel (and (< row rows) (< column columns)
+                                                                       (aref (aref pixels row) column))))
+                                                       (if (and pixel darkened)
+                                                           (lispm-desktop-platinum--darker pixel)
+                                                         pixel))))))
+          (pcase-let ((`(,character ,in ,out) (lispm-desktop-platinum--cell cell distance)))
+            (cond ((and (null in) (null out)) " ")
+                  ((null character) (propertize " " 'face `(:background ,in)))
+                  ((null out) (propertize character 'face `(:foreground ,in)))
+                  ((null in)
+                   (if-let* ((other (cadr (assoc character lispm-desktop-platinum--blocks))))
+                       (propertize other 'face `(:foreground ,out))
+                     (propertize character 'face `(:foreground ,background :background ,out))))
+                  (t (propertize character 'face `(:foreground ,in :background ,out)))))))
+      (number-sequence 0 (1- columns) across)
+      ""))))
 
 (defun lispm-desktop-platinum-raster-color (pixels)
   "Return the colour PIXELS are drawn in most, black, white and greys but

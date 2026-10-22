@@ -253,12 +253,12 @@ the disk."
   "Return the pixel left of the window's cell COLUMN."
   (+ 6 (* column lispm-desktop-finder-cell-width)))
 
-(defconst lispm-desktop-finder-text-cell-width 18
+(defconst lispm-desktop-finder-text-cell-width 16
   "Width in cells of an item's cell in the Finder window on a text terminal.")
 
 (defconst lispm-desktop-finder-text-icon-size 16
   "Size in pixels the Finder window's icons are drawn at on a text terminal,
-two pixels a cell.")
+2 by 4 pixels a cell.")
 
 (defun lispm-desktop-finder--text-items (window props)
   "Insert the folder's items for WINDOW on a text terminal, as Finder's
@@ -269,7 +269,8 @@ darkened, its name inverted.  PROPS returns the text properties of an
 item, by name, which its icon and name carry.  Return the columns."
   (let* ((cell lispm-desktop-finder-text-cell-width)
          (size lispm-desktop-finder-text-icon-size)
-         (lines (/ size 2))
+         (lines (cdr (lispm-desktop-platinum-text-size size)))
+         (background (face-background 'lispm-desktop-platinum-list nil t))
          (columns (max 1 (/ (- (window-body-width window) 3) cell)))
          (width (* columns cell)))
     (insert "\n")
@@ -279,7 +280,7 @@ item, by name, which its icon and name carry.  Return the columns."
          (lambda (item column)
            (let* ((selected (equal (car item) lispm-desktop-finder--selected))
                   (icon (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item))
-                  (picture (or (lispm-desktop-platinum-icon-picture icon size selected)
+                  (picture (or (lispm-desktop-platinum-icon-picture icon size selected background)
                                (list (substring-no-properties (lispm-desktop-platinum-icon icon)))))
                   (left (* column cell))
                   (name (concat " " (truncate-string-to-width (car item) (- cell 4) nil nil "…") " ")))
