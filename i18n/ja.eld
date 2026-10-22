@@ -1261,4 +1261,7 @@
   ("Try again to turn lispm-kernel on" . "lispm-kernel をオンにするのを再試行")
   ("A change takes effect at once, and nothing needs restarting.  What it lacks, the Installer gets." . "変更はすぐに反映され、再起動は必要ありません。足りないものはインストーラが入手します。")
   ("Version %s, running as process %d since %s." . "バージョン %s、プロセス %d として %s から実行中。")
-  ("Version %s, running." . "バージョン %s、実行中。")))
+  ("Version %s, running." . "バージョン %s、実行中。")
+  ("Needs Emacs %d" . "Emacs %d が必要")
+  ("%s runs in Emacs %d or later; this is Emacs %s" . "%s は Emacs %d 以降で動きます。これは Emacs %s です")
+  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "Emacs %d 以降で動きます。これは Emacs %s です。コントロールパネルの「カーネル」で LispM を切り替えられます。")))

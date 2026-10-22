@@ -7859,6 +7859,21 @@ when given."
   (mapcan (pcase-lambda (`(,kind . ,text)) (and (or (null severity) (eq kind severity)) (list text)))
           (lispm-desktop-catalog-item-problems item)))
 
+;; An item needing a newer Emacs is listed, but not installed.
+(ert-deftest lispm-desktop-test-store-needs-a-newer-emacs ()
+  "An item whose :emacs is newer than this Emacs shows Needs Emacs N on a
+button that does nothing, says so on its page, and is not installed; one
+whose :emacs this Emacs is installs as any other."
+  (let ((newer (list :kind 'app :name "Doom" :emacs (1+ emacs-major-version)))
+        (here (list :kind 'app :name "Doom" :emacs emacs-major-version)))
+    (should (equal (lispm-desktop-store--action 'doom newer)
+                   (list (format "Needs Emacs %d" (1+ emacs-major-version)))))
+    (should (equal (lispm-desktop-store--action 'doom here) '("Get" . install)))
+    (should (string-search (format "runs in Emacs %d or later" (1+ emacs-major-version))
+                           (lispm-desktop-store--notes newer)))
+    (should-error (lispm-desktop-store--check-program newer) :type 'user-error)
+    (should-not (lispm-desktop-store--check-program here))))
+
 (ert-deftest lispm-desktop-test-catalog-item-problems ()
   "The format of a catalog's item is said once: an item listed with
 everything is well; one the App Store cannot list, unsafe or short of
@@ -7904,7 +7919,9 @@ neither."
                     (:package (elfeed :url "https://example.org/e" :rev "r" :make "all") ":make")
                     (:package (elfeed :url "https://example.org/e" :rev "r" :lisp-dir "/lisp") ":lisp-dir")
                     (:needs ((program "mpv" :for "playing" :brew "mpv; rm -rf ~")) "Homebrew")
-                    (:requires elfeed ":requires")))
+                    (:requires elfeed ":requires")
+                    (:emacs "32" ":emacs is the lowest major version")
+                    (:emacs 29 ":emacs is the lowest major version")))
       (pcase-let ((`(,key ,value ,said) case))
         (let ((wrong (funcall item key value)))
           (should-not (lispm-desktop-catalog-item-valid-p wrong))
@@ -7913,6 +7930,7 @@ neither."
                                         t))
                          (list key t))))))
     (should (lispm-desktop-test--problems '(x :kind extension :name "X" :feature x) 'error))
+    (should (lispm-desktop-catalog-item-valid-p (funcall item :emacs 32)))
     (should (equal (lispm-desktop-test--problems '(x :kind extension :name "X" :subtitle "X" :description "X."
                                                      :icon "x" :banner "x" :about "x" :author "X"
                                                      :license "MIT" :feature x :package x))

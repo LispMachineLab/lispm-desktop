@@ -532,6 +532,12 @@ checkout's, is updated there, not by the App Store."
   (let ((program (plist-get props :program)))
     (and (stringp program) (not (executable-find program)) program)))
 
+(defun lispm-desktop-store--newer-emacs (props)
+  "Return the major version of Emacs the item of PROPS needs when this
+Emacs is older, or nil."
+  (let ((emacs (plist-get props :emacs)))
+    (and (natnump emacs) (< emacs-major-version emacs) emacs)))
+
 (defun lispm-desktop-store--category-of (props)
   "Return the category of the item of PROPS: Extensions for an extension,
 else its :category."
@@ -554,6 +560,8 @@ stopping.  An item whose install or update failed is tried again."
          (if (eq (plist-get props :kind) 'app)
              (cons (lispm-desktop-tr "Open") 'open)
            (list (lispm-desktop-tr "Installed"))))
+        ((lispm-desktop-store--newer-emacs props)
+         (list (lispm-desktop-tr "Needs Emacs %d" (lispm-desktop-store--newer-emacs props))))
         ((lispm-desktop-store--missing-program props) (list (lispm-desktop-tr "Get")))
         (t (cons (lispm-desktop-tr "Get") 'install))))
 
@@ -700,8 +708,11 @@ and those installed, or being installed, left out."
     (nreverse order)))
 
 (defun lispm-desktop-store--check-program (props)
-  "Signal a `user-error' when the item of PROPS needs a program PATH lacks,
-saying how to install it."
+  "Signal a `user-error' when the item of PROPS needs a newer Emacs, or a
+program PATH lacks, saying how to install it."
+  (when-let* ((emacs (lispm-desktop-store--newer-emacs props)))
+    (user-error (lispm-desktop-tr "%s runs in Emacs %d or later; this is Emacs %s")
+                (plist-get props :name) emacs emacs-version))
   (when-let* ((program (lispm-desktop-store--missing-program props)))
     (if-let* ((install (plist-get props :install)))
         (user-error (lispm-desktop-tr "%s needs `%s', which is not on PATH; install it with: %s")
@@ -2565,6 +2576,8 @@ language LispM speaks."
        ,(cond ((lispm-desktop-store--job id) (lispm-desktop-store--progress (lispm-desktop-store--job id)))
               ((lispm-desktop-store-update-available-p id) (lispm-desktop-tr "Installed; an update is ready"))
               (installed (lispm-desktop-tr "Installed"))
+              ((lispm-desktop-store--newer-emacs props)
+               (lispm-desktop-tr "Needs Emacs %d" (lispm-desktop-store--newer-emacs props)))
               (program (lispm-desktop-tr "Needs %s, not on PATH" program))
               (t (lispm-desktop-tr "Not installed"))))
       (,(lispm-desktop-tr "Developer:") ,(or (plist-get props :author) "–"))
@@ -2585,7 +2598,10 @@ language LispM speaks."
   "Return what the item of PROPS lacks, in sentences of the language LispM
 speaks, each after two spaces, or \"\": how to install the program it
 needs when PATH lacks it, and what of an app's needs is missing."
-  (concat (when-let* ((program (lispm-desktop-store--missing-program props)))
+  (concat (when-let* ((emacs (lispm-desktop-store--newer-emacs props)))
+            (concat "  " (lispm-desktop-tr "It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it."
+                                           emacs emacs-version)))
+          (when-let* ((program (lispm-desktop-store--missing-program props)))
             (concat "  " (if-let* ((install (plist-get props :install)))
                              (lispm-desktop-tr "It needs %s, which is not on PATH; install it with: %s"
                                                program install)

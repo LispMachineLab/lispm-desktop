@@ -1261,4 +1261,7 @@
   ("Try again to turn lispm-kernel on" . "Réessayer d'activer lispm-kernel")
   ("A change takes effect at once, and nothing needs restarting.  What it lacks, the Installer gets." . "Un changement prend effet immédiatement, sans rien redémarrer.  Ce qui lui manque, le programme d'installation le récupère.")
   ("Version %s, running as process %d since %s." . "Version %s, en cours d'exécution, processus %d, depuis %s.")
-  ("Version %s, running." . "Version %s, en cours d'exécution.")))
+  ("Version %s, running." . "Version %s, en cours d'exécution.")
+  ("Needs Emacs %d" . "Nécessite Emacs %d")
+  ("%s runs in Emacs %d or later; this is Emacs %s" . "%s fonctionne avec Emacs %d ou plus récent ; celui-ci est Emacs %s")
+  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "Il fonctionne avec Emacs %d ou plus récent ; celui-ci est Emacs %s.  Le panneau Noyau des Tableaux de bord y fait passer LispM.")))

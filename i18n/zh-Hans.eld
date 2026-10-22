@@ -1261,4 +1261,7 @@
   ("Try again to turn lispm-kernel on" . "再次尝试开启 lispm-kernel")
   ("A change takes effect at once, and nothing needs restarting.  What it lacks, the Installer gets." . "更改立即生效，无需重新启动。它缺少的东西由安装器获取。")
   ("Version %s, running as process %d since %s." . "版本 %s，以进程 %d 运行，始于%s。")
-  ("Version %s, running." . "版本 %s，正在运行。")))
+  ("Version %s, running." . "版本 %s，正在运行。")
+  ("Needs Emacs %d" . "需要 Emacs %d")
+  ("%s runs in Emacs %d or later; this is Emacs %s" . "%s 需要 Emacs %d 或更新版本；当前是 Emacs %s")
+  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "它需要 Emacs %d 或更新版本；当前是 Emacs %s。控制面板的“内核”可以把 LispM 切换过去。")))
