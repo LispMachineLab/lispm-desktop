@@ -4346,12 +4346,20 @@ Mac OS 9's buttons were, and pressed as the mouse rises over them."
 
 (ert-deftest lispm-desktop-test-modal-moved-p ()
   "A move of the mouse by more than `double-click-fuzz' is a drag; less is
-a hand's jitter in a click."
+a hand's jitter in a click.  In a text terminal's cells, of which Emacs
+reads the fuzz as eighths, a cell is a drag."
   (let ((double-click-fuzz 3))
     (should-not (lispm-desktop-modal-moved-p '(3 . -3)))
     (should (lispm-desktop-modal-moved-p '(4 . 0)))
     (should (lispm-desktop-modal-moved-p '(0 . -4)))
-    (should-not (lispm-desktop-modal-moved-p nil))))
+    (should-not (lispm-desktop-modal-moved-p nil))
+    (should (lispm-desktop-modal-moved-p '(1 . 0) t))
+    (should (lispm-desktop-modal-moved-p '(0 . -1) t))
+    (should-not (lispm-desktop-modal-moved-p '(0 . 0) t))
+    (should-not (lispm-desktop-modal-moved-p nil t)))
+  (let ((double-click-fuzz 16))
+    (should-not (lispm-desktop-modal-moved-p '(2 . 0) t))
+    (should (lispm-desktop-modal-moved-p '(3 . 0) t))))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
@@ -12318,6 +12326,111 @@ ESC [ and ESC ], the start of its arrows and mouse reports."
       (should (eq (key-binding (kbd "M-[")) 'ignore))
       (lispm-desktop-test--on-tty
         (should-not (key-binding (kbd "M-[")))))))
+
+(ert-deftest lispm-desktop-test-tty-pointer ()
+  "A text terminal reports the mouse in cells of the frame it is over;
+carried out through each child frame's place in its parent, it is a
+cell of the root frame.  Before the terminal reported it, it is nowhere."
+  (lispm-desktop-test--with-frames lispm-desktop-test--window-frames
+      (let ((place '(window 5 . 1)))
+        (cl-letf (((symbol-function 'mouse-position) (lambda () place)))
+          (should (equal (lispm-desktop-platinum-tty-pointer) '(105 . 51)))
+          (setq place '(screen 7 . 3))
+          (should (equal (lispm-desktop-platinum-tty-pointer) '(7 . 3)))
+          (setq place '(screen nil))
+          (should-not (lispm-desktop-platinum-tty-pointer))))))
+
+(defconst lispm-desktop-test--tty-window-frames
+  '((screen (position 0 . 0) (size 160 . 45) (visibility . t))
+    (window (lispm-desktop-window . t) (parent-frame . screen)
+            (position 2 . 2) (size 112 . 32) (visibility . t)))
+  "A floating window over a text terminal's screen, in cells and not
+framed, for `lispm-desktop-test--with-frames'.")
+
+(defmacro lispm-desktop-test--with-tty-drag (script &rest body)
+  "Run BODY as on a text terminal, with the window of
+`lispm-desktop-test--tty-window-frames' and a mouse following SCRIPT, a
+list of ((COLUMN . LINE) . EVENT): each read puts the mouse at COLUMN,
+LINE of the screen and gives EVENT, nil for a read that waited in vain.
+In BODY, `ran' counts the runs of `lispm-desktop-platinum-frame-moved-functions',
+`sizes' holds the sizes given the window, `focused' the frames given the
+keyboard, the latest first, and `limits' the time limits reads had."
+  (declare (indent 1))
+  `(lispm-desktop-test--on-tty
+     (lispm-desktop-test--with-frames lispm-desktop-test--tty-window-frames
+         (let* ((script ,script)
+                (pointer (car (car script)))
+                (ran 0)
+                (sizes nil)
+                (focused nil)
+                (limits nil)
+                (unread-command-events nil)
+                (lispm-desktop-platinum-frame-moved-functions (list (lambda (_) (setq ran (1+ ran))))))
+           (cl-letf (((symbol-function 'mouse-position) (lambda () (cons 'screen pointer)))
+                     ((symbol-function 'read-event)
+                      (lambda (&optional _prompt _input-method limit)
+                        (push limit limits)
+                        (pcase-let ((`(,place . ,event) (pop script)))
+                          (setq pointer place)
+                          event)))
+                     ((symbol-function 'select-frame-set-input-focus)
+                      (lambda (frame &rest _) (push frame focused)))
+                     ((symbol-function 'set-frame-size)
+                      (lambda (frame width height &optional _)
+                        (push (list frame width height) sizes)
+                        (frame-put frame 'size (cons width height)))))
+             ,@body)))))
+
+(ert-deftest lispm-desktop-test-tty-drag-moves-the-window ()
+  "On a text terminal a window dragged by its title bar comes in front with
+the keyboard and follows the mouse cell by cell; the mouse is looked at
+as each move comes, where the terminal reported it, not between reports
+or at the release, and no read is cut short, which would lose half a
+sequence.  Given up, the window goes back; let go where it was pressed,
+the press is a click, handed on."
+  (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil)
+                                           (cons '(43 . 3) '(mouse-movement (nil)))
+                                           (cons '(70 . 9) '(switch-frame screen))
+                                           (cons '(46 . 5) '(mouse-movement (nil)))
+                                           (cons '(90 . 9) '(drag-mouse-1 (nil) (nil))))
+    (should (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should (equal moves '((window 8 5) (window 5 3))))
+    (should (equal (car (last raised)) 'window))
+    (should (equal (car (last focused)) 'window))
+    (should (= ran 1))
+    (should (= (length limits) 5))
+    (should-not (delq nil limits)))
+  (dolist (stop '(27 escape ?\C-g))
+    (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil)
+                                             (cons '(45 . 4) '(mouse-movement (nil)))
+                                             (cons '(45 . 4) stop))
+      (should-not (lispm-desktop-platinum-drag-outline 'window 'move))
+      (should (equal moves '((window 2 2) (window 7 4))))
+      (should (= ran 0))))
+  (lispm-desktop-test--with-tty-drag (list (cons '(40 . 2) nil) (cons '(40 . 2) '(mouse-1 (nil))))
+    (should-not (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should-not moves)
+    (should (= ran 0))
+    (should (equal unread-command-events '((mouse-1 (nil)))))))
+
+(ert-deftest lispm-desktop-test-tty-drag-grows-the-window ()
+  "On a text terminal a window grown from its grow box takes each size as
+the mouse goes, no smaller than its least in cells: a cell for 8 pixels
+across and 16 down."
+  (lispm-desktop-test--with-tty-drag (list (cons '(113 . 33) nil)
+                                           (cons '(103 . 30) '(mouse-movement (nil)))
+                                           (cons '(0 . 0) '(mouse-movement (nil)))
+                                           (cons '(0 . 0) '(drag-mouse-1 (nil) (nil))))
+    (should (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 25 6) (window 102 29))))
+    (should-not moves)
+    (should (= ran 1)))
+  (lispm-desktop-test--with-tty-drag (list (cons '(113 . 33) nil)
+                                           (cons '(120 . 40) '(mouse-movement (nil)))
+                                           (cons '(120 . 40) 'escape))
+    (should-not (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 112 32) (window 119 39))))
+    (should (= ran 0))))
 
 (ert-deftest lispm-desktop-test-store-cuts-to-characters ()
   "Cutting a word to a width no character fits, as on a narrow window,
