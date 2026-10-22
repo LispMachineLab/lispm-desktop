@@ -1111,10 +1111,14 @@ keyboard is on."
                                                 :focused (and focused (equal focused value))))
     svg))
 
-(defconst lispm-desktop-popup-text-alert-width 52
+(defconst lispm-desktop-popup-text-alert-width 64
   "Width in cells of an alert on a text terminal, inside its outline.")
 
-(defconst lispm-desktop-popup--text-alert-x 7
+(defconst lispm-desktop-popup--text-alert-icon-size 16
+  "Size in pixels of an alert's icon on a text terminal, 2 by 4 pixels a
+cell.")
+
+(defconst lispm-desktop-popup--text-alert-x 13
   "Cells from an alert's inside left edge to its message, on a text terminal.")
 
 (defun lispm-desktop-popup--text-button-width (label)
@@ -1138,7 +1142,10 @@ buttons would not fit."
          (text-width (- w x 2))
          (lines (lispm-desktop-popup--wrap message text-width 'lispm-desktop-platinum-title))
          (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-desktop-platinum-list)))
-         (top (+ 1 (length lines) (if details (1+ (length details)) 0) 1))
+         ;; Under the message and the detail, and under the icon.
+         (top (+ 1 (max (+ (length lines) (if details (1+ (length details)) 0))
+                        (cdr (lispm-desktop-platinum-text-size lispm-desktop-popup--text-alert-icon-size)))
+                 1))
          (placed nil))
     (let ((right (- w 2)))
       (dolist (index (number-sequence (1- (length buttons)) 0 -1))
@@ -1173,10 +1180,14 @@ takes them."
          (row 1))
     (cl-flet ((put (row column string)
                 (aset rows row (cons (cons column string) (aref rows row)))))
-      (put 1 2 (propertize (concat " " (pcase icon ('stop "×") ('note "i") (_ "!")) " ")
-                           'face `(:foreground ,(lispm-desktop-platinum-color :highlight-text)
-                                   :background ,(lispm-desktop-platinum-color :alert-dark)
-                                   :weight bold)))
+      (if-let* ((picture (lispm-desktop-platinum-icon-picture
+                          (symbol-name icon) lispm-desktop-popup--text-alert-icon-size nil
+                          (lispm-desktop-platinum-color :chrome))))
+          (seq-do-indexed (lambda (line index) (put (1+ index) 3 line)) picture)
+        (put 1 3 (propertize (concat " " (pcase icon ('stop "×") ('note "i") (_ "!")) " ")
+                             'face `(:foreground ,(lispm-desktop-platinum-color :highlight-text)
+                                     :background ,(lispm-desktop-platinum-color :alert-dark)
+                                     :weight bold))))
       (dolist (line (plist-get layout :message))
         (put row x (propertize line 'face 'lispm-desktop-platinum-title))
         (setq row (1+ row)))
