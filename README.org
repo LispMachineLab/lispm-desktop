@@ -230,10 +230,14 @@ sessions as it does without the kernel, url.el downloads for package.el, and *Me
 
 ** Updating
 
-The Software Update panel keeps the checkouts in =~/.lispm= on their branches, checking daily or
-weekly.  Updates install as LispM quits, never while it runs (Restart to Update installs at
-once); a checkout with changes of its own is left alone.  The App Store updates its applications,
-by itself once LispM is idle if you allow it.  =M-x lispm-desktop-update-now= checks from anywhere.
+The Software Update panel keeps the checkouts in =~/.lispm= at their latest releases, and so a
+LispM project the desktop installed as a package with package-vc, checking daily or weekly.
+Updates install as LispM quits, never while it runs (Restart to Update installs at once): packages
+are built again first, and the checkouts wait while one fails, since a desktop release may need an
+agent release.  A checkout with changes of its own is left alone.  A project too old for the
+desktop, as lispm-agent before 0.4.0, is brought up to date as LispM starts.  The App Store
+updates its applications, by itself once LispM is idle if you allow it.
+=M-x lispm-desktop-update-now= checks from anywhere.
 
 * Mac OS and X
 

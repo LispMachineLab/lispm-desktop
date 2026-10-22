@@ -23,24 +23,33 @@
 
 ;;; Commentary:
 
-;; LispM runs from three git checkouts: lispm-desktop, lispm-agent and
-;; lispm-browser, side by side in ~/.lispm as install.sh made them, or
-;; wherever a developer keeps them.  Each project releases its versions
-;; as tags of its main branch, v0.2.0 and on, and Software Update keeps
-;; each checkout at the latest release, as running install.sh again does:
+;; LispM runs from git checkouts: lispm-desktop, lispm-agent and
+;; lispm-browser, and lispm-kernel once asked for, side by side in
+;; ~/.lispm as install.sh made them, or wherever a developer keeps them;
+;; or from packages package-vc installed from git, as the desktop installs
+;; a project it finds no checkout of (lispm-desktop-deps.el).  Each
+;; project releases its versions as tags of its main branch, v0.2.0 and
+;; on, and Software Update keeps each at the latest release, as running
+;; install.sh again does:
 ;;
 ;;   checking    fetches each checkout's branch and its tags in the
 ;;               background and lists what the latest release brings;
 ;;               nothing changes yet
 ;;   installing  moves each checkout on to its latest release, as LispM
 ;;               quits, so that the code running never mixes old files
-;;               and new; restarting LispM installs at once
+;;               and new; restarting LispM installs at once.  A package
+;;               is checked out at its release and built again in an
+;;               Emacs of its own, as the App Store updates its own;
+;;               packages go first, and while one of them fails the
+;;               checkouts wait, for a release of one project may need
+;;               another's, as the desktop's 0.9.0 needs the agent's 0.4.0
 ;;
 ;; A checkout holding its latest release, or newer commits, as a
 ;; developer's on the tip of main, is up to date.  One with changes or
 ;; commits of its own, or on no branch, is left as it is, as install.sh
-;; leaves it, and so is one installed as a package, which the package
-;; manager updates.  An update to LispM.app
+;; leaves it; a package on no branch follows its origin's main.  A
+;; package from the package archives is the package manager's to update.
+;; An update to LispM.app
 ;; itself (install.sh, or macos/ of lispm-desktop) is installed by
 ;; install.sh, run once LispM has quit; it opens LispM again when done.
 ;;
@@ -60,6 +69,7 @@
 (require 'cl-lib)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-store-installer)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
@@ -96,7 +106,8 @@ first, and installs when told to."
 (defconst lispm-desktop-update-projects
   '(("LispM Desktop" . "lispm-desktop-core.el")
     ("LispM Agent" . "lispm.el")
-    ("LispM Browser" . "lispm-browser.el"))
+    ("LispM Browser" . "lispm-browser.el")
+    ("LispM Kernel" . "lispm-kernel.el"))
   "The LispM projects Software Update keeps up to date: (NAME . FILE), FILE
 a file of the project's lisp/ directory, as `locate-library' finds it.")
 
@@ -215,22 +226,26 @@ when every step went on."
               ((not (string-empty-p top))))
     (file-name-as-directory (file-truename top))))
 
-(defun lispm-desktop-update--package-p (directory)
-  "Return non-nil when DIRECTORY is a package's, which the package manager
-updates."
-  (and (boundp 'package-user-dir)
-       (file-in-directory-p directory (file-truename package-user-dir))))
+(defun lispm-desktop-update--package (directory)
+  "Return the name of the package whose directory DIRECTORY is, the top of
+a checkout package-vc made in `package-user-dir', or nil when it is none."
+  (let ((directory (directory-file-name (file-truename directory))))
+    (and (boundp 'package-user-dir)
+         (equal (file-name-directory directory)
+                (file-name-as-directory (file-truename package-user-dir)))
+         (intern (file-name-nondirectory directory)))))
 
 (defun lispm-desktop-update-checkouts ()
   "Return the checkouts of the LispM projects this Emacs runs, (NAME .
-DIRECTORY) each, DIRECTORY the top of the checkout.  A project not in a
-git checkout, or installed as a package, is left out; so is a project in
-the checkout of one before it, as when the projects were one."
+DIRECTORY) each, DIRECTORY the top of the checkout: a project's own, or
+the package package-vc installed it as, see
+`lispm-desktop-update--package'.  A project not in a git checkout, as a
+package from the archives, is left out; so is a project in the checkout
+of one before it, as when the projects were one."
   (let ((seen nil) (checkouts nil))
     (pcase-dolist (`(,name . ,file) lispm-desktop-update-projects)
       (when-let* ((library (locate-library file t))
                   (directory (file-truename (file-name-directory library)))
-                  ((not (lispm-desktop-update--package-p directory)))
                   (top (lispm-desktop-update--top directory))
                   ((not (member top seen))))
         (push top seen)
@@ -322,25 +337,32 @@ plist:
   :from, :to  the commit the checkout holds, and the release's
   :changes    the subjects of the commits the update brings
   :app        non-nil when the update changes LispM.app
+  :package    the name of the package DIRECTORY is, see
+              `lispm-desktop-update--package'
 
 The latest release is the tag of the highest version on the branch, see
 `lispm-desktop-update-release-regexp'.  A checkout holding it, or newer
 commits of the branch, is current, and so is one of a branch with no
-release yet."
-  (let ((result (list :name name :directory directory :state 'current))
-        (release nil))
+release yet.  A package on no branch, as one updated before is, follows
+its origin's main."
+  (let* ((package (lispm-desktop-update--package directory))
+         (result (list :name name :directory directory :state 'current :package package))
+         (branch "@{upstream}")
+         (release nil))
     (cl-flet ((stop (state reason)
                 (plist-put (plist-put result :state state) :reason reason)))
       (lispm-desktop-update--git-steps
        directory
        `((("rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{upstream}")
           . ,(lambda (output _errors)
-               (or (and output t) (stop 'kept (lispm-desktop-tr-noop "follows no branch")))))
-         (("fetch" "--quiet" "--tags")
+               (cond (output t)
+                     (package (setq branch "origin/HEAD") t)
+                     (t (stop 'kept (lispm-desktop-tr-noop "follows no branch"))))))
+         (,(lambda () (if package '("fetch" "--quiet" "--tags" "origin") '("fetch" "--quiet" "--tags")))
           . ,(lambda (output errors)
                (or (and output t)
                    (stop 'failed (string-remove-prefix "fatal: " (car (split-string errors "\n")))))))
-         (("tag" "--list" "v*" "--sort=-v:refname" "--merged" "@{upstream}")
+         (,(lambda () (list "tag" "--list" "v*" "--sort=-v:refname" "--merged" branch))
           . ,(lambda (output _errors)
                (setq release (seq-find #'lispm-desktop-update--release-version
                                        (and output (split-string output "\n" t))))
@@ -494,19 +516,37 @@ asked or not: only those install.sh need not install."
 (defun lispm-desktop-update--install-checkout (update)
   "Move the checkout of UPDATE on to the commit fetched for it; return
 non-nil once it was, nil when it no longer could, as with changes of its
-own made since."
-  (let ((directory (plist-get update :directory)))
+own made since.  A package is checked out at the commit and built again,
+in an Emacs of its own, as the App Store updates one; when that fails,
+it is left as it was, and saying so."
+  (let ((directory (plist-get update :directory))
+        (package (plist-get update :package)))
     (and (file-directory-p directory)
          (equal (lispm-desktop-update--git directory "rev-parse" "HEAD") (plist-get update :from))
          (equal (lispm-desktop-update--git directory "status" "--porcelain" "--untracked-files=no") "")
-         (lispm-desktop-update--git directory "merge" "--ff-only" "--quiet" (plist-get update :to)))))
+         (if package
+             (condition-case err
+                 (progn (lispm-desktop-store-installer-call
+                         `(update ,package ,(plist-get update :to) ,(plist-get update :from)))
+                        t)
+               (error (message (lispm-desktop-tr "Software Update: %s could not be installed: %s")
+                               (lispm-desktop-update-title update) (error-message-string err))
+                      nil))
+           (lispm-desktop-update--git directory "merge" "--ff-only" "--quiet" (plist-get update :to))))))
 
 (defun lispm-desktop-update-install (&optional updates)
   "Install UPDATES, by default those found, at once; return those installed.
-Each is logged.  Code already loaded keeps running: install as Emacs
-quits, or before it loads any of the files changed."
-  (let ((installed (seq-filter #'lispm-desktop-update--install-checkout
-                               (or updates (lispm-desktop-update-updates)))))
+Packages go first, and while one of them fails the checkouts wait: a
+release of one project may need another's.  Each install is logged.
+Code already loaded keeps running: install as Emacs quits, or before it
+loads any of the files changed."
+  (let* ((updates (or updates (lispm-desktop-update-updates)))
+         (packages (seq-filter (lambda (update) (plist-get update :package)) updates))
+         (done (seq-filter #'lispm-desktop-update--install-checkout packages))
+         (installed (append done
+                            (when (= (length done) (length packages))
+                              (seq-filter #'lispm-desktop-update--install-checkout
+                                          (seq-difference updates packages))))))
     (dolist (update installed)
       (push (list (current-time) (lispm-desktop-update-title update) (plist-get update :from)
                   (plist-get update :to) (plist-get update :changes))

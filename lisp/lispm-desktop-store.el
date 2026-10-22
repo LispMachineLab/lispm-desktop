@@ -858,16 +858,6 @@ TO).  NAME stands alone, as an item's subtitle, PHRASE in a sentence, as
 its status; both are in English, translated where shown.  FROM and TO are
 the part of its progress bar each fills.")
 
-(defconst lispm-desktop-store--handed-variables
-  '(user-emacs-directory exec-path
-    package-user-dir package-directory-list package-archives package-archive-priorities
-    package-pinned-packages package-load-list package-check-signature package-unsigned-archives
-    package-gnupghome-dir package-selected-packages package-install-upgrade-built-in
-    package-vc-selected-packages package-vc-default-backend package-quickstart package-quickstart-file
-    url-proxy-services url-using-proxy gnutls-trustfiles network-security-level)
-  "What an Emacs installing in the background takes from this one: how
-packages are installed, and how the network is reached.")
-
 (defvar lispm-desktop-store--redraw-timer nil
   "Timer drawing the App Store's window again with the jobs' progress.")
 
@@ -996,31 +986,6 @@ are not started."
            reason)
   (lispm-desktop-store--ended-job job))
 
-(defun lispm-desktop-store--readable-p (value)
-  "Return non-nil when VALUE, printed, reads back as itself."
-  (condition-case nil
-      (let ((print-length nil) (print-level nil))
-        (equal (car (read-from-string (prin1-to-string value))) value))
-    (error nil)))
-
-(defun lispm-desktop-store--job-program (task)
-  "Return the program an Emacs of its own runs for TASK, as
-`lispm-desktop-store-installer-run' takes it: this Emacs's settings for
-packages and the network, then TASK."
-  (let ((library (or (locate-library "lispm-desktop-store-installer")
-                     (error (lispm-desktop-tr "lispm-desktop-store-installer is not on the load path")))))
-    `(progn
-       ,@(mapcan (lambda (variable)
-                   (when (and (boundp variable) (lispm-desktop-store--readable-p (symbol-value variable)))
-                     (list `(setq ,variable ',(symbol-value variable)))))
-                 lispm-desktop-store--handed-variables)
-       (push ,(file-name-directory library) load-path)
-       ;; The editor's agents, which an extension adding one requires.
-       ,@(when-let* ((agents (locate-library "lispm-agents")))
-           `((push ,(file-name-directory agents) load-path)))
-       (require 'lispm-desktop-store-installer)
-       (lispm-desktop-store-installer-run ',task))))
-
 (defun lispm-desktop-store--package-directories ()
   "Return the packages' directories in `package-user-dir', the archives'
 and the keys' left out."
@@ -1040,7 +1005,7 @@ and the keys' left out."
     (with-temp-file file
       (insert ";;; -*- lexical-binding: t -*-\n")
       (let ((print-length nil) (print-level nil) (print-escape-newlines t))
-        (prin1 (lispm-desktop-store--job-program task) (current-buffer))))
+        (prin1 (lispm-desktop-store-installer-program task) (current-buffer))))
     (setf (lispm-desktop-store-job-file job) file
           (lispm-desktop-store-job-log job) log
           (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
