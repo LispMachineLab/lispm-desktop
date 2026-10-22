@@ -49,7 +49,11 @@
 (require 'lispm-desktop-i18n)
 
 (defvar lispm-kernel-desktop-mode)
+(defvar lispm-kernel-desktop-last-error)
+(defvar lispm-kernel-program-problem)
 (declare-function lispm-kernel-desktop-mode "ext:lispm-kernel-desktop" (&optional arg))
+(declare-function lispm-kernel-program-file "ext:lispm-kernel-program" ())
+(declare-function lm-version "lisp-mnt" (&optional file))
 
 (defcustom lispm-desktop-kernel nil
   "Non-nil reads the agents' sessions in the background with lispm-kernel.
@@ -84,6 +88,28 @@ A batch Emacs, as an installer's, gets the Lisp and leaves the mode off."
 This watches the variable once LispM is set up; binding it does nothing."
   (when (eq operation 'set)
     (lispm-desktop-kernel-apply value)))
+
+(defun lispm-desktop-kernel-status ()
+  "Return how lispm-kernel is: `off', `running', `starting' while it gets
+its program, or (problem . WHY), WHY a sentence or a symbol."
+  (let ((problem (or (bound-and-true-p lispm-kernel-desktop-last-error)
+                     (bound-and-true-p lispm-kernel-program-problem))))
+    (cond ((not lispm-desktop-kernel) 'off)
+          ((and (bound-and-true-p lispm-kernel-desktop-mode)
+                (fboundp 'lispm-kernel-program-file) (lispm-kernel-program-file)
+                (not problem))
+           'running)
+          (problem (cons 'problem problem))
+          (t 'starting))))
+
+(defun lispm-desktop-kernel-version ()
+  "Return the version of lispm-kernel's Lisp, as its header says, or nil
+when it is not there."
+  (when-let* ((file (locate-library "lispm-kernel.el" t)))
+    (require 'lisp-mnt)
+    (with-temp-buffer
+      (insert-file-contents file nil 0 2048)
+      (lm-version))))
 
 (defun lispm-desktop-setup-kernel ()
   "Turn lispm-kernel on when `lispm-desktop-kernel' says so, and follow it.

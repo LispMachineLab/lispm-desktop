@@ -65,6 +65,8 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-update)
+(require 'lispm-desktop-emacs)
+(require 'lispm-desktop-kernel)
 (require 'lispm-desktop-store)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-startup)
@@ -118,6 +120,7 @@
     (sandbox ,(lispm-desktop-tr-noop "Sandbox") lispm-desktop-settings--sandbox "sandbox-32"
              lispm-desktop-settings--sandbox-p)
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
+    (kernel ,(lispm-desktop-tr-noop "Kernel") lispm-desktop-settings--kernel "kernel-32")
     (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32"))
   "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
 LABEL is in English, translated where shown, see
@@ -1140,6 +1143,87 @@ checks and installs by itself, and what is installed."
                                   (lispm-desktop-tr "List the updates ready, and what Software Update installed"))
   (insert "\n"))
 
+(defun lispm-desktop-settings--kernel-status ()
+  "Return what lispm-kernel is doing, in a few words."
+  (pcase (lispm-desktop-kernel-status)
+    ('off (lispm-desktop-tr "off: Emacs reads the sessions itself"))
+    ('running (if-let* ((version (lispm-desktop-kernel-version)))
+                  (lispm-desktop-tr "running, version %s" version)
+                (lispm-desktop-tr "running")))
+    ('starting (lispm-desktop-tr "getting its program…"))
+    (`(problem . ,why)
+     (lispm-desktop-settings--truncate
+      (lispm-desktop-tr "not running: %s" (if (stringp why) why (lispm-desktop-tr "no program is there")))
+      48))))
+
+(defun lispm-desktop-settings--emacs-note (build)
+  "Return the note after the radio button of BUILD, a build of Emacs
+install.sh offers."
+  (let ((major (plist-get build :major)))
+    (cond ((eql major emacs-major-version) (lispm-desktop-tr "running now"))
+          ((plist-get build :development)
+           (if-let* ((date (lispm-desktop-emacs-build-date build)))
+               (lispm-desktop-tr "experimental, built %s" date)
+             (lispm-desktop-tr "experimental")))
+          (t (lispm-desktop-tr "the default")))))
+
+(defun lispm-desktop-settings--emacs-status ()
+  "Insert where switching Emacs stands: a download's progress and Cancel,
+Restart to Switch once ready, or why it could not be."
+  (let ((target (lispm-desktop-emacs-target)))
+    (cond
+     ((lispm-desktop-emacs-staging-p)
+      (let ((name (lispm-desktop-emacs-name target))
+            (progress (lispm-desktop-emacs-progress)))
+        (insert (lispm-desktop-settings--indent)
+                (propertize (if (and progress (< progress 100))
+                                (lispm-desktop-tr "Downloading %s… %d%%" name (floor progress))
+                              (lispm-desktop-tr "Making LispM.app of %s…" name))
+                            'face 'shadow)
+                "  ")
+        (lispm-desktop-settings--button (lispm-desktop-tr "Cancel") #'lispm-desktop-emacs-cancel
+                                        (lispm-desktop-tr "Stop, and stay on this Emacs"))
+        (insert "\n")))
+     ((lispm-desktop-emacs-staged)
+      (insert (lispm-desktop-settings--indent))
+      (lispm-desktop-settings--button (lispm-desktop-tr "Restart to Switch") #'lispm-desktop-emacs-restart
+                                      (lispm-desktop-tr "Quit LispM, switch LispM.app to it, and open it again"))
+      (insert "  " (propertize (lispm-desktop-tr "%s is ready" (lispm-desktop-emacs-name target)) 'face 'shadow) "\n"))
+     (lispm-desktop-emacs-problem
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "It could not be made ready: %s" lispm-desktop-emacs-problem))))))
+
+(defun lispm-desktop-settings--kernel ()
+  "Insert the Kernel panel: LispM's own kernel, on or off, and the Emacs
+LispM runs on, which LispM.app switches."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "LispM Kernel"))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "LispM's own runtime, a Common Lisp program beside Emacs: it reads the agents' sessions in the background, so that Emacs never waits on them."))
+  (lispm-desktop-settings--check-box
+   (lispm-desktop-tr "Use LispM Kernel") lispm-desktop-kernel
+   (lambda () (lispm-desktop-settings--save 'lispm-desktop-kernel (not lispm-desktop-kernel)))
+   (lispm-desktop-settings--kernel-status))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Emacs Kernel"))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "LispM runs on %s." (lispm-desktop-emacs-name emacs-major-version emacs-version)))
+  (if (not (lispm-desktop-emacs-app))
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "Only LispM.app switches its Emacs; in an Emacs of your own, install another yourself."))
+    (let ((chosen (or (lispm-desktop-emacs-target) emacs-major-version)))
+      (dolist (build (lispm-desktop-emacs-builds))
+        (let ((major (plist-get build :major)))
+          (lispm-desktop-settings--radio
+           (lispm-desktop-emacs-name major (plist-get build :version)) (eql major chosen)
+           (lambda () (lispm-desktop-emacs-stage major))
+           (lispm-desktop-settings--emacs-note build)))))
+    (lispm-desktop-settings--emacs-status)
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "Switching downloads the other Emacs, keeps LispM.app as it is in ~/.lispm/backup, puts the new one in its place, and restarts LispM."))
+    (when-let* ((backup (lispm-desktop-emacs-backup)))
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "Kept: LispM.app on %s, to switch back to at once."
+                         (lispm-desktop-emacs-name (plist-get backup :major)))))))
+
 ;;;; The window
 
 (defvar-keymap lispm-desktop-settings-tab-map
@@ -1377,6 +1461,10 @@ with /sandbox in a chat, for one."
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--render)
   (add-hook 'lispm-desktop-update-changed-hook #'lispm-desktop-settings--update-loading)
   (add-hook 'lispm-desktop-startup-changed-hook #'lispm-desktop-settings--render)
+  (add-hook 'lispm-desktop-emacs-changed-hook #'lispm-desktop-settings--render)
+  ;; lispm-kernel's, once it is turned on.
+  (add-hook 'lispm-kernel-program-obtained-functions
+            (lambda (&rest _) (lispm-desktop-settings--render)))
   ;; LispM Agent's, which may be loaded later, or never.
   (add-hook 'lispm-sandbox-change-hook #'lispm-desktop-settings--render))
 
