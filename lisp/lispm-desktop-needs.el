@@ -43,6 +43,11 @@
 ;; :xcode     t for a program of Apple's command line tools, as git or
 ;;            swift: their names on PATH are Apple's stand-ins until the
 ;;            tools are installed, by Apple's own window
+;; :cargo     the crate Cargo, Rust's package manager, builds a program
+;;            from, for one Homebrew lacks, as Rotom: Cargo comes first,
+;;            Homebrew's rust, when it is missing.  The program lands in
+;;            Cargo's directory, ~/.cargo/bin, which goes on PATH once it
+;;            is found there
 ;; :instead   programs doing its work while it is missing, as macOS's
 ;;            afplay plays music without mpv; :more, what it adds to them
 ;; :commands  commands needing it: run while it is missing, they offer
@@ -83,7 +88,8 @@
 ;;
 ;; What Homebrew installed is uninstalled the same way, in the same
 ;; queue, once an application needing it is uninstalled and nothing else
-;; needs it: `lispm-desktop-needs-uninstall'.
+;; needs it: `lispm-desktop-needs-uninstall'.  What Cargo built stays: a
+;; program of its may run on its own, as Rotom's daemon does.
 
 ;;; Code:
 
@@ -129,6 +135,11 @@
 
 (defconst lispm-desktop-needs-lock-wait 15
   "Seconds an install waits for another brew before trying again.")
+
+(defun lispm-desktop-needs-cargo ()
+  "Return Cargo, Rust's package manager, as a need: what builds the needs
+with a :cargo crate, installed before them when it is missing."
+  `(program "cargo" :for ,(lispm-desktop-tr "building programs written in Rust") :brew "rust"))
 
 (defconst lispm-desktop-needs-poll 2
   "Seconds between looks for what another program is installing: Homebrew
@@ -190,6 +201,23 @@ from the Dock may not have it there."
   (when-let* ((brew (lispm-desktop-needs-brew)))
     (file-name-directory (directory-file-name (file-name-directory brew)))))
 
+(defun lispm-desktop-needs-cargo-directory ()
+  "Return the directory Cargo installs programs in: $CARGO_HOME/bin, else
+~/.cargo/bin."
+  (file-name-as-directory (expand-file-name "bin" (or (getenv "CARGO_HOME") "~/.cargo"))))
+
+(defun lispm-desktop-needs--in-cargo-directory (name)
+  "Return the program NAME in Cargo's directory, or nil.  Found there, the
+directory goes on PATH, after what is there: a shell may not have put it
+there, and Emacs started from the Dock gets none of the shell's."
+  (let* ((directory (lispm-desktop-needs-cargo-directory))
+         (file (expand-file-name name directory)))
+    (when (file-executable-p file)
+      (unless (member (directory-file-name directory) (mapcar #'directory-file-name exec-path))
+        (setq exec-path (append exec-path (list directory)))
+        (setenv "PATH" (concat (getenv "PATH") path-separator (directory-file-name directory))))
+      file)))
+
 (defvar lispm-desktop-needs--command-line-tools nil
   "Non-nil once Apple's command line tools were found installed.")
 
@@ -244,7 +272,9 @@ its formula's prefix when relative, or else its formula's keg."
   (pcase (lispm-desktop-needs-kind need)
     ((guard (lispm-desktop-needs-get need :present))
      (funcall (lispm-desktop-needs-get need :present)))
-    ('program (and (executable-find (lispm-desktop-needs-name need))
+    ('program (and (or (executable-find (lispm-desktop-needs-name need))
+                       (and (lispm-desktop-needs-get need :cargo)
+                            (lispm-desktop-needs--in-cargo-directory (lispm-desktop-needs-name need))))
                    (or (not (lispm-desktop-needs-get need :xcode))
                        (lispm-desktop-needs-command-line-tools-p))))
     ('library (lispm-desktop-needs--library-p need))
@@ -283,16 +313,17 @@ stand-in does the work of."
 
 (defun lispm-desktop-needs-provider (need)
   "Return how NEED installs: (lisp FUNCTION), (brew FORMULA), (cask CASK),
-(xcode), or nil."
+\(cargo CRATE), (xcode), or nil."
   (cond ((lispm-desktop-needs-get need :install) (list 'lisp (lispm-desktop-needs-get need :install)))
         ((lispm-desktop-needs-get need :brew) (list 'brew (lispm-desktop-needs-get need :brew)))
         ((lispm-desktop-needs-get need :cask) (list 'cask (lispm-desktop-needs-get need :cask)))
+        ((lispm-desktop-needs-get need :cargo) (list 'cargo (lispm-desktop-needs-get need :cargo)))
         ((lispm-desktop-needs-get need :xcode) (list 'xcode))))
 
 (defun lispm-desktop-needs-installable-p (need)
   "Return non-nil when the Installer can install NEED: LispM's own
-installs and Homebrew run on macOS and Linux, Apple's command line tools
-only on macOS."
+installs, Homebrew and Cargo run on macOS and Linux, Apple's command line
+tools only on macOS."
   (pcase (lispm-desktop-needs-provider need)
     ('nil nil)
     ('(xcode) (eq system-type 'darwin))
@@ -303,12 +334,13 @@ only on macOS."
   (pcase (lispm-desktop-needs-provider need)
     (`(brew ,formula) (format "brew install %s%s" (if (lispm-desktop-needs-get need :head) "--HEAD " "") formula))
     (`(cask ,cask) (format "brew install --cask %s" cask))
+    (`(cargo ,crate) (format "cargo install --locked %s" crate))
     ('(xcode) "xcode-select --install")))
 
 (defun lispm-desktop-needs-brewed-p (need)
   "Return non-nil when Homebrew installed NEED: its formula's keg or its
 cask is there, whoever had Homebrew install it.  Only such a need is
-uninstalled: Apple's command line tools never are."
+uninstalled: Apple's command line tools never are, nor what Cargo built."
   (when-let* ((prefix (lispm-desktop-needs--brew-prefix)))
     (pcase (lispm-desktop-needs-provider need)
       (`(brew ,formula)
@@ -354,7 +386,8 @@ besides what the caller installs."
                                                (lispm-desktop-needs-get need :for)))
                            needs "; "))
         (brewed (seq-some (lambda (need) (memq (car (lispm-desktop-needs-provider need)) '(brew cask)))
-                          needs)))
+                          needs))
+        (built (seq-some (lambda (need) (eq (car (lispm-desktop-needs-provider need)) 'cargo)) needs)))
     (concat (if also
                 (lispm-desktop-tr "It also installs %s." listed)
               (lispm-desktop-tr "%s." listed))
@@ -365,7 +398,9 @@ besides what the caller installs."
                                  (length needs))))
                   (brewed
                    (concat "  " (lispm-desktop-tr-n "Homebrew installs it." "Homebrew installs them."
-                                                    (length needs))))))))
+                                                    (length needs)))))
+            (when built
+              (concat "  " (lispm-desktop-tr "Cargo, Rust's package manager, builds what is written in Rust, which takes some minutes."))))))
 
 ;;;; Asking
 
@@ -564,7 +599,22 @@ once; one already waiting or running the same way is left as it is."
 Those present or installing already are left; the others wait their turn
 in the Installer.  THEN, if given, is called with non-nil once all of
 NEEDS are present, or with nil once one could not be installed."
-  (lispm-desktop-needs--queue (seq-remove #'lispm-desktop-needs-present-p needs) who 'install then))
+  (lispm-desktop-needs--queue (lispm-desktop-needs--with-cargo (seq-remove #'lispm-desktop-needs-present-p needs))
+                              who 'install then))
+
+(defun lispm-desktop-needs--with-cargo (needs)
+  "Return NEEDS, Cargo before the first that Cargo builds, while it is
+missing."
+  (let ((cargo (and (seq-find (lambda (need) (eq (car (lispm-desktop-needs-provider need)) 'cargo)) needs)
+                    (not (lispm-desktop-needs-present-p (lispm-desktop-needs-cargo)))
+                    (not (seq-find (lambda (need) (equal (lispm-desktop-needs-key need) '(program . "cargo")))
+                                   needs))
+                    (list (lispm-desktop-needs-cargo)))))
+    (mapcan (lambda (need)
+              (if (and cargo (eq (car (lispm-desktop-needs-provider need)) 'cargo))
+                  (prog1 (append cargo (list need)) (setq cargo nil))
+                (list need)))
+            needs)))
 
 (defun lispm-desktop-needs-uninstall (needs who &optional then)
   "Uninstall NEEDS, which WHO, a name, used, with Homebrew, unasked: the
@@ -591,6 +641,7 @@ the run."
               (t (pcase (lispm-desktop-needs-provider (lispm-desktop-needs--job-need job))
                    (`(lisp ,function) (lispm-desktop-needs--lisp-run job function))
                    (`(,(or 'brew 'cask) . ,_) (lispm-desktop-needs--brew-run job))
+                   (`(cargo ,crate) (lispm-desktop-needs--cargo-run job crate))
                    ('(xcode) (lispm-desktop-needs--xcode-install job)))))
       (lispm-desktop-needs--finish)))
   (lispm-desktop-needs--render))
@@ -722,12 +773,16 @@ first if need be."
                        (lispm-desktop-needs--next)))))
      (t (lispm-desktop-needs--end job 'failed (lispm-desktop-needs--error log))))))
 
-(defun lispm-desktop-needs--error (log)
+(defun lispm-desktop-needs--error (log &optional failed)
   "Return what went wrong, as LOG, an install's or uninstall's output,
-says it."
+says it; FAILED, by default that Homebrew failed, when it says nothing."
   (let ((lines (split-string log "\n" t "[ \t\r]+")))
-    (or (car (last (seq-filter (lambda (line) (string-prefix-p "Error:" line)) lines)))
+    (or (car (last (seq-filter (lambda (line)
+                                 (let ((case-fold-search nil))
+                                   (string-match-p "\\`\\(?:Error:\\|error\\(?::\\|\\[\\)\\)" line)))
+                               lines)))
         (car (last lines))
+        failed
         (lispm-desktop-tr "Homebrew failed."))))
 
 (defun lispm-desktop-needs--offer-homebrew (job)
@@ -771,6 +826,49 @@ once the installer ended without, or after too long."
                      (lispm-desktop-tr "Homebrew's installer ended without installing it."))))
            (lispm-desktop-needs--answer)
            (lispm-desktop-needs--next)))))
+
+;;;;; Cargo
+
+(defun lispm-desktop-needs--cargo-run (job crate)
+  "Build JOB's need with Cargo, from CRATE."
+  (let ((cargo (or (executable-find "cargo") (lispm-desktop-needs--in-cargo-directory "cargo")))
+        (start (with-current-buffer (get-buffer-create lispm-desktop-needs-log-buffer-name)
+                 (point-max)))
+        (arguments (list "install" "--locked" crate)))
+    (if (not cargo)
+        (lispm-desktop-needs--end job 'failed (lispm-desktop-tr "Cargo, which builds it, is not installed."))
+      (setf (lispm-desktop-needs--job-state job) 'installing
+            (lispm-desktop-needs--job-since job) (float-time)
+            (lispm-desktop-needs--job-note job) (lispm-desktop-tr "Building with Cargo…"))
+      (lispm-desktop-needs--log (format "\n$ cargo %s\n" (string-join arguments " ")))
+      (setq lispm-desktop-needs--process
+            (make-process
+             :name "lispm-desktop-needs" :noquery t :connection-type 'pipe
+             :command (cons cargo arguments)
+             :filter (lambda (_process output)
+                       (lispm-desktop-needs--log output)
+                       (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))
+                         (setf (lispm-desktop-needs--job-note job) line))
+                       (lispm-desktop-needs--render))
+             :sentinel (lambda (process _event)
+                         (unless (process-live-p process)
+                           (lispm-desktop-needs--cargo-ended job process start)))))
+      (lispm-desktop-needs--tick))))
+
+(defun lispm-desktop-needs--cargo-ended (job process start)
+  "End JOB, whose PROCESS built it with Cargo, its log since START."
+  (setq lispm-desktop-needs--process nil)
+  (let ((log (with-current-buffer (get-buffer-create lispm-desktop-needs-log-buffer-name)
+               (buffer-substring-no-properties (min start (point-max)) (point-max))))
+        (need (lispm-desktop-needs--job-need job)))
+    (cond
+     ((eq (lispm-desktop-needs--job-state job) 'cancelled))
+     ((and (eq (process-exit-status process) 0) (lispm-desktop-needs-present-p need))
+      (lispm-desktop-needs--end job 'installed))
+     ((eq (process-exit-status process) 0)
+      (lispm-desktop-needs--end job 'failed (lispm-desktop-tr "Cargo built it, but %s is not to be found."
+                                                              (lispm-desktop-needs-name need))))
+     (t (lispm-desktop-needs--end job 'failed (lispm-desktop-needs--error log (lispm-desktop-tr "Cargo failed.")))))))
 
 ;;;;; LispM's own
 
