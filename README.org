@@ -220,29 +220,44 @@ Emacs commands, and programs run in the background while LispM runs, their outpu
 
 ** Background work
 
-LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a runtime for work Emacs should not wait on, is off by default.
+LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a runtime for work Emacs should not wait on, is on by default.
 It is a Common Lisp program, SBCL's runtime and the kernel's core in one executable, that Emacs
-runs as a process, the two talking in S-expressions.  Turned on, it reads the agents' sessions for
-the sidebar on threads of its own, and Emacs takes them in on the desktop's frame clock; the
-sidebar shows the sessions it has while it reads them anew.
+runs as a process, the two talking in S-expressions.  It reads the agents' sessions for the
+sidebar on threads of its own, and Emacs takes them in on the desktop's frame clock; the sidebar
+shows the sessions it has while it reads them anew.  It also makes the downloads package.el makes
+in the background, as the App Store's refresh of the package archives, with curl, where url.el
+would negotiate TLS on Emacs's thread; package.el checks and keeps what it gets as always.
+
+Use LispM Kernel in Control Panels › Kernel turns it off and on, and the panel says how it stands;
+so does:
 
 #+begin_src emacs-lisp
-(setopt lispm-desktop-kernel t)                 ; at once, and at every start
+(setopt lispm-desktop-kernel nil)               ; off at once, and at every start
 #+end_src
+
+Either takes effect at once, as does toggling it in Custom; nothing needs restarting.  Turned on
+there, what the kernel lacks the Installer gets, showing how far it is; on by default, it gets it
+quietly.  A kernel that exits is started again by itself: at once when it ran a while, else after
+a pause that grows each time.
 
 Its Lisp comes from =../lispm-kernel= beside this checkout, else package-vc installs its latest
 release.  It gets its program itself, in the background: downloaded as built for this computer
 by its =kernel program= workflow, and kept only when its SHA-256 is the one pinned in the kernel's
 repository, beside its Lisp; nothing is built unless ~lispm-kernel-program-source~ is ~build~,
 when SBCL builds it.  Until the program is there, and where it cannot be, the sidebar reads
-sessions as it does without the kernel, and a message says why.
+sessions as it does without the kernel, url.el downloads for package.el, and the Kernel panel
+says why.
 
 ** Updating
 
-The Software Update panel keeps the checkouts in =~/.lispm= on their branches, checking daily or
-weekly.  Updates install as LispM quits, never while it runs (Restart to Update installs at
-once); a checkout with changes of its own is left alone.  The App Store updates its applications,
-by itself once LispM is idle if you allow it.  =M-x lispm-desktop-update-now= checks from anywhere.
+The Software Update panel keeps the checkouts in =~/.lispm= at their latest releases, and so a
+LispM project the desktop installed as a package with package-vc, checking daily or weekly.
+Updates install as LispM quits, never while it runs (Restart to Update installs at once): packages
+are built again first, and the checkouts wait while one fails, since a desktop release may need an
+agent release.  A checkout with changes of its own is left alone.  A project too old for the
+desktop, as lispm-agent before 0.4.0, is brought up to date as LispM starts.  The App Store
+updates its applications, by itself once LispM is idle if you allow it.
+=M-x lispm-desktop-update-now= checks from anywhere.
 
 * Mac OS and X
 

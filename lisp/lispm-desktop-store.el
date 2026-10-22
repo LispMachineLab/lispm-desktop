@@ -299,15 +299,15 @@ cloned the first time, the newest commit of its default branch after."
 anew when an item installed comes from them; then list what they hold
 now, and install the updates found or say they are there, see
 `lispm-desktop-store-update-automatically'.  CALLBACK, when given, is
-called after."
+called after.  Emacs waits on none of it, so the pointer keeps its
+arrow; the App Store's status line says it checks."
   (interactive)
   (if lispm-desktop-store--checking
       (message (lispm-desktop-tr "The App Store is checking its catalogs already"))
     (setq lispm-desktop-store--checking t)
     (lispm-desktop-store--status (lispm-desktop-tr "Checking the catalogs…"))
     (let ((urls lispm-desktop-store-catalogs)
-          (failed nil)
-          (loading (lispm-desktop-loading-start lispm-desktop-store-buffer-name)))
+          (failed nil))
       (cl-labels ((next ()
                     (if-let* ((url (pop urls)))
                         (lispm-desktop-store--git-steps
@@ -320,7 +320,6 @@ called after."
                       (lispm-desktop-store-read-catalogs)
                       (lispm-desktop-store--refresh-archives
                        (lambda ()
-                         (lispm-desktop-loading-stop loading)
                          (setq lispm-desktop-store--checking nil
                                lispm-desktop-store--checked t)
                          (lispm-desktop-store--status
@@ -331,8 +330,7 @@ called after."
                            (funcall callback)))))))
         (condition-case err
             (next)
-          (error (lispm-desktop-loading-stop loading)
-                 (setq lispm-desktop-store--checking nil)
+          (error (setq lispm-desktop-store--checking nil)
                  (signal (car err) (cdr err))))))))
 
 (defun lispm-desktop-store--item-valid-p (item)
@@ -860,16 +858,6 @@ TO).  NAME stands alone, as an item's subtitle, PHRASE in a sentence, as
 its status; both are in English, translated where shown.  FROM and TO are
 the part of its progress bar each fills.")
 
-(defconst lispm-desktop-store--handed-variables
-  '(user-emacs-directory exec-path
-    package-user-dir package-directory-list package-archives package-archive-priorities
-    package-pinned-packages package-load-list package-check-signature package-unsigned-archives
-    package-gnupghome-dir package-selected-packages package-install-upgrade-built-in
-    package-vc-selected-packages package-vc-default-backend package-quickstart package-quickstart-file
-    url-proxy-services url-using-proxy gnutls-trustfiles network-security-level)
-  "What an Emacs installing in the background takes from this one: how
-packages are installed, and how the network is reached.")
-
 (defvar lispm-desktop-store--redraw-timer nil
   "Timer drawing the App Store's window again with the jobs' progress.")
 
@@ -998,31 +986,6 @@ are not started."
            reason)
   (lispm-desktop-store--ended-job job))
 
-(defun lispm-desktop-store--readable-p (value)
-  "Return non-nil when VALUE, printed, reads back as itself."
-  (condition-case nil
-      (let ((print-length nil) (print-level nil))
-        (equal (car (read-from-string (prin1-to-string value))) value))
-    (error nil)))
-
-(defun lispm-desktop-store--job-program (task)
-  "Return the program an Emacs of its own runs for TASK, as
-`lispm-desktop-store-installer-run' takes it: this Emacs's settings for
-packages and the network, then TASK."
-  (let ((library (or (locate-library "lispm-desktop-store-installer")
-                     (error (lispm-desktop-tr "lispm-desktop-store-installer is not on the load path")))))
-    `(progn
-       ,@(mapcan (lambda (variable)
-                   (when (and (boundp variable) (lispm-desktop-store--readable-p (symbol-value variable)))
-                     (list `(setq ,variable ',(symbol-value variable)))))
-                 lispm-desktop-store--handed-variables)
-       (push ,(file-name-directory library) load-path)
-       ;; The editor's agents, which an extension adding one requires.
-       ,@(when-let* ((agents (locate-library "lispm-agents")))
-           `((push ,(file-name-directory agents) load-path)))
-       (require 'lispm-desktop-store-installer)
-       (lispm-desktop-store-installer-run ',task))))
-
 (defun lispm-desktop-store--package-directories ()
   "Return the packages' directories in `package-user-dir', the archives'
 and the keys' left out."
@@ -1042,7 +1005,7 @@ and the keys' left out."
     (with-temp-file file
       (insert ";;; -*- lexical-binding: t -*-\n")
       (let ((print-length nil) (print-level nil) (print-escape-newlines t))
-        (prin1 (lispm-desktop-store--job-program task) (current-buffer))))
+        (prin1 (lispm-desktop-store-installer-program task) (current-buffer))))
     (setf (lispm-desktop-store-job-file job) file
           (lispm-desktop-store-job-log job) log
           (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
@@ -1533,8 +1496,8 @@ keep it, and load an extension again."
 ;;
 ;; The App Store looks for updates whenever Software Update checks for
 ;; LispM's own, by itself or asked, and as its window opens: its
-;; catalogs fetched, and the package archives read anew when an item
-;; installed comes from them.  With `lispm-desktop-store-update-automatically'
+;; catalogs fetched, and the package archives the items installed come
+;; from read anew.  With `lispm-desktop-store-update-automatically'
 ;; the updates found install once LispM has been idle a minute, without
 ;; asking, an application only while its window is closed; without it,
 ;; they wait in the App Store's Updates, and Software Update's control
@@ -1598,15 +1561,34 @@ themselves, or say they are there."
                         (and package (symbolp package) package)))
                     lispm-desktop-store-installed)))
 
+(defun lispm-desktop-store--archives-to-refresh ()
+  "Return the entries of `package-archives' that hold, as they were read
+last, the packages of the items installed from the archives; all of them
+when one such package is in none."
+  (unless package-archive-contents
+    (package-read-all-archive-contents))
+  (let ((names nil))
+    (catch 'all
+      (dolist (package (lispm-desktop-store--archive-packages))
+        (let ((descs (cdr (assq package package-archive-contents))))
+          (unless descs
+            (throw 'all package-archives))
+          (dolist (desc descs)
+            (cl-pushnew (package-desc-archive desc) names :test #'equal))))
+      (seq-filter (lambda (archive) (member (car archive) names)) package-archives))))
+
 (defun lispm-desktop-store--refresh-archives (then)
-  "Read the package archives anew in the background, when an item installed
-comes from them, then call THEN; at most two minutes go by."
+  "Read the package archives the items installed come from anew, in the
+background, then call THEN; at most two minutes go by.  Those archives
+are downloaded, see `lispm-desktop-store--archives-to-refresh', the
+others read again as they were."
   (if (null (lispm-desktop-store--archive-packages))
       (funcall then)
     (condition-case nil
         (let ((started (current-time))
               (timer nil))
-          (package-refresh-contents t)
+          (let ((package-archives (lispm-desktop-store--archives-to-refresh)))
+            (package-refresh-contents t))
           (setq timer (run-at-time 1 1 (lambda ()
                                          (when (or (not (bound-and-true-p package--downloads-in-progress))
                                                    (> (float-time (time-since started)) 120))
