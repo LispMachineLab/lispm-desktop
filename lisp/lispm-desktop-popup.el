@@ -59,8 +59,22 @@
 ;;;; Popup frames
 
 (defun lispm-desktop-popup-available-p ()
-  "Return non-nil when popups can be drawn: a graphical, interactive Emacs."
-  (and (display-graphic-p) (not noninteractive) lispm-desktop-platinum-current-palette))
+  "Return non-nil when menus and alerts can pop up: in an interactive Emacs
+on a graphical display, or on a text terminal whose Emacs shows child
+frames there, drawn in text, see `lispm-desktop-popup-text-p'."
+  (and (not noninteractive) lispm-desktop-platinum-current-palette
+       (or (display-graphic-p) (lispm-desktop-popup-text-p))))
+
+(defun lispm-desktop-popup-graphic-p ()
+  "Return non-nil when popups can be drawn as images: on a graphical display.
+Panels such as the workspaces' thumbnails have no text to show instead."
+  (and (display-graphic-p) (lispm-desktop-popup-available-p)))
+
+(defun lispm-desktop-popup-text-p ()
+  "Return non-nil when menus and alerts pop up as text, in child frames of a
+text terminal, which Emacs 31 shows: outlined in lines Emacs draws round
+them, see `standard-display-unicode-special-glyphs'."
+  (and (lispm-desktop-tty-p) (featurep 'tty-child-frames)))
 
 (defun lispm-desktop-popup-make-frame (parent)
   "Return a hidden child frame of PARENT with a buffer of its own.
@@ -71,7 +85,9 @@ It takes no focus, and hooks run for new frames do not see it."
                   (make-frame
                    `((parent-frame . ,parent)
                      (minibuffer . nil) (no-accept-focus . t) (no-focus-on-map . t)
-                     (undecorated . t) (unsplittable . t) (no-other-frame . t)
+                     ;; A text terminal outlines a decorated child frame.
+                     (undecorated . ,(not (lispm-desktop-tty-p parent)))
+                     (unsplittable . t) (no-other-frame . t)
                      (child-frame-border-width . 1) (internal-border-width . 0)
                      (left-fringe . 0) (right-fringe . 0)
                      (vertical-scroll-bars . nil) (horizontal-scroll-bars . nil)
@@ -190,13 +206,21 @@ once Emacs has sized it."
 
 (defun lispm-desktop-popup-show (frame x y &optional shadow)
   "Show popup FRAME with its top left at X, Y of its parent, kept inside it.
-SHADOW, `menu' or `alert', casts its shadow, see `lispm-desktop-popup--shadow'."
+SHADOW, `menu' or `alert', casts its shadow, see `lispm-desktop-popup--shadow'.
+On a text terminal none is cast, and X, Y place the outline Emacs draws
+round FRAME, a cell outside it, as they place the outline a graphical
+display draws at FRAME's edge."
   (let ((parent (frame-parent frame)))
-    (set-frame-position frame
-                        (max 0 (min x (- (frame-pixel-width parent) (frame-pixel-width frame) 2)))
-                        (max 0 (min y (- (frame-pixel-height parent)
-                                         (frame-pixel-height frame) 2))))
-    (when shadow
+    (if (lispm-desktop-tty-p parent)
+        (set-frame-position frame
+                            (1+ (max 0 (min x (- (frame-pixel-width parent) (frame-pixel-width frame) 2))))
+                            (1+ (max 0 (min y (- (frame-pixel-height parent)
+                                                 (frame-pixel-height frame) 2)))))
+      (set-frame-position frame
+                          (max 0 (min x (- (frame-pixel-width parent) (frame-pixel-width frame) 2)))
+                          (max 0 (min y (- (frame-pixel-height parent)
+                                           (frame-pixel-height frame) 2)))))
+    (when (and shadow (not (lispm-desktop-tty-p parent)))
       (lispm-desktop-popup--shadow frame shadow))
     (make-frame-visible frame)
     (redisplay t)))
@@ -246,12 +270,22 @@ The Control Strip binds it to the screen, so its menus open there while
 the window in front keeps the keyboard.")
 
 (defun lispm-desktop-popup--item-height ()
-  "Return the height in pixels of a menu item, see `lispm-desktop-popup-small'."
-  (if lispm-desktop-popup-small 13 lispm-desktop-popup-item-height))
+  "Return the height in pixels of a menu item, see `lispm-desktop-popup-small';
+a line on a text terminal."
+  (cond ((lispm-desktop-tty-p) 1)
+        (lispm-desktop-popup-small 13)
+        (t lispm-desktop-popup-item-height)))
+
+(defun lispm-desktop-popup--separator-height ()
+  "Return the height in pixels of a menu's separator, a line on a text terminal."
+  (if (lispm-desktop-tty-p) 1 lispm-desktop-popup-separator-height))
 
 (defun lispm-desktop-popup--label-x ()
-  "Return how far in a menu's labels start, see `lispm-desktop-popup-small'."
-  (if lispm-desktop-popup-small 15 lispm-desktop-popup-label-x))
+  "Return how far in a menu's labels start, see `lispm-desktop-popup-small';
+on a text terminal, past a check mark and a blank."
+  (cond ((lispm-desktop-tty-p) 2)
+        (lispm-desktop-popup-small 15)
+        (t lispm-desktop-popup-label-x)))
 
 (defconst lispm-desktop-popup-icon-size 16
   "Size in pixels of a menu item's icon, as Mac OS 9's Apple menu drew them.")
@@ -259,14 +293,16 @@ the window in front keeps the keyboard.")
 (defun lispm-desktop-popup--icon-room (items)
   "Return the pixels before the labels of a menu of ITEMS that its items'
 icons take: an icon and a gap when one of them has one, else none."
-  (if (seq-some (lambda (item) (and (consp item) (plist-get item :icon))) items)
-      (+ lispm-desktop-popup-icon-size 4)
-    0))
+  (cond ((not (seq-some (lambda (item) (and (consp item) (plist-get item :icon))) items)) 0)
+        ((lispm-desktop-tty-p) 2)
+        (t (+ lispm-desktop-popup-icon-size 4))))
 
 (defun lispm-desktop-popup--key-margin ()
   "Return the blank pixels after a menu's longest label or key, see
-`lispm-desktop-popup-small'."
-  (if lispm-desktop-popup-small 11 lispm-desktop-popup-key-margin))
+`lispm-desktop-popup-small'; a cell on a text terminal."
+  (cond ((lispm-desktop-tty-p) 1)
+        (lispm-desktop-popup-small 11)
+        (t lispm-desktop-popup-key-margin)))
 
 (defun lispm-desktop-popup--face (enabled)
   "Return the face of a menu item's label, ENABLED or not."
@@ -288,8 +324,9 @@ It needs an action, a submenu or a value to return; an item without
 
 (defun lispm-desktop-popup--super-key-p ()
   "Return non-nil when a key of the keyboard is Super.
-On macOS lispm-desktop makes Command Meta, which leaves Super to no key."
-  (or (not (eq window-system 'ns))
+On macOS lispm-desktop makes Command Meta, which leaves Super to no key;
+a text terminal sends no Super."
+  (or (and (not (lispm-desktop-tty-p)) (not (eq window-system 'ns)))
       (seq-some (lambda (variable) (and (boundp variable) (eq (symbol-value variable) 'super)))
                 '(ns-command-modifier ns-right-command-modifier ns-alternate-modifier
                   ns-right-alternate-modifier ns-control-modifier ns-function-modifier))))
@@ -334,12 +371,12 @@ submenu shows the triangle pointing to it."
     (dolist (item items)
       (unless (lispm-desktop-popup--separator-p item)
         (setq label (max label (lispm-desktop-popup--label-width (plist-get item :label))))
-        (setq key (max key (cond ((plist-get item :submenu) 6)
+        (setq key (max key (cond ((plist-get item :submenu) (lispm-desktop-px 6))
                                  ((lispm-desktop-popup--key item)
                                   (lispm-desktop-popup--label-width (lispm-desktop-popup--key item)))
                                  (t 0))))))
     (+ (lispm-desktop-popup--label-x) (lispm-desktop-popup--icon-room items)
-       label (if (> key 0) (+ 24 key) 0) (lispm-desktop-popup--key-margin))))
+       label (if (> key 0) (+ (lispm-desktop-px 24) key) 0) (lispm-desktop-popup--key-margin))))
 
 (defun lispm-desktop-popup--rows (items)
   "Return where the rows of a menu of ITEMS start, as (TOPS . HEIGHT).
@@ -348,7 +385,7 @@ TOPS lists each item's top in pixels; HEIGHT is the menu's."
     (dolist (item items)
       (push y tops)
       (setq y (+ y (if (lispm-desktop-popup--separator-p item)
-                       lispm-desktop-popup-separator-height
+                       (lispm-desktop-popup--separator-height)
                      (lispm-desktop-popup--item-height)))))
     (cons (nreverse tops) y)))
 
@@ -424,14 +461,56 @@ variation colour, light on dark, its edges lit and shaded in it too."
   (svg-image (lispm-desktop-popup-draw-menu lispm-desktop-platinum-current-palette items width highlight)
              :ascent 100 :scale 1))
 
+(defun lispm-desktop-popup--text-menu (items width highlight)
+  "Return a menu WIDTH cells wide listing ITEMS on a text terminal, as text.
+It holds what `lispm-desktop-popup-draw-menu' draws, a line an item: a
+check mark before the checked ones, the icon of those with one, the
+label, and the key equivalent flush right, or a triangle on an item
+holding a submenu; a separator is a rule; disabled items are greyed and
+item HIGHLIGHT is in the highlight colour."
+  (let ((icons (lispm-desktop-popup--icon-room items))
+        (margin (lispm-desktop-popup--key-margin)))
+    (mapconcat
+     (lambda (index)
+       (let ((item (nth index items)))
+         (if (lispm-desktop-popup--separator-p item)
+             (propertize (make-string width ?─) 'face 'lispm-desktop-popup-item-disabled)
+           (let* ((face (cond ((eql index highlight) 'lispm-desktop-popup-item-highlight)
+                              ((lispm-desktop-popup--enabled-p item) 'lispm-desktop-popup-item)
+                              (t 'lispm-desktop-popup-item-disabled)))
+                  (key (lispm-desktop-popup--key item))
+                  (lead (concat (if (plist-get item :checked) "✓" " ") " "
+                                (when (> icons 0)
+                                  (concat (if (stringp (plist-get item :icon)) (plist-get item :icon) " ")
+                                          " "))))
+                  (room (- width (string-width lead) margin
+                           (if key (+ (string-width key) 1) 0)))
+                  (label (truncate-string-to-width (plist-get item :label) (max 0 room) nil ?\s "…"))
+                  (line (concat lead label (when key (concat " " key)) (make-string margin ?\s))))
+             (add-face-text-property 0 (length line) face t line)
+             line))))
+     (number-sequence 0 (1- (length items)))
+     "\n")))
+
+(defun lispm-desktop-popup--menu-content (items width highlight)
+  "Return what a menu of ITEMS WIDTH pixels wide shows, item HIGHLIGHT lit:
+its image, see `lispm-desktop-popup-draw-menu', or its text on a text
+terminal, see `lispm-desktop-popup--text-menu'."
+  (if (lispm-desktop-tty-p)
+      (lispm-desktop-popup--text-menu items width highlight)
+    (propertize " " 'display (lispm-desktop-popup--menu-image items width highlight))))
+
 (defun lispm-desktop-popup-open-menu (items &optional x y align)
   "Show a menu of ITEMS placed by X, Y and ALIGN, see `lispm-desktop-popup-menu'.
 Return its frame; nothing is read from the user."
   (let* ((popup (lispm-desktop-popup-make-frame (or lispm-desktop-popup-parent (selected-frame))))
          (width (lispm-desktop-popup--menu-width items)))
-    (lispm-desktop-popup-fill popup (propertize " " 'display (lispm-desktop-popup--menu-image items width nil)))
+    (lispm-desktop-popup-fill popup (lispm-desktop-popup--menu-content items width nil))
     (lispm-desktop-popup-set-size popup width (cdr (lispm-desktop-popup--rows items)))
-    (pcase-let ((`(,mx . ,my) (or (and x y (cons x y)) (cdr (mouse-pixel-position)))))
+    (pcase-let ((`(,mx . ,my) (or (and x y (cons x y))
+                                  (let ((mouse (cdr (mouse-pixel-position))))
+                                    (and (car mouse) mouse))
+                                  (cons 0 0))))
       (lispm-desktop-popup-show popup (if (eq align 'right) (- mx width) mx) my 'menu))
     popup))
 
@@ -451,11 +530,14 @@ A submenu given as a function is asked for its items only now."
 `lispm-desktop-popup--level': beside the item, overlapping the menu's
 edge, or on its left when ROOM, the parent frame's width in pixels, has
 no room on its right, as Mac OS 9 turned a submenu at the screen's edge."
-  (let ((right (+ (plist-get level :x) (plist-get level :width) -2))
-        (y (+ (plist-get level :y) (lispm-desktop-popup--row-y level index) -1)))
+  (let* ((tty (lispm-desktop-tty-p))
+         ;; On a text terminal the menus' outlines are a cell outside
+         ;; them, and the submenu's stands beside its menu's.
+         (right (+ (plist-get level :x) (plist-get level :width) (if tty 1 -2)))
+         (y (+ (plist-get level :y) (lispm-desktop-popup--row-y level index) -1)))
     (if (<= (+ right (lispm-desktop-popup--menu-width submenu)) (- room 2))
         (list right y nil)
-      (list (+ (plist-get level :x) 2) y 'right))))
+      (list (+ (plist-get level :x) (if tty -1 2)) y 'right))))
 
 ;; An open menu is a level: its frame, items, width, the item under the
 ;; mouse, and its place in the parent frame.  A submenu opens as another
@@ -471,10 +553,9 @@ no room on its right, as Mac OS 9 turned a submenu at the screen's edge."
 (defun lispm-desktop-popup--draw-level (level)
   "Redraw menu LEVEL with its item under the mouse highlighted."
   (lispm-desktop-popup-fill (plist-get level :frame)
-                             (propertize " " 'display
-                                         (lispm-desktop-popup--menu-image (plist-get level :items)
-                                                                          (plist-get level :width)
-                                                                          (plist-get level :highlight)))))
+                             (lispm-desktop-popup--menu-content (plist-get level :items)
+                                                                (plist-get level :width)
+                                                                (plist-get level :highlight))))
 
 (defun lispm-desktop-popup--row-y (level index)
   "Return how far down menu LEVEL's frame its item INDEX starts, in pixels."
@@ -1030,24 +1111,125 @@ keyboard is on."
                                                 :focused (and focused (equal focused value))))
     svg))
 
+(defconst lispm-desktop-popup-text-alert-width 52
+  "Width in cells of an alert on a text terminal, inside its outline.")
+
+(defconst lispm-desktop-popup--text-alert-x 7
+  "Cells from an alert's inside left edge to its message, on a text terminal.")
+
+(defun lispm-desktop-popup--text-button-width (label)
+  "Return the width in cells of a push button reading LABEL on a text terminal."
+  (string-width (lispm-desktop-platinum-text-button (concat " " label " "))))
+
+(defun lispm-desktop-popup--text-alert-layout (message detail buttons)
+  "Return where an alert of MESSAGE, DETAIL and BUTTONS draws its parts on a
+text terminal, in cells, as `lispm-desktop-popup--alert-layout' does:
+the icon at the top left, the message beside it, the detail a line under
+it, and the buttons on the last line but one, the default at the right,
+Cancel to its left, and a button such as Don't Save, which comes before
+Cancel, standing apart under the message.  The alert widens where the
+buttons would not fit."
+  (let* ((cancel (seq-position buttons 'cancel (lambda (button role) (eq (nth 2 button) role))))
+         (apart (lambda (index) (and cancel (< index cancel) (null (nth 2 (nth index buttons))))))
+         (x lispm-desktop-popup--text-alert-x)
+         (widths (mapcar (lambda (button) (lispm-desktop-popup--text-button-width (car button))) buttons))
+         (needed (+ x (apply #'+ (mapcar (lambda (w) (+ w 2)) widths)) 2))
+         (w (max lispm-desktop-popup-text-alert-width needed))
+         (text-width (- w x 2))
+         (lines (lispm-desktop-popup--wrap message text-width 'lispm-desktop-platinum-title))
+         (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-desktop-platinum-list)))
+         (top (+ 1 (length lines) (if details (1+ (length details)) 0) 1))
+         (placed nil))
+    (let ((right (- w 2)))
+      (dolist (index (number-sequence (1- (length buttons)) 0 -1))
+        (unless (funcall apart index)
+          (pcase-let ((`(,label ,value ,role) (nth index buttons))
+                      (width (nth index widths)))
+            (setq right (- right width))
+            (push (list label value role right top width) placed)
+            (setq right (- right 2))))))
+    (let ((left x))
+      (seq-do-indexed (lambda (button index)
+                        (when (funcall apart index)
+                          (pcase-let ((`(,label ,value ,role) button))
+                            (push (list label value role left top (nth index widths)) placed)
+                            (setq left (+ left (nth index widths) 2)))))
+                      buttons))
+    (list :width w :height (+ top 2) :message lines :detail details
+          :buttons (seq-sort-by (lambda (button) (seq-position buttons (nth 1 button)
+                                                               (lambda (b value) (equal (nth 1 b) value))))
+                                #'< placed))))
+
+(defun lispm-desktop-popup--text-alert (icon message detail buttons pressed focused)
+  "Return an alert of ICON, MESSAGE, DETAIL and BUTTONS on a text terminal,
+as text laid out by `lispm-desktop-popup--text-alert-layout'.  The icon
+is a mark in the alert colour; the button the keyboard is on is
+underlined; PRESSED and FOCUSED are as `lispm-desktop-popup-draw-alert'
+takes them."
+  (let* ((layout (lispm-desktop-popup--text-alert-layout message detail buttons))
+         (w (plist-get layout :width))
+         (x lispm-desktop-popup--text-alert-x)
+         (rows (make-vector (plist-get layout :height) nil))
+         (row 1))
+    (cl-flet ((put (row column string)
+                (aset rows row (cons (cons column string) (aref rows row)))))
+      (put 1 2 (propertize (concat " " (pcase icon ('stop "×") ('note "i") (_ "!")) " ")
+                           'face `(:foreground ,(lispm-desktop-platinum-color :highlight-text)
+                                   :background ,(lispm-desktop-platinum-color :alert-dark)
+                                   :weight bold)))
+      (dolist (line (plist-get layout :message))
+        (put row x (propertize line 'face 'lispm-desktop-platinum-title))
+        (setq row (1+ row)))
+      (when (plist-get layout :detail)
+        (setq row (1+ row))
+        (dolist (line (plist-get layout :detail))
+          (put row x line)
+          (setq row (1+ row))))
+      (pcase-dolist (`(,label ,value ,role ,left ,top ,_) (plist-get layout :buttons))
+        (let ((button (lispm-desktop-platinum-text-button
+                       (concat " " label " ") (and (equal pressed value) 'pressed) (eq role 'default))))
+          (when (and focused (equal focused value))
+            (add-face-text-property 0 (length button) '(:underline t) t button))
+          (put top left button))))
+    (mapconcat (lambda (parts)
+                 (let ((line "") (column 0))
+                   (pcase-dolist (`(,at . ,string) (sort parts (lambda (a b) (< (car a) (car b)))))
+                     (setq line (concat line (make-string (max 0 (- at column)) ?\s) string)
+                           column (+ (max at column) (string-width string))))
+                   (concat line (make-string (max 0 (- w column)) ?\s))))
+               rows "\n")))
+
+(defun lispm-desktop-popup--layout (message detail buttons)
+  "Return the layout of an alert of MESSAGE, DETAIL and BUTTONS: in pixels,
+see `lispm-desktop-popup--alert-layout', or in cells on a text terminal,
+see `lispm-desktop-popup--text-alert-layout'."
+  (if (lispm-desktop-tty-p)
+      (lispm-desktop-popup--text-alert-layout message detail buttons)
+    (lispm-desktop-popup--alert-layout message detail buttons)))
+
 (defun lispm-desktop-popup--draw-alert (frame icon message detail buttons pressed focused)
   "Show the alert of ICON, MESSAGE, DETAIL and BUTTONS in popup FRAME.
 PRESSED and FOCUSED are as `lispm-desktop-popup-draw-alert' takes them.
-The buttons' places are kept in FRAME's `lispm-desktop-popup-buttons'."
+The buttons' places are kept in FRAME's `lispm-desktop-popup-buttons'.
+On a text terminal the alert is text, see `lispm-desktop-popup--text-alert'."
   (lispm-desktop-popup-fill
-   frame (propertize " " 'display
-                     (svg-image (lispm-desktop-popup-draw-alert lispm-desktop-platinum-current-palette icon message
-                                                                detail buttons pressed focused)
-                                :ascent 100 :scale 1)))
+   frame (if (lispm-desktop-tty-p frame)
+             (lispm-desktop-popup--text-alert icon message detail buttons pressed focused)
+           (propertize " " 'display
+                       (svg-image (lispm-desktop-popup-draw-alert lispm-desktop-platinum-current-palette icon message
+                                                                  detail buttons pressed focused)
+                                  :ascent 100 :scale 1))))
   (set-frame-parameter frame 'lispm-desktop-popup-buttons
-                       (plist-get (lispm-desktop-popup--alert-layout message detail buttons) :buttons)))
+                       (plist-get (lispm-desktop-popup--layout message detail buttons) :buttons)))
 
 (defun lispm-desktop-popup--button-at (event frame)
   "Return the value of the alert button under EVENT in FRAME, or nil."
   (when-let* ((position (lispm-desktop-modal-over event frame))
               (xy (posn-x-y position)))
     (lispm-desktop-modal-hit (mapcar (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
-                                       (list value left top width lispm-desktop-platinum-button-height))
+                                       (list value left top width
+                                             (if (lispm-desktop-tty-p frame) 1
+                                               lispm-desktop-platinum-button-height)))
                                      (frame-parameter frame 'lispm-desktop-popup-buttons))
                              (car xy) (cdr xy))))
 
@@ -1058,7 +1240,7 @@ selected frame, as Mac OS 9's alerts did, outlined and casting a black
 shadow.  Return its frame; nothing is read from the user."
   (let* ((parent (selected-frame))
          (popup (lispm-desktop-popup-make-frame parent))
-         (layout (lispm-desktop-popup--alert-layout message detail buttons))
+         (layout (lispm-desktop-popup--layout message detail buttons))
          (width (or (plist-get layout :width) lispm-desktop-popup-alert-width)))
     (lispm-desktop-popup--draw-alert popup icon message detail buttons nil nil)
     (lispm-desktop-popup-set-size popup width (plist-get layout :height))

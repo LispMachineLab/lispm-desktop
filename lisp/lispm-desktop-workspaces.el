@@ -452,7 +452,7 @@ X, Y of the screen frame, or stands over its upper middle."
 
 (defun lispm-desktop-workspaces--open (step &optional x y)
   "Choose a workspace from the panel, STEP from the one in front, and go."
-  (if (not (lispm-desktop-popup-available-p))
+  (if (not (lispm-desktop-popup-graphic-p))
       (lispm-desktop-workspaces-select (completing-read (lispm-desktop-tr "Workspace: ")
                                                         (lispm-desktop-editor-workspaces) nil t))
     (pcase (lispm-desktop-workspaces-choose step x y)

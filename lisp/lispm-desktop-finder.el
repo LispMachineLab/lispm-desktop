@@ -253,8 +253,37 @@ the disk."
   "Return the pixel left of the window's cell COLUMN."
   (+ 6 (* column lispm-desktop-finder-cell-width)))
 
+(defconst lispm-desktop-finder-text-cell-width 24
+  "Width in cells of an item's cell in the Finder window on a text terminal.")
+
+(defun lispm-desktop-finder--text-items (window props)
+  "Insert the folder's items for WINDOW on a text terminal, in rows of cells
+of `lispm-desktop-finder-text-cell-width', each the item's icon, a
+character, before its name; the item selected is inverted.  PROPS returns
+the text properties of an item, by name.  Return the columns."
+  (let* ((cell lispm-desktop-finder-text-cell-width)
+         (columns (max 1 (/ (- (window-body-width window) 3) cell))))
+    (insert "\n")
+    (dolist (row (seq-partition lispm-desktop-finder--items columns))
+      (seq-do-indexed
+       (lambda (item column)
+         (let* ((selected (equal (car item) lispm-desktop-finder--selected))
+                (label (concat (substring-no-properties
+                                (lispm-desktop-platinum-icon
+                                 (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)))
+                               " "
+                               (truncate-string-to-width (car item) (- cell 5) nil nil "…"))))
+           (insert (propertize " " 'display `(space :align-to ,(+ 1 (* column cell))))
+                   (apply #'propertize (concat " " label " ")
+                          'face (if selected 'lispm-desktop-label-selected 'lispm-desktop-finder-label)
+                          (funcall props (car item))))))
+       row)
+      (insert "\n"))
+    columns))
+
 (defun lispm-desktop-finder--render (&rest _)
-  "Draw the folder's items as rows of large icons over their names."
+  "Draw the folder's items as rows of large icons over their names, or on a
+text terminal as rows of names, see `lispm-desktop-finder--text-items'."
   (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name))
               (window (get-buffer-window buffer t)))
     (with-current-buffer buffer
@@ -266,8 +295,11 @@ the disk."
                             'pointer 'arrow 'help-echo name))))
         (setq lispm-desktop-finder--columns columns)
         (erase-buffer)
-        (insert (propertize " " 'display '(space :height (12))) "\n")
-        (dolist (row (seq-partition lispm-desktop-finder--items columns))
+        (if (lispm-desktop-tty-p (window-frame window))
+            (setq lispm-desktop-finder--columns (lispm-desktop-finder--text-items window props))
+          (insert (propertize " " 'display '(space :height (12))) "\n"))
+        (dolist (row (unless (lispm-desktop-tty-p (window-frame window))
+                       (seq-partition lispm-desktop-finder--items columns)))
           (seq-do-indexed
            (lambda (item column)
              (insert (propertize " " 'display
@@ -671,8 +703,8 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
   "M-<down>" #'lispm-desktop-finder-open
   "M-<up>" #'lispm-desktop-finder-up
   "DEL" #'lispm-desktop-finder-up
-  "M-[" #'lispm-desktop-finder-back
-  "M-]" #'lispm-desktop-finder-forward
+  "M-[" (lispm-desktop-graphic-binding #'lispm-desktop-finder-back)
+  "M-]" (lispm-desktop-graphic-binding #'lispm-desktop-finder-forward)
   "M-N" #'lispm-desktop-finder-new-folder
   "M-DEL" #'lispm-desktop-finder-move-to-trash
   "M-<backspace>" #'lispm-desktop-finder-move-to-trash

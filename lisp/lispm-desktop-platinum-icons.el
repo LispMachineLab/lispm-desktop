@@ -72,20 +72,51 @@ installed from the App Store."
                        (lispm-desktop-look-get :icons))
              (expand-file-name file (expand-file-name "os9" icons)))))))
 
+(defcustom lispm-desktop-platinum-text-icons
+  '(("folder" . "▪") ("disk" . "▬") ("hard-disk" . "▬") ("computer" . "▣")
+    ("document-lisp" . "λ") ("document" . "▫") ("note" . "▫")
+    ("robot" . "◉") ("lispm" . "◆") ("lambda" . "λ") ("emacs" . "◆")
+    ("applications" . "◆") ("app-store" . "◈") ("control-panels" . "▤")
+    ("globe" . "○") ("netscape" . "○") ("trash" . "▿") ("guide" . "?")
+    ("mail" . "@") ("caution" . "!") ("stop" . "×")
+    ("appearance" . "◐") ("desktop-picture" . "▦") ("keyboard" . "▥") ("language" . "¶")
+    ("network" . "⇄") ("sandbox" . "▧") ("software-update" . "↻") ("startup" . "▸"))
+  "What stands for each icon on a text terminal, one cell wide.
+Each entry is (NAME . STRING): NAME is an icon's name as
+`lispm-desktop-platinum-icon' takes it, or the start of one, so that
+\"folder\" also stands for \"folder-git\", and the longest start that
+matches is the one used.  An icon matched by none is a middle dot.  A
+terminal whose font is a Nerd Font can be given its icons here."
+  :type '(alist :key-type string :value-type string)
+  :group 'lispm-desktop)
+
+(defun lispm-desktop-platinum--text-icon (name)
+  "Return what stands for icon NAME on a text terminal, see
+`lispm-desktop-platinum-text-icons'."
+  (let* ((name (if (symbolp name) (symbol-name name) (file-name-base name)))
+         (match (car (sort (seq-filter (lambda (entry) (string-prefix-p (car entry) name))
+                                       lispm-desktop-platinum-text-icons)
+                           (lambda (a b) (> (length (car a)) (length (car b))))))))
+    (propertize (truncate-string-to-width (or (cdr match) "·") 1 nil ?\s)
+                'face 'lispm-desktop-platinum-list)))
+
 (defun lispm-desktop-platinum-icon (name)
   "Return the Finder icon NAME as a string one icon wide.
-NAME is as `lispm-desktop-platinum-icon-file' takes it.  Where images cannot be
-shown, a blank stands in."
+NAME is as `lispm-desktop-platinum-icon-file' takes it.  On a text
+terminal a character stands in, see `lispm-desktop-platinum-text-icons';
+elsewhere where images cannot be shown, a blank."
   (let ((file (lispm-desktop-platinum-icon-file name)))
     ;; The icon carries a face of its own, so a button it sits in, such as
     ;; a list row, does not underline it.
-    (if (and (display-images-p) (file-readable-p file))
+    (cond
+     ((lispm-desktop-tty-p) (lispm-desktop-platinum--text-icon name))
+     ((and (display-images-p) (file-readable-p file))
         (propertize " " 'face 'lispm-desktop-platinum-list
                     'display (or (gethash file lispm-desktop-platinum--icons)
                                  (puthash file (create-image file nil nil :height 16
                                                              :ascent 'center)
-                                          lispm-desktop-platinum--icons)))
-      (propertize " " 'face 'lispm-desktop-platinum-list 'display '(space :width (16))))))
+                                          lispm-desktop-platinum--icons))))
+     (t (propertize " " 'face 'lispm-desktop-platinum-list 'display '(space :width (16)))))))
 
 (defconst lispm-desktop-platinum-lisp-extensions '("el" "lisp" "lsp" "cl" "scm" "ss" "rkt" "clj" "cljs"
                                                    "cljc" "edn" "fnl")

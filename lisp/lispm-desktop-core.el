@@ -161,6 +161,14 @@ All views share it, so switching views keeps the main window's width: a
 terminal in the main window is not resized, and a full-screen program in it,
 such as a coding agent, does not redraw its whole history.")
 
+(defun lispm-desktop-sidebar-columns (&optional frame)
+  "Return the width in columns of the sidebar of FRAME, by default the
+selected one: `lispm-desktop-sidebar-width', but on a text terminal no
+more than a third of it, so a small terminal keeps room for the rest."
+  (if (lispm-desktop-tty-p frame)
+      (min lispm-desktop-sidebar-width (max 24 (/ (frame-width frame) 3)))
+    lispm-desktop-sidebar-width))
+
 (defun lispm-desktop-macos-p ()
   "Return non-nil on macOS."
   (eq system-type 'darwin))
@@ -172,6 +180,39 @@ such as a coding agent, does not redraw its whole history.")
 (defun lispm-desktop-gui-p ()
   "Return non-nil when Emacs is running with a graphical display."
   (display-graphic-p))
+
+(defun lispm-desktop-tty-p (&optional frame)
+  "Return non-nil when FRAME, by default the selected one, is on a text terminal.
+Its chrome is then drawn in text, cells for pixels.  A batch Emacs has
+no display to draw on and is not one: what it draws, as for tests, is
+what a graphical display gets."
+  (and (not noninteractive) (not (display-graphic-p frame))))
+
+(defun lispm-desktop-graphic-binding (command)
+  "Return a key binding running COMMAND, but on a text terminal none.
+A text terminal sends Meta-[ and Meta-] as ESC [ and ESC ], with which
+the arrows, the mouse and the terminal's answers begin too; bound
+there, those keys would swallow them."
+  `(menu-item "" ,command :filter ,(lambda (command) (unless (lispm-desktop-tty-p) command))))
+
+(defun lispm-desktop-px (pixels)
+  "Return PIXELS, a length the chrome was drawn to in pixels, for the
+selected frame.  A text terminal counts a cell as a pixel, so there it
+is the cells as many pixels of an 8-pixel-wide font would take: 4 to
+11 pixels a cell, a gap of fewer none."
+  (if (lispm-desktop-tty-p)
+      (/ (+ pixels 4) 8)
+    pixels))
+
+(defun lispm-desktop-align-right (&optional pixels)
+  "Return where to align text PIXELS short of a window's right edge, as
+`(space :align-to POSITION)' takes it; PIXELS are the frame's, cells on
+a text terminal, by default none.  A text terminal keeps a window's last
+column for the sign of a line too long for it, so there the edge is a
+cell short of the window's; and space aligned up to that column runs
+into it, so a terminal aligns a cell short of that again."
+  (let ((pixels (+ (or pixels 0) (if (lispm-desktop-tty-p) 2 0))))
+    (if (zerop pixels) 'right `(- right (,pixels)))))
 
 (defun lispm-desktop-setup-meta-key-issue ()
   "Map macOS command key to Meta."
@@ -301,10 +342,15 @@ Each pair maps a character a terminal program emits to the look-alike
 shown in its place; the buffer text is unchanged.")
 
 (defun lispm-desktop-terminal-display-table ()
-  "Return a display table applying `lispm-desktop-terminal-glyph-substitutions'."
+  "Return a display table applying `lispm-desktop-terminal-glyph-substitutions'.
+It draws the border of a text terminal's windows as the standard display
+table does, which it stands in for."
   (let ((table (make-display-table)))
     (pcase-dolist (`(,from . ,to) lispm-desktop-terminal-glyph-substitutions)
       (aset table from (vector to)))
+    (when standard-display-table
+      (set-display-table-slot table 'vertical-border
+                              (display-table-slot standard-display-table 'vertical-border)))
     table))
 
 (defun lispm-desktop-terminal-display ()

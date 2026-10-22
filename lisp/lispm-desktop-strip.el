@@ -593,7 +593,7 @@ pixels into the strip, as Mac OS 9's module menus popped up."
 item chosen once the module is let go; return the item, or nil."
   (let ((items (lispm-desktop-strip--items key))
         (chosen nil))
-    (if (not (lispm-desktop-popup-available-p))
+    (if (not (lispm-desktop-popup-graphic-p))
         (lispm-desktop-popup-menu items)
       (unwind-protect
           (progn

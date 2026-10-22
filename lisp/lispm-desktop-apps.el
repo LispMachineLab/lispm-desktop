@@ -278,13 +278,18 @@ the desktop's edge would hang out of Emacs's frame over the screen."
                  ;; What the window's own frame adds around its text: borders, mostly.
                  (extra-width (- (frame-pixel-width frame) (frame-text-width frame)))
                  (extra-height (- (frame-pixel-height frame) (frame-text-height frame)))
-                 (fit-width (max 200 (min width (- desktop-right desktop-left
-                                                   frame-left extra-width frame-right))))
+                 ;; At least 200 by 100 pixels, or 25 cells by 6 lines on
+                 ;; a text terminal.
+                 (tty (lispm-desktop-tty-p screen))
+                 (fit-width (max (if tty 25 200)
+                                 (min width (- desktop-right desktop-left
+                                               frame-left extra-width frame-right))))
                  ;; A window rolled up keeps to its title bar.
                  (fit-height (if (lispm-desktop-platinum-rolled-up-height frame)
                                  (frame-text-height frame)
-                               (max 100 (min height (- desktop-bottom desktop-top
-                                                       frame-top extra-height frame-bottom))))))
+                               (max (if tty 6 100)
+                                    (min height (- desktop-bottom desktop-top
+                                                   frame-top extra-height frame-bottom))))))
       (unless (and (= fit-width (frame-text-width frame))
                    (= fit-height (frame-text-height frame)))
         (set-frame-size frame fit-width fit-height t)

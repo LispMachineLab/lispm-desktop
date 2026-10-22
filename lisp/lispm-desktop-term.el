@@ -69,6 +69,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-frame)
+(require 'lispm-desktop-modal)
 
 (declare-function lispm-desktop-term-module-init-channel "lispm-desktop-term-module" (process))
 (declare-function lispm-desktop-term-module-close-channel "lispm-desktop-term-module" ())
@@ -1031,7 +1032,7 @@ release.  The press selects the terminal's window, as a click does."
           (lispm-desktop-term--send (lispm-desktop-term--mouse-report button cell))
           (track-mouse
             (while (not done)
-              (let ((next (read-event)))
+              (let ((next (lispm-desktop-modal-read-event)))
                 (cond
                  ((mouse-movement-p next)
                   (let ((posn (event-start next)))
@@ -1267,7 +1268,7 @@ is there to load, it says so, terminals running in Eat."
   ;; before it stops the programs running.
   (add-hook 'lispm-desktop-platinum-buffer-status-functions #'lispm-desktop-term--title-status)
   (add-hook 'lispm-desktop-platinum-running-buffers-functions #'lispm-desktop-term-running-buffers)
-  (when (and lispm-desktop-term-enabled (display-graphic-p) (not (featurep 'lispm-desktop-term-module)))
+  (when (and lispm-desktop-term-enabled (not noninteractive) (not (featurep 'lispm-desktop-term-module)))
     (pcase (lispm-desktop-term--plan)
       ('build (lispm-desktop-term-build))
       ('download (lispm-desktop-term-download))

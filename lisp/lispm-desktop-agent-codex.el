@@ -210,6 +210,7 @@ replaces any `shell_environment_policy.exclude' of config.toml."
    :name "Codex"
    ;; OpenAI's mark, the maker of Codex, in the surrounding text's colour.
    :icon '(nerd-icons-codicon "nf-cod-openai" nil)
+   :text-icon "◎"
    :command #'lispm-desktop-agent-codex-new
    :key "x"
    :built-in t

@@ -160,9 +160,17 @@ and darker, as Mac OS 9 drew the column a list was sorted by."
   "Return a list's column headings NAME and META as a line WIDTH pixels wide.
 META is the right-hand column, META-WIDTH pixels wide with the
 sort-direction button, the column the list is sorted by; NAME is
-LABEL-X pixels in.  See `lispm-desktop-platinum-draw-list-header'."
+LABEL-X pixels in.  See `lispm-desktop-platinum-draw-list-header'.  On a
+text terminal the headings are text, the widths cells."
   (let ((name-width (- width meta-width)))
-    (concat (propertize " " 'display
+    (if (lispm-desktop-tty-p)
+        (let* ((lead (make-string (lispm-desktop-px (or label-x 8)) ?\s))
+               (name (truncate-string-to-width (concat lead name) (max 0 (1- name-width)) nil ?\s))
+               (meta (truncate-string-to-width (concat " " meta) (max 0 (- meta-width 2)) nil ?\s)))
+          (concat (propertize (concat name " ") 'face 'lispm-desktop-platinum-column)
+                  (propertize (concat meta "▴ ") 'face 'lispm-desktop-platinum-column-sorted)
+                  "\n"))
+     (concat (propertize " " 'display
                         (lispm-desktop-platinum-image
                          (list 'list-header name meta width meta-width label-x)
                          (lambda ()
@@ -170,7 +178,7 @@ LABEL-X pixels in.  See `lispm-desktop-platinum-draw-list-header'."
                             lispm-desktop-platinum-current-palette
                             (list (list name name-width nil) (list meta (- meta-width 16) t 4))
                             label-x))))
-            "\n")))
+             "\n"))))
 
 ;;;; Treemacs
 
@@ -189,37 +197,52 @@ as the triangles take the theme's colour."
     (set-face-attribute 'treemacs-root-face nil :underline nil :weight 'bold :height 1.0)
     (let* ((gap (propertize " " 'display '(space :width (5))))
            (no-triangle (propertize " " 'display '(space :width (12))))
-           (row (lambda (lead icon) (concat lead gap (lispm-desktop-platinum-icon icon) gap))))
+           (row (lambda (lead icon) (concat lead gap (lispm-desktop-platinum-icon icon) gap)))
+           ;; What a text terminal shows, treemacs's fallback.
+           (text-row (lambda (lead icon) (concat lead " " (lispm-desktop-platinum--text-icon icon) " "))))
       (eval
        `(treemacs-create-theme "lispm-desktop-platinum"
           :config
           (progn
             (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "disk")
+                                  :fallback ,(funcall text-row "▾" "disk")
                                   :extensions (root-open))
             (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "disk")
+                                  :fallback ,(funcall text-row "▸" "disk")
                                   :extensions (root-closed))
             (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "folder")
+                                  :fallback ,(funcall text-row "▾" "folder")
                                   :extensions (dir-open))
             (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "folder")
+                                  :fallback ,(funcall text-row "▸" "folder")
                                   :extensions (dir-closed))
             (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "document-blank")
+                                  :fallback ,(funcall text-row "▾" "document-blank")
                                   :extensions (tag-open))
             (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "document-blank")
+                                  :fallback ,(funcall text-row "▸" "document-blank")
                                   :extensions (tag-closed))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-blank")
+                                  :fallback ,(funcall text-row " " "document-blank")
                                   :extensions (tag-leaf))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-image")
+                                  :fallback ,(funcall text-row " " "document-image")
                                   :extensions ("png" "jpg" "jpeg" "gif" "svg" "webp" "bmp"
                                                "tif" "tiff" "ico" "heic"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-lisp")
+                                  :fallback ,(funcall text-row " " "document-lisp")
                                   :extensions ,lispm-desktop-platinum-lisp-extensions)
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-markdown")
+                                  :fallback ,(funcall text-row " " "document-markdown")
                                   :extensions ("md" "markdown" "mkd"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-org")
+                                  :fallback ,(funcall text-row " " "document-org")
                                   :extensions ("org"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-code")
+                                  :fallback ,(funcall text-row " " "document-code")
                                   :extensions ,lispm-desktop-platinum-code-extensions)
             (treemacs-create-icon :icon ,(funcall row no-triangle "document")
+                                  :fallback ,(funcall text-row " " "document")
                                   :extensions (fallback))))
        t)
       (treemacs-load-theme "lispm-desktop-platinum"))))
@@ -244,6 +267,13 @@ made or brought up to date; or nil without either."
     (dolist (script '(han cjk-misc kana bopomofo))
       (set-fontset-font name script (font-spec :family cjk)))
     name))
+
+(defun lispm-desktop-platinum--fontset-attribute (family)
+  "Return the face attributes giving FAMILY its fontset, see
+`lispm-desktop-platinum--cjk-fontset'; none on a text terminal, which
+draws with the terminal's font and has no fontsets."
+  (when (display-graphic-p)
+    (list :fontset (or (lispm-desktop-platinum--cjk-fontset family) 'unspecified))))
 
 (defun lispm-desktop-platinum-apply-faces (&rest _)
   "Derive the palette and every chrome face from the active theme.
@@ -314,9 +344,8 @@ it, as on every theme change, is idempotent."
                                    :color ,(lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #x99)))
         (dolist (face '(lispm-desktop-platinum-title lispm-desktop-platinum-title-inactive
                         lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
-          (set-face-attribute face nil :family (or system 'unspecified) :height 120
-                              :weight 'bold
-                              :fontset (or (lispm-desktop-platinum--cjk-fontset system) 'unspecified)))
+          (apply #'set-face-attribute face nil :family (or system 'unspecified) :height 120
+                 :weight 'bold (lispm-desktop-platinum--fontset-attribute system)))
         (set-face-attribute 'lispm-desktop-platinum-title nil :foreground text)
         (set-face-attribute 'lispm-desktop-platinum-title-inactive nil
                             :foreground (lispm-desktop-platinum-color :muted) :inherit 'unspecified)
@@ -330,8 +359,8 @@ it, as on every theme change, is idempotent."
                             :inverse-video nil :box nil)
         ;; Chinese and Japanese in a proportional family, as the words
         ;; around them are: Emacs's fallback is the terminals' monospace.
-        (set-face-attribute 'lispm-desktop-platinum-list nil :family (or list-family 'unspecified)
-                            :fontset (or (lispm-desktop-platinum--cjk-fontset list-family) 'unspecified))
+        (apply #'set-face-attribute 'lispm-desktop-platinum-list nil :family (or list-family 'unspecified)
+               (lispm-desktop-platinum--fontset-attribute list-family))
         (set-face-attribute 'lispm-desktop-platinum-small nil
                             :inherit 'lispm-desktop-platinum-list :height 90 :weight 'normal)
         (set-face-attribute 'lispm-desktop-platinum-header nil

@@ -246,10 +246,12 @@ with Customize is left as it is."
 
 (defun lispm-desktop-frame-menu-bar (&optional frame)
   "Keep FRAME's menu bar only where it is drawn outside the frame.
-Mac OS Emacs (NS) puts it at the top of the screen; on X it would be a
-second bar inside the frame, above the Platinum menu bar."
+Mac OS Emacs (NS) puts it at the top of the screen; on X or a text
+terminal it would be a second bar inside the frame, above the Platinum
+menu bar."
   (let ((frame (or frame (selected-frame))))
-    (when (and (display-graphic-p frame) (not (eq (framep frame) 'ns)))
+    (when (and (not (eq (framep frame) 'ns))
+               (or (display-graphic-p frame) (lispm-desktop-tty-p frame)))
       (set-frame-parameter frame 'menu-bar-lines 0))))
 
 (defconst lispm-desktop-cjk-font-families (list lispm-desktop-terminal-font-family "PingFang SC")
@@ -306,9 +308,22 @@ function never sets, so re-running it is idempotent."
     (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
     (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
 
+(defcustom lispm-desktop-tty-mouse t
+  "Non-nil lets the mouse work in LispM on a text terminal.
+Clicks then reach the menu bar, the title bars, the lists and the
+desktop, and the wheel scrolls, as on a graphical display; the terminal
+selects text itself only with Shift held (Option in macOS's Terminal),
+since the clicks are Emacs's.  See `xterm-mouse-mode'."
+  :type 'boolean
+  :group 'lispm-desktop)
+
 (defun lispm-desktop-setup-interface ()
   "Set up interface."
   (electric-pair-mode 1)
+  ;; A terminal reports the mouse only when asked to; on a graphical
+  ;; display this changes nothing.
+  (when lispm-desktop-tty-mouse
+    (xterm-mouse-mode 1))
   (when (lispm-desktop-macos-p)
     (define-key global-map [ns-drag-file] 'ns-find-file))
   (when (lispm-desktop-gui-p)
@@ -339,6 +354,10 @@ function never sets, so re-running it is idempotent."
     (menu-bar-mode 1)
     (mapc #'lispm-desktop-frame-menu-bar (frame-list))
     (add-hook 'after-make-frame-functions #'lispm-desktop-frame-menu-bar))
+  ;; On a text terminal, windows meet at a line and menus and alerts are
+  ;; outlined in lines, not in | - and +.
+  (when (fboundp 'standard-display-unicode-special-glyphs)
+    (standard-display-unicode-special-glyphs))
   (show-paren-mode 1)
   (when (fboundp 'tooltip-mode)
     (tooltip-mode 1))
@@ -358,11 +377,12 @@ function never sets, so re-running it is idempotent."
     :bind (("C-c p t" . treemacs-add-and-display-current-project)
            ("C-c p T" . treemacs))
     :config
-    (setq treemacs-indentation-string (propertize " " 'display '(space :width (12)))
+    ;; Two blanks on a text terminal.
+    (setq treemacs-indentation-string (propertize "  " 'display '(when (display-graphic-p) space :width (12)))
           treemacs-indentation 1)
     ;; Every sidebar view has the same bottom edge as any window, so
     ;; switching views keeps it in place.
-    (setq treemacs-width lispm-desktop-sidebar-width
+    (setq treemacs-width (lispm-desktop-sidebar-columns)
           treemacs-is-never-other-window t
           treemacs-user-mode-line-format lispm-desktop-platinum-mode-line-format)
     (define-key treemacs-mode-map [mouse-1] #'treemacs-single-click-expand-action))

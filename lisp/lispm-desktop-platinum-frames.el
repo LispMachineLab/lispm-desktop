@@ -166,11 +166,13 @@ elsewhere windows tile, and the grow box only marks the corner."
   "Keymap of the grow box.")
 
 (defun lispm-desktop-platinum--grow-box ()
-  "Return the grow box as a string."
-  (propertize " " 'display (lispm-desktop-platinum-image
+  "Return the grow box as a string, a corner of text on a text terminal."
+  (propertize (if (lispm-desktop-tty-p) "◢" " ")
+              'display (unless (lispm-desktop-tty-p)
+                         (lispm-desktop-platinum-image
                             (list 'grow)
                             (lambda () (lispm-desktop-platinum-draw-grow-box lispm-desktop-platinum-current-palette
-                                                                             lispm-desktop-platinum-title-height)))
+                                                                             lispm-desktop-platinum-title-height))))
               'keymap lispm-desktop-platinum--grow-map))
 
 (defun lispm-desktop-platinum--placard (text active)
@@ -178,7 +180,7 @@ elsewhere windows tile, and the grow box only marks the corner."
 ACTIVE outlines it in black; an inactive window's placards are outlined
 in grey.  The placard's face is layered under TEXT's own, so coloured
 counts survive."
-  (let* ((pad (propertize " " 'display '(space :width (6))))
+  (let* ((pad (propertize " " 'display `(space :width (,(lispm-desktop-px 6)))))
          (placard (concat pad text pad)))
     (add-face-text-property 0 (length placard)
                             (if active 'lispm-desktop-platinum-placard 'lispm-desktop-platinum-placard-inactive)
@@ -234,11 +236,11 @@ be resized; a side window cannot."
                                  (string-trim (substring-no-properties vc-mode))))
                               (lispm-desktop-platinum--mode-line-text mode-name))))))
     (concat (mapconcat (lambda (text) (lispm-desktop-platinum--placard text active)) parts " ")
-            (propertize " " 'display '(space :width (6)))
+            (propertize " " 'display `(space :width (,(lispm-desktop-px 6))))
             (if (and active (not (window-parameter (selected-window) 'window-side)))
                 (lispm-desktop-platinum--grow-box)
-              (lispm-desktop-platinum-space 16))
-            (lispm-desktop-platinum-space 3))))
+              (lispm-desktop-platinum-space (if (lispm-desktop-tty-p) 1 16)))
+            (lispm-desktop-platinum-space (lispm-desktop-px 3)))))
 
 (defconst lispm-desktop-platinum-mode-line-format
   '((:eval (lispm-desktop-platinum-mode-line-left))
@@ -1031,7 +1033,7 @@ Other keys and the window system's own events change nothing."
         (track-mouse
           (setq track-mouse 'dragging)
           (while (not done)
-            (setq event (read-event nil nil lispm-desktop-platinum-drag-interval))
+            (setq event (lispm-desktop-modal-read-event lispm-desktop-platinum-drag-interval))
             (cond ((memq event '(escape ?\e ?\C-g))
                    (setq done t event nil))
                   ((and event (not (mouse-movement-p event))

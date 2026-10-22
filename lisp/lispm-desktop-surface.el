@@ -721,9 +721,46 @@ the desktop between them."
               (or (lispm-desktop-platinum-color :content) "#FFFFFF") (lispm-desktop--escape label))
       "</svg>"))))
 
+(defun lispm-desktop--text-desktop (width height)
+  "Return the desktop as text WIDTH cells by HEIGHT lines, where images
+cannot be shown, as on a text terminal: its icons stand down the right
+edge, each a character over its name, the Trash in the bottom corner;
+the one selected is inverted.  Both lines of an icon carry its key as
+their `lispm-desktop-item' property, for the mouse."
+  (let* ((items (lispm-desktop--items))
+         (labels (mapcar (lambda (item) (lispm-desktop--item-label (cdr item))) items))
+         (column (+ 2 (apply #'max 8 (mapcar #'string-width labels))))
+         (left (max 0 (- width column 2)))
+         (lines (make-vector (max 1 height) nil))
+         (top 1)
+         (bottom (- height 2)))
+    (cl-flet ((icon (item label row)
+                (when (< -1 row (1- height))
+                  (let ((face (if (eq (car item) lispm-desktop--selected)
+                                  'lispm-desktop-label-selected 'lispm-desktop-label)))
+                    (cl-flet ((centred (text)
+                                (let ((pad (/ (- column (string-width text)) 2)))
+                                  (concat (make-string left ?\s) (make-string (max 0 pad) ?\s)
+                                          (propertize text 'face face
+                                                      'lispm-desktop-item (car item)
+                                                      'help-echo (lispm-desktop-tr
+                                                                  (plist-get (cdr item) :help)))))))
+                      (aset lines row (centred (substring-no-properties
+                                                (lispm-desktop-platinum-icon
+                                                 (lispm-desktop--item-icon (cdr item))))))
+                      (aset lines (1+ row) (centred (concat " " label " "))))))))
+      (seq-mapn (lambda (item label)
+                  (if (plist-get (cdr item) :bottom)
+                      (progn (icon item label (1- bottom)) (setq bottom (- bottom 3)))
+                    (icon item label top)
+                    (setq top (+ top 3))))
+                items labels))
+    (mapconcat (lambda (line) (or line "")) lines "\n")))
+
 (defun lispm-desktop--render (&optional window)
   "Draw the desktop for WINDOW, by default the window showing it.
-Where images cannot be shown, its icons are listed by name."
+Where images cannot be shown, it is drawn in text, see
+`lispm-desktop--text-desktop'."
   (let ((buffer (lispm-desktop-buffer)))
     (when-let* ((window (or window (get-buffer-window buffer t))))
       (with-current-buffer buffer
@@ -752,9 +789,7 @@ Where images cannot be shown, its icons are listed by name."
                 (when lispm-desktop--image
                   (image-flush lispm-desktop--image (window-frame window)))
                 (setq lispm-desktop--image image))
-            (dolist (item (lispm-desktop--items))
-              (insert (if (eq (car item) lispm-desktop--selected) " ▶ " "   ")
-                      (lispm-desktop--item-label (cdr item)) "\n")))
+            (insert (lispm-desktop--text-desktop width height)))
           (goto-char (point-min))
           (set-window-start window (point-min) t)
           (set-window-point window (point-min)))))))
@@ -776,9 +811,15 @@ Where images cannot be shown, its icons are listed by name."
                            x y))
 
 (defun lispm-desktop--item-at (event)
-  "Return the key of the desktop icon mouse EVENT is over, or nil."
-  (when-let* ((xy (posn-object-x-y (event-start event))))
-    (lispm-desktop--key-at (car xy) (cdr xy))))
+  "Return the key of the desktop icon mouse EVENT is over, or nil.
+The desktop drawn in text names it in the text clicked."
+  (let ((position (event-start event)))
+    (or (when-let* ((point (posn-point position))
+                    (buffer (and (windowp (posn-window position))
+                                 (window-buffer (posn-window position)))))
+          (get-text-property point 'lispm-desktop-item buffer))
+        (when-let* ((xy (posn-object-x-y position)))
+          (lispm-desktop--key-at (car xy) (cdr xy))))))
 
 (defvar lispm-desktop--last-click nil
   "The last icon clicked without being dragged: (KEY TIME (X . Y)).")

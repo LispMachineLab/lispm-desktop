@@ -267,6 +267,17 @@ DISPLAY=:2 ~/.local/emacs-x11/bin/emacs                   # in another
 Clicking into Xephyr grabs the keyboard and mouse; Control-Shift releases them.  Both builds
 share one configuration and its state files; the one that quits last keeps its own.
 
+* In a terminal
+
+=emacs -nw= runs the same configuration on a text terminal, over SSH too, and draws the chrome
+in text: the menu bar, title bars in the manner of Turbo Vision, the desktop's icons down its
+right edge, the Finder, Control Panels and the App Store.  Menus and alerts pop up as text with
+Emacs 31, in the minibuffer before.  Agents and shells run in the same terminal module.  The
+mouse works where the terminal reports it (=lispm-desktop-tty-mouse=; hold Shift to select text
+the terminal's way), and Escape is typed twice in menus, as in Emacs's own.  Colours are exact
+with =COLORTERM=truecolor=, the nearest of 256 otherwise.  The browser, the guide, the Control
+Strip and the pointer watch need a graphical display.
+
 * Writing an application
 
 An application of the App Store is an Emacs package and one item of a catalog; it becomes the

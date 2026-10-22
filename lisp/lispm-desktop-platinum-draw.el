@@ -259,10 +259,13 @@ OPTIONS are those of `lispm-desktop-platinum-draw-title-part'."
                                  width options)))))
 
 (defun lispm-desktop-platinum-triangle (open)
-  "Return a disclosure triangle as a string, pointing down when OPEN."
-  (propertize " " 'display (lispm-desktop-platinum-image
-                            (list 'triangle open)
-                            (lambda () (lispm-desktop-platinum-draw-triangle lispm-desktop-platinum-current-palette open)))))
+  "Return a disclosure triangle as a string, pointing down when OPEN.
+On a text terminal it is a character, a cell wide."
+  (if (lispm-desktop-tty-p)
+      (if open "▾" "▸")
+    (propertize " " 'display (lispm-desktop-platinum-image
+                              (list 'triangle open)
+                              (lambda () (lispm-desktop-platinum-draw-triangle lispm-desktop-platinum-current-palette open))))))
 
 (defvar lispm-desktop-platinum--svg-fonts (make-hash-table :test #'equal)
   "Fonts of SVG labels by palette generation and face, see

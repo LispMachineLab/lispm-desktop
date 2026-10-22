@@ -87,19 +87,29 @@ strip's opening put before it, as `lispm-desktop-platinum-header-button'
 returns one."
   (let* ((left (or left 0))
          (width (- (window-pixel-width) (window-right-divider-width) (window-scroll-bar-width) left)))
-    (propertize " " 'display
-                (lispm-desktop-platinum-image
-                 (list 'header-strip label width left)
-                 (lambda () (lispm-desktop-platinum-draw-header-strip lispm-desktop-platinum-current-palette
-                                                                      width label left))))))
+    (if (lispm-desktop-tty-p)
+        ;; A window with another on its right has the border between them.
+        (let* ((width (- width (if (window-at-side-p nil 'right) 0 1)))
+               (label (truncate-string-to-width (or label "") (max 0 (- width 2)) nil nil "…"))
+               (before (max 1 (- (/ (- (+ left width) (string-width label)) 2) left))))
+          (propertize (truncate-string-to-width
+                       (concat (make-string before ?\s) label (make-string width ?\s)) width)
+                      'face 'lispm-desktop-platinum-toolbar))
+      (propertize " " 'display
+                  (lispm-desktop-platinum-image
+                   (list 'header-strip label width left)
+                   (lambda () (lispm-desktop-platinum-draw-header-strip lispm-desktop-platinum-current-palette
+                                                                        width label left)))))))
 
 (defconst lispm-desktop-platinum-header-button-height 17
   "Height in pixels of a bevel button opening a header strip.")
 
 (defun lispm-desktop-platinum-header-button-width (label)
   "Return the width of a header strip's opening holding a button reading LABEL."
-  (+ 6 (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-small)
-     (* 2 lispm-desktop-platinum-bevel-padding)))
+  (if (lispm-desktop-tty-p)
+      (string-width (lispm-desktop-platinum-header-button label))
+    (+ 6 (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-small)
+       (* 2 lispm-desktop-platinum-bevel-padding))))
 
 (cl-defgeneric lispm-desktop-platinum-draw-header-button (palette label &optional state)
   "Return an SVG of a header strip's opening, a bevel button reading LABEL.
@@ -119,12 +129,16 @@ strip follows, drawn by `lispm-desktop-platinum-draw-header-strip'."
 
 (defun lispm-desktop-platinum-header-button (label &optional state)
   "Return a header strip's opening, a bevel button reading LABEL in STATE,
-as a string displaying it; see `lispm-desktop-platinum-draw-header-button'."
-  (propertize " " 'display
-              (lispm-desktop-platinum-image
-               (list 'header-button (lispm-desktop-platinum--content-key label) state)
-               (lambda () (lispm-desktop-platinum-draw-header-button lispm-desktop-platinum-current-palette
-                                                                     label state)))))
+as a string displaying it; see `lispm-desktop-platinum-draw-header-button'.
+On a text terminal it is a button of text a cell in."
+  (if (lispm-desktop-tty-p)
+      (concat (propertize " " 'face 'lispm-desktop-platinum-toolbar)
+              (lispm-desktop-platinum-text-button label state))
+    (propertize " " 'display
+                (lispm-desktop-platinum-image
+                 (list 'header-button (lispm-desktop-platinum--content-key label) state)
+                 (lambda () (lispm-desktop-platinum-draw-header-button lispm-desktop-platinum-current-palette
+                                                                       label state))))))
 
 (defconst lispm-desktop-platinum-group-title-height 18
   "Height in pixels of a group box's top edge, which carries its title.")
@@ -161,12 +175,22 @@ frame's sides at the top of a line as tall as a line of text."
 
 (defun lispm-desktop-platinum-group-edge (width &optional title bottom)
   "Return a group box's edge WIDTH pixels wide as a string displaying it.
-See `lispm-desktop-platinum-draw-group-edge'."
-  (propertize " " 'display
+See `lispm-desktop-platinum-draw-group-edge'.  On a text terminal it is a
+line drawn in text, WIDTH cells long, TITLE breaking it near its left end."
+  (if (lispm-desktop-tty-p)
+      (let ((rule `(:foreground ,(lispm-desktop-platinum-color :muted))))
+        (if bottom
+            (propertize (concat "└" (make-string (max 0 (- width 2)) ?─) "┘") 'face rule)
+          (let ((title (if title (concat " " title " ") "")))
+            (concat (propertize "┌─" 'face rule)
+                    (propertize title 'face 'lispm-desktop-platinum-title)
+                    (propertize (concat (make-string (max 0 (- width 3 (string-width title))) ?─) "┐")
+                                'face rule)))))
+   (propertize " " 'display
               (lispm-desktop-platinum-image
                (list 'group-edge width title bottom)
                (lambda () (lispm-desktop-platinum-draw-group-edge lispm-desktop-platinum-current-palette
-                                                                  width title bottom)))))
+                                                                  width title bottom))))))
 
 (cl-defgeneric lispm-desktop-platinum-draw-group-side (palette height)
   "Return an SVG of a group box's side for a line HEIGHT pixels tall, in
@@ -178,12 +202,15 @@ PALETTE: the grey line and the lit one beside it, two pixels wide."
 
 (defun lispm-desktop-platinum-group-side (height)
   "Return a group box's side for a line HEIGHT pixels tall, as a string
-displaying it; see `lispm-desktop-platinum-draw-group-side'."
-  (propertize " " 'display
-              (lispm-desktop-platinum-image
-               (list 'group-side height)
-               (lambda () (lispm-desktop-platinum-draw-group-side lispm-desktop-platinum-current-palette
-                                                                  height)))))
+displaying it; see `lispm-desktop-platinum-draw-group-side'.  On a text
+terminal it is a line drawn in text."
+  (if (lispm-desktop-tty-p)
+      (propertize "│" 'face `(:foreground ,(lispm-desktop-platinum-color :muted)))
+    (propertize " " 'display
+                (lispm-desktop-platinum-image
+                 (list 'group-side height)
+                 (lambda () (lispm-desktop-platinum-draw-group-side lispm-desktop-platinum-current-palette
+                                                                    height))))))
 
 ;;;; Controls (pure)
 ;;
@@ -973,12 +1000,29 @@ HEIGHT defaults to 20 pixels.  See `lispm-desktop-platinum-draw-bevel-button'."
          (height (or height 20))
          (width (+ (lispm-desktop-platinum-content-width label face)
                    (* 2 lispm-desktop-platinum-bevel-padding))))
-    (propertize " " 'display
-                (lispm-desktop-platinum-image
-                 (list 'bevel (lispm-desktop-platinum--content-key label) state height face width)
-                 (lambda ()
-                   (lispm-desktop-platinum-draw-bevel-button lispm-desktop-platinum-current-palette width height
-                                                             :state state :label label :face face))))))
+    (if (lispm-desktop-tty-p)
+        (lispm-desktop-platinum-text-button label state)
+      (propertize " " 'display
+                  (lispm-desktop-platinum-image
+                   (list 'bevel (lispm-desktop-platinum--content-key label) state height face width)
+                   (lambda ()
+                     (lispm-desktop-platinum-draw-bevel-button lispm-desktop-platinum-current-palette width height
+                                                               :state state :label label :face face)))))))
+
+(defun lispm-desktop-platinum-text-button (label &optional state default)
+  "Return a button reading LABEL on a text terminal, as text: LABEL between
+brackets.  STATE is nil, `pressed' or `disabled'; DEFAULT draws the
+default button, which Return presses, in the highlight colour, as the
+ring about it marks it on Mac OS 9."
+  (let* ((palette lispm-desktop-platinum-current-palette)
+         (ink (cond ((eq state 'disabled) (plist-get palette :muted))
+                    ((or default (eq state 'pressed)) (plist-get palette :highlight-text))
+                    (t (plist-get palette :text))))
+         (ground (cond ((or default (eq state 'pressed)) (plist-get palette :highlight))
+                       (t (plist-get palette :chrome))))
+         (button (concat "[" label "]")))
+    (add-face-text-property 0 (length button) `(:foreground ,ink :background ,ground) t button)
+    button))
 
 (cl-defun lispm-desktop-platinum-push-button (label &key state default focused pad)
   "Return a push button reading LABEL, as a string displaying it.
@@ -987,13 +1031,17 @@ takes them; PAD defaults to two pixels, room for the focus ring, so a
 button keeps its place as the keyboard comes and goes."
   (let ((width (lispm-desktop-platinum-push-button-width label))
         (pad (or pad (if default 5 2))))
-    (propertize " " 'display
-                (lispm-desktop-platinum-image
-                 (list 'push label width state default focused pad)
-                 (lambda ()
-                   (lispm-desktop-platinum-draw-push-button lispm-desktop-platinum-current-palette label width
-                                                            :state state :default default
-                                                            :focused focused :pad pad))))))
+    (if (lispm-desktop-tty-p)
+        (propertize " " 'display (lispm-desktop-platinum-text-control
+                                  (lispm-desktop-platinum-text-button (concat " " label " ") state default)
+                                  focused))
+      (propertize " " 'display
+                  (lispm-desktop-platinum-image
+                   (list 'push label width state default focused pad)
+                   (lambda ()
+                     (lispm-desktop-platinum-draw-push-button lispm-desktop-platinum-current-palette label width
+                                                              :state state :default default
+                                                              :focused focused :pad pad)))))))
 
 (defun lispm-desktop-platinum--tab-edge (width)
   "Return the pane's edge WIDTH pixels wide, as a string displaying it."
@@ -1097,7 +1145,56 @@ which calls it, see `lispm-desktop-platinum-draw-tab-close'.
 The row opens with a short run of the pane's edge and runs it on to
 WIDTH, as Mac OS 9 drew a tab control along its pane.  A row too wide
 for WIDTH, as in a longer language, cuts its widest labels short, see
-`lispm-desktop-platinum--fit-tabs'."
+`lispm-desktop-platinum--fit-tabs'.  On a text terminal the row is text,
+WIDTH columns wide, see `lispm-desktop-platinum--text-tabs'."
+  (if (lispm-desktop-tty-p)
+      (lispm-desktop-platinum--text-tabs tabs width)
+    (lispm-desktop-platinum--image-tabs tabs width face)))
+
+(defun lispm-desktop-platinum--text-tabs (tabs width)
+  "Return a row of TABS WIDTH columns wide on a text terminal, as text.
+TABS are as `lispm-desktop-platinum-tabs' takes them.  Each label stands
+in a cell of its own either side, the tab in front highlighted, between
+runs of a rule that is the pane's edge; a tab with a `:close' function
+shows a cross before its label, which calls it.  Labels too long for
+WIDTH are cut, the longest first."
+  (let* ((rule (lambda (n) (propertize (make-string (max 0 n) ?─) 'face 'lispm-desktop-platinum-toolbar-label)))
+         (crosses (seq-map-indexed
+                   (pcase-lambda (`(,_ ,_ . ,properties) index)
+                     (when-let* ((close (plist-get properties :close)))
+                       (lispm-desktop-platinum-box-button
+                        (propertize "×" 'pointer 'arrow) (list 'tab-close index)
+                        (lambda (_window) (funcall close)) (lispm-desktop-tr "Close this tab"))))
+                   tabs))
+         (labels (mapcar #'car tabs))
+         ;; A rule before each tab and one after the last, a cell either
+         ;; side of each label, two more for a cross.
+         (frame (+ 1 (* 3 (length tabs)) (* 2 (length (delq nil (copy-sequence crosses))))))
+         (cap (apply #'max 0 (mapcar #'string-width labels))))
+    (while (and (> cap 3)
+                (> (+ frame (apply #'+ (mapcar (lambda (label) (min cap (string-width label))) labels)))
+                   width))
+      (setq cap (1- cap)))
+    (let ((row (concat
+                (funcall rule 1)
+                (apply #'concat
+                       (seq-mapn
+                        (pcase-lambda (`(,label ,front . ,properties) cross)
+                          (let ((tab (concat " " (when cross (concat cross " "))
+                                             (truncate-string-to-width label cap nil nil "…") " ")))
+                            (add-face-text-property 0 (length tab)
+                                                    (if front 'lispm-desktop-platinum-menu-title-active
+                                                      'lispm-desktop-platinum-toolbar)
+                                                    t tab)
+                            (concat (apply #'propertize tab
+                                           (lispm-desktop-platinum--plist-without properties :close))
+                                    (funcall rule 1))))
+                        tabs crosses)))))
+      (concat row (funcall rule (- width (string-width row)))))))
+
+(defun lispm-desktop-platinum--image-tabs (tabs width face)
+  "Return a row of TABS WIDTH pixels wide in FACE, drawn as images.
+See `lispm-desktop-platinum-tabs'."
   (let* ((face (or face 'lispm-desktop-platinum-title))
          (lead lispm-desktop-platinum--tabs-lead)
          (used lead)
@@ -1143,10 +1240,12 @@ for WIDTH, as in a longer language, cuts its widest labels short, see
 FOCUSED rings it; either way it leaves room for the ring, so it keeps its
 place as the keyboard comes and goes.  See `lispm-desktop-platinum-draw-radio'."
   (propertize " " 'display
-              (lispm-desktop-platinum-image
+              (if (lispm-desktop-tty-p)
+                  (lispm-desktop-platinum-text-control (if on "(•)" "( )") focused state)
+               (lispm-desktop-platinum-image
                (list 'radio on state focused)
                (lambda () (lispm-desktop-platinum-draw-radio lispm-desktop-platinum-current-palette on
-                                                             :state state :focused focused :pad 2)))))
+                                                             :state state :focused focused :pad 2))))))
 
 (defconst lispm-desktop-platinum--list-check-boxes
   '((on "############" "#wwwwwwwwwd#" "#wd#dddd#dg#" "#wd##dd##sg#" "#wdd####sag#"
@@ -1178,20 +1277,41 @@ STATE is `on', `off' or `mixed', see `lispm-desktop-platinum--list-check-boxes'.
   "Return a list's check box in STATE as a string displaying it.
 See `lispm-desktop-platinum-draw-list-check-box'."
   (propertize " " 'display
-              (lispm-desktop-platinum-image
-               (list 'list-check-box state)
-               (lambda () (lispm-desktop-platinum-draw-list-check-box lispm-desktop-platinum-current-palette state)))))
+              (if (lispm-desktop-tty-p)
+                  (lispm-desktop-platinum-text-control (pcase state ('on "[✓]") ('mixed "[-]") (_ "[ ]")))
+                (lispm-desktop-platinum-image
+                 (list 'list-check-box state)
+                 (lambda () (lispm-desktop-platinum-draw-list-check-box lispm-desktop-platinum-current-palette
+                                                                        state))))))
 
 (defun lispm-desktop-platinum-check-box (on &optional state focused pad)
   "Return a check box, checked when ON, in STATE, as a string displaying it.
 FOCUSED rings it, and PAD leaves room about it; see
 `lispm-desktop-platinum-draw-check-box'."
   (propertize " " 'display
-              (lispm-desktop-platinum-image
-               (list 'check-box on state focused pad)
-               (lambda () (lispm-desktop-platinum-draw-check-box lispm-desktop-platinum-current-palette on
-                                                                 :state state :focused focused
-                                                                 :pad (or pad 0))))))
+              (if (lispm-desktop-tty-p)
+                  (lispm-desktop-platinum-text-control (if on "[✓]" "[ ]") focused state)
+                (lispm-desktop-platinum-image
+                 (list 'check-box on state focused pad)
+                 (lambda () (lispm-desktop-platinum-draw-check-box lispm-desktop-platinum-current-palette on
+                                                                   :state state :focused focused
+                                                                   :pad (or pad 0)))))))
+
+(defun lispm-desktop-platinum-text-control (text &optional focused state)
+  "Return TEXT, a control drawn as text on a text terminal, ringed in the
+focus colour when FOCUSED, dimmed when STATE is `disabled'.  Controls
+inserted in a buffer show it as their `display', as they show their
+images elsewhere, see `lispm-desktop-platinum-show-focus'."
+  (let ((text (copy-sequence text)))
+    (cond (focused
+           (add-face-text-property 0 (length text)
+                                   `(:foreground ,(lispm-desktop-platinum-color :highlight-text)
+                                     :background ,(lispm-desktop-platinum-color :focus))
+                                   nil text))
+          ((eq state 'disabled)
+           (add-face-text-property 0 (length text) `(:foreground ,(lispm-desktop-platinum-color :muted))
+                                   nil text)))
+    text))
 
 ;;;; Controls in buffers
 ;;
@@ -1239,7 +1359,7 @@ blinks.  Return non-nil when the button was pressed."
     (redisplay t)
     (prog1 (if (not (mouse-event-p last-input-event))
                (progn (sit-for (alist-get 'button lispm-desktop-modal-flashes)) t)
-             (let ((release (let ((echo-keystrokes 0)) (read-event))))
+             (let ((release (let ((echo-keystrokes 0)) (lispm-desktop-modal-read-event))))
                (and (mouse-event-p release)
                     (eq (posn-window (event-end release)) (posn-window (event-start last-input-event)))
                     (eql (posn-point (event-end release)) position))))

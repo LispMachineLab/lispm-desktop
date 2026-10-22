@@ -102,6 +102,8 @@ Every agent has these:
   :icon        (FUNCTION ICON FACE): FUNCTION makes a one-line icon of
                ICON, as `nerd-icons-codicon' or `lispm-desktop-agent-image-icon'
                do; FACE, when non-nil, is layered under it
+  :text-icon   a string one cell wide standing for the icon on a text
+               terminal, in FACE; by default the first letter of :name
   :command     the command starting a session at the current project root
   :key         the key of :command under \\`C-c a' and in the agents sidebar
   :sessions    function returning its recorded sessions, as plists
@@ -1305,6 +1307,16 @@ shown, a feather stands in for the image."
                                   :ascent 'center))
       (apply #'nerd-icons-mdicon "nf-md-feather" args))))
 
+(defun lispm-desktop-agent--text-icon (agent)
+  "Return AGENT's icon on a text terminal: its :text-icon, else the first
+letter of its name; a robot's head for no agent known."
+  (let ((props (lispm-desktop-agent-props agent)))
+    (or (plist-get props :text-icon)
+        (when-let* ((name (plist-get props :name))
+                    ((not (string-empty-p name))))
+          (substring name 0 1))
+        "◉")))
+
 (defun lispm-desktop-agent--icon-spec (agent)
   "Return (FUNCTION ICON FACE) of AGENT's icon, its :icon, see
 `lispm-desktop-agent-define'; a robot for no agent known."
@@ -1312,10 +1324,14 @@ shown, a feather stands in for the image."
       '(nerd-icons-codicon "nf-cod-robot" nil)))
 
 (defun lispm-desktop-agent-icon (agent)
-  "Return the brand icon of AGENT."
+  "Return the brand icon of AGENT.
+On a text terminal, whose font is seldom a Nerd Font, it is AGENT's
+:text-icon, see `lispm-desktop-agent-define'."
   (require 'nerd-icons)
   (pcase-let* ((`(,function ,name ,face) (lispm-desktop-agent--icon-spec agent))
-               (icon (copy-sequence (funcall function name))))
+               (icon (copy-sequence (if (lispm-desktop-tty-p)
+                                        (lispm-desktop-agent--text-icon agent)
+                                      (funcall function name)))))
     ;; Layer the colour under the icon's own face so its Nerd Font family
     ;; survives; replacing the face would fall back to an arbitrary CJK font.
     (when face
