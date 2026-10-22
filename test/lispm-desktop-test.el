@@ -863,6 +863,55 @@ an error loading it is signalled once the redisplay is done."
         (should (equal (mapcar #'car (lispm-desktop-deps--requirements file)) '(lispm-desktop-test-missing)))
       (delete-file file))))
 
+(defun lispm-desktop-test--declared-packages ()
+  "Return the packages the `use-package' declarations of lisp/ install from
+the package archives: neither built in nor declared `:ensure nil'."
+  (let ((found nil))
+    (cl-labels ((walk (form)
+                  (when (consp form)
+                    (if (and (eq (car form) 'use-package) (symbolp (cadr form)))
+                        (unless (or (let ((ensure (memq :ensure (cddr form))))
+                                      (and ensure (null (cadr ensure))))
+                                    (package-built-in-p (cadr form)))
+                          (cl-pushnew (cadr form) found))
+                      (while (consp form)
+                        (walk (pop form)))))))
+      (dolist (file (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'"))
+        (with-temp-buffer
+          (insert-file-contents file)
+          (condition-case nil
+              (while t (walk (read (current-buffer))))
+            (end-of-file nil)))))
+    found))
+
+(ert-deftest lispm-desktop-test-deps-desktop-requires ()
+  "lispm-desktop.el's Package-Requires lists the packages its `use-package'
+declarations install, which LispM.app's installer counts; Evil, installed
+once chosen, and EXWM, where used, are left out."
+  (let ((required (with-temp-buffer
+                    (insert-file-contents (expand-file-name "lisp/lispm-desktop.el" lispm-desktop-directory))
+                    (delq 'emacs (mapcar #'car (package-desc-reqs (package-buffer-info))))))
+        (declared (cl-set-difference (lispm-desktop-test--declared-packages) '(evil exwm))))
+    (should (equal (sort (copy-sequence required) #'string<) (sort declared #'string<)))))
+
+(ert-deftest lispm-desktop-test-deps-batch-progress ()
+  "Each package installed is said with the how many-th it is of those the
+desktop and its projects need, counted at the first; one beyond them counts
+one more."
+  (let ((said nil)
+        (counted 0)
+        (lispm-desktop-deps--progress nil))
+    (cl-letf (((symbol-function 'package-compute-transaction)
+               (lambda (&rest _) (cl-incf counted) (make-list 3 'package)))
+              ((symbol-function 'lispm-desktop-deps--required) #'ignore)
+              ((symbol-function 'send-string-to-terminal) (lambda (string) (push string said))))
+      (dolist (name '(dash s magit treemacs))
+        (lispm-desktop-deps--installing (package-desc-create :name name))))
+    (should (= counted 1))
+    (should (equal (nreverse said)
+                   (mapcar (lambda (line) (concat "\n" lispm-desktop-deps-progress-tag line "\n"))
+                           '("dash (1/3)" "s (2/3)" "magit (3/3)" "treemacs (4/4)"))))))
+
 (ert-deftest lispm-desktop-test-deps-found-in-order ()
   "A project already on `load-path' is used as it is; else a checkout beside
 the desktop's joins `load-path'; else package-vc installs its latest
@@ -9058,7 +9107,7 @@ nothing."
           (lispm-desktop-store-enter)
           (should (eq lispm-desktop-store--view 'item))
           (should (eq lispm-desktop-store--selected 'game16))
-          (let* ((rows (lispm-desktop-store--page-rows 'game16 640 600 4))
+          (let* ((rows (lispm-desktop-store--page-rows 'game16 640))
                  (labels (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
                                            (number-sequence (point-min) (1- (point-max)))))))
             (should (plist-get (car rows) :head))
@@ -9072,8 +9121,11 @@ nothing."
             (should (seq-find (lambda (row) (equal (plist-get row :text) "Information")) rows))
             (dolist (label '("Version:" "Developer:" "Licence:"))
               (should (seq-find (lambda (row) (equal (plist-get row :label) label)) rows)))
-            (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) rows))
-                       (* 4 lispm-desktop-store-tile-height)))
+            ;; A page, which ends where the grid's would.
+            (pcase-let ((`(,page . ,more) (lispm-desktop-store--item-pages 'game16 640 600 4)))
+              (should-not more)
+              (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) page))
+                         (* 4 lispm-desktop-store-tile-height))))
             (dolist (label '("Go Back" "Uninstall…" "Get"))
               (should (member label labels)))
             (dolist (label '("Previous" "Next" "Install from URL…"))
@@ -9095,6 +9147,119 @@ nothing."
           (lispm-desktop-store-show-category 'utilities)
           (should (eq lispm-desktop-store--view 'grid))
           (should (eq lispm-desktop-store--selected 'calculator)))))))
+
+(ert-deftest lispm-desktop-test-store-paginate ()
+  "An item's page is cut into pages as tall as the grid's page, each ending
+in a blank row as tall as it lacks; no page but the first starts with a
+space, a heading goes over to the next page with the row it heads, and
+a picture taller than a page is drawn smaller.  On a text terminal its
+lines are cut into pages the same way."
+  (should (equal (lispm-desktop-store--paginate
+                  '((:height 50 :text "a") (:height 20 :text "H" :heading t) (:height 4)
+                    (:height 40 :text "b") (:height 6) (:height 40 :text "c"))
+                  100)
+                 '(((:height 50 :text "a") (:height 50))
+                   ((:height 20 :text "H" :heading t) (:height 40 :text "b") (:height 40))
+                   ((:height 40 :text "c") (:height 60)))))
+  ;; A heading alone on its page stays there.
+  (should (equal (lispm-desktop-store--paginate '((:height 20 :text "H" :heading t) (:height 90 :text "a")) 100)
+                 '(((:height 20 :text "H" :heading t) (:height 80)) ((:height 90 :text "a") (:height 10)))))
+  (should (equal (lispm-desktop-store--paginate nil 100) '(((:height 100)))))
+  (should (equal (lispm-desktop-store--fit-row '(:height 308 :banner "b" :size (900 . 300)) 158)
+                 '(:height 158 :banner "b" :size (450 . 150))))
+  (should (equal (lispm-desktop-store--paginate '((:height 120 :picture "p" :size (240 . 120))) 100)
+                 '(((:height 100 :picture "p" :size (200 . 100))))))
+  (should (equal (lispm-desktop-store--text-pages '("a" "b" "" "c" "d" "e") 2)
+                 '(("a" "b") ("c" "d") ("e")))))
+
+(ert-deftest lispm-desktop-test-store-holds-still ()
+  "The App Store's window never scrolls: an item's page longer than the
+grid's page shows in pages, which C-v and M-v, ] and [, C-n and C-p, or
+Previous and Next with the page between, turn, and the View menu too;
+another item's page shows from its first.  The wheel turns nothing, the
+window has no scroll bar, and what a command scrolled goes back."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((long :kind app :name "Long" :command ignore :category utilities :about "long")
+       (short :kind app :name "Short" :command ignore :category utilities))
+     `(("about/long.md"
+        . ,(mapconcat (lambda (n)
+                        (format "## Part %d\n\n%s\n" n (string-join (make-list 40 "Words to read.") " ")))
+                      (number-sequence 1 16) "\n"))))
+    (let ((pages (lispm-desktop-store--item-pages 'long 640 600 4)))
+      (should (> (length pages) 2))
+      (dolist (page pages)
+        (should (= (apply #'+ (mapcar (lambda (row) (plist-get row :height)) page))
+                   (* 4 lispm-desktop-store-tile-height)))
+        (should-not (plist-get (car (last (seq-remove #'lispm-desktop-store--gap-p page))) :heading)))
+      (dolist (page (cdr pages))
+        (should-not (lispm-desktop-store--gap-p (car page))))
+      ;; Every row shows, once, in its order.
+      (should (equal (seq-remove #'lispm-desktop-store--gap-p (apply #'append pages))
+                     (seq-remove #'lispm-desktop-store--gap-p (lispm-desktop-store--page-rows 'long 640)))))
+    (with-current-buffer (lispm-desktop-store--buffer)
+      (cl-flet ((labels ()
+                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                                    (number-sequence (point-min) (1- (point-max))))))
+                (enabled (label)
+                  (plist-get (seq-find (lambda (item) (equal (plist-get item :label) label))
+                                       (seq-filter #'consp (lispm-desktop-store--view-items)))
+                             :enabled)))
+        (lispm-desktop-store-show-item 'long)
+        ;; Each row is as tall as its image, however short, so that the
+        ;; page ends where the grid's would.
+        (let ((at (text-property-not-all (point-min) (point-max) 'lispm-desktop-store-row nil)))
+          (should (eql (image-property (get-text-property at 'display) :ascent) 100))
+          (should (eq (get-text-property (1+ at) 'line-height) t)))
+        (let ((count lispm-desktop-store--page-count))
+          (should (> count 2))
+          (should (= lispm-desktop-store--page-number 0))
+          (should (string-search (format "Page 1 of %d" count) (buffer-string)))
+          (dolist (label '("Previous" "Next" "Get"))
+            (should (member label (labels))))
+          (should-not (enabled "Previous Page"))
+          (should (enabled "Next Page"))
+          (should (eq (key-binding (kbd "C-v")) 'lispm-desktop-store-next-page))
+          (lispm-desktop-store-next-page)
+          (should (= lispm-desktop-store--page-number 1))
+          (should (string-search (format "Page 2 of %d" count) (buffer-string)))
+          (lispm-desktop-store-down)
+          (should (= lispm-desktop-store--page-number 2))
+          (lispm-desktop-store-up)
+          (lispm-desktop-store-previous-page)
+          (should (= lispm-desktop-store--page-number 0))
+          (lispm-desktop-store-previous-page)
+          (should (= lispm-desktop-store--page-number 0))
+          (dotimes (_ (1+ count))
+            (lispm-desktop-store-next-page))
+          (should (= lispm-desktop-store--page-number (1- count)))
+          (should (enabled "Previous Page"))
+          (should-not (enabled "Next Page")))
+        (lispm-desktop-store--select 'short)
+        (should (eq lispm-desktop-store--view 'item))
+        (should (= lispm-desktop-store--page-number 0))
+        (should (= lispm-desktop-store--page-count 1))
+        (should-not (member "Next" (labels)))
+        (lispm-desktop-store-down)
+        (should (= lispm-desktop-store--page-number 0))
+        (lispm-desktop-store--select 'long)
+        (should (= lispm-desktop-store--page-number 0)))
+      (dolist (function '(mwheel-scroll-up-function mwheel-scroll-down-function
+                          mwheel-scroll-left-function mwheel-scroll-right-function))
+        (should (eq (symbol-value function) #'ignore)))
+      (should (eq (lispm-desktop-store--scroll-bar (current-buffer)) 'no))
+      (with-temp-buffer
+        (should-not (lispm-desktop-store--scroll-bar (current-buffer))))
+      (should (memq #'lispm-desktop-store--hold-still post-command-hook))
+      (save-window-excursion
+        (let ((window (selected-window)))
+          (set-window-buffer window (current-buffer))
+          (set-window-start window 20)
+          (set-window-hscroll window 5)
+          (lispm-desktop-store--hold-still)
+          (should (= (window-start window) (point-min)))
+          (should (= (window-hscroll window) 0)))))))
 
 ;;;; Markdown
 
@@ -9212,7 +9377,7 @@ mouse; o opens a link from the keyboard."
      '((ai :kind app :name "AI" :command ignore :category classic-ai :about "ai"))
      '(("about/ai.md" . "Talk to [the doctor](https://example.org/doctor).\n\n## Keys\n\n- `RET` says it\n\n> A quote.\n\n```\n(doctor)\n```\n")
        ("about/ai.fr.md" . "Parlez au docteur.\n")))
-    (let* ((rows (lispm-desktop-store--page-rows 'ai 640 600 4))
+    (let* ((rows (lispm-desktop-store--page-rows 'ai 640))
            (link (seq-find (lambda (row) (plist-get row :links)) rows)))
       (should (equal (plist-get link :text) "Talk to the doctor."))
       (pcase-let ((`((,from ,to ,url)) (plist-get link :links)))
@@ -9230,7 +9395,7 @@ mouse; o opens a link from the keyboard."
       (should (assq 'classic-ai (lispm-desktop-store--categories)))
       (let ((lispm-desktop-language 'fr))
         (should (seq-find (lambda (row) (equal (plist-get row :text) "Parlez au docteur."))
-                          (lispm-desktop-store--page-rows 'ai 640 600 4)))))
+                          (lispm-desktop-store--page-rows 'ai 640)))))
     (let ((lines (lispm-desktop-store--markdown-lines
                   (lispm-desktop-store--about (cdr (assq 'ai (lispm-desktop-store-items)))) 60 'shadow)))
       (should (member "Talk to the doctor." lines))

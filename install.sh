@@ -258,6 +258,36 @@ installed_build() {
   /usr/libexec/PlistBuddy -c 'Print :LispMEmacsBuild' "${1:-$APP}/Contents/Info.plist" 2>/dev/null || true
 }
 
+# Print the size of FILE in bytes, 0 when there is none.
+file_size() {
+  stat -f %z "$1" 2>/dev/null || echo 0
+}
+
+# Download URL to FILE, or the rest of it when FILE holds its start.  A
+# connection that drops, or crawls under 1 KB/s for a minute, is taken up
+# again where it stopped: curl's own --retry throws away what each try
+# got, and its --retry-all-errors is newer than macOS 11's curl.  Fail
+# after 5 tries in a row that got no further, leaving FILE to go on with.
+download() {
+  best=$(file_size "$2") stuck=0 delay=2
+  until curl -fL --progress-bar --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
+    -C - -o "$2" "$1"; do
+    # A server that cannot resume sends the whole file again.
+    if [ $? = 33 ]; then
+      rm -f "$2"
+    fi
+    size=$(file_size "$2")
+    if [ "$size" -gt "$best" ]; then
+      best=$size stuck=0 delay=2
+    else
+      stuck=$((stuck + 1)) delay=$((delay * 2))
+      [ "$stuck" -lt 5 ] || return 1
+    fi
+    note "The download stopped at $((size / 1000000)) MB; it goes on in $delay seconds."
+    sleep "$delay"
+  done
+}
+
 # Put Emacs.app, checked, at $WORK/LispM.app: the one in LispM.app, or in
 # its backup, when it is the build wanted, else downloaded.
 fetch_emacs() {
@@ -269,11 +299,25 @@ fetch_emacs() {
     fi
   done
   say "Downloading $EMACS_NAME (about 190 MB)"
-  dmg=$WORK/emacs.dmg
-  curl -fL --progress-bar -o "$dmg" \
-    "https://github.com/jimeh/emacs-builds/releases/download/$EMACS_RELEASE/$wanted.dmg"
-  [ "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" = "$EMACS_SHA256" ] ||
+  # The download is kept in LISPM_HOME until it is whole and checked, so
+  # that a run cut short loses none of it: the next one goes on with it.
+  cache=$LISPM_HOME/.cache
+  part=$cache/$wanted.dmg.part
+  mkdir -p "$cache"
+  for old in "$cache"/*.dmg.part; do
+    [ "$old" = "$part" ] || rm -f "$old"
+  done
+  if [ -s "$part" ]; then
+    note "Going on with the download begun before, at $(($(file_size "$part") / 1000000)) MB."
+  fi
+  download "https://github.com/jimeh/emacs-builds/releases/download/$EMACS_RELEASE/$wanted.dmg" "$part" ||
+    fail "Emacs could not be downloaded; run this again to go on from where it stopped"
+  if [ "$(shasum -a 256 "$part" | cut -d' ' -f1)" != "$EMACS_SHA256" ]; then
+    rm -f "$part"
     fail "the Emacs downloaded is not the one expected; nothing was installed"
+  fi
+  dmg=$WORK/emacs.dmg
+  mv "$part" "$dmg"
   MOUNT=$WORK/emacs
   mkdir "$MOUNT"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MOUNT" "$dmg" 2>"$WORK/hdiutil.log" ||
@@ -342,9 +386,25 @@ install_app() {
   "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
 }
 
+# Show the packages a batch Emacs says it installs, on lines beginning with
+# LISPM-PACKAGE, and keep the rest of what it says in the log $1; succeed
+# as the Emacs did, which the line LISPM-STATUS ends with.
+show_packages() {
+  status=1
+  while IFS= read -r line; do
+    case $line in
+      "LISPM-PACKAGE "*) note "${line#LISPM-PACKAGE }" ;;
+      "LISPM-STATUS "*) status=${line#LISPM-STATUS } ;;
+      *) printf '%s\n' "$line" >>"$1" ;;
+    esac
+  done
+  return "$status"
+}
+
 # Install the packages LispM Desktop uses, by starting it once without a
 # display, as Emacs starts (a batch Emacs leaves the packages installed
 # before inactive); the first start then asks only how you like to work.
+# Each package is shown as it installs, as "magit (12/33)".
 install_packages() {
   say "Installing LispM's Emacs packages (a few minutes the first time)"
   log=$LISPM_HOME/install.log
@@ -352,9 +412,15 @@ install_packages() {
     tail -n 20 "$LISPM_HOME/compile.log" >&2
     fail "the packages could not be compiled again; the whole log is in $LISPM_HOME/compile.log"
   }
-  if ! "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
-    -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
-    -l "$DESKTOP/init.el" >"$log" 2>&1; then
+  : >"$log"
+  if ! {
+    status=0
+    "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
+      -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
+      -L "$DESKTOP/lisp" -l lispm-desktop-deps -f lispm-desktop-deps-batch-progress \
+      -l "$DESKTOP/init.el" 2>>"$log" || status=$?
+    printf '\nLISPM-STATUS %s\n' "$status"
+  } | show_packages "$log"; then
     tail -n 20 "$log" >&2
     fail "the packages could not all be installed; the whole log is in $log"
   fi

@@ -29,8 +29,10 @@ curl -fsSL https://lispm.ai/install.sh | sh
 [[file:install.sh][install.sh]] checks out this repository, lispm-agent and lispm-browser in =~/.lispm=,
 and makes =/Applications/LispM.app= from a signed, notarized GNU Emacs of
 [[https://github.com/jimeh/emacs-builds][jimeh/emacs-builds]], whose checksum and signature it checks.
-Nothing needs to be known about Emacs to use it.  LispM keeps itself up to date (see
-[[*Updating][Updating]]); to uninstall, delete =/Applications/LispM.app= and =~/.lispm=.
+A download the connection cuts short goes on from where it stopped, and so does the next
+run, should this one give up.  Nothing needs to be known about Emacs to use it.  LispM keeps
+itself up to date (see [[*Updating][Updating]]); to uninstall, delete =/Applications/LispM.app= and
+=~/.lispm=.
 
 LispM.app runs on Emacs 31.  The experimental LispM runs on Emacs 32, still in development, for
 what only it can do, as OpenGL drawn in a buffer ([[https://github.com/LispMachineLab/lispm-gl][lispm-gl]]):

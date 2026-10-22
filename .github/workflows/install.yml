@@ -10,6 +10,7 @@ on:
       - macos/**
       - early-init.el
       - init.el
+      - lisp/lispm-desktop-deps.el
       - lisp/lispm-desktop-early.el
       - lisp/lispm-desktop-native-comp.el
       - lisp/lispm-desktop-packages.el
@@ -20,6 +21,7 @@ on:
       - macos/**
       - early-init.el
       - init.el
+      - lisp/lispm-desktop-deps.el
       - lisp/lispm-desktop-early.el
       - lisp/lispm-desktop-native-comp.el
       - lisp/lispm-desktop-packages.el
@@ -57,7 +59,15 @@ jobs:
           git clone -q "$GITHUB_WORKSPACE" "$LISPM_HOME/lispm-desktop"
           git -C "$LISPM_HOME/lispm-desktop" checkout -q --detach "$GITHUB_SHA"
       - name: Install
-        run: sh install.sh
+        shell: bash
+        run: sh install.sh | tee "$RUNNER_TEMP/install.out"
+      # Each package was shown as it installed, counted right: the lines
+      # "    NAME (I/N)" number them one by one, out of the same N, to N.
+      - name: Check the packages shown
+        run: |
+          grep -E '^    [^ ]+ \([0-9]+/[0-9]+\)$' "$RUNNER_TEMP/install.out" | tee "$RUNNER_TEMP/packages"
+          awk -F '[(/)]' 'NR == 1 { n = $3 } $2 != NR || $3 != n { bad = 1; exit } END { exit bad || NR == 0 || NR != n }' \
+            "$RUNNER_TEMP/packages"
       - name: Check LispM.app
         run: |
           app=$LISPM_APP_DIR/LispM.app
