@@ -60,6 +60,7 @@
 
 (require 'seq)
 (require 'subr-x)
+(require 'cl-lib)
 
 (defun lispm-desktop-tr-noop (message &optional context)
   "Return MESSAGE as it is, marking it as words to translate where shown.
@@ -305,21 +306,28 @@ script written without blanks, as Chinese and Japanese; punctuation that
 may not start a line stays on the piece before it, and punctuation that
 may not end one on the piece after it.  Concatenated, the pieces are TEXT
 with its blanks made single spaces; a line starting at a piece drops its
-blank, see `lispm-desktop-i18n-wrap'."
+blank, see `lispm-desktop-i18n-wrap'.  The pieces keep TEXT's
+properties, a blank those of the last blank it stands for."
   (require 'kinsoku)
-  (let ((pieces nil) (piece nil) (blank nil) (joined nil) (breakable nil))
-    (dolist (char (string-to-list text))
-      (if (memq char '(?\s ?\t ?\n ?\r))
-          (setq blank t)
-        (let* ((categories (char-category-set char))
-               (here (aref categories ?|)))
-          (if (and piece (not blank)
-                   (or joined (aref categories ?>) (not (or here breakable))))
-              (setq piece (concat piece (string char)))
-            (when piece (push piece pieces))
-            (setq piece (concat (if (and blank piece) " " "") (string char))))
-          (setq joined (aref categories ?<) breakable here blank nil))))
-    (nreverse (if piece (cons piece pieces) pieces))))
+  (let ((pieces nil) (start nil) (end nil) (lead nil)
+        (blank nil) (joined nil) (breakable nil))
+    (cl-flet ((piece ()
+                (concat (if lead (apply #'propertize " " (text-properties-at (1- start) text)) "")
+                        (substring text start end))))
+      (dotimes (index (length text))
+        (let ((char (aref text index)))
+          (if (memq char '(?\s ?\t ?\n ?\r))
+              (setq blank t)
+            (let* ((categories (char-category-set char))
+                   (here (aref categories ?|)))
+              (unless (and start (not blank)
+                           (or joined (aref categories ?>) (not (or here breakable))))
+                (when start (push (piece) pieces))
+                (setq lead (and blank start t)
+                      start index))
+              (setq end (1+ index)
+                    joined (aref categories ?<) breakable here blank nil)))))
+      (nreverse (if start (cons (piece) pieces) pieces)))))
 
 (defun lispm-desktop-i18n-wrap (text fits)
   "Return TEXT broken into lines, each as long as FITS allows.

@@ -36,11 +36,15 @@
 ;;    :items
 ;;    ((elfeed :kind app :name "Elfeed" :subtitle "Web feeds"
 ;;             :category news :description "Read web feeds."
-;;             :icon "elfeed" :command elfeed
+;;             :icon "elfeed" :banner "elfeed" :about "elfeed"
+;;             :author "Christopher Wellons" :license "Unlicense"
+;;             :command elfeed
 ;;             :package (elfeed :url "https://github.com/skeeto/elfeed"
 ;;                              :rev "<full commit SHA>"))
 ;;     (hermes :kind extension :name "Hermes" :subtitle "An agent"
 ;;             :description "Hermes in the editor." :icon "hermes"
+;;             :banner "hermes" :about "hermes" :author "LispMachineLab"
+;;             :license "AGPL-3.0-or-later"
 ;;             :program "hermes" :install "<command installing hermes>"
 ;;             :feature lispm-hermes
 ;;             :package (lispm-hermes :url "<repository>" :rev "<SHA>"))))
@@ -49,7 +53,14 @@
 ;; `lispm-desktop-catalog-properties' lists them for its kind.  The App
 ;; Store installs applications and extensions; items of other kinds, as
 ;; LispM Agent's roles and skills, are not its own, and it passes them
-;; over.  :icon names icons/NAME.svg, 16 pixels, and icons/NAME-32.svg.
+;; over.  Each application and extension gives its whole listing, what
+;; its page in the App Store shows (`lispm-desktop-catalog-listing'):
+;; lacking any of it, it is not listed.  :icon names icons/NAME.svg, 16
+;; pixels, and icons/NAME-32.svg; :banner banners/NAME.svg, the picture
+;; over its page; :about about/NAME.md, its introduction, in the Markdown
+;; lispm-desktop-markdown.el reads, about/NAME.LANGUAGE.md in a language
+;; of `lispm-desktop-languages' where there is one; :author is who made
+;; what it installs, :license its licence, an SPDX expression.
 ;; :package is absent for a part of Emacs, the name of a package of the
 ;; package archives, or (NAME :url URL :rev SHA), a git repository
 ;; pinned to a commit, :lisp-dir naming its Lisp's directory when it is
@@ -67,30 +78,49 @@
 ;;
 ;; `lispm-desktop-catalog-item-problems' and
 ;; `lispm-desktop-catalog-problems' say what is wrong, each problem an
-;; error or a warning.  An error makes an item unsafe or unreadable: the
-;; App Store leaves it out.  A warning leaves it listed, but short of
-;; what a catalog should say, as a subtitle or an icon: a catalog's check
-;; fails on either.
+;; error or a warning.  An error makes an item unsafe, unreadable or
+;; short of its listing, its subtitle, banner or introduction, or the
+;; files its catalog lacks: the App Store leaves it out.  A warning
+;; leaves it listed, but not as a catalog should list it, as a subtitle
+;; too long or an introduction with a heading of its own: a catalog's
+;; check fails on either.
 
 ;;; Code:
 
 (require 'seq)
 (require 'subr-x)
 (require 'cl-lib)
+(require 'lispm-desktop-markdown)
 
 (defconst lispm-desktop-catalog-kinds '(app extension)
   "The kinds of item the App Store installs.")
 
+(defconst lispm-desktop-catalog-listing
+  '(:name :subtitle :description :icon :banner :about :author :license)
+  "What every application and extension gives of itself, which its page in
+the App Store shows: lacking any of it, the App Store does not list it.
+An application gives its :category too.")
+
 (defconst lispm-desktop-catalog-properties
-  '((app :required (:kind :name :subtitle :category :description :icon)
+  `((app :required (:kind ,@lispm-desktop-catalog-listing :category)
          :optional (:package :command :feature :needs :requires))
-    (extension :required (:kind :name :subtitle :description :icon :package :feature)
+    (extension :required (:kind ,@lispm-desktop-catalog-listing :package :feature)
                :optional (:program :install :requires)))
   "The properties an item of each kind has, as (KIND :required KEYS
 :optional KEYS).  An application has :command or :feature besides.")
 
-(defconst lispm-desktop-catalog-categories '(news music social productivity utilities games)
+(defconst lispm-desktop-catalog-categories '(news music social productivity utilities games classic-ai)
   "The categories an application names; every extension is in Extensions.")
+
+(defconst lispm-desktop-catalog-files
+  '((:icon "icons/%s.svg" "icons/%s-32.svg")
+    (:banner "banners/%s.svg")
+    (:about "about/%s.md"))
+  "The files of its catalog an item names, as (KEY FORMAT...): KEY's value,
+NAME, formatted with each FORMAT.")
+
+(defconst lispm-desktop-catalog-author-length 48
+  "Most characters an author has: it stands on a line of an item's page.")
 
 (defconst lispm-desktop-catalog-subtitle-length 24
   "Most characters a subtitle has: it stands under an icon in the grid.")
@@ -139,7 +169,8 @@ PATH, a library, or an application, NAME.app.")
   "Return non-nil when OBJECT names an item, an icon or a package as a
 catalog should: lower-case letters, digits and hyphens."
   (and (lispm-desktop-catalog--symbol-p object)
-       (string-match-p "\\`[a-z0-9][a-z0-9-]*\\'" (symbol-name object))))
+       (let ((case-fold-search nil))
+         (string-match-p "\\`[a-z0-9][a-z0-9-]*\\'" (symbol-name object)))))
 
 (defun lispm-desktop-catalog--line-p (object)
   "Return non-nil when OBJECT is a string of one line, trimmed, not empty."
@@ -302,6 +333,18 @@ an extension has: its feature, and the program it needs."
     (when (and (plist-member props :install) (not (plist-member props :program)))
       (short ":install says how to install its :program, which it lacks"))))
 
+(defun lispm-desktop-catalog--spdx-p (license)
+  "Return non-nil when LICENSE reads as an SPDX expression: identifiers,
+as GPL-3.0-or-later, joined by AND, OR and WITH, in brackets or not."
+  (let ((words (split-string (replace-regexp-in-string "[()]" " " license) " " t)))
+    (and words
+         (cl-loop for word in words
+                  for index from 0
+                  always (if (cl-oddp index)
+                             (member word '("AND" "OR" "WITH"))
+                           (string-match-p "\\`[A-Za-z0-9][A-Za-z0-9.+-]*\\'" word)))
+         (cl-oddp (length words)))))
+
 (defun lispm-desktop-catalog--common-problems (id kind props)
   "Return what is wrong with PROPS, the properties of the item ID of KIND,
 in what every item has."
@@ -313,10 +356,11 @@ in what every item has."
         (short "an item's ID is of lower-case letters, digits and hyphens"))
       (when-let* ((key (lispm-desktop-catalog--holds props lispm-desktop-catalog-forbidden)))
         (wrong "it holds %s: the App Store builds nothing with a command" key))
-      ;; Those an extension cannot do without are its errors, below.
+      ;; Its listing is what its page shows: without it, it is not listed.
+      ;; Its name, and what an extension cannot do without, are said below.
       (dolist (key (plist-get keys :required))
-        (unless (or (plist-member props key) (memq key '(:package :feature)))
-          (short "it needs %s" key)))
+        (unless (or (plist-member props key) (memq key '(:name :package :feature)))
+          (wrong "it needs %s" key)))
       (let ((seen nil))
         (dolist (key (lispm-desktop-catalog--keys props))
           (cond ((memq key seen) (short "%s is given twice" key))
@@ -327,28 +371,135 @@ in what every item has."
                (wrong "it needs :name, a string"))
               ((not (lispm-desktop-catalog--line-p name))
                (short ":name is a string of one line"))))
-      (dolist (key '(:description :subtitle))
+      (dolist (key '(:description :subtitle :author :license))
         (when-let* ((value (plist-get props key)))
           (cond ((not (stringp value)) (wrong "%s is a string" key))
                 ((not (lispm-desktop-catalog--line-p value)) (short "%s is a string of one line" key))
                 ((and (eq key :subtitle) (> (length value) lispm-desktop-catalog-subtitle-length))
-                 (short ":subtitle is at most %d characters" lispm-desktop-catalog-subtitle-length)))))
-      (let ((icon (plist-get props :icon)))
-        (cond ((null icon))
-              ((not (lispm-desktop-catalog-safe-file-p icon))
-               (wrong ":icon names icons/NAME.svg inside the catalog"))
-              ((not (string-match-p "\\`[a-z0-9][a-z0-9-]*\\'" icon))
-               (short ":icon is NAME of icons/NAME.svg, lower-case letters, digits and hyphens"))))
+                 (short ":subtitle is at most %d characters" lispm-desktop-catalog-subtitle-length))
+                ((and (eq key :author) (> (length value) lispm-desktop-catalog-author-length))
+                 (short ":author is at most %d characters" lispm-desktop-catalog-author-length))
+                ((and (eq key :license) (not (lispm-desktop-catalog--spdx-p value)))
+                 (short ":license is an SPDX expression, as GPL-3.0-or-later")))))
+      (pcase-dolist (`(,key ,format . ,_) lispm-desktop-catalog-files)
+        (let ((name (plist-get props key))
+              (file (format format "NAME")))
+          (cond ((null name))
+                ((not (lispm-desktop-catalog-safe-file-p name))
+                 (wrong "%s names %s inside the catalog" key file))
+                ((let ((case-fold-search nil))
+                   (not (string-match-p "\\`[a-z0-9][a-z0-9-]*\\'" name)))
+                 (short "%s is NAME of %s, lower-case letters, digits and hyphens" key file)))))
       (let ((requires (plist-get props :requires)))
         (unless (and (proper-list-p requires) (seq-every-p #'lispm-desktop-catalog--symbol-p requires))
           (wrong ":requires is a list of items' IDs"))))))
 
-(defun lispm-desktop-catalog-item-problems (item)
+(defun lispm-desktop-catalog-item-files (props &optional directory)
+  "Return the files of its catalog the item of PROPS names, relative to
+the catalog, as `lispm-desktop-catalog-files' says: its icons, its banner
+and its introduction; DIRECTORY being the catalog's clone, the
+introduction's translations there, about/NAME.LANGUAGE.md, and the
+images the introductions show from the catalog too."
+  (let ((files (cl-loop for (key . formats) in lispm-desktop-catalog-files
+                        for name = (plist-get props key)
+                        when (lispm-desktop-catalog-safe-file-p name)
+                        append (mapcar (lambda (format) (format format name)) formats))))
+    (when-let* ((directory)
+                (name (plist-get props :about))
+                ((lispm-desktop-catalog-safe-file-p name))
+                (about (expand-file-name "about" directory))
+                ((file-directory-p about)))
+      (let ((translations (mapcar (lambda (file) (concat "about/" file))
+                                  (directory-files about nil (format "\\`%s\\.[A-Za-z]+\\(?:-[A-Za-z]+\\)*\\.md\\'"
+                                                                     (regexp-quote name))))))
+        (setq files (append files translations))
+        (dolist (file (cons (format "about/%s.md" name) translations))
+          (when (file-readable-p (expand-file-name file directory))
+            (pcase-dolist (`(,_ ,source) (lispm-desktop-catalog--about-images (expand-file-name file directory)))
+              (when (and (lispm-desktop-catalog-safe-file-p source)
+                         (not (string-match-p "\\`[a-zA-Z][a-zA-Z0-9+.-]*:" source))
+                         (not (member source files)))
+                (setq files (append files (list source)))))))))
+    files))
+
+(defun lispm-desktop-catalog--about-blocks (file)
+  "Return the blocks of the introduction FILE, Markdown."
+  (lispm-desktop-markdown-parse (with-temp-buffer (insert-file-contents file) (buffer-string))))
+
+(defun lispm-desktop-catalog--about-images (file)
+  "Return the images the introduction FILE shows, as (ALT SOURCE)."
+  (lispm-desktop-markdown-images (lispm-desktop-catalog--about-blocks file)))
+
+(defun lispm-desktop-catalog--prose (blocks)
+  "Return the words of BLOCKS outside code, as Markdown's text: code, in a
+line or a block, may hold what reads as HTML, as Emacs's <up>."
+  (mapconcat (lambda (text)
+               (let ((at 0) (parts nil))
+                 (while (< at (length text))
+                   (let ((end (next-single-property-change at 'face text (length text))))
+                     (unless (memq 'lispm-desktop-markdown-code (ensure-list (get-text-property at 'face text)))
+                       (push (substring-no-properties text at end) parts))
+                     (setq at end)))
+                 (apply #'concat (nreverse parts))))
+             (lispm-desktop-markdown-texts blocks) "\n"))
+
+(defconst lispm-desktop-catalog-link-schemes '("https" "http" "mailto")
+  "The schemes of the links an introduction's page opens.")
+
+(defun lispm-desktop-catalog--about-problems (file name)
+  "Return what is wrong with the introduction FILE, named NAME, of an item:
+it says nothing, has a heading of the first level, as its page shows the
+name, or HTML, which shows as written; an image outside its catalog, or
+from the network, which its page does not fetch; a link to something
+else than a page or an address."
+  (let ((blocks (lispm-desktop-catalog--about-blocks file)))
+    (lispm-desktop-catalog--saying
+      (when (null blocks)
+        (wrong "%s says nothing" name))
+      (when (memq 1 (lispm-desktop-markdown-headings blocks))
+        (short "%s has a heading of the first level; its page shows the name above it" name))
+      (when (string-match-p "</?[A-Za-z][A-Za-z0-9-]*\\(?:[ \t\n][^>]*\\)?/?>"
+                            (lispm-desktop-catalog--prose blocks))
+        (short "%s holds HTML, which its page shows as written" name))
+      (pcase-dolist (`(,_ ,source) (lispm-desktop-markdown-images blocks))
+        (cond ((string-match-p "\\`[a-zA-Z][a-zA-Z0-9+.-]*:" source)
+               (short "%s shows %s from the network, which its page does not fetch" name source))
+              ((not (lispm-desktop-catalog-safe-file-p source))
+               (wrong "%s shows %s, which is not inside the catalog" name source))
+              ((not (string-match-p "\\.\\(?:svg\\|png\\|jpe?g\\|gif\\)\\'" source))
+               (short "%s shows %s, which is no SVG, PNG, JPEG or GIF image" name source))))
+      (pcase-dolist (`(,_ . ,url) (lispm-desktop-markdown-links blocks))
+        (unless (and (string-match "\\`\\([a-zA-Z][a-zA-Z0-9+.-]*\\):" url)
+                     (member (downcase (match-string 1 url)) lispm-desktop-catalog-link-schemes))
+          (short "%s links to %s; its page opens only %s links" name url
+                 (string-join lispm-desktop-catalog-link-schemes ", ")))))))
+
+(defun lispm-desktop-catalog--file-problems (props directory)
+  "Return what is wrong with the files the item of PROPS names in its
+catalog's clone DIRECTORY: one missing, which its page would lack, is an
+error; so is an introduction's image missing, and what
+`lispm-desktop-catalog--about-problems' says of its introductions."
+  (let ((files (lispm-desktop-catalog-item-files props directory)))
+    (append
+     (lispm-desktop-catalog--saying
+       (dolist (file files)
+         (unless (file-regular-p (expand-file-name file directory))
+           (wrong "%s is missing" file))))
+     (mapcan (lambda (file)
+               (when (and (string-prefix-p "about/" file) (string-suffix-p ".md" file)
+                          (file-regular-p (expand-file-name file directory)))
+                 (lispm-desktop-catalog--about-problems (expand-file-name file directory) file)))
+             files))))
+
+(defun lispm-desktop-catalog-item-problems (item &optional directory)
   "Return what is wrong with ITEM, (ID . PROPERTIES) of a catalog, as a
 list of (SEVERITY . TEXT): SEVERITY `error' when the App Store cannot
-list it safely, `warning' when it lists it short of what a catalog
-should say.  An item of a kind the App Store does not install, as a
-role or a skill, is not its own: nothing is said of it."
+list it, unsafe, unreadable or short of its listing, `warning' when it
+lists it, but not as a catalog should.  DIRECTORY being the catalog's
+clone, the files the item names there are looked at too, see
+`lispm-desktop-catalog--file-problems'.  An item of a kind the App Store
+does not install, as a role or a skill, is not its own: nothing is said
+of it."
   (pcase item
     (`(,id . ,props)
      (cond
@@ -363,15 +514,17 @@ role or a skill, is not its own: nothing is said of it."
                    (lispm-desktop-catalog--package-problems (plist-get props :package) kind)
                    (if (eq kind 'app)
                        (lispm-desktop-catalog--application-problems props)
-                     (lispm-desktop-catalog--extension-problems props))))))))
+                     (lispm-desktop-catalog--extension-problems props))
+                   (and directory (lispm-desktop-catalog--file-problems props directory))))))))
     (_ (list (cons 'error "an item is (ID . PROPERTIES)")))))
 
-(defun lispm-desktop-catalog-item-valid-p (item)
+(defun lispm-desktop-catalog-item-valid-p (item &optional directory)
   "Return non-nil when ITEM is an item the App Store installs and lists:
-of one of its kinds, without an error."
+of one of its kinds, without an error; DIRECTORY being its catalog's
+clone, the files it names there too."
   (and (consp item) (lispm-desktop-catalog--plist-p (cdr item))
        (memq (plist-get (cdr item) :kind) lispm-desktop-catalog-kinds)
-       (null (lispm-desktop-catalog-errors (lispm-desktop-catalog-item-problems item)))))
+       (null (lispm-desktop-catalog-errors (lispm-desktop-catalog-item-problems item directory)))))
 
 ;;;; Catalogs
 
@@ -417,8 +570,8 @@ and they leave an order to install them in."
   "Return what is wrong with CATALOG, the form a catalog.eld holds, in the
 items the App Store installs, as a list of (SEVERITY . TEXT), each TEXT
 naming the item: what `lispm-desktop-catalog-item-problems' says of
-each, IDs given twice, :requires naming no such item, and, DIRECTORY
-being the catalog's clone, the icons it names and lacks."
+each, DIRECTORY being the catalog's clone, of the files it names there
+too; IDs given twice, and :requires naming no such item."
   (if (not (and (lispm-desktop-catalog--plist-p catalog) (proper-list-p (plist-get catalog :items))))
       (list (cons 'error "the catalog is (:name NAME :items ITEMS)"))
     (let ((problems nil)
@@ -431,16 +584,13 @@ being the catalog's clone, the icons it names and lacks."
           (if (memq id ids)
               (push (cons 'warning (format "%s: two items have this ID; the first is listed" id)) problems)
             (push id ids)
-            (dolist (problem (lispm-desktop-catalog-item-problems entry))
-              (push (cons (car problem) (format "%s: %s" (if (consp entry) id entry) (cdr problem))) problems))
-            (when (lispm-desktop-catalog-item-valid-p entry)
-              (push entry items)
-              (when-let* ((icon (plist-get (cdr entry) :icon))
-                          (directory)
-                          ((lispm-desktop-catalog-safe-file-p icon)))
-                (dolist (file (list (format "icons/%s.svg" icon) (format "icons/%s-32.svg" icon)))
-                  (unless (file-regular-p (expand-file-name file directory))
-                    (push (cons 'warning (format "%s: %s is missing" id file)) problems))))))))
+            (let ((found (lispm-desktop-catalog-item-problems entry directory)))
+              (dolist (problem found)
+                (push (cons (car problem) (format "%s: %s" (if (consp entry) id entry) (cdr problem))) problems))
+              (when (and (consp entry) (lispm-desktop-catalog--plist-p (cdr entry))
+                         (memq (plist-get (cdr entry) :kind) lispm-desktop-catalog-kinds)
+                         (null (lispm-desktop-catalog-errors found)))
+                (push entry items))))))
       (append (nreverse problems) (lispm-desktop-catalog--requires-problems (nreverse items))))))
 
 (provide 'lispm-desktop-catalog)

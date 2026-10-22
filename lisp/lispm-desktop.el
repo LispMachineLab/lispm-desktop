@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.8.0
+;; Version: 0.9.0
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
@@ -74,6 +74,8 @@
 (require 'lispm-desktop-deps)
 ;; The browser is lispm-browser, which the desktop's browser files require.
 (lispm-desktop-deps-ensure 'lispm-browser)
+;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
+(lispm-desktop-deps-ensure 'lispm)
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
@@ -120,8 +122,8 @@
 (require 'lispm-desktop-agent-list)
 (require 'lispm-desktop-shells)
 (require 'lispm-desktop-lispm)
-(require 'lispm-desktop-agent-claude)
-(require 'lispm-desktop-agent-codex)
+(require 'lispm-agents-claude)
+(require 'lispm-agents-codex)
 (require 'lispm-desktop-kernel)
 
 (defvar nerd-icons-font-family)
@@ -236,8 +238,8 @@ boxes.  A download that fails, as offline, is only reported."
           (condition-case err
               (lispm-desktop-setup-lispm)
             (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
-          (lispm-desktop-setup-claude)
-          (lispm-desktop-setup-codex)
+          (lispm-agents-setup-claude)
+          (lispm-agents-setup-codex)
           ;; After the agents, whose sessions it reads; off unless asked for.
           (lispm-desktop-setup-kernel)
           ;; After init, so personal.el can still set `lispm-desktop-window-manager'.

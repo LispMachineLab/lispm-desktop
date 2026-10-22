@@ -100,10 +100,12 @@ Optional, used when present:
   and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
   Traditional; the computer's by default, asked at the first start.
-- *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, ...) and
-  extensions from [[https://github.com/LispMachineLab/lispm-store][lispm-store]], pinned to reviewed commits, installed in the background with the
-  Homebrew programs they need.  Their windows get title bars, buttons, placards, menus and
-  alerts worked out from their keymaps (~lispm-desktop-app-ui-define~ describes the rest).
+- *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, Classic AI's
+  Doctor, MYCIN and SHRDLU, ...) and extensions from [[https://github.com/LispMachineLab/lispm-store][lispm-store]], pinned to reviewed commits,
+  installed in the background with the Homebrew programs they need.  Each has a page: its banner,
+  its introduction in Markdown, who made it and under what licence.  Their windows get title
+  bars, buttons, placards, menus and alerts worked out from their keymaps
+  (~lispm-desktop-app-ui-define~ describes the rest).
 - *A browser*, in Emacs built with xwidgets: LispM Browser drawn as Netscape Communicator, with
   tabs, history, bookmarks, Vimium-style hints and, on macOS 15.4+, Chrome extensions.
 - *Windows out on the screen*, on macOS: a floating window dropped past the desktop's edge joins
@@ -304,6 +306,8 @@ desktop's in one way, the App Store's, at its install and at every start.
    still runs in any Emacs.
 3. *Its catalog item* in [[https://github.com/LispMachineLab/lispm-store][lispm-store]] is the only place saying what it is called, its subtitle, icon,
    category, description and needs; the App Store takes them from there, never from the package.
+   It gives its whole listing, or the App Store does not list it: its banner, its introduction in
+   Markdown (=lisp/lispm-desktop-markdown.el= reads it), its author and its licence.
 4. *The checks*: =lisp/lispm-desktop-catalog.el= is the catalog's format, the one the App Store reads
    with and lispm-store's =make check= loads; =M-x lispm-desktop-store-check-catalog= lists what is
    wrong with a catalog of your own.  An error keeps an item out of the App Store, a warning fails the
