@@ -77,6 +77,7 @@
 (declare-function lispm-kernel-program-stop "ext:lispm-kernel-program" ())
 (declare-function lispm-kernel-program--busy-p "ext:lispm-kernel-program" ())
 (declare-function custom-variable-save "cus-edit" (widget))
+(declare-function lm-version "lisp-mnt" (&optional file))
 (declare-function widget-default-notify "wid-edit" (widget child &optional event))
 
 (defcustom lispm-desktop-kernel t
@@ -307,6 +308,15 @@ modes off."
 This watches the variable once LispM is set up; binding it does nothing."
   (when (eq operation 'set)
     (lispm-desktop-kernel-apply value)))
+
+(defun lispm-desktop-kernel-version ()
+  "Return the version of lispm-kernel's Lisp, as its header says, or nil
+when it is not there."
+  (when-let* ((file (locate-library "lispm-kernel.el" t)))
+    (require 'lisp-mnt)
+    (with-temp-buffer
+      (insert-file-contents file nil 0 2048)
+      (lm-version))))
 
 (defun lispm-desktop-setup-kernel ()
   "Turn lispm-kernel on when `lispm-desktop-kernel' says so, and follow it.

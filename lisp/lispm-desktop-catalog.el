@@ -74,7 +74,9 @@
 ;; what it needs on PATH, :install how to install that.  :needs are what
 ;; an application uses beyond Emacs, each (KIND NAME :for WHAT ...), see
 ;; `lispm-desktop-catalog-need-properties'.  :requires names the items
-;; installed before it.
+;; installed before it.  :emacs is the lowest major version of Emacs it
+;; runs in, as 32 for what only Emacs 32's canvas images can show: an
+;; older Emacs's App Store lists it, but does not install it.
 ;;
 ;; `lispm-desktop-catalog-item-problems' and
 ;; `lispm-desktop-catalog-problems' say what is wrong, each problem an
@@ -103,9 +105,9 @@ An application gives its :category too.")
 
 (defconst lispm-desktop-catalog-properties
   `((app :required (:kind ,@lispm-desktop-catalog-listing :category)
-         :optional (:package :command :feature :needs :requires))
+         :optional (:package :command :feature :needs :requires :emacs))
     (extension :required (:kind ,@lispm-desktop-catalog-listing :package :feature)
-               :optional (:program :install :requires)))
+               :optional (:program :install :requires :emacs)))
   "The properties an item of each kind has, as (KIND :required KEYS
 :optional KEYS).  An application has :command or :feature besides.")
 
@@ -392,7 +394,10 @@ in what every item has."
                  (short "%s is NAME of %s, lower-case letters, digits and hyphens" key file)))))
       (let ((requires (plist-get props :requires)))
         (unless (and (proper-list-p requires) (seq-every-p #'lispm-desktop-catalog--symbol-p requires))
-          (wrong ":requires is a list of items' IDs"))))))
+          (wrong ":requires is a list of items' IDs")))
+      (when-let* ((emacs (plist-get props :emacs)))
+        (unless (and (natnump emacs) (<= 30 emacs 99))
+          (wrong ":emacs is the lowest major version of Emacs it runs in, as 32"))))))
 
 (defun lispm-desktop-catalog-item-files (props &optional directory)
   "Return the files of its catalog the item of PROPS names, relative to

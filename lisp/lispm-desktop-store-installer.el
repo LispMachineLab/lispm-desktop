@@ -337,6 +337,10 @@ nothing, and keep no customization, which the App Store's Emacs keeps."
   (setq lispm-desktop-store-installer--reporting t)
   (when (boundp 'native-comp-jit-compilation)
     (setq native-comp-jit-compilation nil))
+  ;; Advice on primitives, below, compiles trampolines at once; this Emacs
+  ;; runs with -Q, so LispM.app's mending of native compilation is not done.
+  (when (require 'lispm-desktop-native-comp nil t)
+    (lispm-desktop-native-comp-mend))
   ;; The App Store's Emacs remembers the clone as a project, if it does:
   ;; this one's list of projects would be written over by that one's.
   (setq package-vc-register-as-project nil)

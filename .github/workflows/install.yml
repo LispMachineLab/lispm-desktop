@@ -12,6 +12,7 @@ on:
       - init.el
       - lisp/lispm-desktop-deps.el
       - lisp/lispm-desktop-early.el
+      - lisp/lispm-desktop-native-comp.el
       - lisp/lispm-desktop-packages.el
       - .github/workflows/install.yml
   pull_request:
@@ -22,6 +23,7 @@ on:
       - init.el
       - lisp/lispm-desktop-deps.el
       - lisp/lispm-desktop-early.el
+      - lisp/lispm-desktop-native-comp.el
       - lisp/lispm-desktop-packages.el
       - .github/workflows/install.yml
   workflow_dispatch:
@@ -31,16 +33,22 @@ permissions:
 
 jobs:
   install:
-    name: LispM.app on ${{ matrix.os }}
+    name: LispM.app on ${{ matrix.os }}, Emacs ${{ matrix.emacs }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, macos-15-intel]
+        emacs: ['31']
+        # The experimental LispM, on Apple silicon only.
+        include:
+          - os: macos-latest
+            emacs: '32'
     env:
       LISPM_HOME: ${{ github.workspace }}/../lispm
       LISPM_APP_DIR: ${{ github.workspace }}/../Applications
       LISPM_OPEN: '0'
+      LISPM_EMACS: ${{ matrix.emacs }}
     steps:
       - uses: actions/checkout@v7
       # The installer keeps a checkout it finds on no branch as it is, so
@@ -80,7 +88,9 @@ jobs:
               (load (expand-file-name "lisp/lispm-desktop-early" user-emacs-directory) nil t)
               (require (quote comp))
               (native-compile (quote (lambda (x) (1+ x))))
-              (princ (format "LispM runs %s\n" user-emacs-directory)))'
+              (unless (= emacs-major-version (string-to-number (getenv "LISPM_EMACS")))
+                (error "Not Emacs %s: %s" (getenv "LISPM_EMACS") emacs-version))
+              (princ (format "LispM runs %s on Emacs %s\n" user-emacs-directory emacs-version)))'
       - name: Show what failed
         if: failure()
         run: |

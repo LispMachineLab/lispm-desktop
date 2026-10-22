@@ -7134,15 +7134,25 @@ menu of the module beside, as along the menu bar."
         (should (equal (lispm-desktop-strip--walk (lispm-desktop-strip--modules) 0) '(nil . 0)))
         (should (equal opened '(appearance mail appearance)))))))
 
+(ert-deftest lispm-desktop-test-native-comp-builds-for-macos-11 ()
+  "Native compilation's driver options build for macOS 11 or later, unless
+they name a macOS already; set before comp.el loads, the Emacsen compiling
+in the background take them."
+  (require 'lispm-desktop-native-comp)
+  (should (equal (lispm-desktop-native-comp--driver-options '("-Wl,-w"))
+                 '("-Wl,-w" "-mmacosx-version-min=11.0")))
+  (should (equal (lispm-desktop-native-comp--driver-options '("-mmacosx-version-min=12.0"))
+                 '("-mmacosx-version-min=12.0"))))
+
 (ert-deftest lispm-desktop-test-library-path-takes-the-chosen-sdk ()
   "Only the command line tools' SDK on LIBRARY_PATH gives way to the chosen one."
-  (require 'lispm-desktop-early)
+  (require 'lispm-desktop-native-comp)
   (let ((path-separator ":")
         (xcode "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib"))
-    (should (equal (lispm-desktop-early--library-path
+    (should (equal (lispm-desktop-native-comp--library-path
                     "/a/gcc/lib/:/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/:/opt/lib" xcode)
                    (concat "/a/gcc/lib/:" xcode ":/opt/lib")))
-    (should (equal (lispm-desktop-early--library-path "/a/gcc/lib" xcode) "/a/gcc/lib"))))
+    (should (equal (lispm-desktop-native-comp--library-path "/a/gcc/lib" xcode) "/a/gcc/lib"))))
 
 ;;;; Applications and the App Store
 
@@ -7916,6 +7926,21 @@ when given."
   (mapcan (pcase-lambda (`(,kind . ,text)) (and (or (null severity) (eq kind severity)) (list text)))
           (lispm-desktop-catalog-item-problems item)))
 
+;; An item needing a newer Emacs is listed, but not installed.
+(ert-deftest lispm-desktop-test-store-needs-a-newer-emacs ()
+  "An item whose :emacs is newer than this Emacs shows Needs Emacs N on a
+button that does nothing, says so on its page, and is not installed; one
+whose :emacs this Emacs is installs as any other."
+  (let ((newer (list :kind 'app :name "Doom" :emacs (1+ emacs-major-version)))
+        (here (list :kind 'app :name "Doom" :emacs emacs-major-version)))
+    (should (equal (lispm-desktop-store--action 'doom newer)
+                   (list (format "Needs Emacs %d" (1+ emacs-major-version)))))
+    (should (equal (lispm-desktop-store--action 'doom here) '("Get" . install)))
+    (should (string-search (format "runs in Emacs %d or later" (1+ emacs-major-version))
+                           (lispm-desktop-store--notes newer)))
+    (should-error (lispm-desktop-store--check-program newer) :type 'user-error)
+    (should-not (lispm-desktop-store--check-program here))))
+
 (ert-deftest lispm-desktop-test-catalog-item-problems ()
   "The format of a catalog's item is said once: an item listed with
 everything is well; one the App Store cannot list, unsafe or short of
@@ -7961,7 +7986,9 @@ neither."
                     (:package (elfeed :url "https://example.org/e" :rev "r" :make "all") ":make")
                     (:package (elfeed :url "https://example.org/e" :rev "r" :lisp-dir "/lisp") ":lisp-dir")
                     (:needs ((program "mpv" :for "playing" :brew "mpv; rm -rf ~")) "Homebrew")
-                    (:requires elfeed ":requires")))
+                    (:requires elfeed ":requires")
+                    (:emacs "32" ":emacs is the lowest major version")
+                    (:emacs 29 ":emacs is the lowest major version")))
       (pcase-let ((`(,key ,value ,said) case))
         (let ((wrong (funcall item key value)))
           (should-not (lispm-desktop-catalog-item-valid-p wrong))
@@ -7970,6 +7997,7 @@ neither."
                                         t))
                          (list key t))))))
     (should (lispm-desktop-test--problems '(x :kind extension :name "X" :feature x) 'error))
+    (should (lispm-desktop-catalog-item-valid-p (funcall item :emacs 32)))
     (should (equal (lispm-desktop-test--problems '(x :kind extension :name "X" :subtitle "X" :description "X."
                                                      :icon "x" :banner "x" :about "x" :author "X"
                                                      :license "MIT" :feature x :package x))
@@ -9875,6 +9903,226 @@ the application's folder, opening LispM after only when restarting."
     (should (string-search "LISPM_OPEN=1" command))
     (should (string-search "/Users/me/.lispm/lispm-desktop/install.sh" command))
     (should (string-search "LISPM_OPEN=0" (lispm-desktop-update--installer-command "/Applications/LispM.app" nil)))))
+
+;;;; Switching the Emacs LispM.app runs on
+
+(defun lispm-desktop-test--emacs-app (directory build)
+  "Make a LispM.app in DIRECTORY whose Emacs is BUILD, as install.sh's
+property list names it; return it."
+  (let ((app (expand-file-name "LispM.app" directory)))
+    (make-directory (expand-file-name "Contents" app) t)
+    (with-temp-file (expand-file-name "Contents/Info.plist" app)
+      (insert "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n"
+              "\t<key>CFBundleName</key>\n\t<string>LispM</string>\n"
+              "\t<key>LispMEmacsBuild</key>\n\t<string>" build "</string>\n</dict>\n</plist>\n"))
+    app))
+
+(defconst lispm-desktop-test--emacs-builds
+  '("Emacs.2026-08-24.a360712.emacs-31-1.macOS-11" . "Emacs.2026-10-21.3354d07.master.macOS-11")
+  "The builds install.sh pins for Emacs 31 and 32.")
+
+(defmacro lispm-desktop-test--with-emacs-home (&rest body)
+  "Run BODY with LispM's home a new directory, bound to `home', LispM.app
+in it on Emacs 31, bound to `app', and the switching state cleared."
+  (declare (indent 0))
+  `(let* ((home (make-temp-file "lispm-desktop-test-emacs" t))
+          (app (lispm-desktop-test--emacs-app
+                (expand-file-name "Applications" home)
+                (concat (car lispm-desktop-test--emacs-builds) ".arm64")))
+          (lispm-desktop-emacs--process nil)
+          (lispm-desktop-emacs--target nil)
+          (lispm-desktop-emacs--progress nil)
+          (lispm-desktop-emacs--told 0)
+          (lispm-desktop-emacs-problem nil)
+          (lispm-desktop-emacs--switch-on-quit nil)
+          (lispm-desktop-emacs-changed-hook nil))
+     (unwind-protect
+         (cl-letf (((symbol-function 'lispm-desktop-emacs--home) (lambda () home))
+                   ((symbol-function 'lispm-desktop-emacs-app) (lambda () app)))
+           ,@body)
+       (when (process-live-p lispm-desktop-emacs--process)
+         (delete-process lispm-desktop-emacs--process))
+       (delete-directory home t))))
+
+(ert-deftest lispm-desktop-test-emacs-builds-from-install-sh ()
+  "The builds offered are the ones install.sh pins: Emacs 31 released,
+Emacs 32 in development."
+  (let ((builds (lispm-desktop-emacs-builds)))
+    (should (equal (mapcar (lambda (build) (plist-get build :major)) builds) '(31 32)))
+    (should (equal (plist-get (lispm-desktop-emacs-build 31 builds) :build) (car lispm-desktop-test--emacs-builds)))
+    (should (equal (plist-get (lispm-desktop-emacs-build 32 builds) :build) (cdr lispm-desktop-test--emacs-builds)))
+    (should-not (plist-get (lispm-desktop-emacs-build 31 builds) :development))
+    (should (plist-get (lispm-desktop-emacs-build 32 builds) :development))
+    (should (equal (lispm-desktop-emacs-build-date (lispm-desktop-emacs-build 32 builds)) "2026-10-21"))
+    (should (equal (lispm-desktop-emacs-name 31 "31.1") "GNU Emacs 31.1"))
+    (should (equal (lispm-desktop-emacs-name 32 "32.0.50") "GNU Emacs 32, in development"))
+    (should (eql (lispm-desktop-emacs-build-major (concat (cdr lispm-desktop-test--emacs-builds) ".arm64")) 32))
+    (should (eql (lispm-desktop-emacs-build-major "Emacs.2026-01-02.abcdef0.emacs-30-2.macOS-11.arm64") 30))))
+
+(ert-deftest lispm-desktop-test-emacs-kept-and-staged ()
+  "LispM.app's Emacs is read from its property list; what is staged is
+ready unless it is of the Emacs running; the backup is told."
+  (lispm-desktop-test--with-emacs-home
+    (should (equal (lispm-desktop-emacs-app-build app) (concat (car lispm-desktop-test--emacs-builds) ".arm64")))
+    (should-not (lispm-desktop-emacs-staged))
+    (should-not (lispm-desktop-emacs-backup))
+    (let ((other (if (eql emacs-major-version 32) 31 32)))
+      (lispm-desktop-test--emacs-app (expand-file-name "staging" home)
+                                     (concat (if (eql other 32) (cdr lispm-desktop-test--emacs-builds)
+                                               (car lispm-desktop-test--emacs-builds))
+                                             ".arm64"))
+      (should (eql (plist-get (lispm-desktop-emacs-staged) :major) other))
+      (should (eql (lispm-desktop-emacs-target) other)))
+    (lispm-desktop-test--emacs-app (expand-file-name "backup" home)
+                                   (concat (car lispm-desktop-test--emacs-builds) ".arm64"))
+    (should (eql (plist-get (lispm-desktop-emacs-backup) :major) 31))))
+
+(defun lispm-desktop-test--emacs-offered (&optional _installer)
+  "Return the builds install.sh pins, for a stand-in install.sh that pins
+none."
+  (list (list :major 31 :version "31.1" :build (car lispm-desktop-test--emacs-builds))
+        (list :major 32 :version "32.0.50" :build (cdr lispm-desktop-test--emacs-builds) :development t)))
+
+(defun lispm-desktop-test--fake-installer (home script)
+  "Write a stand-in for install.sh in HOME running SCRIPT; return it."
+  (let ((file (expand-file-name "install.sh" home)))
+    (with-temp-file file
+      (insert "#!/bin/sh\n" script "\n"))
+    file))
+
+(defun lispm-desktop-test--wait-for-staging ()
+  "Wait until staging has ended, ten seconds at most."
+  (let ((deadline (+ (float-time) 10)))
+    (while (and (lispm-desktop-emacs-staging-p) (< (float-time) deadline))
+      (accept-process-output lispm-desktop-emacs--process 0.05))
+    ;; The sentinel runs once the process is gone.
+    (accept-process-output nil 0.05)))
+
+(ert-deftest lispm-desktop-test-emacs-stages-in-the-background ()
+  "Staging runs install.sh's stage step for the Emacs chosen, with LispM's
+places, follows the download's progress, and tells when it is ready."
+  (lispm-desktop-test--with-emacs-home
+    (let* ((other (if (eql emacs-major-version 32) 31 32))
+           (build (if (eql other 32) (cdr lispm-desktop-test--emacs-builds) (car lispm-desktop-test--emacs-builds)))
+           (installer (lispm-desktop-test--fake-installer
+                       home (concat "echo \"$LISPM_STEP $LISPM_EMACS $LISPM_HOME $LISPM_APP_DIR\" > \"$LISPM_HOME/args\"\n"
+                                    "printf '##########   45.0%%\\r'\nsleep 0.2\nprintf '####################  100.0%%\\n'\n"
+                                    "mkdir -p \"$LISPM_HOME/staging/LispM.app/Contents\"\n"
+                                    "printf '<key>LispMEmacsBuild</key>\\n<string>" build ".arm64</string>\\n' "
+                                    "> \"$LISPM_HOME/staging/LispM.app/Contents/Info.plist\"")))
+           (progress nil)
+           (lispm-desktop-emacs-changed-hook
+            (list (lambda () (when (lispm-desktop-emacs-progress) (push (lispm-desktop-emacs-progress) progress))))))
+      (cl-letf (((symbol-function 'lispm-desktop-emacs--installer) (lambda () installer))
+                ((symbol-function 'lispm-desktop-emacs-builds) #'lispm-desktop-test--emacs-offered))
+        (lispm-desktop-emacs-stage other)
+        (should (lispm-desktop-emacs-staging-p))
+        (should (eql (lispm-desktop-emacs-target) other))
+        (lispm-desktop-test--wait-for-staging)
+        (should (member 45.0 progress))
+        (should-not lispm-desktop-emacs-problem)
+        (should (eql (plist-get (lispm-desktop-emacs-staged) :major) other))
+        (should (equal (string-trim (with-temp-buffer (insert-file-contents (expand-file-name "args" home)) (buffer-string)))
+                       (format "stage %d %s %s" other home (directory-file-name (file-name-directory app)))))
+        ;; Choosing the Emacs running forgets what was staged.
+        (lispm-desktop-emacs-stage emacs-major-version)
+        (should-not (lispm-desktop-emacs-staged))
+        (should-not (file-exists-p (expand-file-name "staging/LispM.app" home)))))))
+
+(ert-deftest lispm-desktop-test-emacs-staging-says-why-not ()
+  "A stage step that fails leaves nothing staged, and says what install.sh
+said."
+  (lispm-desktop-test--with-emacs-home
+    (let ((installer (lispm-desktop-test--fake-installer
+                      home "echo 'LispM: the Emacs downloaded is not the one expected; nothing was installed' >&2\nexit 1"))
+          (other (if (eql emacs-major-version 32) 31 32)))
+      (cl-letf (((symbol-function 'lispm-desktop-emacs--installer) (lambda () installer))
+                ((symbol-function 'lispm-desktop-emacs-builds) #'lispm-desktop-test--emacs-offered)
+                ((symbol-function 'message) #'ignore))
+        (lispm-desktop-emacs-stage other)
+        (lispm-desktop-test--wait-for-staging)
+        (should (equal lispm-desktop-emacs-problem
+                       "the Emacs downloaded is not the one expected; nothing was installed"))
+        (should-not (lispm-desktop-emacs-staged))))))
+
+(ert-deftest lispm-desktop-test-emacs-switches-as-lispm-quits ()
+  "Restart to Switch runs install.sh's switch step once this Emacs has
+quit, only when asked for and something is staged; a quit called off
+calls it off."
+  (lispm-desktop-test--with-emacs-home
+    (let ((ran nil)
+          (other (if (eql emacs-major-version 32) 31 32)))
+      (should (string-search (format "kill -0 %d" (emacs-pid)) (lispm-desktop-emacs--switch-command)))
+      (should (string-search (expand-file-name "switch.log" home) (lispm-desktop-emacs--switch-command)))
+      (should-error (lispm-desktop-emacs-restart) :type 'user-error)
+      (lispm-desktop-test--emacs-app (expand-file-name "staging" home)
+                                     (concat (if (eql other 32) (cdr lispm-desktop-test--emacs-builds)
+                                               (car lispm-desktop-test--emacs-builds))
+                                             ".arm64"))
+      (cl-letf (((symbol-function 'save-buffers-kill-emacs) #'ignore)
+                ((symbol-function 'call-process)
+                 (lambda (&rest args) (push (cons process-environment args) ran) 0)))
+        (let ((noninteractive nil))
+          (lispm-desktop-emacs--switch)
+          (should-not ran)
+          ;; Quitting called off: nothing switches as LispM quits later.
+          (lispm-desktop-emacs-restart)
+          (should-not lispm-desktop-emacs--switch-on-quit)
+          (setq lispm-desktop-emacs--switch-on-quit t)
+          (lispm-desktop-emacs--switch)
+          (should (= (length ran) 1))
+          (should (member "LISPM_STEP=switch" (car (car ran))))
+          (should (member (concat "LISPM_HOME=" home) (car (car ran)))))))))
+
+(ert-deftest lispm-desktop-test-settings-kernel-panel-emacs ()
+  "The Kernel panel, below LispM Kernel, offers the Emacs builds install.sh
+pins, the one running chosen; choosing another stages it, and Restart to
+Switch shows once it is ready."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-emacs-home
+    (let ((saved nil)
+          (staged nil)
+          (lispm-desktop-kernel nil)
+          (other (if (eql emacs-major-version 32) 31 32)))
+      (cl-letf (((symbol-function 'customize-save-variable)
+                 (lambda (variable value) (push (cons variable value) saved)))
+                ((symbol-function 'lispm-desktop-emacs-stage) (lambda (major) (setq staged major))))
+        (with-current-buffer (lispm-desktop-settings--buffer)
+          (lispm-desktop-settings-select 'kernel)
+          (let ((text (concat (buffer-string)
+                              (mapconcat #'identity
+                                         (delq nil (mapcar (lambda (position)
+                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (number-sequence (point-min) (1- (point-max)))))
+                                         " "))))
+            (dolist (label '("LispM Kernel" "Use LispM Kernel" "Off: Emacs reads the sessions itself."
+                             "Emacs Kernel" "GNU Emacs 31.1" "GNU Emacs 32, in development"
+                             "~/.lispm/backup"))
+              (should (string-search label text)))
+            ;; An Emacs install.sh does not offer, such as 30, is named, not chosen.
+            (should (string-search (if (memql emacs-major-version '(31 32)) "running now"
+                                     (format "LispM runs on GNU Emacs %s." emacs-version))
+                                   text)))
+          (let ((press (lambda (label)
+                         (let ((button (next-button (point-min))))
+                           (while (and button (not (string-search label (button-label button))))
+                             (setq button (next-button (button-end button))))
+                           (should button)
+                           (button-activate button)))))
+            (funcall press "Use LispM Kernel")
+            (should (equal (car saved) '(lispm-desktop-kernel . t)))
+            (funcall press (lispm-desktop-emacs-name other))
+            (should (eql staged other))))
+        (lispm-desktop-test--emacs-app (expand-file-name "staging" home)
+                                       (concat (if (eql other 32) (cdr lispm-desktop-test--emacs-builds)
+                                                 (car lispm-desktop-test--emacs-builds))
+                                               ".arm64"))
+        (with-current-buffer (lispm-desktop-settings--buffer)
+          (lispm-desktop-settings--render)
+          (should (seq-some (lambda (position)
+                              (equal (get-text-property position 'lispm-desktop-platinum-label) "Restart to Switch"))
+                            (number-sequence (point-min) (1- (point-max))))))))))
 
 (ert-deftest lispm-desktop-test-settings-update-panel ()
   "The Software Update panel offers Update Now, what the check found and
