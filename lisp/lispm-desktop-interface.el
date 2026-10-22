@@ -324,6 +324,9 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
   ;; display this changes nothing.
   (when lispm-desktop-tty-mouse
     (xterm-mouse-mode 1))
+  ;; A window moved on a text terminal leaves no copy where it was.
+  (when (featurep 'tty-child-frames)
+    (add-function :before pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames))
   (when (lispm-desktop-macos-p)
     (define-key global-map [ns-drag-file] 'ns-find-file))
   (when (lispm-desktop-gui-p)
