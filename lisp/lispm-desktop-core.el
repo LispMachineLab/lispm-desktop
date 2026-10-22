@@ -188,6 +188,13 @@ no display to draw on and is not one: what it draws, as for tests, is
 what a graphical display gets."
   (and (not noninteractive) (not (display-graphic-p frame))))
 
+(defun lispm-desktop-graphic-binding (command)
+  "Return a key binding running COMMAND, but on a text terminal none.
+A text terminal sends Meta-[ and Meta-] as ESC [ and ESC ], with which
+the arrows, the mouse and the terminal's answers begin too; bound
+there, those keys would swallow them."
+  `(menu-item "" ,command :filter ,(lambda (command) (unless (lispm-desktop-tty-p) command))))
+
 (defun lispm-desktop-px (pixels)
   "Return PIXELS, a length the chrome was drawn to in pixels, for the
 selected frame.  A text terminal counts a cell as a pixel, so there it

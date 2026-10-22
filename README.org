@@ -207,20 +207,22 @@ Emacs commands, and programs run in the background while LispM runs, their outpu
 
 ** Background work
 
-LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a Rust runtime for work Emacs should not wait on, is off by default.
-Turned on, it reads the agents' sessions for the sidebar on threads of its own, on the desktop's
-frame clock; the sidebar shows the sessions it has while it reads them anew.
+LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a runtime for work Emacs should not wait on, is off by default.
+It is a Common Lisp program, SBCL's runtime and the kernel's core in one executable, that Emacs
+runs as a process, the two talking in S-expressions.  Turned on, it reads the agents' sessions for
+the sidebar on threads of its own, and Emacs takes them in on the desktop's frame clock; the
+sidebar shows the sessions it has while it reads them anew.
 
 #+begin_src emacs-lisp
 (setopt lispm-desktop-kernel t)                 ; at once, and at every start
 #+end_src
 
 Its Lisp comes from =../lispm-kernel= beside this checkout, else package-vc installs its latest
-release.  It gets its module itself, in the background: downloaded as built for this computer
-by its =kernel module= workflow, and kept only when its SHA-256 is the one pinned in the kernel's
-repository, beside its Lisp; nothing is built unless ~lispm-kernel-library-source~ is ~build~.
-Until the module is there, and where it cannot be, the sidebar reads sessions as it does without
-the kernel, and a message says why.
+release.  It gets its program itself, in the background: downloaded as built for this computer
+by its =kernel program= workflow, and kept only when its SHA-256 is the one pinned in the kernel's
+repository, beside its Lisp; nothing is built unless ~lispm-kernel-program-source~ is ~build~,
+when SBCL builds it.  Until the program is there, and where it cannot be, the sidebar reads
+sessions as it does without the kernel, and a message says why.
 
 ** Updating
 
@@ -275,6 +277,27 @@ mouse works where the terminal reports it (=lispm-desktop-tty-mouse=; hold Shift
 the terminal's way), and Escape is typed twice in menus, as in Emacs's own.  Colours are exact
 with =COLORTERM=truecolor=, the nearest of 256 otherwise.  The browser, the guide, the Control
 Strip and the pointer watch need a graphical display.
+
+* Writing an application
+
+An application of the App Store is an Emacs package and one item of a catalog; it becomes the
+desktop's in one way, the App Store's, at its install and at every start.
+
+1. *The package* opens it with an autoloaded command showing its buffer, which the App Store runs in
+   the application's window.  Only an application running windows of its own, as [[https://github.com/LispMachineLab/lispm-stickies][Stickies]] does,
+   gives a ~:feature~ instead: a library that, loaded, says what it does with
+   ~(lispm-desktop-define-app 'ID :activate ... :menus ... :running ...)~, ID being its catalog item's,
+   and undoes its hooks in ~FEATURE-unload-function~.
+2. *Its interface* is worked out from its mode; say the rest (buttons, status, pages) with
+   ~lispm-desktop-app-ui-define~ inside ~(with-eval-after-load 'lispm-desktop-app-ui ...)~, so the package
+   still runs in any Emacs.
+3. *Its catalog item* in [[https://github.com/LispMachineLab/lispm-store][lispm-store]] is the only place saying what it is called, its subtitle, icon,
+   category, description and needs; the App Store takes them from there, never from the package.
+4. *The checks*: =lisp/lispm-desktop-catalog.el= is the catalog's format, the one the App Store reads
+   with and lispm-store's =make check= loads; =M-x lispm-desktop-store-check-catalog= lists what is
+   wrong with a catalog of your own.  An error keeps an item out of the App Store, a warning fails the
+   check.
+5. *A pull request* to lispm-store adds the item, pinned to a reviewed commit (see its README).
 
 * Development
 

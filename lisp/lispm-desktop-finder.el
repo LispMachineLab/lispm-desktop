@@ -703,8 +703,8 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
   "M-<down>" #'lispm-desktop-finder-open
   "M-<up>" #'lispm-desktop-finder-up
   "DEL" #'lispm-desktop-finder-up
-  "M-[" #'lispm-desktop-finder-back
-  "M-]" #'lispm-desktop-finder-forward
+  "M-[" (lispm-desktop-graphic-binding #'lispm-desktop-finder-back)
+  "M-]" (lispm-desktop-graphic-binding #'lispm-desktop-finder-forward)
   "M-N" #'lispm-desktop-finder-new-folder
   "M-DEL" #'lispm-desktop-finder-move-to-trash
   "M-<backspace>" #'lispm-desktop-finder-move-to-trash
