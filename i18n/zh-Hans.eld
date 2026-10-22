@@ -657,6 +657,8 @@
   ("About LispM" . "关于 LispM")
   ("Customize lispm-desktop…" . "自定 lispm-desktop…")
   ("LispM, a Lisp Machine for agents, inside Emacs." . "LispM，在 Emacs 中为智能体打造的 Lisp 机器。")
+  ("Licence" . "许可证")
+  ("lispm-desktop, running on GNU Emacs %s.  GNU Emacs is free software: you may share and change it under the GNU General Public License, version 3 or later." . "lispm-desktop，运行于 GNU Emacs %s。GNU Emacs 是自由软件：你可以依照 GNU 通用公共许可证（GPL）第 3 版或更高版本分享和修改它。")
   ("New Workspace" . "新建工作区")
   ("Close Workspace" . "关闭工作区")
   ("Workspaces" . "工作区")
