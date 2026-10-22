@@ -104,7 +104,9 @@ Optional, used when present:
   Traditional; the computer's by default, asked at the first start.
 - *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, Classic AI's
   Doctor, MYCIN and SHRDLU, ...) and extensions from [[https://github.com/LispMachineLab/lispm-store][lispm-store]], pinned to reviewed commits,
-  installed in the background with the Homebrew programs they need.  Each has a page: its banner,
+  installed in the background with the Homebrew or Cargo programs they need.  What comes with
+  LispM, as Rotom, the gateway to the models of your accounts, installs by itself, once; uninstalled,
+  it stays so.  Each has a page: its banner,
   its introduction in Markdown, who made it and under what licence.  Their windows get title
   bars, buttons, placards, menus and alerts worked out from their keymaps
   (~lispm-desktop-app-ui-define~ describes the rest).

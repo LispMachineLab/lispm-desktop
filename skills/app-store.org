@@ -30,7 +30,8 @@ over the App Store, and names the functions behind them for ~eval_elisp~.
   skill tool, or find their tools with search_tools.
 - ~store_update~ ID: update an item to what its catalog lists now: its package, and the skills
   that came with it.
-- ~store_uninstall~ ID: uninstall an item; the skills that came with it go too.  What it brought
+- ~store_uninstall~ ID: uninstall an item; the skills that came with it go too.  One that comes
+  with LispM, as Rotom, installed itself once; uninstalled, it stays so.  What it brought
   beyond its own package, programs and packages nothing else uses, stays; the user removes them
   with Uninstall All in the App Store.
 
@@ -191,6 +192,12 @@ with what ENDED, a function of no argument, returns, (TEXT . FAILED)."
      (format "Made by %s; licence %s; version %s.\n" (plist-get props :author) (plist-get props :license)
              (lispm-desktop-store--version id props))
      (format "From: %s.\n" (lispm-desktop-store--origin props))
+     (if (plist-get props :preinstalled)
+         (format "Comes with LispM: installed by itself once%s.\n"
+                 (if (and (memq id lispm-desktop-store-preinstalled) (not (lispm-desktop-store-installed-p id)))
+                     ", and since uninstalled by the user, who keeps it so"
+                   ""))
+       "")
      (if-let* ((requires (plist-get props :requires)))
          (format "Requires: %s.\n" (lispm-desktop-skill-store-names requires))
        "")

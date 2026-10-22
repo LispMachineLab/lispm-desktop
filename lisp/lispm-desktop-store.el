@@ -74,9 +74,13 @@
 ;; it gives agents, and the alerts installing and uninstalling it say
 ;; they come and go.
 ;;
-;; Nothing new is installed unasked: where a package comes from is shown
-;; under the window while an alert asks, as before an update asked for,
-;; with what changes.  The updates of what was installed install by
+;; Nothing new is installed unasked, but what comes with LispM: where a
+;; package comes from is shown under the window while an alert asks, as
+;; before an update asked for, with what changes.  An item a catalog says
+;; is :preinstalled comes with LispM, as Rotom does: once the catalog is
+;; read, the App Store installs it by itself, in the background, what it
+;; needs beyond Emacs left for when it first opens; and only once, so that
+;; one uninstalled stays so (`lispm-desktop-store-preinstall').  The updates of what was installed install by
 ;; themselves, unless `lispm-desktop-store-update-automatically' says
 ;; otherwise, in Control Panels' Software Update: the App Store looks
 ;; for them whenever Software Update checks, and installs them when
@@ -184,6 +188,19 @@ catalog's repository; :installed, what is installed: a package's commit
 or version; and :owned, non-nil when the App Store installed the item's
 package itself, so that it deletes it too."
   :type '(alist :key-type symbol :value-type plist)
+  :group 'lispm-desktop-store)
+
+(defcustom lispm-desktop-store-preinstall t
+  "Non-nil means the items a catalog says come with LispM, :preinstalled,
+are installed by themselves once the catalog is read, each once."
+  :type 'boolean
+  :group 'lispm-desktop-store)
+
+(defcustom lispm-desktop-store-preinstalled nil
+  "The items that came with LispM, their catalogs saying :preinstalled, as
+IDs: installed by the App Store by itself, or by you before.  An item is
+not installed by itself again, once uninstalled."
+  :type '(repeat symbol)
   :group 'lispm-desktop-store)
 
 (defconst lispm-desktop-store-kinds
@@ -330,6 +347,7 @@ arrow; the App Store's status line says it checks."
                            (next)))
                       (lispm-desktop-store-read-catalogs)
                       (lispm-desktop-store--sync-skills)
+                      (lispm-desktop-store--preinstall)
                       (lispm-desktop-store--refresh-archives
                        (lambda ()
                          (setq lispm-desktop-store--checking nil
@@ -746,7 +764,8 @@ were not yet.  A skill new in a catalog comes so to what was installed
 before."
   (unless lispm-desktop-store--catalogs
     (lispm-desktop-store-read-catalogs))
-  (lispm-desktop-store--sync-skills))
+  (lispm-desktop-store--sync-skills)
+  (lispm-desktop-store--preinstall))
 
 (defun lispm-desktop-store--changed-skills (id)
   "Return the skills installed with the item ID whose file its catalog
@@ -1040,6 +1059,8 @@ part: a package that cannot be loaded is not left installed."
               (lispm-desktop-store--delete-package (plist-get props :package))))
           (lispm-desktop-store--fail job (lispm-desktop-tr "It cannot be loaded: %s" failure)))
       (lispm-desktop-store--keep id props :installed installed :owned owned)
+      (when (plist-get props :preinstalled)
+        (lispm-desktop-store--came (list id)))
       (lispm-desktop-store--sync-skills)
       (lispm-desktop-store--done job))))
 
@@ -1075,6 +1096,41 @@ agent installs it once the user approved, asks nothing."
                                                                    items)
                                                            ", ")
                                         (lambda (_) (lispm-desktop-store--render)))))))))
+
+;;;; What comes with LispM
+
+(defun lispm-desktop-store--came (ids)
+  "Keep that the items IDS came with LispM: they are not installed by
+themselves again."
+  (when-let* ((new (seq-remove (lambda (id) (memq id lispm-desktop-store-preinstalled)) ids)))
+    (let ((inhibit-message t))
+      (customize-save-variable 'lispm-desktop-store-preinstalled
+                               (append lispm-desktop-store-preinstalled new)))))
+
+(defun lispm-desktop-store--preinstall ()
+  "Install the items the catalogs say come with LispM, :preinstalled, that
+never came: unasked, in the background, as an install asked for is, what
+they need beyond Emacs left for when they first open.  Those installed
+already, by you, came so.  One that cannot run here is passed over, and
+one that failed to install is tried again the next time the catalogs are
+read.  Nothing, unless `lispm-desktop-store-preinstall'."
+  (when lispm-desktop-store-preinstall
+    (let ((due (seq-filter (pcase-lambda (`(,id . ,props))
+                             (and (eq (plist-get props :preinstalled) t)
+                                  (not (memq id lispm-desktop-store-preinstalled))
+                                  (not (lispm-desktop-store--busy-p id))))
+                           (lispm-desktop-store-items))))
+      (lispm-desktop-store--came (mapcar #'car (seq-filter (lambda (item) (lispm-desktop-store-installed-p (car item)))
+                                                           due)))
+      (dolist (item (seq-remove (lambda (item) (lispm-desktop-store-installed-p (car item))) due))
+        (when-let* ((items (ignore-error user-error
+                             (let ((items (lispm-desktop-store--to-install (car item))))
+                               (dolist (each items)
+                                 (lispm-desktop-store--check-program (cdr each)))
+                               items))))
+          (message (lispm-desktop-tr "App Store: installing %s, which comes with LispM")
+                   (plist-get (cdr item) :name))
+          (lispm-desktop-store--queue items 'install))))))
 
 ;;;; Installing in the background
 
