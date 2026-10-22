@@ -222,28 +222,45 @@ It runs COMMAND, described by HELP, and is highlighted while its menu is open."
      (:label ,(lispm-desktop-tr "Time Format…")
              :action ,(lambda () (customize-variable 'display-time-format))))))
 
+(defvar lispm-desktop-platinum-status-functions nil
+  "Functions returning titles of the menu bar's right end, after the clock,
+where Mac OS X put Spotlight's: each returns a list of items, as
+`lispm-desktop-platinum-status-title' makes them, or nil.  Their order is
+the hook's, see `add-hook''s DEPTH.")
+
+(defun lispm-desktop-platinum-status-title (key image label command help)
+  "Return the menu bar status item KEY: IMAGE (an SVG, an icon's name or
+nil) and LABEL, either of them nil.  It runs COMMAND, described by HELP,
+and is highlighted while its menu is open, see
+`lispm-desktop-platinum-with-open-menu'."
+  (lispm-desktop-platinum--status-title key image label command help))
+
 (defun lispm-desktop-platinum-menu-status ()
   "Return the status titles at the menu bar's right end: whatever
 `global-mode-string' holds besides the time and the battery, then the
 time, as `display-time-format' says it, translated, see
-`lispm-desktop-format-time'.  The load, the mail and the battery are in
-the Control Strip."
+`lispm-desktop-format-time', then the titles of
+`lispm-desktop-platinum-status-functions'.  The load, the mail and the
+battery are in the Control Strip."
   (let ((others (string-trim
                  (format-mode-line
                   (seq-remove (lambda (part)
                                 (memq part '(display-time-string battery-mode-line-string)))
                               (ensure-list global-mode-string))))))
-    (delq nil
-          (list
-           (unless (string-empty-p others)
-             (lispm-desktop-platinum--menu-title 'lispm-desktop-status others #'ignore nil))
-           (when (bound-and-true-p display-time-mode)
-             (lispm-desktop-platinum--status-title
-              'lispm-desktop-time nil
-              ;; The format is translated, so that the clock reads as the
-              ;; language has it, as 14:05 in German.
-              (lispm-desktop-format-time (or display-time-format (lispm-desktop-tr-noop "%-I:%M %p")))
-              #'lispm-desktop-platinum-time-menu (lispm-desktop-format-time "%A, %B %-e, %Y")))))))
+    (append
+     (delq nil
+           (list
+            (unless (string-empty-p others)
+              (lispm-desktop-platinum--menu-title 'lispm-desktop-status others #'ignore nil))
+            (when (bound-and-true-p display-time-mode)
+              (lispm-desktop-platinum--status-title
+               'lispm-desktop-time nil
+               ;; The format is translated, so that the clock reads as the
+               ;; language has it, as 14:05 in German.
+               (lispm-desktop-format-time (or display-time-format (lispm-desktop-tr-noop "%-I:%M %p")))
+               #'lispm-desktop-platinum-time-menu (lispm-desktop-format-time "%A, %B %-e, %Y")))))
+     (mapcan (lambda (function) (copy-sequence (funcall function)))
+             (remq t lispm-desktop-platinum-status-functions)))))
 
 (defun lispm-desktop-platinum--start-status ()
   "Turn on Emacs's own time, load and mail, and the battery if there is one.

@@ -4574,6 +4574,50 @@ Strip."
   (let ((global-mode-string nil) (display-time-mode nil))
     (should-not (lispm-desktop-platinum-menu-status))))
 
+;;;; The LispM bar
+
+(ert-deftest lispm-desktop-test-menu-status-functions ()
+  "Titles of `lispm-desktop-platinum-status-functions' come after the clock,
+in the hook's order, as Spotlight's came after Mac OS X's."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+                                                                                 "#777777" "#6363CE"))
+        (global-mode-string nil)
+        (display-time-mode t)
+        (display-time-format "%H:%M")
+        (lispm-desktop-platinum-status-functions nil))
+    (add-hook 'lispm-desktop-platinum-status-functions
+              (lambda () (list (lispm-desktop-platinum-status-title 'two nil "Two" #'ignore "Second"))))
+    (add-hook 'lispm-desktop-platinum-status-functions
+              (lambda () (list (lispm-desktop-platinum-status-title 'one nil "One" #'ignore "First"))))
+    (should (equal (mapcar #'car (lispm-desktop-platinum-menu-status)) '(lispm-desktop-time one two)))))
+
+(ert-deftest lispm-desktop-test-bar-finds-applications ()
+  "The LispM bar finds the desktop's applications and its Control Panels,
+each of which Return opens."
+  (skip-unless (require 'lispm-bar nil t))
+  (let* ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications))
+         (lispm-bar--things nil)
+         (things (lispm-desktop-bar-applications))
+         (named (lambda (name) (seq-find (lambda (thing) (equal (plist-get thing :name) name)) things))))
+    (should (funcall named "Emacs"))
+    (should (funcall named "Control Panels"))
+    ;; The desktop is no application to open; its Control Panel is.
+    (should (eq (plist-get (funcall named "Desktop") :kind) 'control-panel))
+    (should (eq (plist-get (funcall named "Network") :kind) 'control-panel))
+    (should (equal (plist-get (funcall named "Network") :label) "Control Panel"))
+    (should (seq-every-p (lambda (thing) (functionp (plist-get thing :open))) things))
+    (should (equal (plist-get (car (lispm-bar-find "netw")) :name) "Network"))
+    (let ((shown nil))
+      (cl-letf (((symbol-function 'lispm-desktop-settings-show) (lambda (&optional panel) (setq shown panel))))
+        (funcall (plist-get (funcall named "Network") :open)))
+      (should (eq shown 'network)))))
+
+(ert-deftest lispm-desktop-test-bar-activity ()
+  "The bar says what LispM does with the desktop's tools in its words."
+  (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "settings"))) "Opening Control Panels…"))
+  (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "Stickies"))) "Opening Stickies…"))
+  (should-not (lispm-desktop-bar-activity "read_file" '((path . "x")))))
+
 (ert-deftest lispm-desktop-test-row-shades-sorted-column ()
   "A row's right-hand column carries the sorted column's face to the edge."
   (cl-letf (((symbol-function 'lispm-desktop-sidebar--column-pixels) (lambda () 100)))
@@ -5127,6 +5171,9 @@ srt makes the status `installing'.  Custom's rules may not have the key
          (chosen nil))
      (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
                ((symbol-function 'lispm-sandbox-level-name) (lambda (level) (capitalize (symbol-name level))))
+               ;; LispM Agent 0.3.0 had none, even when a test before
+               ;; loaded the agent of this checkout.
+               ((symbol-function 'lispm-sandbox-level-description) nil)
                ((symbol-function 'lispm-sandbox-srt-status) (lambda () status))
                ((symbol-function 'lispm-sandbox-install) (lambda () (setq status 'installing)))
                ((symbol-function 'lispm-sandbox-set-level)

@@ -1271,4 +1271,7 @@
   ("Version %s, running." . "Version %s, läuft.")
   ("Needs Emacs %d" . "Benötigt Emacs %d")
   ("%s runs in Emacs %d or later; this is Emacs %s" . "%s läuft ab Emacs %d; dies ist Emacs %s")
-  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "Es läuft ab Emacs %d; dies ist Emacs %s.  Der Bereich Kernel der Kontrollfelder wechselt LispM dorthin.")))
+  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "Es läuft ab Emacs %d; dies ist Emacs %s.  Der Bereich Kernel der Kontrollfelder wechselt LispM dorthin.")
+  ("Control Panel" . "Kontrollfeld")
+  ("Opening %s…" . "%s wird geöffnet …")
+  ("Find, or ask LispM" . "Suchen oder LispM fragen")))

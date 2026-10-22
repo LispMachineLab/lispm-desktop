@@ -1271,4 +1271,7 @@
   ("Version %s, running." . "版本 %s，正在运行。")
   ("Needs Emacs %d" . "需要 Emacs %d")
   ("%s runs in Emacs %d or later; this is Emacs %s" . "%s 需要 Emacs %d 或更新版本；当前是 Emacs %s")
-  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "它需要 Emacs %d 或更新版本；当前是 Emacs %s。控制面板的“内核”可以把 LispM 切换过去。")))
+  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "它需要 Emacs %d 或更新版本；当前是 Emacs %s。控制面板的“内核”可以把 LispM 切换过去。")
+  ("Control Panel" . "控制面板")
+  ("Opening %s…" . "正在打开 %s…")
+  ("Find, or ask LispM" . "查找，或询问 LispM")))
