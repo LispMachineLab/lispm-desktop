@@ -36,8 +36,11 @@
 ;;   ../lispm-kernel/lisp
 ;;   package-vc            the first start of everyone else, once
 ;;
-;; The packages their main files require are installed as package.el
-;; would install them for the package.
+;; package-vc installs a project's latest release, the newest tag vX.Y.Z,
+;; as install.sh checks it out: package-vc's own :last-release finds none
+;; for a main file under lisp/, and would install the main branch.  The
+;; packages their main files require are installed as package.el would
+;; install them for the package.
 ;;
 ;; A project may have to be new enough: the desktop needs lispm-agent's
 ;; editor's agents, lispm-agents.el, which releases before 0.4.0 lack.
@@ -105,6 +108,26 @@ branch.  Return nil when there is none, or the fetch failed."
                              (split-string tags "\n" t))))
     (lispm-desktop-deps--git directory "rev-parse" (concat tag "^{commit}"))))
 
+(defun lispm-desktop-deps--release-tag (url)
+  "Return the tag of the latest release of the repository at URL, as
+\"v0.2.0\", or nil when it has none or cannot be reached."
+  (with-temp-buffer
+    (let ((process-environment (lispm-desktop-store--git-environment)))
+      (when (eql 0 (ignore-errors
+                     (call-process "git" nil '(t nil) nil "ls-remote" "--tags" "--refs" url "v*")))
+        (car (sort (seq-keep (lambda (line)
+                               (and (string-match "refs/tags/\\(v[0-9]+\\.[0-9]+\\.[0-9]+\\)\\'" line)
+                                    (match-string 1 line)))
+                             (split-string (buffer-string) "\n" t))
+                   (lambda (a b) (version< (substring b 1) (substring a 1)))))))))
+
+(defun lispm-desktop-deps-present-p (feature)
+  "Return non-nil when FEATURE, a project of `lispm-desktop-deps', is here
+without installing anything: on `load-path', or in a checkout beside the
+desktop's."
+  (or (locate-library (concat (symbol-name feature) ".el") t)
+      (lispm-desktop-deps--checkout (plist-get (alist-get feature lispm-desktop-deps) :checkout))))
+
 (defun lispm-desktop-deps--package (main)
   "Return the package installed from git that holds MAIN, a project's main
 file, or nil when it is in no such package."
@@ -142,10 +165,10 @@ what to update."
 A copy already on `load-path' is used as it is; else a checkout beside the
 desktop's joins it, see `lispm-desktop-deps--checkout'; else the latest
 release of the project is installed from its repository with package-vc,
-the commit that last changed its Version header.  The packages its main
-file requires, and lacks, are installed.  A copy lacking the library the
-desktop needs of it, its :needs, is brought up to date, see
-`lispm-desktop-deps--catch-up'."
+its newest tag vX.Y.Z, or the commit that last changed its Version header
+before it has one.  The packages its main file requires, and lacks, are
+installed.  A copy lacking the library the desktop needs of it, its
+:needs, is brought up to date, see `lispm-desktop-deps--catch-up'."
   (pcase-let* ((spec (alist-get feature lispm-desktop-deps))
                (`(,url ,checkout ,needs) (list (plist-get spec :url) (plist-get spec :checkout)
                                                (plist-get spec :needs)))
@@ -153,7 +176,8 @@ desktop needs of it, its :needs, is brought up to date, see
     (unless (locate-library file t)
       (if-let* ((directory (lispm-desktop-deps--checkout checkout)))
           (add-to-list 'load-path directory)
-        (package-vc-install (list feature :url url :lisp-dir "lisp") :last-release)))
+        (package-vc-install (list feature :url url :lisp-dir "lisp")
+                            (or (lispm-desktop-deps--release-tag url) :last-release))))
     (when-let* ((main (locate-library file t)))
       (when (and needs (not (locate-library needs)))
         (lispm-desktop-deps--catch-up main needs))

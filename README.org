@@ -219,16 +219,25 @@ shows the sessions it has while it reads them anew.  It also makes the downloads
 in the background, as the App Store's refresh of the package archives, with curl, where url.el
 would negotiate TLS on Emacs's thread; package.el checks and keeps what it gets as always.
 
+Use LispM Kernel in Control Panels › Kernel turns it off and on, and the panel says how it stands;
+so does:
+
 #+begin_src emacs-lisp
 (setopt lispm-desktop-kernel nil)               ; off at once, and at every start
 #+end_src
+
+Either takes effect at once, as does toggling it in Custom; nothing needs restarting.  Turned on
+there, what the kernel lacks the Installer gets, showing how far it is; on by default, it gets it
+quietly.  A kernel that exits is started again by itself: at once when it ran a while, else after
+a pause that grows each time.
 
 Its Lisp comes from =../lispm-kernel= beside this checkout, else package-vc installs its latest
 release.  It gets its program itself, in the background: downloaded as built for this computer
 by its =kernel program= workflow, and kept only when its SHA-256 is the one pinned in the kernel's
 repository, beside its Lisp; nothing is built unless ~lispm-kernel-program-source~ is ~build~,
 when SBCL builds it.  Until the program is there, and where it cannot be, the sidebar reads
-sessions as it does without the kernel, url.el downloads for package.el, and *Messages* says why.
+sessions as it does without the kernel, url.el downloads for package.el, and the Kernel panel
+says why.
 
 ** Updating
 
