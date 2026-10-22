@@ -288,9 +288,12 @@ before, as a new game starts."
   :buttons `((,(lambda () (lispm-desktop-app-games--toggle-label (lispm-desktop-app-games--pong-paused-p)))
               ,(lambda () (interactive)
                  (call-interactively (if (lispm-desktop-app-games--pong-paused-p) 'pong-resume 'pong-pause)))))
-  :keys `(("C-p  ↑" . ,(lispm-desktop-tr-noop "Left bat up"))
-          ("C-n  ↓" . ,(lispm-desktop-tr-noop "Left bat down"))
-          ("8" . ,(lispm-desktop-tr-noop "Right bat up")) ("2" . ,(lispm-desktop-tr-noop "Right bat down"))
+  ;; Pong moves the left bat with left and right, the right bat with up
+  ;; and down.
+  :keys `(("C-b  ←  4" . ,(lispm-desktop-tr-noop "Left bat up"))
+          ("C-f  →  6" . ,(lispm-desktop-tr-noop "Left bat down"))
+          ("C-p  ↑  8" . ,(lispm-desktop-tr-noop "Right bat up"))
+          ("C-n  ↓  2" . ,(lispm-desktop-tr-noop "Right bat down"))
           ("p" . ,(lispm-desktop-tr-noop "Pause or resume")) ("q" . ,(lispm-desktop-tr-noop "Quit"))))
 
 ;;;; 5x5
@@ -816,6 +819,10 @@ as raised bars.  Hanoi holds Emacs until it is done, or a key is pressed."
   :keys `((,(lispm-desktop-tr-noop "any key") . ,(lispm-desktop-tr-noop "Stop"))))
 
 ;;;; Dunnet and Doctor
+;;
+;; The Doctor, Emacs's ELIZA, is one of Classic AI's applications: in its
+;; window it is talked to as MYCIN and SHRDLU are, a Return saying what is
+;; typed.
 
 (defun lispm-desktop-app-games--dunnet-say (words)
   "Return a command saying WORDS to Dunnet, as typed at its prompt."
@@ -835,12 +842,42 @@ as raised bars.  Hanoi holds Emacs until it is done, or a key is pressed."
   :label (lambda () (lispm-desktop-tr "Type what to do, then Return"))
   :keys `(("Return" . ,(lispm-desktop-tr-noop "Do what is typed: look, take the shovel, go east"))))
 
+(declare-function doctor-read-print "doctor" ())
+
+(defvar-local lispm-desktop-app-games--doctor-heard nil
+  "Where what is typed to the Doctor starts: after its last answer.")
+
+(defun lispm-desktop-app-games-doctor-say ()
+  "Say what is typed to the Doctor, at one Return in its window, as Return
+answers MYCIN and SHRDLU; with nothing typed, say nothing."
+  (interactive)
+  (goto-char (point-max))
+  (if (string-blank-p (buffer-substring-no-properties
+                       (or lispm-desktop-app-games--doctor-heard (point-min)) (point-max)))
+      (message (lispm-desktop-tr "Type what to say first"))
+    (doctor-read-print)
+    (setq lispm-desktop-app-games--doctor-heard (copy-marker (point-max)))))
+
+(defun lispm-desktop-app-games--doctor-setup ()
+  "Make Return say what is typed in the Doctor's window, and its greeting
+say so, where Emacs's own Doctor asks for Return twice."
+  (unless (eq (keymap-lookup (current-local-map) "RET") #'lispm-desktop-app-games-doctor-say)
+    (use-local-map (define-keymap :parent (current-local-map)
+                     "RET" #'lispm-desktop-app-games-doctor-say)))
+  (save-excursion
+    (goto-char (point-max))
+    (when (re-search-backward "type[ \n]+RET[ \n]+twice" nil t)
+      (let ((inhibit-read-only t))
+        (replace-match "press Return" t t))))
+  (setq lispm-desktop-app-games--doctor-heard (copy-marker (point-max))))
+
 (lispm-desktop-app-ui-define 'doctor-mode
   :prose t
   :buttons `((,(lispm-desktop-tr-noop "New Session") doctor))
-  :label (lambda () (lispm-desktop-tr "Return twice to say it"))
-  :keys `(("Return Return" . ,(lispm-desktop-tr-noop "Say what is typed"))
-          ("C-j" . ,(lispm-desktop-tr-noop "Say it at once"))))
+  :label (lambda () (lispm-desktop-tr "Type what troubles you, then Return"))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Say what is typed"))
+          ("C-j" . ,(lispm-desktop-tr-noop "Say it at once")))
+  :setup #'lispm-desktop-app-games--doctor-setup)
 
 ;;;; Set up
 

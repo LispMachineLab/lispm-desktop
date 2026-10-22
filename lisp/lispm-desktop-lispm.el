@@ -58,6 +58,7 @@
 (declare-function lispm-resume-file "lispm-runtime" (file))
 (declare-function lispm-rename-session "lispm-runtime" (file title))
 (declare-function lispm-session-files "lispm-runtime" (id))
+(declare-function lispm-language-changed "lispm-i18n" ())
 (declare-function lispm-agent-id "lispm-core" (agent))
 (declare-function lispm-agent-name "lispm-core" (agent))
 (declare-function lispm-agent-view "lispm-core" (agent))
@@ -182,6 +183,11 @@ With a prefix argument, choose its ROLE."
   (add-hook 'lispm-session-mode-hook #'lispm-desktop-lispm--tag-buffer)
   (add-hook 'lispm-state-change-functions #'lispm-desktop-lispm--changed)
   (add-hook 'lispm-title-change-functions #'lispm-desktop-lispm--changed)
+  ;; LispM speaks the desktop's language, unless `lispm-language' says
+  ;; another; it knows nothing of the desktop, so the desktop tells it.
+  (when (boundp 'lispm-language-functions)
+    (add-hook 'lispm-language-functions #'lispm-desktop-current-language)
+    (add-hook 'lispm-desktop-language-changed-hook #'lispm-language-changed))
   (lispm-mode-line-mode 1))
 
 (provide 'lispm-desktop-lispm)
