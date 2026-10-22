@@ -207,20 +207,22 @@ Emacs commands, and programs run in the background while LispM runs, their outpu
 
 ** Background work
 
-LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a Rust runtime for work Emacs should not wait on, is off by default.
-Turned on, it reads the agents' sessions for the sidebar on threads of its own, on the desktop's
-frame clock; the sidebar shows the sessions it has while it reads them anew.
+LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a runtime for work Emacs should not wait on, is off by default.
+It is a Common Lisp program, SBCL's runtime and the kernel's core in one executable, that Emacs
+runs as a process, the two talking in S-expressions.  Turned on, it reads the agents' sessions for
+the sidebar on threads of its own, and Emacs takes them in on the desktop's frame clock; the
+sidebar shows the sessions it has while it reads them anew.
 
 #+begin_src emacs-lisp
 (setopt lispm-desktop-kernel t)                 ; at once, and at every start
 #+end_src
 
 Its Lisp comes from =../lispm-kernel= beside this checkout, else package-vc installs its latest
-release.  It gets its module itself, in the background: downloaded as built for this computer
-by its =kernel module= workflow, and kept only when its SHA-256 is the one pinned in the kernel's
-repository, beside its Lisp; nothing is built unless ~lispm-kernel-library-source~ is ~build~.
-Until the module is there, and where it cannot be, the sidebar reads sessions as it does without
-the kernel, and a message says why.
+release.  It gets its program itself, in the background: downloaded as built for this computer
+by its =kernel program= workflow, and kept only when its SHA-256 is the one pinned in the kernel's
+repository, beside its Lisp; nothing is built unless ~lispm-kernel-program-source~ is ~build~,
+when SBCL builds it.  Until the program is there, and where it cannot be, the sidebar reads
+sessions as it does without the kernel, and a message says why.
 
 ** Updating
 

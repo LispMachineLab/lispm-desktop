@@ -24,19 +24,23 @@
 ;;; Commentary:
 
 ;; lispm-kernel is LispM's runtime for work Emacs should not wait on: a
-;; Rust module runs it on threads of its own and hands Emacs the results
-;; a little at a time, on the desktop's frame clock (lispm-desktop-frame.el).
-;; For now it reads the agents' sessions for the sidebar, through the
-;; desktop's session readers; see lispm-kernel-desktop.el in its repository.
+;; Common Lisp program, SBCL's runtime and the kernel's core in one
+;; executable, that Emacs runs as a process.  The two talk in
+;; S-expressions; it does the work on threads of its own and Emacs takes
+;; the results in a little at a time, on the desktop's frame clock
+;; (lispm-desktop-frame.el).  For now it reads the agents' sessions for the
+;; sidebar, through the desktop's session readers; see
+;; lispm-kernel-desktop.el in its repository.
 ;;
 ;; It stays off until `lispm-desktop-kernel' turns it on.  Its Lisp is then
 ;; found or installed as the other LispM projects are, see
-;; lispm-desktop-deps.el, and it gets its module itself, in the
+;; lispm-desktop-deps.el, and it gets its program itself, in the
 ;; background: downloaded as built for this computer, and kept only when
-;; its SHA-256 is the one pinned in the kernel's own repository; nobody is
-;; made to build it, though `lispm-kernel-library-source' can ask Cargo
-;; to.  Until the module is there, and wherever it cannot be, the sidebar
-;; reads sessions as it does without the kernel, and the kernel says why.
+;; its SHA-256 is the one pinned in the kernel's own repository
+;; (lisp/lispm-kernel-program-sums.eld); nobody is made to build it,
+;; though `lispm-kernel-program-source' can ask SBCL to build it.  Until
+;; the program is there, and wherever it cannot be, the sidebar reads
+;; sessions as it does without the kernel, and the kernel says why.
 
 ;;; Code:
 
@@ -50,7 +54,7 @@
 (defcustom lispm-desktop-kernel nil
   "Non-nil reads the agents' sessions in the background with lispm-kernel.
 Its Lisp is found beside the desktop's checkout or installed with
-package-vc, and its module downloaded for this computer, checked against
+package-vc, and its program downloaded for this computer, checked against
 the SHA-256 its Lisp pins; until then, and where it cannot be, the
 sidebar reads the sessions as it does with nil.  Setting it once LispM is
 set up takes effect at once."
@@ -60,7 +64,7 @@ set up takes effect at once."
 (defun lispm-desktop-kernel-apply (on)
   "Turn lispm-kernel on when ON is non-nil, else off.
 Turning it on gets the kernel's Lisp, see `lispm-desktop-deps-ensure', and
-turns `lispm-kernel-desktop-mode' on, which gets its module in the
+turns `lispm-kernel-desktop-mode' on, which gets its program in the
 background; what goes wrong is said, and leaves the desktop as it was.
 A batch Emacs, as an installer's, gets the Lisp and leaves the mode off."
   (if on
