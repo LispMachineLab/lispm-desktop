@@ -81,7 +81,8 @@ installed from the App Store."
     ("globe" . "○") ("netscape" . "○") ("trash" . "▿") ("guide" . "?")
     ("mail" . "@") ("caution" . "!") ("stop" . "×")
     ("appearance" . "◐") ("desktop-picture" . "▦") ("keyboard" . "▥") ("language" . "¶")
-    ("network" . "⇄") ("sandbox" . "▧") ("software-update" . "↻") ("startup" . "▸"))
+    ("network" . "⇄") ("sandbox" . "▧") ("software-update" . "↻") ("startup" . "▸")
+    ("find" . "⌕"))
   "What stands for each icon on a text terminal, one cell wide.
 Each entry is (NAME . STRING): NAME is an icon's name as
 `lispm-desktop-platinum-icon' takes it, or the start of one, so that

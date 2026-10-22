@@ -1271,4 +1271,7 @@
   ("Version %s, running." . "バージョン %s、実行中。")
   ("Needs Emacs %d" . "Emacs %d が必要")
   ("%s runs in Emacs %d or later; this is Emacs %s" . "%s は Emacs %d 以降で動きます。これは Emacs %s です")
-  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "Emacs %d 以降で動きます。これは Emacs %s です。コントロールパネルの「カーネル」で LispM を切り替えられます。")))
+  ("It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it." . "Emacs %d 以降で動きます。これは Emacs %s です。コントロールパネルの「カーネル」で LispM を切り替えられます。")
+  ("Control Panel" . "コントロールパネル")
+  ("Opening %s…" . "%sを開いています…")
+  ("Find, or ask LispM" . "検索、またはLispMに尋ねる")))
