@@ -776,5 +776,101 @@ overlap; one past the right edge is cut."
                 (concat line (make-string (max 0 (- width at)) ?\s))))
             lines)))
 
+;;;; Pixels as a PNG
+
+(defun lispm-desktop-platinum-raster-pixel-size (file)
+  "Return the size in pixels SVG FILE is drawn for, where it is pixels
+drawn as rectangles, asking for crisp edges, as Mac OS 9's icons are;
+else nil: a drawing of any size."
+  (when (file-readable-p file)
+    (with-temp-buffer
+      (insert-file-contents file nil 0 512)
+      (goto-char (point-min))
+      (and (re-search-forward "shape-rendering=\"crispEdges\"" nil t)
+           (progn (goto-char (point-min))
+                  (re-search-forward "<svg[^>]*\\bwidth=\"\\([0-9]+\\)\"" nil t))
+           (string-to-number (match-string 1))))))
+
+(defconst lispm-desktop-platinum--crc-table
+  (let ((table (make-vector 256 0)))
+    (dotimes (n 256)
+      (let ((c n))
+        (dotimes (_ 8)
+          (setq c (if (= 1 (logand c 1)) (logxor #xEDB88320 (ash c -1)) (ash c -1))))
+        (aset table n c)))
+    table)
+  "The CRC-32 of each byte, see `lispm-desktop-platinum--crc'.")
+
+(defun lispm-desktop-platinum--crc (string)
+  "Return the CRC-32 of unibyte STRING, as PNG reckons it."
+  (let ((c #xFFFFFFFF))
+    (dotimes (i (length string))
+      (setq c (logxor (aref lispm-desktop-platinum--crc-table (logand (logxor c (aref string i)) #xFF))
+                      (ash c -8))))
+    (logxor c #xFFFFFFFF)))
+
+(defun lispm-desktop-platinum--uint32 (n)
+  "Return N as four bytes, the most significant first."
+  (unibyte-string (logand (ash n -24) 255) (logand (ash n -16) 255) (logand (ash n -8) 255) (logand n 255)))
+
+(defun lispm-desktop-platinum--zlib (data)
+  "Return unibyte DATA as a zlib stream of blocks stored as they are: a
+PNG of an icon is small, and Emacs has no deflate of its own."
+  (let ((a 1) (b 0) (blocks nil) (offset 0) (length (length data)))
+    (dotimes (i length)
+      (setq a (% (+ a (aref data i)) 65521)
+            b (% (+ b a) 65521)))
+    (while (let* ((end (min length (+ offset 65535)))
+                  (size (- end offset)))
+             (push (concat (unibyte-string (if (= end length) 1 0)
+                                           (logand size 255) (logand (ash size -8) 255)
+                                           (logand (lognot size) 255) (logand (ash (lognot size) -8) 255))
+                           (substring data offset end))
+                   blocks)
+             (setq offset end)
+             (< offset length)))
+    (concat (unibyte-string #x78 #x01) (apply #'concat (nreverse blocks))
+            (lispm-desktop-platinum--uint32 (logior (ash b 16) a)))))
+
+(defun lispm-desktop-platinum--png-chunk (type data)
+  "Return the PNG chunk of TYPE, four letters, holding unibyte DATA."
+  (concat (lispm-desktop-platinum--uint32 (length data)) type data
+          (lispm-desktop-platinum--uint32 (lispm-desktop-platinum--crc (concat type data)))))
+
+(defun lispm-desktop-platinum-raster-png (pixels scale width height &optional background)
+  "Return a PNG image, as a unibyte string, WIDTH by HEIGHT pixels with
+PIXELS, as `lispm-desktop-platinum-raster-dom' returns them, in its
+middle, each a SCALE by SCALE square, so that they stay crisp.  The rest
+is BACKGROUND, \"#RRGGBB\", clear pixels too, so that the image is opaque;
+or, without BACKGROUND, clear."
+  (let* ((size (length pixels))
+         (drawn (* size scale))
+         (left (/ (- width drawn) 2))
+         (top (/ (- height drawn) 2))
+         (channels (if background 3 4))
+         (stride (1+ (* channels width)))
+         (raw (make-string (* height stride) 0))
+         (bytes (make-hash-table :test #'equal))
+         (rgb (lambda (color)
+                (with-memoization (gethash color bytes)
+                  (append (mapcar (lambda (value) (round (* 255 value))) (lispm-desktop-platinum--rgb color))
+                          (and (not background) (list 255))))))
+         (ground (if background (funcall rgb background) (list 0 0 0 0))))
+    (dotimes (y height)
+      (let ((row (and (<= top y) (< y (+ top drawn)) (aref pixels (/ (- y top) scale)))))
+        (dotimes (x width)
+          (let ((color (and row (<= left x) (< x (+ left drawn)) (aref row (/ (- x left) scale))))
+                (at (+ (* y stride) 1 (* channels x))))
+            (seq-do-indexed (lambda (value index) (aset raw (+ at index) value))
+                            (if color (funcall rgb color) ground))))))
+    (concat "\x89PNG\r\n\x1a\n"
+            (lispm-desktop-platinum--png-chunk
+             "IHDR" (concat (lispm-desktop-platinum--uint32 width) (lispm-desktop-platinum--uint32 height)
+                            ;; 8 bits a channel, RGB or RGBA, deflate, no
+                            ;; filter, not interlaced.
+                            (unibyte-string 8 (if background 2 6) 0 0 0)))
+            (lispm-desktop-platinum--png-chunk "IDAT" (lispm-desktop-platinum--zlib raw))
+            (lispm-desktop-platinum--png-chunk "IEND" ""))))
+
 (provide 'lispm-desktop-platinum-raster)
 ;;; lispm-desktop-platinum-raster.el ends here

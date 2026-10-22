@@ -11863,6 +11863,18 @@ selected darkened and its name inverted; clicks find them by the text."
           (should (string-match-p "Trash" (nth 48 lines)))
           ;; A second column holds the rest.
           (should (seq-some (lambda (line) (string-match-p "Control Panels" line)) lines)))
+        ;; Icons claimed as images leave their cells blank, and are told
+        ;; where they go.
+        (let* ((icons nil)
+               (lines (split-string (lispm-desktop--text-desktop 100 50 (lambda (&rest icon) (push icon icons) t))
+                                    "\n"))
+               (home (seq-find (lambda (icon) (eq (car icon) 'home)) icons)))
+          (should (= (length icons) (length (lispm-desktop--items))))
+          (should (equal (nthcdr 3 home) (list 1 (nth 4 home) 8 4)))
+          (should (equal (substring-no-properties (nth 2 lines) (nth 4 home) (+ (nth 4 home) 8)) "        "))
+          (should-not (get-text-property (nth 4 home) 'face (nth 2 lines)))
+          (should (eq (get-text-property (nth 4 home) 'lispm-desktop-item (nth 2 lines)) 'home))
+          (should (> (string-search "Home" (nth 5 lines)) 70)))
         ;; Where the icons no longer fit, they are characters.
         (let ((lines (split-string (lispm-desktop--text-desktop 40 12) "\n")))
           (should (= (length lines) 12))
@@ -11985,6 +11997,36 @@ colour is at half its brightness."
                                                    ["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]]
                                                   t)))
                  '(:background "#800000"))))
+
+(ert-deftest lispm-desktop-test-raster-png ()
+  "Pixels make an opaque PNG: its chunks summed right, the pixels each a
+square SCALE wide in the middle, the rest the background, clear pixels
+too."
+  (should (= (lispm-desktop-platinum--crc "IEND") #xAE426082))
+  (let* ((png (lispm-desktop-platinum-raster-png [["#ff0000" nil] [nil "#0000ff"]] 2 6 4 "#00ff00"))
+         (data-at (string-search "IDAT" png))
+         (length (string-to-number (mapconcat (lambda (byte) (format "%02x" byte))
+                                              (substring png (- data-at 4) data-at) "")
+                                   16))
+         (raw (with-temp-buffer
+                (set-buffer-multibyte nil)
+                (insert (substring png (+ data-at 4) (+ data-at 4 length)))
+                (and (zlib-available-p) (zlib-decompress-region (point-min) (point-max))
+                     (buffer-string)))))
+    (should (string-prefix-p "\x89PNG\r\n\x1a\n" png))
+    (should-not (multibyte-string-p png))
+    (should (equal (substring png 16 24) (unibyte-string 0 0 0 6 0 0 0 4)))
+    (should (string-suffix-p (unibyte-string #xAE #x42 #x60 #x82) png))
+    (when raw
+      ;; Each row: no filter, then 6 pixels; the picture 4 by 4 from x 1.
+      (should (= (length raw) (* 4 (1+ (* 3 6)))))
+      (cl-flet ((pixel (x y) (let ((at (+ (* y 19) 1 (* 3 x)))) (append (substring raw at (+ at 3)) nil))))
+        (should (equal (pixel 0 0) '(0 255 0)))
+        (should (equal (pixel 1 0) '(255 0 0)))
+        (should (equal (pixel 2 1) '(255 0 0)))
+        (should (equal (pixel 3 0) '(0 255 0)))
+        (should (equal (pixel 4 3) '(0 0 255)))
+        (should (equal (pixel 5 3) '(0 255 0)))))))
 
 (ert-deftest lispm-desktop-test-text-compose ()
   "Pieces of text stand where they are put on blank lines as wide as asked,

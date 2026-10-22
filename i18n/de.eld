@@ -982,6 +982,7 @@
   ("git failed" . "git ist fehlgeschlagen")
   ("The App Store is checking its catalogs already" . "Der App Store prüft seine Kataloge bereits")
   ("Checking the catalogs…" . "Kataloge werden geprüft …")
+  ("Getting what draws images in a terminal…" . "Das Zeichnen von Bildern im Terminal wird geholt …")
   ("App Store: %s: %s" . "App Store: %s: %s")
   ("Could not reach %s" . "%s ist nicht erreichbar")
   ("App Store: %s lists %S wrongly, left out: %s" . "App Store: %s führt %S fehlerhaft auf, ausgelassen: %s")

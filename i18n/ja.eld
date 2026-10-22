@@ -982,6 +982,7 @@
   ("git failed" . "gitでエラーが起きました")
   ("The App Store is checking its catalogs already" . "App Storeはすでにカタログを確認中です")
   ("Checking the catalogs…" . "カタログを確認中…")
+  ("Getting what draws images in a terminal…" . "端末に画像を描くものを取得中…")
   ("App Store: %s: %s" . "App Store：%s：%s")
   ("Could not reach %s" . "%sに接続できませんでした")
   ("App Store: %s lists %S wrongly, left out: %s" . "App Store：%sの%Sの記載が正しくないため、除外しました：%s")

@@ -35,6 +35,7 @@
 (require 'url-util)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-tty-images)
 
 (defvar lispm-desktop-platinum-mode-line-format)
 
@@ -324,6 +325,8 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
   ;; display this changes nothing.
   (when lispm-desktop-tty-mouse
     (xterm-mouse-mode 1))
+  ;; Icons as images where the terminal shows them.
+  (lispm-desktop-tty-images-setup)
   (when (lispm-desktop-macos-p)
     (define-key global-map [ns-drag-file] 'ns-find-file))
   (when (lispm-desktop-gui-p)

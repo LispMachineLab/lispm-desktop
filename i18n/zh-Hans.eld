@@ -982,6 +982,7 @@
   ("git failed" . "git 失败")
   ("The App Store is checking its catalogs already" . "App Store 已在检查其目录")
   ("Checking the catalogs…" . "正在检查目录…")
+  ("Getting what draws images in a terminal…" . "正在获取在终端里画图的组件…")
   ("App Store: %s: %s" . "App Store：%s：%s")
   ("Could not reach %s" . "无法连接 %s")
   ("App Store: %s lists %S wrongly, left out: %s" . "App Store：%s 列出的 %S 有误，已略过：%s")
