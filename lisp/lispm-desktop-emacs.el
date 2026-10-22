@@ -271,7 +271,8 @@ Once it is ready, `lispm-desktop-emacs-restart' switches to it."
            (cdr (assoc (completing-read (lispm-desktop-tr "Switch LispM to: ") choices nil t) choices)))))
   (unless (lispm-desktop-emacs-app)
     (user-error (lispm-desktop-tr "Only LispM.app switches its Emacs; this Emacs is one of your own")))
-  (unless (lispm-desktop-emacs-build major)
+  ;; The Emacs running is always there to stay on, offered or not.
+  (unless (or (eql major emacs-major-version) (lispm-desktop-emacs-build major))
     (user-error (lispm-desktop-tr "install.sh offers no Emacs %d") major))
   (cond
    ((eql major emacs-major-version)
