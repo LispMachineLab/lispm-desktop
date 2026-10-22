@@ -744,8 +744,7 @@ IMAGE, where given, is called with each icon drawn at that size, as
 \(KEY NAME SELECTED LINE COLUMN COLUMNS ROWS): where it returns non-nil,
 the terminal shows the icon NAME as an image COLUMNS by ROWS cells from
 LINE, COLUMN, see `lispm-desktop-tty-images-show', and its cells are
-left blank: the desktop is then the terminal's own background, which
-the image shows through, see `lispm-desktop--paint-buffer'."
+left blank, for the image to lie on."
   (let* ((items (lispm-desktop--items))
          (labels (mapcar (lambda (item) (concat " " (lispm-desktop--item-label (cdr item)) " ")) items))
          (picture-size (lispm-desktop-platinum-text-size lispm-desktop-text-icon-size))
@@ -839,7 +838,7 @@ Where images cannot be shown, it is drawn in text, see
               (insert (lispm-desktop--text-desktop
                        width height (and (lispm-desktop-tty-images-p)
                                          (lambda (&rest icon) (push icon icons) t))))
-              (lispm-desktop-tty-images-show window icons (lispm-desktop--color))))
+              (lispm-desktop-tty-images-show window icons)))
           (goto-char (point-min))
           (set-window-start window (point-min) t)
           (set-window-point window (point-min)))))))
@@ -1313,23 +1312,12 @@ desktop in front."
   "Face remapping cookies colouring a desktop buffer.")
 
 (defun lispm-desktop--paint-buffer (buffer)
-  "Colour BUFFER as the desktop, its fringes included.  Where icons are
-images on a text terminal, the desktop is the terminal's own background,
-which is then the desktop's colour, see `lispm-desktop-tty-images': a
-cell of the colour given outright may look otherwise, as in a
-see-through iTerm2 window, and the images show through the terminal's."
+  "Colour BUFFER as the desktop, its fringes included."
   (with-current-buffer buffer
-    (let ((color (if (lispm-desktop-tty-images-p) "unspecified-bg" (lispm-desktop--color))))
-      (mapc #'face-remap-remove-relative lispm-desktop--background)
-      (setq lispm-desktop--background
-            (list (face-remap-add-relative 'default :background color)
-                  (face-remap-add-relative 'fringe :background color))))))
-
-(defun lispm-desktop--images-ready ()
-  "Draw the desktop's icons as images, the terminal having been found to
-show them.  This is a `lispm-desktop-tty-images-ready-hook' function."
-  (lispm-desktop--paint-buffer (lispm-desktop-buffer))
-  (lispm-desktop--render))
+    (mapc #'face-remap-remove-relative lispm-desktop--background)
+    (setq lispm-desktop--background
+          (list (face-remap-add-relative 'default :background (lispm-desktop--color))
+                (face-remap-add-relative 'fringe :background (lispm-desktop--color))))))
 
 (defun lispm-desktop--paint ()
   "Colour the desktop, its background and its names from the palette."
@@ -1379,7 +1367,7 @@ mode is turned off first: turned off, it restores the lines it found."
               lispm-desktop-context-menu-function #'lispm-desktop--keyboard-menu)
   (add-hook 'window-size-change-functions #'lispm-desktop--render nil t)
   (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t)
-  (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop--images-ready))
+  (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop--render))
 
 (defvar-keymap lispm-desktop-empty-mode-map
   :doc "Keymap of the desktop's background: nothing to click."

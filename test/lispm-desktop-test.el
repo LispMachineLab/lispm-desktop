@@ -12028,6 +12028,17 @@ too."
         (should (equal (pixel 4 3) '(0 0 255)))
         (should (equal (pixel 5 3) '(0 255 0)))))))
 
+(ert-deftest lispm-desktop-test-tty-images-subtract ()
+  "An image's cells less a frame in front of them are the rectangles left:
+none where the frame covers them all, the cells themselves where it
+misses them, up to four round a hole."
+  (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(5 0 6 8)) '((0 0 4 8))))
+  (should-not (lispm-desktop-tty-images--subtract '(1 1 3 3) '(0 0 4 8)))
+  (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(2 4 10 20))
+                 '((0 0 2 8) (2 0 4 4))))
+  (should (equal (lispm-desktop-tty-images--subtract '(0 0 4 8) '(1 2 3 6))
+                 '((0 0 1 8) (1 0 3 2) (1 6 3 8) (3 0 4 8)))))
+
 (ert-deftest lispm-desktop-test-text-compose ()
   "Pieces of text stand where they are put on blank lines as wide as asked,
 cut at the right edge."

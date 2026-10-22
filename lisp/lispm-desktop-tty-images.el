@@ -33,13 +33,14 @@
 ;; first time, see `lispm-desktop-tty-images-package'.  Elsewhere, and
 ;; inside tmux, the icons stay block characters.
 ;;
-;; An image lies under the cells' backgrounds.  The desktop is drawn in
-;; the terminal's default background, so it shows through there, and
-;; whatever Emacs draws over it with a background of its own, a window, a
-;; menu or an alert, hides it, with no reckoning here.  While images are
-;; shown, that default background is the desktop's colour, so an image
-;; is clear round its icon.  A pixel icon's pixels are squares of whole device pixels, so
-;; that they stay crisp, see `lispm-desktop-platinum-raster-png'.
+;; An image lies over the cells' backgrounds and under their text, and
+;; is cut where a window or a menu in front of its own covers it, so that
+;; only the rectangles of it left show: placed anew before Emacs draws
+;; the screen, whenever one moves, comes or goes, a menu's own loop
+;; included, see `lispm-desktop-tty-images--before-redisplay'.  An image
+;; is clear round its icon, and a pixel icon's pixels are squares of
+;; whole device pixels, so that they stay crisp, see
+;; `lispm-desktop-platinum-raster-png'.
 ;;
 ;; A cleared screen loses the placements, as Emacs clears it after a
 ;; resize or a full redraw: they are placed again after each command and
@@ -79,9 +80,6 @@ shows images.")
 
 (defvar lispm-desktop-tty-images-ready-hook nil
   "Hook run once the terminal is found to show images.")
-
-(defconst lispm-desktop-tty-images--z -1073741825
-  "The images' z-index: under every cell with a background of its own.")
 
 (defun lispm-desktop-tty-images-directory ()
   "Return the directory the icons' images are kept in."
@@ -182,11 +180,11 @@ images, see `lispm-desktop-tty-images'."
 ;;;; Images
 
 (defun lispm-desktop-tty-images--file (name columns rows selected)
-  "Return a PNG file of icon NAME for COLUMNS by ROWS cells, darkened when
-SELECTED, clear round it; made once.  It is as many device pixels as
-the cells are, the icon nine tenths of it: a pixel icon at a whole
-multiple of its own size, any other drawn at half and doubled.  NAME is
-as `lispm-desktop-platinum-icon-file' takes it."
+  "Return a PNG of icon NAME for COLUMNS by ROWS cells, darkened when
+SELECTED, clear round it, as (FILE WIDTH HEIGHT); made once.  It is as
+many device pixels as the cells are, the icon nine tenths of it: a
+pixel icon at a whole multiple of its own size, any other drawn at half
+and doubled.  NAME is as `lispm-desktop-platinum-icon-file' takes it."
   (let* ((terminal (terminal-parameter nil 'lispm-desktop-tty-images))
          (scale (plist-get terminal :scale))
          (width (round (* scale columns (plist-get terminal :width))))
@@ -212,138 +210,194 @@ as `lispm-desktop-platinum-icon-file' takes it."
         (let ((coding-system-for-write 'binary))
           (write-region (lispm-desktop-platinum-raster-png pixels factor width height)
                         nil file nil 'silent))))
-    (and (file-exists-p file) file)))
+    (and (file-exists-p file) (list file width height))))
 
 ;;;; Placements
 
 (defvar lispm-desktop-tty-images--wanted nil
-  "The icons shown as images: a list of (KEY FILE WINDOW LINE COLUMN
-COLUMNS ROWS), each FILE COLUMNS by ROWS cells from LINE, COLUMN of
-WINDOW's text, kept where WINDOW shows the buffer it showed.")
+  "The icons shown as images: a list of (KEY FILE WIDTH HEIGHT WINDOW
+BUFFER LINE COLUMN COLUMNS ROWS), the image FILE, WIDTH by HEIGHT
+pixels, over COLUMNS by ROWS cells from LINE, COLUMN of BUFFER's text,
+where WINDOW shows it.  KEY is (WINDOW . the icon's key).")
 
 (defvar lispm-desktop-tty-images--placed nil
-  "The images placed on the terminal: an alist of KEY to (ID . PLACEMENT).")
+  "The placements on the terminal: an alist of (KEY . PIECE) to (ID
+PLACEMENT . SENT), SENT the escapes placing it.")
 
 (defvar lispm-desktop-tty-images--ids (make-hash-table :test #'equal)
   "The image id of each file sent.")
 
 (defvar lispm-desktop-tty-images--placements (make-hash-table :test #'equal)
-  "The placement id of each icon, by its key.")
+  "The placement id of each piece of an icon, by (KEY . PIECE).")
 
 (defvar lispm-desktop-tty-images--timer nil
-  "The timer placing the images after the screen was drawn.")
+  "The timer placing the images anew after the screen was drawn.")
 
-(defvar lispm-desktop-tty-images--background nil
-  "The desktop's colour, which the terminal's default background is
-while icons are images.")
-
-(defvar lispm-desktop-tty-images--ground nil
-  "The colour the terminal's default background was set to, or nil.")
-
-(defun lispm-desktop-tty-images-show (window icons background)
+(defun lispm-desktop-tty-images-show (window icons)
   "Show ICONS in WINDOW as images, and no other images of WINDOW.
 ICONS is a list of (KEY NAME SELECTED LINE COLUMN COLUMNS ROWS), each
 icon NAME, darkened when SELECTED, COLUMNS by ROWS cells from LINE,
-COLUMN of WINDOW's text, on BACKGROUND, \"#RRGGBB\".  They are placed
-once Emacs has drawn the screen."
-  (setq lispm-desktop-tty-images--background background)
-  (setq lispm-desktop-tty-images--wanted
-        (append (seq-remove (lambda (wanted) (eq (nth 2 wanted) window)) lispm-desktop-tty-images--wanted)
-                (delq nil
-                      (mapcar (pcase-lambda (`(,key ,name ,selected ,line ,column ,columns ,rows))
-                                (when-let* ((file (lispm-desktop-tty-images--file
-                                                   name columns rows selected)))
-                                  (list key file window line column columns rows)))
-                              icons))))
+COLUMN of the text WINDOW shows, from 0.  Each shows where WINDOW shows
+it but for what windows and menus in front of it cover."
+  (let ((buffer (window-buffer window)))
+    (setq lispm-desktop-tty-images--wanted
+          (append (seq-remove (lambda (wanted) (eq (nth 4 wanted) window)) lispm-desktop-tty-images--wanted)
+                  (delq nil
+                        (mapcar (pcase-lambda (`(,key ,name ,selected ,line ,column ,columns ,rows))
+                                  (when-let* ((image (lispm-desktop-tty-images--file
+                                                      name columns rows selected)))
+                                    `((,window . ,key) ,@image ,window ,buffer ,line ,column ,columns ,rows)))
+                                icons)))))
   (lispm-desktop-tty-images--schedule))
 
 (defun lispm-desktop-tty-images--schedule ()
-  "Place the images once Emacs has drawn the screen."
+  "Place every image anew once Emacs has drawn the screen, as one it
+cleared has lost them."
   (unless (timerp lispm-desktop-tty-images--timer)
     (setq lispm-desktop-tty-images--timer
           (run-at-time 0 nil (lambda ()
                                (setq lispm-desktop-tty-images--timer nil)
-                               (lispm-desktop-tty-images--place))))))
+                               (lispm-desktop-tty-images--place t))))))
 
-(defun lispm-desktop-tty-images--where (window line column columns rows)
-  "Return where COLUMNS by ROWS cells from LINE, COLUMN of WINDOW's text
-are on the terminal, (ROW . COLUMN) from 1, or nil where WINDOW does
-not show them all: a window of the frame on the terminal, the text
-from its start."
-  (when (and (window-live-p window)
-             (eq (window-frame window) (frame-root-frame (selected-frame)))
-             (frame-visible-p (window-frame window))
-             (= (window-start window) (with-current-buffer (window-buffer window) (point-min)))
-             (<= (+ line rows) (window-body-height window))
-             (<= (+ column columns) (window-body-width window)))
-    (pcase-let ((`(,left ,top ,_ ,_) (window-body-edges window)))
-      (cons (+ top line 1) (+ left column 1)))))
+(defun lispm-desktop-tty-images--origin (frame)
+  "Return where FRAME's top left is on the terminal, (COLUMN . ROW) from 0."
+  (let ((column 0) (row 0))
+    (while (frame-parent frame)
+      (pcase-let ((`(,x . ,y) (frame-position frame)))
+        (setq column (+ column x) row (+ row y)))
+      (setq frame (frame-parent frame)))
+    (cons column row)))
 
-(defun lispm-desktop-tty-images--place ()
-  "Place the images wanted where their windows show them, and take away
-the rest, see `lispm-desktop-tty-images--wanted'."
+(defun lispm-desktop-tty-images--frame-cells (frame)
+  "Return the cells FRAME covers on the terminal, (TOP LEFT BOTTOM RIGHT),
+the ends excluded, its outline a cell outside it where it has one."
+  (pcase-let ((`(,x . ,y) (lispm-desktop-tty-images--origin frame))
+              (outline (if (frame-parameter frame 'undecorated) 0 1)))
+    (list (- y outline) (- x outline)
+          (+ y (frame-pixel-height frame) outline) (+ x (frame-pixel-width frame) outline))))
+
+(defun lispm-desktop-tty-images--subtract (cells cut)
+  "Return the parts of CELLS outside CUT, both (TOP LEFT BOTTOM RIGHT), as
+a list of such rectangles."
+  (pcase-let ((`(,top ,left ,bottom ,right) cells)
+              (`(,cut-top ,cut-left ,cut-bottom ,cut-right) cut))
+    (if (or (>= cut-top bottom) (<= cut-bottom top) (>= cut-left right) (<= cut-right left))
+        (list cells)
+      (let ((cut-top (max cut-top top))
+            (cut-bottom (min cut-bottom bottom))
+            (pieces nil))
+        (when (> cut-top top) (push (list top left cut-top right) pieces))
+        (when (> cut-left left) (push (list cut-top left cut-bottom cut-left) pieces))
+        (when (< cut-right right) (push (list cut-top cut-right cut-bottom right) pieces))
+        (when (< cut-bottom bottom) (push (list cut-bottom left bottom right) pieces))
+        (nreverse pieces)))))
+
+(defun lispm-desktop-tty-images--pieces (wanted frames)
+  "Return where the image WANTED is on the terminal, as (CELLS . PIECES):
+the cells it covers, and those of them its window shows and no frame of
+FRAMES, the frames from the front, in front of the window's covers, as
+rectangles.  Nil where its window does not show it."
+  (pcase-let ((`(,_ ,_ ,_ ,_ ,window ,buffer ,line ,column ,columns ,rows) wanted))
+    (when (and (window-live-p window)
+               (eq (window-buffer window) buffer)
+               (frame-visible-p (window-frame window))
+               (eq (frame-root-frame (window-frame window)) (frame-root-frame (selected-frame))))
+      (pcase-let* ((frame (window-frame window))
+                   (root (frame-root-frame frame))
+                   (`(,x . ,y) (lispm-desktop-tty-images--origin frame))
+                   (`(,body-left ,body-top ,body-right ,body-bottom) (window-body-edges window))
+                   (start (with-current-buffer buffer
+                            (save-excursion (goto-char (window-start window)) (1- (line-number-at-pos)))))
+                   (top (+ y body-top (- line start)))
+                   (left (+ x body-left (- column (window-hscroll window))))
+                   (cells (list top left (+ top rows) (+ left columns)))
+                   (shown (list (max top (+ y body-top)) (max left (+ x body-left))
+                                (min (+ top rows) (+ y body-bottom)) (min (+ left columns) (+ x body-right))))
+                   (pieces (and (< (nth 0 shown) (nth 2 shown)) (< (nth 1 shown) (nth 3 shown))
+                                (list shown))))
+        (dolist (front (seq-take-while (lambda (other) (not (eq other frame))) frames))
+          (when (and pieces (frame-parent front) (frame-visible-p front)
+                     (eq (frame-root-frame front) root))
+            (let ((cut (lispm-desktop-tty-images--frame-cells front)))
+              (setq pieces (mapcan (lambda (piece) (lispm-desktop-tty-images--subtract piece cut)) pieces)))))
+        (cons cells pieces)))))
+
+(defun lispm-desktop-tty-images--place (&optional again)
+  "Place the images wanted where their windows show them, but for what
+frames in front of them cover, and take away the rest, see
+`lispm-desktop-tty-images--wanted'.  A placement as it was is sent
+again only when AGAIN."
   (when (and (lispm-desktop-tty-p) (featurep 'kitty-graphics))
     (setq lispm-desktop-tty-images--wanted
-          (seq-filter (lambda (wanted) (window-live-p (nth 2 wanted))) lispm-desktop-tty-images--wanted))
-    (let* ((placed nil)
-           (shown (lispm-desktop-tty-images-p))
+          (seq-filter (lambda (wanted) (window-live-p (nth 4 wanted))) lispm-desktop-tty-images--wanted))
+    (let* ((shown (lispm-desktop-tty-images-p))
            (terminal (terminal-parameter nil 'lispm-desktop-tty-images))
-           (cell (and shown (round (* (plist-get terminal :scale) (plist-get terminal :width)))))
-           (shift (and shown (plist-get terminal :shift))))
-      (kitty-graphics--terminal-send "\e[?2026h")
-      (pcase-dolist (`(,key ,file ,window ,line ,column ,columns ,rows) lispm-desktop-tty-images--wanted)
-        (when-let* ((shown)
-                    (where (lispm-desktop-tty-images--where window line column columns rows)))
-          (let ((id (with-memoization (gethash file lispm-desktop-tty-images--ids)
-                      (kitty-graphics--alloc-id)))
-                (placement (with-memoization (gethash key lispm-desktop-tty-images--placements)
-                             (kitty-graphics--alloc-placement-id))))
-            (unless (kitty-graphics--transmitted-p id)
-              (kitty-graphics--kitty-prepare file id))
-            ;; A placement belongs to its image: the icon's other image,
-            ;; as before it was selected, goes first.
-            (when-let* ((before (alist-get key lispm-desktop-tty-images--placed nil nil #'equal))
-                        ((/= (car before) id)))
-              (kitty-graphics--delete-placement (car before) (cdr before)))
-            (kitty-graphics--terminal-send
-             (format "\e7\e[%d;%dH" (car where) (+ (cdr where) (/ shift (max 1 cell)))))
-            (kitty-graphics--terminal-send
-             (format "\e_Gq=2,a=p,i=%d,p=%d,c=%d,r=%d,z=%d,X=%d,C=1\e\\"
-                     id placement columns rows lispm-desktop-tty-images--z (% shift (max 1 cell))))
-            (kitty-graphics--terminal-send "\e8")
-            (push (cons key (cons id placement)) placed))))
-      (pcase-dolist (`(,key . (,id . ,placement)) lispm-desktop-tty-images--placed)
-        (unless (assoc key placed)
-          (kitty-graphics--delete-placement id placement)))
-      (lispm-desktop-tty-images--set-ground (and shown lispm-desktop-tty-images--background))
-      (kitty-graphics--terminal-send "\e[?2026l")
+           (cell (and shown (max 1 (round (* (plist-get terminal :scale) (plist-get terminal :width))))))
+           (shift (if shown (plist-get terminal :shift) 0))
+           (frames (and shown (frame-list-z-order)))
+           (placed nil)
+           (out nil))
+      (when shown
+        (dolist (wanted lispm-desktop-tty-images--wanted)
+          (pcase-let* ((`(,key ,file ,width ,height ,_ ,_ ,_ ,_ ,columns ,rows) wanted)
+                       (`(,cells . ,pieces) (lispm-desktop-tty-images--pieces wanted frames))
+                       (id (with-memoization (gethash file lispm-desktop-tty-images--ids)
+                             (kitty-graphics--alloc-id))))
+            (seq-do-indexed
+             (pcase-lambda (`(,top ,left ,bottom ,right) index)
+               (let* ((piece (cons key index))
+                      (placement (with-memoization (gethash piece lispm-desktop-tty-images--placements)
+                                   (kitty-graphics--alloc-placement-id)))
+                      (whole (equal (list top left bottom right) cells))
+                      (sent (concat
+                             (format "\e[%d;%dH" (1+ top) (+ 1 left (/ shift cell)))
+                             (format "\e_Gq=2,a=p,i=%d,p=%d,c=%d,r=%d,z=-1,X=%d,C=1"
+                                     id placement (- right left) (- bottom top) (% shift cell))
+                             (unless whole
+                               (format ",x=%d,y=%d,w=%d,h=%d"
+                                       (round (* (- left (nth 1 cells)) width) columns)
+                                       (round (* (- top (nth 0 cells)) height) rows)
+                                       (round (* (- right left) width) columns)
+                                       (round (* (- bottom top) height) rows)))
+                             "\e\\"))
+                      (before (cdr (assoc piece lispm-desktop-tty-images--placed))))
+                 (unless (kitty-graphics--transmitted-p id)
+                   (kitty-graphics--kitty-prepare file id))
+                 ;; A placement belongs to its image: the piece's image
+                 ;; before, as before the icon was selected, goes first.
+                 (when (and before (/= (car before) id))
+                   (push (format "\e_Ga=d,d=i,i=%d,p=%d,q=2\e\\" (car before) (cadr before)) out))
+                 (when (or again (not (equal before (cons id (cons placement sent)))))
+                   (push sent out))
+                 (push (cons piece (cons id (cons placement sent))) placed)))
+             pieces))))
+      (pcase-dolist (`(,piece ,id ,placement . ,_) lispm-desktop-tty-images--placed)
+        (unless (assoc piece placed)
+          (push (format "\e_Ga=d,d=i,i=%d,p=%d,q=2\e\\" id placement) out)))
+      (when out
+        (dolist (escape (append '("\e[?2026h\e7") (nreverse out) '("\e8\e[?2026l")))
+          (kitty-graphics--terminal-send escape)))
       (setq lispm-desktop-tty-images--placed placed))))
 
-(defun lispm-desktop-tty-images--set-ground (color)
-  "Make the terminal's default background COLOR, \"#RRGGBB\", or its own
-again where COLOR is nil."
-  (unless (equal color lispm-desktop-tty-images--ground)
-    (send-string-to-terminal
-     (if color
-         (format "\e]11;rgb:%s/%s/%s\e\\" (substring color 1 3) (substring color 3 5) (substring color 5 7))
-       "\e]111\e\\"))
-    (setq lispm-desktop-tty-images--ground color)))
+(defun lispm-desktop-tty-images--before-redisplay (&rest _)
+  "Place the images anew where a window or a menu moved, came or went,
+before Emacs draws it, a menu's own loop included.  This is advice
+after `pre-redisplay-function'."
+  (when (or lispm-desktop-tty-images--wanted lispm-desktop-tty-images--placed)
+    (with-demoted-errors "LispM images: %S"
+      (lispm-desktop-tty-images--place))))
 
 (defun lispm-desktop-tty-images--take-away ()
-  "Take every image placed off the terminal, and give it back its own
-background, as Emacs leaves it."
+  "Take every image placed off the terminal, as Emacs leaves it."
   (when (and lispm-desktop-tty-images--placed (featurep 'kitty-graphics))
-    (pcase-dolist (`(,_ . (,id . ,placement)) lispm-desktop-tty-images--placed)
+    (pcase-dolist (`(,_ ,id ,placement . ,_) lispm-desktop-tty-images--placed)
       (kitty-graphics--delete-placement id placement))
-    (setq lispm-desktop-tty-images--placed nil))
-  (when (lispm-desktop-tty-p)
-    (lispm-desktop-tty-images--set-ground nil)))
+    (setq lispm-desktop-tty-images--placed nil)))
 
 (defun lispm-desktop-tty-images--refresh (&rest _)
-  "Place the images again: the screen may have been cleared.  This is a
+  "Place the images anew: the screen may have been cleared.  This is a
 `post-command-hook' and `window-size-change-functions' function."
-  (when (or lispm-desktop-tty-images--wanted lispm-desktop-tty-images--placed
-            lispm-desktop-tty-images--ground)
+  (when (or lispm-desktop-tty-images--wanted lispm-desktop-tty-images--placed)
     (lispm-desktop-tty-images--schedule)))
 
 (defun lispm-desktop-tty-images-setup ()
@@ -351,6 +405,7 @@ background, as Emacs leaves it."
 `lispm-desktop-tty-images'.  The terminal is asked once Emacs is idle."
   (when (lispm-desktop-tty-p)
     (run-with-idle-timer 0.2 nil #'lispm-desktop-tty-images--check)
+    (add-function :after pre-redisplay-function #'lispm-desktop-tty-images--before-redisplay)
     (add-hook 'post-command-hook #'lispm-desktop-tty-images--refresh)
     (add-hook 'window-size-change-functions #'lispm-desktop-tty-images--refresh)
     (add-hook 'suspend-hook #'lispm-desktop-tty-images--take-away)
