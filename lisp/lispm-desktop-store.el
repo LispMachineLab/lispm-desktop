@@ -36,39 +36,30 @@
 ;; It lists them from catalogs: git repositories holding a catalog.eld,
 ;; LispMachineLab/lispm-store by default (`lispm-desktop-store-catalogs').
 ;; Each is cloned under `lispm-desktop-store-directory' and its catalog
-;; read as data, never evaluated:
+;; read as data, never evaluated, in the format lispm-desktop-catalog.el
+;; describes and checks, the one LispMachineLab/lispm-store's own check
+;; loads too: an item it finds an error in is left out, saying why.
+;; `lispm-desktop-store-check-catalog' lists what it finds wrong with a
+;; catalog, for those writing one.
 ;;
-;;   (:name "LispM Store"
-;;    :items
-;;    ((elfeed :kind app :name "Elfeed" :subtitle "Web feeds"
-;;             :category news :description "Read web feeds."
-;;             :icon "elfeed" :command elfeed
-;;             :package (elfeed :url "https://github.com/skeeto/elfeed"
-;;                              :rev "<commit>"))
-;;     (calculator :kind app :name "Calculator" :category utilities
-;;                 :command calc)
-;;     (hermes :kind extension :name "Hermes" :icon "hermes"
-;;             :program "hermes" :install "<command installing hermes>"
-;;             :feature lispm-hermes
-;;             :package (lispm-hermes :url "<repository>" :rev "<commit>"))))
-;;
-;; An application's :package is absent for one built into Emacs, the name
-;; of a package of the package archives, or a spec as `package-vc-install'
-;; takes one, pinned to the commit :rev.  :command opens the application
-;; in its window; or :feature names a package that makes its application
-;; itself, with `lispm-desktop-define-app' and the item's name as its key,
-;; and that is unloaded (`unload-feature') when the application is removed.
-;; An extension's :package is required, and its :feature, loaded, makes
-;; the extension take part; unloaded (`unload-feature') it takes part no
-;; more.  An extension needing a :program can be installed only while
-;; that program is on PATH; :install says how to install the program.
-;; An app's :needs are the programs, libraries and applications it uses
-;; beyond Emacs, as EMMS a player, each as lispm-desktop-needs.el says:
-;; Get installs those missing with the app, in the Installer, the alert
-;; asking for both; its information says what is missing, Install
-;; Missing installs it, and its window offers it, see
+;; An application becomes the desktop's in one way, at its install and at
+;; every start (`lispm-desktop-store--register-app'): its catalog says
+;; what it is called, its icon, category and description, and what it
+;; needs (`lispm-desktop-store-app-metadata'); how it opens is the App
+;; Store's for one with a :command, run in the application's window, or
+;; its library's for one with a :feature, running windows of its own as
+;; Stickies does: loaded first, the library says what the application
+;; does with `lispm-desktop-define-app' under the item's ID, and is
+;; unloaded (`unload-feature') when the application is uninstalled.  An
+;; extension's :feature, loaded, makes it take part in the editor;
+;; unloaded, it takes part no more.  An extension needing a :program can
+;; be installed only while that program is on PATH; :install says how to
+;; install the program.  An app's :needs are the programs, libraries and
+;; applications it uses beyond Emacs, as EMMS a player, each as
+;; lispm-desktop-needs.el says: Get installs those missing with the app,
+;; in the Installer, the alert asking for both; its information says what
+;; is missing, Install Missing installs it, and its window offers it, see
 ;; lispm-desktop-app-ui.el; the commands a need names offer it too.
-;; :icon names icons/NAME.svg and icons/NAME-32.svg of the catalog;
 ;; :category, one of `lispm-desktop-store-categories', and :subtitle, a
 ;; few words, place an application in the window.  :requires names the
 ;; items installed before.  Items of other kinds, as LispM's roles and
@@ -129,6 +120,7 @@
 (require 'lispm-desktop-update)
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-catalog)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
@@ -335,52 +327,11 @@ called after."
                  (setq lispm-desktop-store--checking nil)
                  (signal (car err) (cdr err))))))))
 
-(defun lispm-desktop-store--safe-file-p (file)
-  "Return non-nil when FILE names a file inside a catalog: relative, and
-never out of it with `..'."
-  (and (stringp file) (not (string-empty-p file))
-       (not (file-name-absolute-p file)) (not (string-prefix-p "~" file))
-       (not (member ".." (split-string file "/")))))
-
-(defun lispm-desktop-store--package-valid-p (package)
-  "Return non-nil when PACKAGE is an application's :package as catalogs
-give it: nil, a package's name, or a spec pinned to a commit that runs no
-command to build it."
-  (pcase package
-    ('nil t)
-    ((pred symbolp) t)
-    (`(,(and name (pred symbolp)) . ,(and spec (pred plistp)))
-     (and name (stringp (plist-get spec :url)) (stringp (plist-get spec :rev))
-          (not (plist-member spec :make)) (not (plist-member spec :shell-command))
-          (or (null (plist-get spec :lisp-dir))
-              (lispm-desktop-store--safe-file-p (plist-get spec :lisp-dir)))))))
-
-(defun lispm-desktop-store--string-p (object)
-  "Return non-nil when OBJECT is absent or a string."
-  (or (null object) (stringp object)))
-
 (defun lispm-desktop-store--item-valid-p (item)
-  "Return non-nil when ITEM, (ID . PROPERTIES) of a catalog, is well formed."
-  (pcase item
-    (`(,(and id (pred symbolp)) . ,(and props (pred plistp)))
-     (and id (stringp (plist-get props :name))
-          (lispm-desktop-store--string-p (plist-get props :description))
-          (lispm-desktop-store--string-p (plist-get props :subtitle))
-          (symbolp (plist-get props :category))
-          (let ((requires (plist-get props :requires)))
-            (and (listp requires) (seq-every-p #'symbolp requires)))
-          (let ((icon (plist-get props :icon)))
-            (or (null icon) (lispm-desktop-store--safe-file-p icon)))
-          (lispm-desktop-store--package-valid-p (plist-get props :package))
-          (lispm-desktop-needs-list-valid-p (plist-get props :needs))
-          (pcase (plist-get props :kind)
-            ('app (let ((command (plist-get props :command))
-                        (feature (plist-get props :feature)))
-                    (and (symbolp command) (symbolp feature) (or command feature))))
-            ('extension (and (plist-get props :package)
-                             (plist-get props :feature) (symbolp (plist-get props :feature))
-                             (lispm-desktop-store--string-p (plist-get props :program))
-                             (lispm-desktop-store--string-p (plist-get props :install)))))))))
+  "Return non-nil when ITEM, (ID . PROPERTIES) of a catalog, is an item the
+App Store lists: of a kind it installs, and well formed as
+lispm-desktop-catalog.el says."
+  (lispm-desktop-catalog-item-valid-p item))
 
 (defun lispm-desktop-store--kind-p (item)
   "Return non-nil when ITEM, (ID . PROPERTIES), is of a kind the App Store
@@ -391,28 +342,29 @@ installs, see `lispm-desktop-store-kinds'."
 
 (defun lispm-desktop-store--read-catalog (url)
   "Return the catalog at URL as its clone holds it, or nil without a clone.
-A catalog that cannot be read is said so and left out, and so are the
-items of one that are not well formed.  Items of kinds the App Store does
-not install are passed over without a word."
+A catalog that cannot be read is said so and left out, and so is an item
+of it lispm-desktop-catalog.el finds an error in, saying which; what it
+only warns of, as a subtitle missing, is the catalog's to mend, and does
+not keep an item out.  Items of kinds the App Store does not install are
+passed over without a word."
   (let* ((directory (lispm-desktop-store--catalog-directory url))
          (file (expand-file-name "catalog.eld" directory)))
     (when (file-readable-p file)
       (condition-case err
-          (let ((data (with-temp-buffer
-                        (insert-file-contents file)
-                        (read (current-buffer)))))
-            (unless (and (plistp data) (listp (plist-get data :items)))
-              (error (lispm-desktop-tr "It is no catalog")))
+          (let ((data (lispm-desktop-catalog-read directory)))
             (list :url url :directory directory
                   :name (let ((name (plist-get data :name))) (if (stringp name) name url))
                   :commit (ignore-errors (lispm-desktop-store--git directory "rev-parse" "HEAD"))
-                  :items (seq-filter (lambda (item)
-                                       (and (lispm-desktop-store--kind-p item)
-                                            (or (lispm-desktop-store--item-valid-p item)
-                                                (progn (message (lispm-desktop-tr "App Store: %s lists %S wrongly; left out")
-                                                                url (car-safe item))
-                                                       nil))))
-                                     (plist-get data :items))))
+                  :items (seq-filter
+                          (lambda (item)
+                            (and (lispm-desktop-store--kind-p item)
+                                 (if-let* ((errors (lispm-desktop-catalog-errors
+                                                    (lispm-desktop-catalog-item-problems item))))
+                                     (progn (message (lispm-desktop-tr "App Store: %s lists %S wrongly, left out: %s")
+                                                     url (car-safe item) (string-join errors "; "))
+                                            nil)
+                                   t)))
+                          (plist-get data :items))))
         (error (message (lispm-desktop-tr "App Store: cannot read the catalog of %s: %s")
                         url (error-message-string err))
                nil)))))
@@ -421,6 +373,37 @@ not install are passed over without a word."
   "Read the catalogs as their clones hold them; return them."
   (setq lispm-desktop-store--catalogs
         (delq nil (mapcar #'lispm-desktop-store--read-catalog lispm-desktop-store-catalogs))))
+
+(defconst lispm-desktop-store-check-buffer-name "*Catalog Check*"
+  "Name of the buffer `lispm-desktop-store-check-catalog' lists problems in.")
+
+(defun lispm-desktop-store-check-catalog (directory)
+  "List what is wrong with the catalog DIRECTORY holds, its catalog.eld and
+the icons it names, as the App Store reads it and as LispMachineLab's
+lispm-store checks its own, see lispm-desktop-catalog.el; return the
+problems, (SEVERITY . TEXT)s.  An error keeps an item out of the App
+Store; a warning says what the catalog should say besides."
+  (interactive (list (read-directory-name (lispm-desktop-tr "Check the catalog in: ") nil nil t)))
+  (let ((problems (condition-case err
+                      (lispm-desktop-catalog-problems (lispm-desktop-catalog-read directory) directory)
+                    (error (list (cons 'error (error-message-string err)))))))
+    (when (called-interactively-p 'any)
+      (with-current-buffer (get-buffer-create lispm-desktop-store-check-buffer-name)
+        (special-mode)
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (insert (abbreviate-file-name (expand-file-name "catalog.eld" directory)) "\n\n")
+          (pcase-dolist (`(,severity . ,text) problems)
+            (insert (if (eq severity 'error) (lispm-desktop-tr "Error: %s" text) (lispm-desktop-tr "Warning: %s" text))
+                    "\n"))
+          (insert (if problems
+                      (concat "\n" (lispm-desktop-tr-n "%d problem." "%d problems." (length problems)) "  "
+                              (lispm-desktop-tr "An error keeps an item out of the App Store; a warning says what the catalog should say besides."))
+                    (lispm-desktop-tr "Nothing is wrong with it."))
+                  "\n")
+          (goto-char (point-min)))
+        (pop-to-buffer (current-buffer))))
+    problems))
 
 (defun lispm-desktop-store--catalog (url)
   "Return the catalog read from URL, or nil."
@@ -463,15 +446,20 @@ installed from elsewhere, as from a git URL."
   "Return FILE of the catalog of the item of PROPS, in its clone."
   (expand-file-name file (lispm-desktop-store--catalog-directory (plist-get props :catalog))))
 
+(defun lispm-desktop-store--catalog-icon (props &optional large)
+  "Return the file of the icon the catalog of the item of PROPS draws it
+with, its 32-pixel one when LARGE, or nil when its clone holds none."
+  (when-let* ((name (plist-get props :icon))
+              ((plist-get props :catalog))
+              (file (lispm-desktop-store--file props (format "icons/%s%s.svg" name (if large "-32" ""))))
+              ((file-readable-p file)))
+    file))
+
 (defun lispm-desktop-store--icon (props &optional large)
   "Return the icon of the item of PROPS, its 32-pixel one when LARGE, as
 `lispm-desktop-platinum-icon-file' takes it: its catalog's drawing, or
 one standing for its kind."
-  (or (when-let* ((name (plist-get props :icon))
-                  ((plist-get props :catalog))
-                  (file (lispm-desktop-store--file props (format "icons/%s%s.svg" name (if large "-32" ""))))
-                  ((file-readable-p file)))
-        file)
+  (or (lispm-desktop-store--catalog-icon props large)
       (pcase (plist-get props :kind)
         ('extension "robot")
         (_ (if large "applications-32" "lispm")))))
@@ -1744,19 +1732,50 @@ if they were not yet."
                  (lispm-desktop-store--installed id))
              :needs))
 
-(defun lispm-desktop-store--register-app (id props)
-  "Make the installed application ID, of PROPS, one of the desktop's: its
-window gets the desktop's interface, see lispm-desktop-app-ui.el, and its
-menus with it."
+(defconst lispm-desktop-store-app-metadata '(:name :icon :category :description :needs :store)
+  "The properties of an installed application, see `lispm-desktop-apps',
+that its catalog gives, and nothing else: what it is called, how it
+looks, where the App Store files it, what it says of itself and needs.")
+
+(defun lispm-desktop-store--app-behaviour (id props)
+  "Return what the installed application ID, of PROPS, does, as properties
+of `lispm-desktop-apps' other than `lispm-desktop-store-app-metadata'.
+One opened by its :command opens in its window, from the App Store,
+with the menus its window works out; one of a :feature, running windows
+of its own, does what its library says with `lispm-desktop-define-app'
+under ID, the library loaded first, the window's menus where it names
+none.  A library that defines no application ID, or none that it
+activates, is an error."
   (if-let* ((feature (plist-get props :feature)))
-      (require feature nil t)
-    (lispm-desktop-define-app
-     id :name (plist-get props :name) :icon (lispm-desktop-store--icon props)
-     :category (lispm-desktop-store--category-of props) :description (plist-get props :description)
-     :needs (lambda () (lispm-desktop-store--needs id)) :store t
-     :menus (lambda () (lispm-desktop-app-ui-menus id))
-     :activate (lambda () (lispm-desktop-store-open id))
-     :visible (lambda () (lispm-desktop-app-window-open-p id))))
+      (progn
+        (require feature)
+        (let ((own (cdr (assq id lispm-desktop-apps))))
+          (unless (plist-get own :activate)
+            (error (lispm-desktop-tr "Its library %s defines no application %s") feature id))
+          `(,@(apply #'lispm-desktop-store--plist-without own lispm-desktop-store-app-metadata)
+            ,@(unless (plist-member own :menus)
+                (list :menus (lambda () (lispm-desktop-app-ui-menus id)))))))
+    (list :menus (lambda () (lispm-desktop-app-ui-menus id))
+          :activate (lambda () (lispm-desktop-store-open id))
+          :visible (lambda () (lispm-desktop-app-window-open-p id)))))
+
+(defun lispm-desktop-store--register-app (id props)
+  "Make the installed application ID, of PROPS, one of the desktop's: what
+it does, see `lispm-desktop-store--app-behaviour', with what its catalog
+says of it, `lispm-desktop-store-app-metadata', the icon its library drew
+standing in where its catalog's clone holds none.  Its window gets the
+desktop's interface, see lispm-desktop-app-ui.el, and what it needs is
+offered where it is missing.  This is the one way an application of the
+App Store becomes the desktop's, at its install and at every start."
+  (let* ((behaviour (lispm-desktop-store--app-behaviour id props))
+         (icon (or (lispm-desktop-store--catalog-icon props)
+                   (and (plist-get props :feature) (plist-get (cdr (assq id lispm-desktop-apps)) :icon))
+                   (lispm-desktop-store--icon props))))
+    (apply #'lispm-desktop-define-app
+           id :name (plist-get props :name) :icon icon
+           :category (lispm-desktop-store--category-of props) :description (plist-get props :description)
+           :needs (lambda () (lispm-desktop-store--needs id)) :store t
+           behaviour))
   (lispm-desktop-needs-guard-all (plist-get props :needs) (plist-get props :name)))
 
 (defun lispm-desktop-store--register (id props)

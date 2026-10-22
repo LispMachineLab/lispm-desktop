@@ -84,6 +84,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-catalog)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
@@ -102,8 +103,8 @@
   :type 'string
   :group 'lispm-desktop-needs)
 
-(defconst lispm-desktop-needs-kinds '(program library application)
-  "The kinds of need.")
+(defconst lispm-desktop-needs-kinds lispm-desktop-catalog-need-kinds
+  "The kinds of need, as a catalog names them.")
 
 (defconst lispm-desktop-needs-brew-places '("/opt/homebrew/bin/brew" "/usr/local/bin/brew")
   "Where Homebrew puts brew, on Apple silicon and on Intel Macs.")
@@ -150,27 +151,13 @@ in its terminal, Apple's command line tools in Apple's window.")
   (cons (lispm-desktop-needs-kind need) (lispm-desktop-needs-name need)))
 
 (defun lispm-desktop-needs-valid-p (need)
-  "Return non-nil when NEED is well formed, as a catalog may give it."
-  (pcase need
-    (`(,(and kind (pred symbolp)) ,(and name (pred stringp)) . ,(and properties (pred plistp)))
-     (let ((string-or-nil (lambda (key) (let ((value (plist-get properties key)))
-                                          (or (null value) (stringp value)))))
-           (strings (lambda (key) (let ((value (plist-get properties key)))
-                                    (and (proper-list-p value) (seq-every-p #'stringp value))))))
-       (and (memq kind lispm-desktop-needs-kinds)
-            (not (string-empty-p name))
-            (stringp (plist-get properties :for))
-            (seq-every-p string-or-nil '(:brew :cask :more :file :bundle))
-            (memq (plist-get properties :head) '(nil t))
-            (funcall strings :instead)
-            (seq-every-p (lambda (key)
-                           (let ((symbols (plist-get properties key)))
-                             (and (proper-list-p symbols) (seq-every-p #'symbolp symbols))))
-                         '(:commands :variables)))))))
+  "Return non-nil when NEED is well formed, as a catalog may give it, see
+`lispm-desktop-catalog-need-problems'."
+  (null (lispm-desktop-catalog-errors (lispm-desktop-catalog-need-problems need))))
 
 (defun lispm-desktop-needs-list-valid-p (needs)
   "Return non-nil when NEEDS is a list of well-formed needs."
-  (and (proper-list-p needs) (seq-every-p #'lispm-desktop-needs-valid-p needs)))
+  (null (lispm-desktop-catalog-errors (lispm-desktop-catalog-needs-problems needs))))
 
 ;;;; Where things are
 
