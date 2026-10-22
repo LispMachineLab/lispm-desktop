@@ -1303,5 +1303,4 @@ Rust 的套件管理器 Cargo 會在安裝程式中
   ("Cargo, which builds it, is not installed." . "用於建置的 Cargo 尚未安裝。")
   ("Building with Cargo…" . "正在使用 Cargo 建置…")
   ("Cargo built it, but %s is not to be found." . "Cargo 已建置完成，但找不到 %s。")
-  ("Cargo failed." . "Cargo 執行失敗。")
-  ("App Store: installing %s, which comes with LispM" . "App Store：正在安裝 LispM 內建的 %s")))
+  ("Cargo failed." . "Cargo 執行失敗。")))

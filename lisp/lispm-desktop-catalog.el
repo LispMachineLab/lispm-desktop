@@ -77,8 +77,6 @@
 ;; installed before it.  :emacs is the lowest major version of Emacs it
 ;; runs in, as 32 for what only Emacs 32's canvas images can show: an
 ;; older Emacs's App Store lists it, but does not install it.
-;; :preinstalled t says it comes with LispM: the App Store installs it
-;; unasked, once, and one uninstalled stays so.
 ;;
 ;; A skill is LispM Agent's manual of what applications and extensions
 ;; let agents do, an org file of instructions and of code defining tools:
@@ -123,9 +121,9 @@ An application gives its :category too.")
 
 (defconst lispm-desktop-catalog-properties
   `((app :required (:kind ,@lispm-desktop-catalog-listing :category)
-         :optional (:package :command :feature :needs :requires :emacs :preinstalled))
+         :optional (:package :command :feature :needs :requires :emacs))
     (extension :required (:kind ,@lispm-desktop-catalog-listing :package :feature)
-               :optional (:program :install :requires :emacs :preinstalled)))
+               :optional (:program :install :requires :emacs)))
   "The properties an item of each kind has, as (KIND :required KEYS
 :optional KEYS).  An application has :command or :feature besides.")
 
@@ -429,9 +427,7 @@ in what every item has."
           (wrong ":requires is a list of items' IDs")))
       (when-let* ((emacs (plist-get props :emacs)))
         (unless (and (natnump emacs) (<= 30 emacs 99))
-          (wrong ":emacs is the lowest major version of Emacs it runs in, as 32")))
-      (unless (memq (plist-get props :preinstalled) '(nil t))
-        (wrong ":preinstalled is t")))))
+          (wrong ":emacs is the lowest major version of Emacs it runs in, as 32"))))))
 
 (defun lispm-desktop-catalog-item-files (props &optional directory)
   "Return the files of its catalog the item of PROPS names, relative to

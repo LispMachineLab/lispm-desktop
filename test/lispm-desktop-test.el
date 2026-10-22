@@ -7998,10 +7998,6 @@ neither."
                          (list key t))))))
     (should (lispm-desktop-test--problems '(x :kind extension :name "X" :feature x) 'error))
     (should (lispm-desktop-catalog-item-valid-p (funcall item :emacs 32)))
-    ;; What comes with LispM says so with t.
-    (should-not (lispm-desktop-catalog-item-problems (funcall item :preinstalled t)))
-    (should (equal (lispm-desktop-test--problems (funcall item :preinstalled 'yes) 'error)
-                   '(":preinstalled is t")))
     (should (equal (lispm-desktop-test--problems '(x :kind extension :name "X" :subtitle "X" :description "X."
                                                      :icon "x" :banner "x" :about "x" :author "X"
                                                      :license "MIT" :feature x :package x))
@@ -8616,6 +8612,31 @@ it."
                                '("settings_get" "settings_show" "settings_set" "settings_lower_sandbox"))
                        '(read read write write)))))))
 
+(ert-deftest lispm-desktop-test-system-skill-app-store-choosing ()
+  "store_search finds an item by words of what the user wants done, not
+only of its name: by its description, the skill it brings, what it
+needs, its introduction; a word begun counts, and not every word must
+match.  What matches only by chance is left out."
+  (lispm-desktop-test--load-system-skill "app-store")
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog
+     '((gateway :kind app :name "Gateway" :command ignore :subtitle "Your models, one address"
+                :description "A gateway to the models of the accounts you have, for programs speaking OpenAI's API."
+                :needs ((program "lispm-test-gateway" :for "reaching the models of your accounts"
+                                 :cargo "lispm-test-gateway")))
+       (feeds :kind app :name "Feeds" :command ignore :category news :about "feeds"
+              :description "Web feeds read in Emacs.")
+       (gateway-help :kind skill :name "Use the gateway" :description "Lets agents switch the model they use."
+                     :file "skills/calc-help.org" :requires (gateway)))
+     '(("about/feeds.md" . "Reads RSS and Atom, blogs and podcasts.\n")))
+    (should (string-prefix-p "gateway:" (lispm-desktop-test--call "store_search" "use my accounts for models")))
+    (should (string-prefix-p "gateway:" (lispm-desktop-test--call "store_search" "switch the agents' model")))
+    (should (string-prefix-p "feeds:" (lispm-desktop-test--call "store_search" "read rss podcasts")))
+    (should-not (string-search "calculator:" (lispm-desktop-test--call "store_search" "read rss podcasts")))
+    (should (string-prefix-p "calculator:" (lispm-desktop-test--call "store_search" "Calculat")))
+    (should (string-prefix-p "feeds:" (lispm-desktop-test--call "store_search" "feeds" "news")))
+    (should (equal (lispm-desktop-test--call "store_search" "feeds" "games") "Nothing matches."))))
+
 (ert-deftest lispm-desktop-test-system-skill-app-store ()
   "The App Store's skill's tools search the items and read one, show the
 App Store, check the catalogs, and install, update and uninstall an
@@ -8624,7 +8645,7 @@ approved: those three always ask, and show first what they do."
   (lispm-desktop-test--load-system-skill "app-store")
   (lispm-desktop-test--with-store
     (lispm-desktop-test--skill-catalog)
-    (should (string-search "calculator: Calculator, an application in Utilities: A test item; not installed; skills for agents: calc-help (Calculate)"
+    (should (string-search "calculator: Calculator (A test item), an application in Utilities; not installed; skills for agents: calc-help (Calculate)\n  An item of the tests."
                            (lispm-desktop-test--call "store_search")))
     (should (string-search "calculator:" (lispm-desktop-test--call "store_search" "calc" "utilities")))
     (should (equal (lispm-desktop-test--call "store_search" "zzz") "Nothing matches."))
@@ -8732,37 +8753,6 @@ loaded."
           (should-not (assq 'ext lispm-desktop-apps))
           (should (featurep 'lispm-desktop-test-ext))
           (should (equal lispm-desktop-test--extension-events '(loaded))))))))
-
-(ert-deftest lispm-desktop-test-store-preinstalls ()
-  "What a catalog says comes with LispM installs by itself once the catalog
-is read, unasked, and only once: uninstalled, it stays so.  One installed
-before came so; one that cannot run here is passed over."
-  (lispm-desktop-test--with-store
-    (lispm-desktop-test--store-catalog
-     "https://example.org/store"
-     '((calculator :kind app :name "Calculator" :command calc :preinstalled t)
-       (calendar :kind app :name "Calendar" :command calendar :preinstalled t)
-       (future :kind app :name "Future" :command calc :preinstalled t :emacs 99)
-       (life :kind app :name "Life" :command life)))
-    (let ((lispm-desktop-store-preinstalled nil)
-          (asked nil))
-      (lispm-desktop-store--keep 'calendar (cdr (assq 'calendar (lispm-desktop-store-items))) :installed "built-in")
-      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) (setq asked t))))
-        (lispm-desktop-store--preinstall)
-        (should-not asked)
-        (should (equal (mapcar #'car lispm-desktop-store-installed) '(calendar calculator)))
-        (should (equal lispm-desktop-store-preinstalled '(calendar calculator)))
-        (lispm-desktop-store-uninstall 'calculator t)
-        (should-not (lispm-desktop-store-installed-p 'calculator))
-        (lispm-desktop-store--preinstall)
-        (should-not (lispm-desktop-store-installed-p 'calculator))
-        (should-not (lispm-desktop-store-installed-p 'future))
-        (should-not (lispm-desktop-store-installed-p 'life))
-        ;; Turned off, nothing comes.
-        (let ((lispm-desktop-store-preinstalled nil)
-              (lispm-desktop-store-preinstall nil))
-          (lispm-desktop-store--preinstall)
-          (should-not (lispm-desktop-store-installed-p 'calculator)))))))
 
 (ert-deftest lispm-desktop-test-store-extension-needs-its-program ()
   "An extension whose program is not on PATH is not installed, and nothing

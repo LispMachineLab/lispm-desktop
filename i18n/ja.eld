@@ -1303,5 +1303,4 @@ Rust のパッケージマネージャ Cargo が
   ("Cargo, which builds it, is not installed." . "ビルドに使う Cargo がインストールされていません。")
   ("Building with Cargo…" . "Cargo でビルド中…")
   ("Cargo built it, but %s is not to be found." . "Cargo でビルドしましたが、%s が見つかりません。")
-  ("Cargo failed." . "Cargo が失敗しました。")
-  ("App Store: installing %s, which comes with LispM" . "App Store：LispM に付属する %s をインストール中")))
+  ("Cargo failed." . "Cargo が失敗しました。")))
