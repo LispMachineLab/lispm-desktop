@@ -5028,6 +5028,25 @@ item opens its panel, and nothing is made, renamed or thrown away there."
       (lispm-desktop-finder--go temporary-file-directory)
       (should (lispm-desktop-finder-real-p)))))
 
+(ert-deftest lispm-desktop-test-about-names-gnu-emacs ()
+  "About LispM names the GNU Emacs it runs on and the GNU GPL it is free
+software under; Licence shows the licence in the editor, OK nothing."
+  (let ((alerts nil) (choice 'ok) (shown nil)
+        (lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence))
+    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+               (lambda (_icon _message buttons detail) (push (list buttons detail) alerts) choice))
+              ((symbol-function 'lispm-desktop-apps-activate) (lambda (app) (push app shown)))
+              ((symbol-function 'describe-copying) (lambda () (push 'copying shown))))
+      (lispm-desktop-platinum-about)
+      (let ((detail (nth 1 (car alerts))))
+        (should (string-search (format "GNU Emacs %s" emacs-version) detail))
+        (should (string-search "GNU General Public License" detail)))
+      (should (equal (mapcar #'cadr (nth 0 (car alerts))) '(licence ok)))
+      (should-not shown)
+      (setq choice 'licence)
+      (lispm-desktop-platinum-about)
+      (should (equal shown '(copying editor))))))
+
 (ert-deftest lispm-desktop-test-settings-in-menus ()
   "The λ menu opens each panel; the Application menu lists Settings while
 its window is open."

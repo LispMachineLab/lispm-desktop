@@ -657,6 +657,8 @@
   ("About LispM" . "LispMについて")
   ("Customize lispm-desktop…" . "lispm-desktopをカスタマイズ…")
   ("LispM, a Lisp Machine for agents, inside Emacs." . "LispM：Emacsの中で動く、エージェントのためのLispマシン。")
+  ("Licence" . "ライセンス")
+  ("lispm-desktop, running on GNU Emacs %s.  GNU Emacs is free software: you may share and change it under the GNU General Public License, version 3 or later." . "GNU Emacs %s上で動作するlispm-desktop。GNU Emacsはフリーソフトウェアです。GNU General Public Licenseバージョン3以降の条件のもとで、自由に共有・改変できます。")
   ("New Workspace" . "新規ワークスペース")
   ("Close Workspace" . "ワークスペースを閉じる")
   ("Workspaces" . "ワークスペース")
