@@ -265,6 +265,27 @@ DISPLAY=:2 ~/.local/emacs-x11/bin/emacs                   # in another
 Clicking into Xephyr grabs the keyboard and mouse; Control-Shift releases them.  Both builds
 share one configuration and its state files; the one that quits last keeps its own.
 
+* Writing an application
+
+An application of the App Store is an Emacs package and one item of a catalog; it becomes the
+desktop's in one way, the App Store's, at its install and at every start.
+
+1. *The package* opens it with an autoloaded command showing its buffer, which the App Store runs in
+   the application's window.  Only an application running windows of its own, as [[https://github.com/LispMachineLab/lispm-stickies][Stickies]] does,
+   gives a ~:feature~ instead: a library that, loaded, says what it does with
+   ~(lispm-desktop-define-app 'ID :activate ... :menus ... :running ...)~, ID being its catalog item's,
+   and undoes its hooks in ~FEATURE-unload-function~.
+2. *Its interface* is worked out from its mode; say the rest (buttons, status, pages) with
+   ~lispm-desktop-app-ui-define~ inside ~(with-eval-after-load 'lispm-desktop-app-ui ...)~, so the package
+   still runs in any Emacs.
+3. *Its catalog item* in [[https://github.com/LispMachineLab/lispm-store][lispm-store]] is the only place saying what it is called, its subtitle, icon,
+   category, description and needs; the App Store takes them from there, never from the package.
+4. *The checks*: =lisp/lispm-desktop-catalog.el= is the catalog's format, the one the App Store reads
+   with and lispm-store's =make check= loads; =M-x lispm-desktop-store-check-catalog= lists what is
+   wrong with a catalog of your own.  An error keeps an item out of the App Store, a warning fails the
+   check.
+5. *A pull request* to lispm-store adds the item, pinned to a reviewed commit (see its README).
+
 * Development
 
 =make test= runs the ERT tests, among them that every catalog of =i18n/= translates every message

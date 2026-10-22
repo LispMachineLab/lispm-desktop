@@ -7696,6 +7696,113 @@ loading a feature from a package of its own."
     (should-not (valid '(r :kind role :name "R" :file "roles/r.org")))
     (should-not (valid '("e" :kind app :name "E" :command e)))))
 
+(defconst lispm-desktop-test--listed-app
+  '(elfeed :kind app :name "Elfeed" :subtitle "Web feeds" :category news
+           :description "A reader of web feeds." :icon "elfeed" :command elfeed
+           :package (elfeed :url "https://github.com/skeeto/elfeed"
+                            :rev "acbb86e342d2b8f85dfb30dce9df01db9a829c77"))
+  "An application as a catalog lists it, everything said.")
+
+(defun lispm-desktop-test--problems (item &optional severity)
+  "Return the texts of what is wrong with ITEM, those of SEVERITY only
+when given."
+  (mapcan (pcase-lambda (`(,kind . ,text)) (and (or (null severity) (eq kind severity)) (list text)))
+          (lispm-desktop-catalog-item-problems item)))
+
+(ert-deftest lispm-desktop-test-catalog-item-problems ()
+  "The format of a catalog's item is said once: an item listed with
+everything is well; one the App Store cannot list safely has errors, one
+short of what a catalog says has warnings only, and an item of a kind
+the App Store does not install has neither."
+  (should-not (lispm-desktop-catalog-item-problems lispm-desktop-test--listed-app))
+  (should (lispm-desktop-catalog-item-valid-p lispm-desktop-test--listed-app))
+  (let ((item (lambda (key value)
+                (let ((props (lispm-desktop-store--plist-without (cdr lispm-desktop-test--listed-app) key)))
+                  (cons 'elfeed (if value (append props (list key value)) props))))))
+    ;; Short of what a catalog says: listed all the same.
+    (dolist (case `((:subtitle "A subtitle much longer than a grid's tile" ":subtitle is at most 24")
+                    (:category weather ":category is one of")
+                    (:icon "Elfeed.svg" ":icon is NAME")
+                    (:package (elfeed :url "http://example.org/e" :rev "acbb86e342d2b8f85dfb30dce9df01db9a829c77")
+                              "https URL")
+                    (:package (elfeed :url "https://example.org/e" :rev "acbb86e") "40-character")
+                    (:feature elfeed "not both")
+                    (:program "x" ":program is not a property of an app")))
+      (pcase-let ((`(,key ,value ,said) case))
+        (let ((wrong (funcall item key value)))
+          (should (lispm-desktop-catalog-item-valid-p wrong))
+          (should (equal (list key (and (seq-find (lambda (text) (string-search said text))
+                                                  (lispm-desktop-test--problems wrong 'warning))
+                                        t))
+                         (list key t))))))
+    (should (equal (lispm-desktop-test--problems (cons 'elfeed '(:kind app :name "Elfeed" :command elfeed)) 'warning)
+                   '("it needs :subtitle" "it needs :category" "it needs :description" "it needs :icon")))
+    ;; Unsafe or unreadable: left out.
+    (dolist (case `((:name nil "needs :name")
+                    (:command nil "needs :command")
+                    (:command "elfeed" ":command is a command's name")
+                    (:icon "../elfeed" ":icon names")
+                    (:package (elfeed :url "https://example.org/e") "needs :rev")
+                    (:package (elfeed :url "https://example.org/e" :rev "r" :make "all") ":make")
+                    (:package (elfeed :url "https://example.org/e" :rev "r" :lisp-dir "/lisp") ":lisp-dir")
+                    (:needs ((program "mpv" :for "playing" :brew "mpv; rm -rf ~")) "Homebrew")
+                    (:requires elfeed ":requires")))
+      (pcase-let ((`(,key ,value ,said) case))
+        (let ((wrong (funcall item key value)))
+          (should-not (lispm-desktop-catalog-item-valid-p wrong))
+          (should (equal (list key (and (seq-find (lambda (text) (string-search said text))
+                                                  (lispm-desktop-test--problems wrong 'error))
+                                        t))
+                         (list key t))))))
+    (should (lispm-desktop-test--problems '(x :kind extension :name "X" :feature x) 'error))
+    (should (equal (lispm-desktop-test--problems '(x :kind extension :name "X" :subtitle "X" :description "X."
+                                                     :icon "x" :feature x :package x))
+                   '("an extension's :package is (NAME :url URL :rev SHA), from git")))
+    (should-not (lispm-desktop-catalog-item-problems '(reviewer :kind role :name "Reviewer" :file "roles/r.org")))
+    (should (lispm-desktop-catalog-item-problems '("elfeed" :kind app)))))
+
+(ert-deftest lispm-desktop-test-catalog-problems ()
+  "A whole catalog's problems name their items: an ID given twice, an item
+required that the catalog does not list as an application or extension,
+a circle of requirements, and, given its clone, the icons it lacks."
+  (let* ((directory (make-temp-file "lispm-desktop-test-catalog" t))
+         (app (lambda (id &rest more)
+                `(,id ,@(cdr lispm-desktop-test--listed-app) ,@more)))
+         (catalog `(:name "Test"
+                    :items (,(funcall app 'elfeed)
+                            ,(funcall app 'elfeed)
+                            ,(funcall app 'a :requires '(b))
+                            ,(funcall app 'b :requires '(a))
+                            ,(funcall app 'c :requires '(reviewer))
+                            (reviewer :kind role :name "Reviewer" :file "roles/reviewer.org")))))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "icons" directory))
+          (with-temp-file (expand-file-name "icons/elfeed.svg" directory) (insert "<svg/>"))
+          (with-temp-file (expand-file-name "catalog.eld" directory) (prin1 catalog (current-buffer)))
+          (let ((texts (mapcar #'cdr (lispm-desktop-catalog-problems (lispm-desktop-catalog-read directory)
+                                                                       directory))))
+            (dolist (said '("elfeed: two items have this ID"
+                            "elfeed: icons/elfeed-32.svg is missing"
+                            "c: it requires reviewer"
+                            "its :requires go round in a circle"))
+              (should (equal (list said (and (seq-find (lambda (text) (string-search said text)) texts) t))
+                             (list said t))))
+            (should-not (seq-find (lambda (text) (string-search "elfeed.svg is" text)) texts))
+            (should (equal (lispm-desktop-store-check-catalog directory)
+                           (lispm-desktop-catalog-problems catalog directory))))
+          (should (equal (lispm-desktop-catalog-problems '(:name "x" :items 3))
+                         '((error . "the catalog is (:name NAME :items ITEMS)")))))
+      (delete-directory directory t))))
+
+(ert-deftest lispm-desktop-test-catalog-agrees-with-the-store ()
+  "The App Store installs the kinds the catalog's format names, and lists
+its categories, besides All, Extensions and Updates."
+  (should (equal (mapcar #'car lispm-desktop-store-kinds) lispm-desktop-catalog-kinds))
+  (should (equal (seq-difference (mapcar #'car lispm-desktop-store-categories) '(all extensions updates))
+                 lispm-desktop-catalog-categories))
+  (should (equal lispm-desktop-needs-kinds lispm-desktop-catalog-need-kinds)))
+
 (ert-deftest lispm-desktop-test-store-catalogs-read ()
   "The catalogs are read as data: each item carries its catalog, an earlier
 catalog's item hides a later one's of the same name, items wrongly given
@@ -7712,9 +7819,13 @@ a word, and those installed no catalog lists stay listed."
          "https://example.org/second"
          '((calculator :kind app :name "Other Calculator" :command calc)
            (reviewer :kind role :name "Reviewer" :file "roles/reviewer.org")
+           (unpinned :kind app :name "Unpinned" :command e :package (e :url "https://example.org/e"))
            (hermes :kind extension :name "Hermes" :feature lispm-hermes
                    :package (lispm-hermes :url "u" :rev "r")))))
-      (should-not (seq-find (lambda (text) (string-search "reviewer" text)) said)))
+      (should-not (seq-find (lambda (text) (string-search "reviewer" text)) said))
+      ;; Why an item is left out is said; what a catalog only lacks is not.
+      (should (seq-find (lambda (text) (and (string-search "unpinned" text) (string-search ":rev" text))) said))
+      (should-not (seq-find (lambda (text) (string-search "hermes" text)) said)))
     (setq lispm-desktop-store-installed '((gone :kind app :name "Gone" :command gone)
                                           (old-role :kind role :name "Old" :file "roles/old.org")))
     (let ((items (lispm-desktop-store-items)))
@@ -7837,13 +7948,63 @@ when it is removed, which unloads it."
         (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
         (should-not lispm-desktop-store-installed)))))
 
+(defun lispm-desktop-test--write-application (directory feature key)
+  "Write FEATURE's library in DIRECTORY, making the application KEY itself,
+as Stickies does: it says what KEY does, under names and an icon of its
+own the App Store's catalog overrides, and pushes `loaded', `activated'
+and `unloaded' to `lispm-desktop-test--extension-events'."
+  (with-temp-file (expand-file-name (format "%s.el" feature) directory)
+    (insert (format "(push 'loaded lispm-desktop-test--extension-events)
+(lispm-desktop-define-app '%s :name \"Own Name\" :icon \"own-icon\"
+  :activate (lambda () (push 'activated lispm-desktop-test--extension-events))
+  :running #'ignore)
+(defun %s-unload-function () (push 'unloaded lispm-desktop-test--extension-events) nil)
+(provide '%s)\n" key feature feature))))
+
 (ert-deftest lispm-desktop-test-store-app-making-itself ()
   "An application whose package makes it itself, as Stickies does, is
 loaded when installed and unloaded when removed, its windows going with
-it."
+it.  It does what its library says; what it is called, its category and
+its description are its catalog's, the library's icon standing in for
+one the catalog lacks."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--with-extension 'lispm-desktop-test-ext
       (setq lispm-desktop-test--extension-events nil)
+      (lispm-desktop-test--write-application extension-directory 'lispm-desktop-test-ext 'notes)
+      (lispm-desktop-test--store-catalog
+       "https://example.org/store"
+       '((notes :kind app :name "Notes" :category productivity :description "Notes on the desktop."
+                :feature lispm-desktop-test-ext
+                :package (lispm-desktop-test-ext :url "u" :rev "abc"))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+        (lispm-desktop-store-install 'notes)
+        (should (featurep 'lispm-desktop-test-ext))
+        (let ((app (alist-get 'notes lispm-desktop-apps)))
+          (should (equal (plist-get app :name) "Notes"))
+          (should (equal (plist-get app :icon) "own-icon"))
+          (should (eq (plist-get app :category) 'productivity))
+          (should (equal (plist-get app :description) "Notes on the desktop."))
+          (should (plist-get app :store))
+          (should (eq (plist-get app :running) #'ignore))
+          (should (functionp (plist-get app :menus)))
+          (should-not (plist-member app :visible)))
+        (lispm-desktop-store-open 'notes)
+        (should (equal lispm-desktop-test--extension-events '(activated loaded)))
+        ;; Made again at the next start, as it was.
+        (lispm-desktop-store--register-installed)
+        (should (equal (plist-get (alist-get 'notes lispm-desktop-apps) :name) "Notes"))
+        (lispm-desktop-store-uninstall 'notes)
+        (should-not (featurep 'lispm-desktop-test-ext))
+        (should-not (assq 'notes lispm-desktop-apps))
+        (should (equal lispm-desktop-test--extension-events '(unloaded activated loaded)))
+        (should-not lispm-desktop-store-installed)))))
+
+(ert-deftest lispm-desktop-test-store-app-library-making-none ()
+  "An application of a :feature whose library makes no application of
+the item's ID cannot be installed: its install fails, saying so, and
+the library is not kept as installed."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-extension 'lispm-desktop-test-ext
       (lispm-desktop-test--write-extension extension-directory 'lispm-desktop-test-ext)
       (lispm-desktop-test--store-catalog
        "https://example.org/store"
@@ -7851,11 +8012,11 @@ it."
                 :package (lispm-desktop-test-ext :url "u" :rev "abc"))))
       (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
         (lispm-desktop-store-install 'notes)
-        (should (featurep 'lispm-desktop-test-ext))
-        (lispm-desktop-store-uninstall 'notes)
-        (should-not (featurep 'lispm-desktop-test-ext))
-        (should (equal lispm-desktop-test--extension-events '(unloaded loaded)))
-        (should-not lispm-desktop-store-installed)))))
+        (should-not lispm-desktop-store-installed)
+        (should-not (assq 'notes lispm-desktop-apps))
+        (let ((job (lispm-desktop-store--job 'notes)))
+          (should (eq (lispm-desktop-store-job-state job) 'failed))
+          (should (string-search "defines no application notes" (lispm-desktop-store-job-error job))))))))
 
 (ert-deftest lispm-desktop-test-store-extension-that-cannot-load ()
   "An extension whose feature cannot be loaded is not kept as installed,
