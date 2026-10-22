@@ -853,6 +853,55 @@ an error loading it is signalled once the redisplay is done."
         (should (equal (mapcar #'car (lispm-desktop-deps--requirements file)) '(lispm-desktop-test-missing)))
       (delete-file file))))
 
+(defun lispm-desktop-test--declared-packages ()
+  "Return the packages the `use-package' declarations of lisp/ install from
+the package archives: neither built in nor declared `:ensure nil'."
+  (let ((found nil))
+    (cl-labels ((walk (form)
+                  (when (consp form)
+                    (if (and (eq (car form) 'use-package) (symbolp (cadr form)))
+                        (unless (or (let ((ensure (memq :ensure (cddr form))))
+                                      (and ensure (null (cadr ensure))))
+                                    (package-built-in-p (cadr form)))
+                          (cl-pushnew (cadr form) found))
+                      (while (consp form)
+                        (walk (pop form)))))))
+      (dolist (file (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'"))
+        (with-temp-buffer
+          (insert-file-contents file)
+          (condition-case nil
+              (while t (walk (read (current-buffer))))
+            (end-of-file nil)))))
+    found))
+
+(ert-deftest lispm-desktop-test-deps-desktop-requires ()
+  "lispm-desktop.el's Package-Requires lists the packages its `use-package'
+declarations install, which LispM.app's installer counts; Evil, installed
+once chosen, and EXWM, where used, are left out."
+  (let ((required (with-temp-buffer
+                    (insert-file-contents (expand-file-name "lisp/lispm-desktop.el" lispm-desktop-directory))
+                    (delq 'emacs (mapcar #'car (package-desc-reqs (package-buffer-info))))))
+        (declared (cl-set-difference (lispm-desktop-test--declared-packages) '(evil exwm))))
+    (should (equal (sort (copy-sequence required) #'string<) (sort declared #'string<)))))
+
+(ert-deftest lispm-desktop-test-deps-batch-progress ()
+  "Each package installed is said with the how many-th it is of those the
+desktop and its projects need, counted at the first; one beyond them counts
+one more."
+  (let ((said nil)
+        (counted 0)
+        (lispm-desktop-deps--progress nil))
+    (cl-letf (((symbol-function 'package-compute-transaction)
+               (lambda (&rest _) (cl-incf counted) (make-list 3 'package)))
+              ((symbol-function 'lispm-desktop-deps--required) #'ignore)
+              ((symbol-function 'send-string-to-terminal) (lambda (string) (push string said))))
+      (dolist (name '(dash s magit treemacs))
+        (lispm-desktop-deps--installing (package-desc-create :name name))))
+    (should (= counted 1))
+    (should (equal (nreverse said)
+                   (mapcar (lambda (line) (concat "\n" lispm-desktop-deps-progress-tag line "\n"))
+                           '("dash (1/3)" "s (2/3)" "magit (3/3)" "treemacs (4/4)"))))))
+
 (ert-deftest lispm-desktop-test-deps-found-in-order ()
   "A project already on `load-path' is used as it is; else a checkout beside
 the desktop's joins `load-path'; else package-vc installs its latest

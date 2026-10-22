@@ -45,6 +45,10 @@
 ;; from 0.9.1, is then updated to its latest release before anything of
 ;; it loads, in an Emacs of its own (lispm-desktop-store-installer.el);
 ;; of a checkout, the desktop says what to update.
+;;
+;; A batch Emacs installing packages, as LispM.app's installer runs one,
+;; can say each it installs, and how many there are, with
+;; `lispm-desktop-deps-batch-progress'.
 
 ;;; Code:
 
@@ -157,6 +161,48 @@ desktop needs of it, its :needs, is brought up to date, see
         (package-refresh-contents)
         (dolist (dep missing)
           (package-install (car dep)))))))
+
+;;;; Saying what installs
+
+(defconst lispm-desktop-deps-progress-tag "LISPM-PACKAGE "
+  "What begins a line in which a batch Emacs says the package it installs.")
+
+(defvar lispm-desktop-deps--progress nil
+  "While a batch Emacs says the packages it installs: (DONE . TOTAL), how
+many it has installed and how many it has to, nil before the first.")
+
+(defun lispm-desktop-deps--required ()
+  "Return what the desktop, and the projects of `lispm-desktop-deps' on
+`load-path', require and lack: their main files' requirements."
+  (seq-mapcat (lambda (feature)
+                (when-let* ((main (locate-library (concat (symbol-name feature) ".el") t)))
+                  (lispm-desktop-deps--requirements main)))
+              (cons 'lispm-desktop (mapcar #'car lispm-desktop-deps))))
+
+(defun lispm-desktop-deps--installing (desc)
+  "Say that the package DESC installs now, and the how many-th it is of how
+many: at the first, those `lispm-desktop-deps--required' needs installed,
+theirs counted; a package beyond them counts one more."
+  (let ((progress (or lispm-desktop-deps--progress
+                      (setq lispm-desktop-deps--progress
+                            (cons 0 (length (ignore-errors
+                                              (package-compute-transaction
+                                               nil (lispm-desktop-deps--required)))))))))
+    (setcar progress (1+ (car progress)))
+    (setcdr progress (max (car progress) (cdr progress)))
+    ;; Unlike `princ', which batch Emacs buffers until it exits, this is
+    ;; read at once.
+    (send-string-to-terminal
+     (format "\n%s%s (%d/%d)\n" lispm-desktop-deps-progress-tag
+             (package-desc-name desc) (car progress) (cdr progress)))))
+
+(defun lispm-desktop-deps-batch-progress ()
+  "Make this batch Emacs say each package it installs from the archives,
+a line each on its standard output: `lispm-desktop-deps-progress-tag',
+the package, and how many it has installed of how many, as
+\"magit (12/33)\".  LispM.app's installer calls it before the desktop's
+init.el, which installs whatever is missing, and shows those lines."
+  (advice-add 'package-install-from-archive :before #'lispm-desktop-deps--installing))
 
 (provide 'lispm-desktop-deps)
 ;;; lispm-desktop-deps.el ends here
