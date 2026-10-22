@@ -899,21 +899,27 @@ desktop's, ../lispm-kernel, else its latest release with package-vc."
 (defvar lispm-kernel-desktop-mode)
 
 (ert-deftest lispm-desktop-test-kernel ()
-  "lispm-kernel is not even loaded until `lispm-desktop-kernel' asks for it;
-then its Lisp is got and its mode turned on, at setup or as soon as the
-option is set, and off again when it is set to nil.  A batch Emacs gets
-the Lisp only, and what goes wrong is said and leaves the desktop as it
-was."
+  "lispm-kernel is on by default, and not even loaded while
+`lispm-desktop-kernel' is nil; set, its Lisp is got and its mode turned
+on, at setup or as soon as the option is set, and off again when it is
+set to nil.  A batch Emacs gets the Lisp only, and what goes wrong is
+said, in the echo area only when the kernel was asked for, and leaves
+the desktop as it was."
+  (should (eq (eval (car (get 'lispm-desktop-kernel 'standard-value)) t) t))
   (let ((lispm-desktop-kernel nil)
         (lispm-kernel-desktop-mode nil)
         (provided (featurep 'lispm-kernel-desktop))
+        (saved (get 'lispm-desktop-kernel 'saved-value))
+        (customized (get 'lispm-desktop-kernel 'customized-value))
         (noninteractive nil)
-        (inhibit-message t)
+        (inhibit-message nil)
         (ensured 0)
         (failure nil)
         (messages nil))
     ;; The kernel's Lisp, as `require' finds it once it is got.
     (provide 'lispm-kernel-desktop)
+    (put 'lispm-desktop-kernel 'saved-value nil)
+    (put 'lispm-desktop-kernel 'customized-value nil)
     (unwind-protect
         (cl-letf (((symbol-function 'lispm-desktop-deps-ensure)
                    (lambda (feature)
@@ -923,8 +929,10 @@ was."
                   ((symbol-function 'lispm-kernel-desktop-mode)
                    (lambda (&optional arg)
                      (setq lispm-kernel-desktop-mode (> (prefix-numeric-value arg) 0))))
+                  ;; Each message, and whether it stays out of the echo area.
                   ((symbol-function 'message)
-                   (lambda (format &rest args) (push (apply #'format format args) messages))))
+                   (lambda (format &rest args)
+                     (push (cons (apply #'format format args) inhibit-message) messages))))
           (lispm-desktop-setup-kernel)
           (should (= ensured 0))
           (should-not lispm-kernel-desktop-mode)
@@ -937,17 +945,26 @@ was."
             (lispm-desktop-kernel-apply t))
           (should (= ensured 2))
           (should-not lispm-kernel-desktop-mode)
-          ;; Offline, at the start that would install it.
+          ;; Offline, at the start that would install it: on by default,
+          ;; it says so in *Messages* alone; asked for, in the echo area too.
           (setq failure "offline")
           (lispm-desktop-kernel-apply t)
-          (should (string-match-p "offline" (car messages)))
+          (should (string-match-p "offline" (caar messages)))
+          (should (cdar messages))
           (should-not lispm-kernel-desktop-mode)
+          (put 'lispm-desktop-kernel 'customized-value '(t))
+          (lispm-desktop-kernel-apply t)
+          (should (string-match-p "offline" (caar messages)))
+          (should-not (cdar messages))
+          (put 'lispm-desktop-kernel 'customized-value nil)
           (setq failure nil)
           (let ((lispm-desktop-kernel t))
             (lispm-desktop-setup-kernel)
             (should (= ensured 3))
             (should lispm-kernel-desktop-mode)))
       (remove-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed)
+      (put 'lispm-desktop-kernel 'saved-value saved)
+      (put 'lispm-desktop-kernel 'customized-value customized)
       (unless provided
         (setq features (delq 'lispm-kernel-desktop features))))))
 

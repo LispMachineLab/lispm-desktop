@@ -24,8 +24,8 @@
 ;;; Commentary:
 
 ;; LispM Desktop runs other LispM projects, each a repository of its own:
-;; lispm-agent, LispM's agents, lispm-browser, its browser, and, once
-;; `lispm-desktop-kernel' asks for it, lispm-kernel, its runtime for
+;; lispm-agent, LispM's agents, lispm-browser, its browser, and, unless
+;; `lispm-desktop-kernel' is nil, lispm-kernel, its runtime for
 ;; background work.  Each is found where it already is, else in a checkout
 ;; beside the desktop's, else its latest release is installed from its
 ;; repository with package-vc:
