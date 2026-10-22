@@ -161,13 +161,14 @@ NAME, formatted with each FORMAT.")
 PATH, a library, or an application, NAME.app.")
 
 (defconst lispm-desktop-catalog-need-properties
-  '(:for :brew :cask :head :xcode :instead :more :commands :variables :file :bundle)
+  '(:for :brew :cask :head :xcode :cargo :instead :more :commands :variables :file :bundle)
   "The properties of a need, (KIND NAME :for WHAT ...):
 
 :for       what the application needs it for
 :brew      the Homebrew formula installing it; :cask for an application
 :head      t to install the formula's HEAD, where its release is too old
 :xcode     t for a program of Apple's command line tools
+:cargo     the crate Cargo builds a program from, for one Homebrew lacks
 :instead   programs doing its work while it is missing
 :more      what it does that they do not
 :commands  the application's commands needing it
@@ -266,6 +267,12 @@ a name Homebrew would not give is an error."
              (unless (let ((value (plist-get properties key)))
                        (and (stringp value) (string-match-p "\\`[a-z0-9][a-z0-9@+._/-]*\\'" value)))
                (wrong "%s: %s is the name of what Homebrew installs" name key))))
+         (when (plist-member properties :cargo)
+           (unless (let ((value (plist-get properties :cargo)))
+                     (and (stringp value) (string-match-p "\\`[A-Za-z0-9][A-Za-z0-9_-]*\\'" value)))
+             (wrong "%s: :cargo is the name of a crate Cargo installs" name))
+           (unless (eq kind 'program)
+             (wrong "%s: :cargo builds a program" name)))
          (unless (memq (plist-get properties :head) '(nil t))
            (wrong "%s: :head is t" name))
          (when (and (plist-member properties :xcode) (not (eq (plist-get properties :xcode) t)))

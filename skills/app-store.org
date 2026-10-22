@@ -1,5 +1,5 @@
 #+title: Use the App Store
-#+description: Find applications and extensions in LispM's App Store, read what each is and does, and install, update or uninstall them once the user approves; show the App Store to the user.
+#+description: Choose the application or extension of LispM's App Store that does what the user wants, read what each is, does and needs, and install, update or uninstall them once the user approves; show the App Store to the user.
 
 The App Store installs what LispM runs beyond what it ships with: applications, Emacs packages
 each in a window of its own on the desktop (a feed reader, a music player, chat clients, games),
@@ -10,11 +10,14 @@ over the App Store, and names the functions behind them for ~eval_elisp~.
 
 * Finding
 
-- ~store_search~: the items the catalogs list, the best matches first: each one's ID, name, kind
-  and category, a few words on it, whether it is installed or can be updated, and the skills it
-  gives agents.  QUERY looks for words in names and descriptions; CATEGORY keeps one category
-  (~news~, ~music~, ~social~, ~productivity~, ~utilities~, ~games~, ~classic-ai~, ~extensions~ or
-  ~updates~, those an update is ready for); INSTALLED keeps those installed.
+- ~store_search~: the items the catalogs list, the best matches first: each one's ID, name,
+  subtitle, kind and category, whether it is installed or can be updated, the skills it gives
+  agents, and its description on a line of its own.  QUERY is words of what the user wants done;
+  each counts by how well it matches an item's name, subtitle, description, category, skills,
+  needs and introduction, a word misspelt or begun counting too, and what matches most words
+  comes first.  CATEGORY keeps one category (~news~, ~music~, ~social~, ~productivity~,
+  ~utilities~, ~games~, ~classic-ai~, ~extensions~ or ~updates~, those an update is ready for);
+  INSTALLED keeps those installed.
 - ~store_item~ ID: all the App Store knows of one item: its description and introduction, who
   made it and under what licence, where it comes from, what it requires and needs beyond Emacs
   (a program such as a music player), whether it is installed, being installed, or failed, and
@@ -22,6 +25,40 @@ over the App Store, and names the functions behind them for ~eval_elisp~.
 - ~store_show~: open the App Store's window, on an item's page with ID, for the user to look.
 - ~store_check~: fetch the catalogs now, to see new items and updates; LispM checks by itself
   daily, so do it only when the user asks or the catalogs were never fetched.
+
+* Choosing
+
+The user says what they want done, seldom what to install.  Find the item for it:
+
+1. Search with a few words of the task, as the user put it and as a catalog would: "read RSS
+   feeds", "chat on IRC", "play my music", "models of my ChatGPT plan".  One search with telling
+   words beats many.  Nothing fitting: try other words once, or a category; then say the App Store
+   has nothing for it, rather than offering what does something else.
+2. Read the two or three best with ~store_item~ before proposing one, and weigh:
+   - Does it do what was asked, all of it?  One doing just that beats a broader one.
+   - Is it installed already?  Then there is nothing to install: open it, or use its skill.
+   - Does it give agents a skill?  Then you can do the task for the user, not only show them a
+     window: prefer it when they want something done rather than shown.
+   - What it needs beyond Emacs, and what that costs the user: a program Homebrew installs in a
+     minute, one Cargo builds in some minutes, an account only they can sign in to.
+   - Who made it, under what licence; a part of Emacs, with no package, is the lightest.
+3. Propose one in two or three lines: its name, what it does for this request, what installing
+   brings (programs, skills) and what the user does after (signing in, say).  Name an alternative
+   in a line when one fits about as well.  Install once the user agrees.
+4. Then use it: load the skill it brought (the skill tool, or search_tools finds its tools) and
+   do the task with it, or open the application (~desktop_open~) when the user wants to use it.
+
+What LispM ships with needs no App Store: the editor, the browser, Finder, Control Panels,
+LispM's agents, and Claude Code and Codex once their programs are installed.  Some needs, and the
+words that find them:
+
+- Models for LispM's agents through accounts the user already has, a ChatGPT plan, Grok, Kiro or
+  Vercel's AI Gateway, rather than an API key: search "models accounts gateway".  Such a gateway's
+  application signs in to the accounts, in the browser, which only the user does; its skill
+  then switches the model LispM's agents use, once the user approves.
+- Web feeds, music, videos: ~news~ and ~music~.  Chat: ~social~.  Passwords, what agents run,
+  notes: ~utilities~ and ~productivity~.  Other agents in the editor, Common Lisp: ~extensions~.
+  The programs of AI's first decades: ~classic-ai~.
 
 * Installing, updating, uninstalling
 
@@ -56,6 +93,8 @@ what the App Store's search finds.
 
 (require 'seq)
 (require 'subr-x)
+(require 'cl-lib)
+(require 'lispm-tools)
 (require 'lispm-desktop-store)
 
 (defvar lispm-desktop-skill-store-timeout 1800
@@ -63,6 +102,13 @@ what the App Store's search finds.
 
 (defvar lispm-desktop-skill-store-about-length 4000
   "Characters of an item's introduction store_item gives at most.")
+
+(defvar lispm-desktop-skill-store-found 12
+  "Items store_search gives at most for a query.")
+
+(defvar lispm-desktop-skill-store-cutoff 0.3
+  "The least share of the best score an item store_search gives must score,
+as search_tools leaves out what matches by chance.")
 
 (defun lispm-desktop-skill-store-items ()
   "The items the App Store lists, the catalogs read from their clones first."
@@ -101,15 +147,60 @@ error if the App Store lists none."
              (lispm-desktop-store--skills-for id) ", "))
 
 (defun lispm-desktop-skill-store-line (item)
-  "ITEM, (ID . PROPERTIES), as a line of store_search."
+  "ITEM, (ID . PROPERTIES), as an entry of store_search: a line saying what
+it is, and its description on the next."
   (pcase-let ((`(,id . ,props) item))
     (let ((skills (lispm-desktop-skill-store-skills id)))
-      (format "%s: %s, %s in %s: %s; %s%s" id (plist-get props :name)
+      (format "%s: %s%s, %s in %s; %s%s\n  %s" id (plist-get props :name)
+              (if-let* ((subtitle (plist-get props :subtitle))) (format " (%s)" subtitle) "")
               (if (eq (plist-get props :kind) 'extension) "an extension" "an application")
               (lispm-desktop-skill-store-category props)
-              (or (plist-get props :subtitle) (plist-get props :description))
               (lispm-desktop-skill-store-status id)
-              (if (string-empty-p skills) "" (format "; skills for agents: %s" skills))))))
+              (if (string-empty-p skills) "" (format "; skills for agents: %s" skills))
+              (plist-get props :description)))))
+
+(defun lispm-desktop-skill-store-about (props)
+  "The introduction of the item of PROPS, or nil."
+  (when-let* ((about (lispm-desktop-store--about-file props))
+              ((file-readable-p about)))
+    (with-temp-buffer
+      (insert-file-contents about)
+      (buffer-string))))
+
+(defun lispm-desktop-skill-store-fields (item)
+  "What store_search finds ITEM, (ID . PROPERTIES), by, the most telling
+first: (WEIGHT . TEXT)s, as `lispm-tools-search-score' takes them."
+  (pcase-let ((`(,id . ,props) item))
+    (list (cons 1.0 (plist-get props :name))
+          (cons 1.0 (symbol-name id))
+          (cons 0.8 (plist-get props :subtitle))
+          (cons 0.7 (plist-get props :description))
+          (cons 0.6 (lispm-desktop-skill-store-category props))
+          (cons 0.6 (mapconcat (pcase-lambda (`(,_ . ,skill))
+                                 (concat (plist-get skill :name) " " (plist-get skill :description)))
+                               (lispm-desktop-store--skills-for id) " "))
+          (cons 0.4 (mapconcat (lambda (need) (or (lispm-desktop-needs-get need :for) ""))
+                               (plist-get props :needs) " "))
+          (cons 0.3 (lispm-desktop-skill-store-about props)))))
+
+(defun lispm-desktop-skill-store-rank (items query)
+  "The ITEMS the search QUERY matches, best first, by LispM's own search, as
+search_tools ranks skills: each word counts with its best match among the
+fields of `lispm-desktop-skill-store-fields', the sum scaled by the share
+of the words matching.  Those under `lispm-desktop-skill-store-cutoff' of
+the best are left out; equal ones are by name."
+  (let* ((words (lispm-tools-search-words query))
+         (scored (seq-filter (lambda (pair) (> (car pair) 0))
+                             (mapcar (lambda (item)
+                                       (cons (lispm-tools-search-score words (lispm-desktop-skill-store-fields item))
+                                             item))
+                                     (sort (copy-sequence items)
+                                           (lambda (a b) (string-lessp (downcase (plist-get (cdr a) :name))
+                                                                       (downcase (plist-get (cdr b) :name))))))))
+         (scored (cl-stable-sort scored #'> :key #'car))
+         (least (* lispm-desktop-skill-store-cutoff (or (caar scored) 0))))
+    (mapcar #'cdr (seq-take (seq-take-while (lambda (pair) (>= (car pair) least)) scored)
+                            lispm-desktop-skill-store-found))))
 
 (defun lispm-desktop-skill-store-names (ids)
   "The names of the items IDS, as words."
@@ -151,28 +242,24 @@ with what ENDED, a function of no argument, returns, (TEXT . FAILED)."
     (setq timer (run-at-time 0 0.5 check))))
 
 (lispm-deftool store_search
-    ((query string "Words to look for in names, subtitles, descriptions and categories." :optional t)
+    ((query string "A few words of what the user wants done, or of an item's name." :optional t)
      (category string "Only the items of this category." :optional t
                :enum ("news" "music" "social" "productivity" "utilities" "games" "classic-ai" "extensions"
                       "updates"))
      (installed boolean "Only the items installed (default false)." :optional t))
-  "List the App Store's applications and extensions, the best matches first, with their status and the skills they give agents."
+  "Find the App Store's applications and extensions for what the user wants done, the best matches first, with what each is, its status and the skills it gives agents."
   (let* ((items (lispm-desktop-skill-store-items))
-         (words (lispm-desktop-store--words query))
-         (found (seq-filter (lambda (item)
-                              (and (or (null category) (lispm-desktop-store--in-category-p item (intern category)))
-                                   (or (not installed) (lispm-desktop-store-installed-p (car item)))
-                                   (or (null words) (lispm-desktop-store--rank item words))))
-                            items))
-         (by-name (lambda (a b) (string-lessp (downcase (plist-get (cdr a) :name))
-                                              (downcase (plist-get (cdr b) :name)))))
-         (sorted (sort found (lambda (a b)
-                               (let ((ra (if words (lispm-desktop-store--rank a words) 0))
-                                     (rb (if words (lispm-desktop-store--rank b words) 0)))
-                                 (if (= ra rb) (funcall by-name a b) (< ra rb)))))))
+         (kept (seq-filter (lambda (item)
+                             (and (or (null category) (lispm-desktop-store--in-category-p item (intern category)))
+                                  (or (not installed) (lispm-desktop-store-installed-p (car item)))))
+                           items))
+         (found (if (and query (not (string-blank-p query)))
+                    (lispm-desktop-skill-store-rank kept query)
+                  (sort kept (lambda (a b) (string-lessp (downcase (plist-get (cdr a) :name))
+                                                         (downcase (plist-get (cdr b) :name))))))))
     (cond ((null items) "The App Store has no catalog yet: store_check fetches them.")
-          ((null sorted) "Nothing matches.")
-          (t (mapconcat #'lispm-desktop-skill-store-line sorted "\n")))))
+          ((null found) "Nothing matches.")
+          (t (mapconcat #'lispm-desktop-skill-store-line found "\n")))))
 
 (lispm-deftool store_item
     ((id string "The item's ID, as store_search gives it, or its name."))
