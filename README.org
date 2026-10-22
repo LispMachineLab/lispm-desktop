@@ -290,7 +290,10 @@ share one configuration and its state files; the one that quits last keeps its o
 
 =emacs -nw= runs the same configuration on a text terminal, over SSH too, and draws the chrome
 in text: the menu bar, title bars in the manner of Turbo Vision, the desktop's icons down its
-right edge, the Finder, Control Panels and the App Store, icons drawn in block characters.  Menus
+right edge, the Finder, Control Panels and the App Store, icons drawn in block characters; on a
+terminal speaking the Kitty graphics protocol (kitty, Ghostty, WezTerm, iTerm2 3.6) the icons of
+the desktop, of the Finder's folders, Applications and Control Panels among them, of the App
+Store and of alerts are images, sent by [[https://github.com/cashmeredev/kitty-graphics.el][kitty-graphics.el]], which LispM installs there.  Menus
 and alerts pop up as text with Emacs 31, in the minibuffer before.  Agents and shells run in the
 same terminal module.  The mouse works where the terminal reports it (=lispm-desktop-tty-mouse=):
 iTerm2 does only where its profile says so, under Settings → Profiles → Terminal → Enable mouse

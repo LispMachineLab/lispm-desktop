@@ -60,6 +60,7 @@
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-tty-images)
 
 (declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
 (declare-function lispm-desktop-settings-open-folder "lispm-desktop-settings" ())
@@ -727,7 +728,7 @@ the desktop between them."
 of the icons' own sizes, so that none smears; smaller, they could no
 longer be told apart.")
 
-(defun lispm-desktop--text-desktop (width height)
+(defun lispm-desktop--text-desktop (width height &optional image)
   "Return the desktop as text WIDTH cells by HEIGHT lines, where images
 cannot be shown, as on a text terminal.  Its icons are drawn in block
 characters, see `lispm-desktop-platinum-icon-picture', each over
@@ -738,7 +739,12 @@ are drawn `lispm-desktop-text-icon-size' pixels a side, in as many
 columns as they need; on a terminal too small for that, as a character
 each, see `lispm-desktop-platinum-icon'.  Every cell of an icon and its
 name carries its key as its `lispm-desktop-item' property, for the
-mouse."
+mouse.
+IMAGE, where given, is called with each icon drawn at that size, as
+\(KEY NAME SELECTED LINE COLUMN COLUMNS ROWS): where it returns non-nil,
+the terminal shows the icon NAME as an image COLUMNS by ROWS cells from
+LINE, COLUMN, see `lispm-desktop-tty-images-show', and its cells are
+left blank, for the image to lie on."
   (let* ((items (lispm-desktop--items))
          (labels (mapcar (lambda (item) (concat " " (lispm-desktop--item-label (cdr item)) " ")) items))
          (picture-size (lispm-desktop-platinum-text-size lispm-desktop-text-icon-size))
@@ -757,9 +763,15 @@ mouse."
                 (let* ((left (- width 2 (* (1+ slot) column)))
                        (selected (eq (car item) lispm-desktop--selected))
                        (icon (lispm-desktop--item-icon (cdr item)))
-                       (picture (or (and size (lispm-desktop-platinum-icon-picture icon size selected
-                                                                                    (lispm-desktop--color)))
-                                    (list (substring-no-properties (lispm-desktop-platinum-icon icon)))))
+                       (picture (cond
+                                 ((and size image
+                                       (funcall image (car item) icon selected row
+                                                (+ left (/ (- column (car picture-size)) 2))
+                                                (car picture-size) lines))
+                                  (make-list lines (make-string (car picture-size) ?\s)))
+                                 ((and size (lispm-desktop-platinum-icon-picture icon size selected
+                                                                                 (lispm-desktop--color))))
+                                 (t (list (substring-no-properties (lispm-desktop-platinum-icon icon))))))
                        (properties (list 'lispm-desktop-item (car item)
                                          'help-echo (lispm-desktop-tr (plist-get (cdr item) :help)))))
                   (seq-do-indexed
@@ -821,7 +833,12 @@ Where images cannot be shown, it is drawn in text, see
                 (when lispm-desktop--image
                   (image-flush lispm-desktop--image (window-frame window)))
                 (setq lispm-desktop--image image))
-            (insert (lispm-desktop--text-desktop width height)))
+            ;; Icons as images where the terminal shows them.
+            (let ((icons nil))
+              (insert (lispm-desktop--text-desktop
+                       width height (and (lispm-desktop-tty-images-p)
+                                         (lambda (&rest icon) (push icon icons) t))))
+              (lispm-desktop-tty-images-show window icons)))
           (goto-char (point-min))
           (set-window-start window (point-min) t)
           (set-window-point window (point-min)))))))
@@ -1349,7 +1366,8 @@ mode is turned off first: turned off, it restores the lines it found."
   (setq-local revert-buffer-function (lambda (&rest _) (lispm-desktop--render))
               lispm-desktop-context-menu-function #'lispm-desktop--keyboard-menu)
   (add-hook 'window-size-change-functions #'lispm-desktop--render nil t)
-  (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t))
+  (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t)
+  (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop--render))
 
 (defvar-keymap lispm-desktop-empty-mode-map
   :doc "Keymap of the desktop's background: nothing to click."
