@@ -884,7 +884,7 @@ language LispM speaks."
      (mapconcat (lambda (need)
                   (concat (lispm-desktop-tr "With it, %s, for %s: %s." (lispm-desktop-needs-name need)
                                             (lispm-desktop-needs-get need :for)
-                                            (lispm-desktop-needs-install-command need))
+                                            (lispm-desktop-needs-source need))
                           "\n"))
                 (lispm-desktop-store--needs-to-install props)))))
 

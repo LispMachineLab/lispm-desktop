@@ -48,6 +48,12 @@
 ;;            Homebrew's rust, when it is missing.  The program lands in
 ;;            Cargo's directory, ~/.cargo/bin, which goes on PATH once it
 ;;            is found there
+;; :url       for an application neither Homebrew nor its cask installs,
+;;            as ESeq, the https address of a disk image (.dmg) or a zip
+;;            archive holding NAME.app, its maker's own; :sha256, the
+;;            SHA-256 of that file, which what is downloaded must have.
+;;            NAME.app goes into the Applications folder, see
+;;            `lispm-desktop-needs-applications-directory'
 ;; :instead   programs doing its work while it is missing, as macOS's
 ;;            afplay plays music without mpv; :more, what it adds to them
 ;; :commands  commands needing it: run while it is missing, they offer
@@ -89,7 +95,9 @@
 ;; What Homebrew installed is uninstalled the same way, in the same
 ;; queue, once an application needing it is uninstalled and nothing else
 ;; needs it: `lispm-desktop-needs-uninstall'.  What Cargo built stays: a
-;; program of its may run on its own, as Rotom's daemon does.
+;; program of its may run on its own, as Rotom's daemon does.  So does an
+;; application downloaded, a Mac application like any other, kept with
+;; what was made in it.
 
 ;;; Code:
 
@@ -118,6 +126,12 @@
   "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
   "The shell command installing Homebrew, as brew.sh gives it."
   :type 'string
+  :group 'lispm-desktop-needs)
+
+(defcustom lispm-desktop-needs-applications-folder nil
+  "The folder applications downloaded go into: nil for /Applications,
+where it can be written to, else ~/Applications."
+  :type '(choice (const :tag "/Applications, else ~/Applications" nil) directory)
   :group 'lispm-desktop-needs)
 
 (defconst lispm-desktop-needs-kinds lispm-desktop-catalog-need-kinds
@@ -233,6 +247,13 @@ Apple's, offering to install the tools."
 (defvar lispm-desktop-needs--applications (make-hash-table :test #'equal)
   "Applications found, by need key: (TIME . FOUND).")
 
+(defun lispm-desktop-needs-applications-directory ()
+  "Return the folder applications downloaded go into, see
+`lispm-desktop-needs-applications-folder'."
+  (file-name-as-directory
+   (expand-file-name (or lispm-desktop-needs-applications-folder
+                         (if (file-writable-p "/Applications/") "/Applications" "~/Applications")))))
+
 (defun lispm-desktop-needs--application-p (need)
   "Return non-nil when the application of NEED is installed: NAME.app in
 an Applications folder, or found by its :bundle with Spotlight.  Looks are
@@ -245,7 +266,8 @@ kept a while, as the App Store asks often."
                                    (file-directory-p (expand-file-name
                                                       (concat (lispm-desktop-needs-name need) ".app")
                                                       directory)))
-                                 '("/Applications" "~/Applications" "/System/Applications"))
+                                 (list "/Applications" "~/Applications" "/System/Applications"
+                                       (lispm-desktop-needs-applications-directory)))
                        (when-let* ((bundle (lispm-desktop-needs-get need :bundle))
                                    ((executable-find "mdfind")))
                          (not (string-blank-p
@@ -313,20 +335,22 @@ stand-in does the work of."
 
 (defun lispm-desktop-needs-provider (need)
   "Return how NEED installs: (lisp FUNCTION), (brew FORMULA), (cask CASK),
-\(cargo CRATE), (xcode), or nil."
+\(cargo CRATE), (download URL SHA256), (xcode), or nil."
   (cond ((lispm-desktop-needs-get need :install) (list 'lisp (lispm-desktop-needs-get need :install)))
         ((lispm-desktop-needs-get need :brew) (list 'brew (lispm-desktop-needs-get need :brew)))
         ((lispm-desktop-needs-get need :cask) (list 'cask (lispm-desktop-needs-get need :cask)))
         ((lispm-desktop-needs-get need :cargo) (list 'cargo (lispm-desktop-needs-get need :cargo)))
+        ((lispm-desktop-needs-get need :url)
+         (list 'download (lispm-desktop-needs-get need :url) (lispm-desktop-needs-get need :sha256)))
         ((lispm-desktop-needs-get need :xcode) (list 'xcode))))
 
 (defun lispm-desktop-needs-installable-p (need)
   "Return non-nil when the Installer can install NEED: LispM's own
 installs, Homebrew and Cargo run on macOS and Linux, Apple's command line
-tools only on macOS."
+tools and applications downloaded only on macOS."
   (pcase (lispm-desktop-needs-provider need)
     ('nil nil)
-    ('(xcode) (eq system-type 'darwin))
+    (`(,(or 'xcode 'download) . ,_) (eq system-type 'darwin))
     (_ t)))
 
 (defun lispm-desktop-needs-install-command (need)
@@ -336,6 +360,13 @@ tools only on macOS."
     (`(cask ,cask) (format "brew install --cask %s" cask))
     (`(cargo ,crate) (format "cargo install --locked %s" crate))
     ('(xcode) "xcode-select --install")))
+
+(defun lispm-desktop-needs-source (need)
+  "Return where NEED comes from, as words to read: the command installing
+it, or the address it is downloaded from; nil when nothing installs it."
+  (or (lispm-desktop-needs-install-command need)
+      (pcase (lispm-desktop-needs-provider need)
+        (`(download ,url . ,_) url))))
 
 (defun lispm-desktop-needs-brewed-p (need)
   "Return non-nil when Homebrew installed NEED: its formula's keg or its
@@ -350,9 +381,12 @@ uninstalled: Apple's command line tools never are, nor what Cargo built."
 
 (defun lispm-desktop-needs-text (who need)
   "Return what is said of NEED of WHO, a name, or of it when WHO is nil, as
-it stands, in the language LispM speaks."
-  (let ((name (lispm-desktop-needs-name need))
-        (for (lispm-desktop-needs-get need :for)))
+it stands, in the language LispM speaks.  An application needing the Mac
+application of its own name, as LispM's ESeq needs ESeq.app, is not named
+twice."
+  (let* ((name (lispm-desktop-needs-name need))
+         (for (lispm-desktop-needs-get need :for))
+         (who (unless (equal who name) who)))
     (pcase (lispm-desktop-needs-state need)
       ('present (if who
                     (lispm-desktop-tr "%s uses %s for %s." who name for)
@@ -387,7 +421,8 @@ besides what the caller installs."
                            needs "; "))
         (brewed (seq-some (lambda (need) (memq (car (lispm-desktop-needs-provider need)) '(brew cask)))
                           needs))
-        (built (seq-some (lambda (need) (eq (car (lispm-desktop-needs-provider need)) 'cargo)) needs)))
+        (built (seq-some (lambda (need) (eq (car (lispm-desktop-needs-provider need)) 'cargo)) needs))
+        (downloaded (seq-some (lambda (need) (eq (car (lispm-desktop-needs-provider need)) 'download)) needs)))
     (concat (if also
                 (lispm-desktop-tr "It also installs %s." listed)
               (lispm-desktop-tr "%s." listed))
@@ -400,7 +435,9 @@ besides what the caller installs."
                    (concat "  " (lispm-desktop-tr-n "Homebrew installs it." "Homebrew installs them."
                                                     (length needs)))))
             (when built
-              (concat "  " (lispm-desktop-tr "Cargo, Rust's package manager, builds what is written in Rust, which takes some minutes."))))))
+              (concat "  " (lispm-desktop-tr "Cargo, Rust's package manager, builds what is written in Rust, which takes some minutes.")))
+            (when downloaded
+              (concat "  " (lispm-desktop-tr "What is downloaded from its maker is installed only if it is the very file the catalog names."))))))
 
 ;;;; Asking
 
@@ -642,6 +679,10 @@ the run."
                    (`(lisp ,function) (lispm-desktop-needs--lisp-run job function))
                    (`(,(or 'brew 'cask) . ,_) (lispm-desktop-needs--brew-run job))
                    (`(cargo ,crate) (lispm-desktop-needs--cargo-run job crate))
+                   (`(download . ,_)
+                    (lispm-desktop-needs--lisp-run
+                     job (lambda (report done)
+                           (lispm-desktop-needs--download (lispm-desktop-needs--job-need job) report done))))
                    ('(xcode) (lispm-desktop-needs--xcode-install job)))))
       (lispm-desktop-needs--finish)))
   (lispm-desktop-needs--render))
@@ -904,6 +945,124 @@ once the installer ended without, or after too long."
           (when (and (functionp stop) (funcall running))
             (setf (lispm-desktop-needs--job-stop job) stop)))
       (error (funcall done (error-message-string err))))))
+
+;;;;; Downloaded from its maker
+
+(defconst lispm-desktop-needs-download-share 0.85
+  "The share of the Installer's bar a download fills: checking what came
+and copying the application fill the rest.")
+
+(defun lispm-desktop-needs--sha256-command (file)
+  "Return the command printing the SHA-256 of FILE first: macOS's shasum,
+else coreutils' sha256sum."
+  (if (or (executable-find "shasum") (not (executable-find "sha256sum")))
+      (list "shasum" "-a" "256" file)
+    (list "sha256sum" file)))
+
+(defun lispm-desktop-needs--download (need report done)
+  "Install the application of NEED from its maker: download its :url, a
+disk image or a zip archive, check the file has its :sha256, and copy
+NAME.app it holds into `lispm-desktop-needs-applications-directory'.
+REPORT and DONE are as a need's :install takes them.  Return a function
+stopping it."
+  (let* ((name (lispm-desktop-needs-name need))
+         (application (concat name ".app"))
+         (url (lispm-desktop-needs-get need :url))
+         (sha256 (downcase (lispm-desktop-needs-get need :sha256)))
+         (image (string-match-p "\\.dmg\\'" (downcase url)))
+         (work (make-temp-file "lispm-download" t))
+         (file (expand-file-name (if image "download.dmg" "download.zip") work))
+         (volume (expand-file-name "volume" work))
+         (target (lispm-desktop-needs-applications-directory))
+         (partial (expand-file-name (format ".%s.partial" application) target))
+         (process nil)
+         (mounted nil)
+         (stopped nil))
+    (cl-labels
+        ((clean ()
+           (when mounted
+             (setq mounted nil)
+             (ignore-errors (call-process "hdiutil" nil nil nil "detach" volume "-force" "-quiet")))
+           (ignore-errors (delete-directory work t))
+           (when (file-exists-p partial)
+             (ignore-errors (delete-directory partial t))))
+         (finish (&optional error)
+           (clean)
+           (unless stopped
+             ;; What was looked for a moment ago is there now.
+             (clrhash lispm-desktop-needs--applications)
+             (funcall done error)))
+         (run (command then &optional filter)
+           ;; Run COMMAND; once it exits well, call THEN with its output.
+           (lispm-desktop-needs--log (format "$ %s\n" (mapconcat #'shell-quote-argument command " ")))
+           (let ((output nil))
+             (setq process
+                   (make-process
+                    :name "lispm-desktop-needs" :noquery t :connection-type 'pipe
+                    :command command
+                    :filter (lambda (_process text)
+                              (push text output)
+                              (when filter (funcall filter text)))
+                    :sentinel (lambda (process _event)
+                                (unless (or stopped (process-live-p process))
+                                  (let ((text (apply #'concat (nreverse output))))
+                                    (if (not (eq (process-exit-status process) 0))
+                                        (progn (lispm-desktop-needs--log text)
+                                               (finish (lispm-desktop-needs--error
+                                                        text (lispm-desktop-tr "%s failed." (car command)))))
+                                      (condition-case err
+                                          (funcall then text)
+                                        (error (finish (error-message-string err))))))))))
+             ;; What waits to be answered, as a disk image's licence, is not.
+             (ignore-error error (process-send-eof process))))
+         (progress (text)
+           ;; curl's bar, redrawn: "#####       38.6%", the last said last.
+           (let ((start 0) (percent nil))
+             (while (string-match "\\([0-9]+\\(?:\\.[0-9]+\\)?\\)%" text start)
+               (setq percent (string-to-number (match-string 1 text))
+                     start (match-end 0)))
+             (when percent
+               (funcall report (lispm-desktop-tr "Downloading %s…" name)
+                        (* lispm-desktop-needs-download-share (/ (min 100.0 percent) 100.0))))))
+         (check (_)
+           (funcall report (lispm-desktop-tr "Checking what was downloaded…") lispm-desktop-needs-download-share)
+           (run (lispm-desktop-needs--sha256-command file)
+                (lambda (text)
+                  (if (not (equal (downcase (or (car (split-string text)) "")) sha256))
+                      (finish (lispm-desktop-tr "What was downloaded is not the file the catalog names: its SHA-256 differs."))
+                    (unpack)))))
+         (unpack ()
+           (funcall report (lispm-desktop-tr "Copying %s into %s…" application
+                                             (abbreviate-file-name (directory-file-name target)))
+                    0.9)
+           (if image
+               (progn
+                 (make-directory volume t)
+                 (setq mounted t)
+                 (run (list "hdiutil" "attach" "-nobrowse" "-readonly" "-noautoopen" "-mountpoint" volume file)
+                      (lambda (_) (copy (expand-file-name application volume)))))
+             (let ((unpacked (expand-file-name "unpacked" work)))
+               (run (list "ditto" "-x" "-k" file unpacked)
+                    (lambda (_) (copy (expand-file-name application unpacked)))))))
+         (copy (source)
+           (if (not (file-directory-p source))
+               (finish (lispm-desktop-tr "%s is not in what was downloaded." application))
+             (make-directory target t)
+             ;; Copied beside its place, then moved there whole: an
+             ;; application half copied is never taken for one installed.
+             (run (list "ditto" source partial)
+                  (lambda (_)
+                    (rename-file partial (expand-file-name application target))
+                    (finish))))))
+      (funcall report (lispm-desktop-tr "Downloading %s…" name) 0.0)
+      (run (list "curl" "--fail" "--location" "--proto" "=https" "--proto-redir" "=https"
+                 "--progress-bar" "--show-error" "--output" file url)
+           #'check #'progress)
+      (lambda ()
+        (setq stopped t)
+        (when (process-live-p process)
+          (delete-process process))
+        (clean)))))
 
 ;;;;; Apple's command line tools
 

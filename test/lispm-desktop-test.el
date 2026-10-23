@@ -12794,6 +12794,179 @@ exit 101\n")
                            "error: could not find `lispm-test-gateway` in registry `crates-io` with version `*`")))
         (delete-directory home t)))))
 
+(defconst lispm-desktop-test--downloaded-sha256 (make-string 64 ?a)
+  "The SHA-256 the fake shasum says of every file.")
+
+(defun lispm-desktop-test--downloaded (&rest properties)
+  "Return an application need downloaded, PROPERTIES over its own."
+  `(application "LispMTestDownloaded" :for "testing downloads"
+                ,@properties
+                :url "https://example.org/releases/LispMTestDownloaded-1.0.dmg"
+                :sha256 ,lispm-desktop-test--downloaded-sha256))
+
+(ert-deftest lispm-desktop-test-needs-download-valid ()
+  "An application Homebrew lacks is downloaded from an https address of a
+disk image or a zip archive, pinned by its SHA-256; nothing else is."
+  (should (lispm-desktop-needs-valid-p (lispm-desktop-test--downloaded)))
+  (should (lispm-desktop-needs-valid-p
+           `(application "ESeq" :for "music" :url "https://example.org/ESeq.ZIP"
+                         :sha256 ,lispm-desktop-test--downloaded-sha256)))
+  (dolist (wrong `((program "eseq" :for "music" :url "https://example.org/ESeq.dmg"
+                            :sha256 ,lispm-desktop-test--downloaded-sha256)
+                   (application "ESeq" :for "music" :url "http://example.org/ESeq.dmg"
+                                :sha256 ,lispm-desktop-test--downloaded-sha256)
+                   (application "ESeq" :for "music" :url "https://example.org/ESeq.pkg"
+                                :sha256 ,lispm-desktop-test--downloaded-sha256)
+                   (application "ESeq" :for "music" :url "https://example.org/ESeq.dmg?x=1"
+                                :sha256 ,lispm-desktop-test--downloaded-sha256)
+                   (application "ESeq" :for "music" :url "https://example.org/a b.dmg"
+                                :sha256 ,lispm-desktop-test--downloaded-sha256)
+                   (application "ESeq" :for "music" :url "https://example.org/ESeq.dmg")
+                   (application "ESeq" :for "music" :url "https://example.org/ESeq.dmg"
+                                :sha256 ,(make-string 64 ?A))
+                   (application "ESeq" :for "music" :url "https://example.org/ESeq.dmg" :sha256 "abc")
+                   (application "../ESeq" :for "music" :url "https://example.org/ESeq.dmg"
+                                :sha256 ,lispm-desktop-test--downloaded-sha256)
+                   (application "ESeq" :for "music" :sha256 ,lispm-desktop-test--downloaded-sha256)))
+    (should-not (lispm-desktop-needs-valid-p wrong))))
+
+(ert-deftest lispm-desktop-test-needs-download-said ()
+  "An application downloaded has no command installing it: the App Store
+says where it comes from instead, and that it is checked; an application
+needing the Mac application of its own name does not name it twice."
+  (let ((need (lispm-desktop-test--downloaded)))
+    (should (equal (lispm-desktop-needs-provider need)
+                   (list 'download "https://example.org/releases/LispMTestDownloaded-1.0.dmg"
+                         lispm-desktop-test--downloaded-sha256)))
+    (should-not (lispm-desktop-needs-install-command need))
+    (should (equal (lispm-desktop-needs-source need) "https://example.org/releases/LispMTestDownloaded-1.0.dmg"))
+    (should (eq (and (lispm-desktop-needs-installable-p need) t) (eq system-type 'darwin)))
+    (should (string-search "installed only if it is the very file the catalog names"
+                           (lispm-desktop-needs-detail (list need))))
+    (should (equal (lispm-desktop-needs-text "LispMTestDownloaded" need)
+                   "It needs LispMTestDownloaded for testing downloads."))
+    (should (equal (lispm-desktop-needs-text "Sequencer" need)
+                   "Sequencer needs LispMTestDownloaded for testing downloads."))
+    (cl-letf (((symbol-function 'lispm-desktop-needs-installable-p) #'always))
+      (let ((props `(:kind app :name "Sequencer" :description "Music." :needs (,need))))
+        (should-not (lispm-desktop-store--install-commands props))
+        (should (string-search "With it, LispMTestDownloaded, for testing downloads: https://example.org/releases/LispMTestDownloaded-1.0.dmg."
+                               (lispm-desktop-store--preview (cons 'sequencer props))))))))
+
+(defmacro lispm-desktop-test--with-download (files &rest body)
+  "Run BODY with the programs a download runs faked in BIN, alone on PATH,
+the Applications folder APPLICATIONS, a directory of its own.  curl
+\"downloads\" an archive of FILES, each (FILE . CONTENTS); hdiutil and
+ditto unpack it; shasum says
+`lispm-desktop-test--downloaded-sha256' of every file.  What they did is
+in BIN/log."
+  (declare (indent 1))
+  `(lispm-desktop-test--with-brew ""
+     (let* ((applications (make-temp-file "lispm-test-applications" t))
+            (lispm-desktop-needs-applications-folder applications)
+            (payload (make-temp-file "lispm-test-payload" t)))
+       (unwind-protect
+           (progn
+             (pcase-dolist (`(,file . ,contents) ,files)
+               (let ((file (expand-file-name file (expand-file-name "files" payload))))
+                 (make-directory (file-name-directory file) t)
+                 (with-temp-file file (insert contents))))
+             (make-directory (expand-file-name "files" payload) t)
+             (call-process "/usr/bin/tar" nil nil nil "-cf" (expand-file-name "payload.tar" payload)
+                           "-C" (expand-file-name "files" payload) ".")
+             (dolist (fake `(("curl" . ,(concat "echo \"curl $*\" >> \"$BIN/log\"
+while [ $# -gt 1 ]; do [ \"$1\" = --output ] && out=\"$2\"; shift; done
+cp " (shell-quote-argument (expand-file-name "payload.tar" payload)) " \"$out\"
+printf '\\r#####        38.6%%\\r############ 100.0%%\\n' >&2\n"))
+                             ("shasum" . ,(concat "echo \"shasum $*\" >> \"$BIN/log\"
+echo \"" lispm-desktop-test--downloaded-sha256 "  $3\"\n"))
+                             ("hdiutil" . "echo \"hdiutil $1\" >> \"$BIN/log\"
+case \"$1\" in
+  attach) while [ $# -gt 1 ]; do [ \"$1\" = -mountpoint ] && mount=\"$2\"; shift; done
+          mkdir -p \"$mount\" && tar -xf \"$1\" -C \"$mount\";;
+  detach) rm -rf \"$2\";;
+esac\n")
+                             ("ditto" . "echo \"ditto $1\" >> \"$BIN/log\"
+if [ \"$1\" = -x ]; then mkdir -p \"$4\" && tar -xf \"$3\" -C \"$4\"; else cp -R \"$1\" \"$2\"; fi\n")))
+               (with-temp-file (expand-file-name (car fake) bin)
+                 (insert "#!/bin/sh\nBIN=" (shell-quote-argument bin) "\n" (cdr fake)))
+               (set-file-modes (expand-file-name (car fake) bin) #o755))
+             (cl-letf (((symbol-function 'lispm-desktop-needs-installable-p) #'always))
+               ,@body))
+         (delete-directory applications t)
+         (delete-directory payload t)))))
+
+(defun lispm-desktop-test--download-log (bin)
+  "Return the lines of what the fake programs in BIN did."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "log" bin))
+    (split-string (buffer-string) "\n" t)))
+
+(ert-deftest lispm-desktop-test-needs-download-install ()
+  "An application downloaded is fetched over https only, checked, taken
+from the disk image, which is let go, and copied into the Applications
+folder; one from a zip archive is unpacked."
+  (lispm-desktop-test--with-download '(("LispMTestDownloaded.app/Contents/Info.plist" . "<plist/>")
+                                      ("Applications" . ""))
+    (let ((need (lispm-desktop-test--downloaded))
+          answer)
+      (should-not (lispm-desktop-needs-present-p need))
+      (lispm-desktop-needs-install (list need) "Sequencer" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(t)))
+      (should (file-exists-p (expand-file-name "LispMTestDownloaded.app/Contents/Info.plist" applications)))
+      (should-not (file-exists-p (expand-file-name ".LispMTestDownloaded.app.partial" applications)))
+      (should (equal (mapcar (lambda (line) (car (split-string line))) (lispm-desktop-test--download-log bin))
+                     '("curl" "shasum" "hdiutil" "ditto" "hdiutil")))
+      (should (string-prefix-p "curl --fail --location --proto =https --proto-redir =https"
+                               (car (lispm-desktop-test--download-log bin))))
+      (should (string-suffix-p " https://example.org/releases/LispMTestDownloaded-1.0.dmg"
+                               (car (lispm-desktop-test--download-log bin))))
+      (should (equal (nth 4 (lispm-desktop-test--download-log bin)) "hdiutil detach"))
+      (should (equal (lispm-desktop-needs--status) "Installed LispMTestDownloaded."))
+      (should (lispm-desktop-needs-present-p need))
+      ;; It stays when what needed it goes.
+      (should-not (lispm-desktop-needs-brewed-p need))
+      (delete-directory (expand-file-name "LispMTestDownloaded.app" applications) t)
+      (delete-file (expand-file-name "log" bin))
+      (clrhash lispm-desktop-needs--applications)
+      (setq answer nil)
+      (lispm-desktop-needs-install (list (lispm-desktop-test--downloaded
+                                          :url "https://example.org/releases/LispMTestDownloaded.zip"))
+                                   "Sequencer" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(t)))
+      (should (file-exists-p (expand-file-name "LispMTestDownloaded.app/Contents/Info.plist" applications)))
+      (should (equal (mapcar (lambda (line) (car (split-string line))) (lispm-desktop-test--download-log bin))
+                     '("curl" "shasum" "ditto" "ditto")))
+      (should (equal (nth 2 (lispm-desktop-test--download-log bin)) "ditto -x")))))
+
+(ert-deftest lispm-desktop-test-needs-download-refused ()
+  "A download whose SHA-256 is not the one pinned is never opened, and a
+disk image without the application is let go: each says why."
+  (lispm-desktop-test--with-download '(("ReadMe.txt" . "Nothing here."))
+    (let (answer)
+      (lispm-desktop-needs-install (list `(application "LispMTestDownloaded" :for "testing downloads"
+                                                       :url "https://example.org/LispMTestDownloaded.dmg"
+                                                       :sha256 ,(make-string 64 ?b)))
+                                   "Sequencer" (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(nil)))
+      (should (equal (lispm-desktop-needs--job-error (car lispm-desktop-needs--jobs))
+                     "What was downloaded is not the file the catalog names: its SHA-256 differs."))
+      (should (equal (mapcar (lambda (line) (car (split-string line))) (lispm-desktop-test--download-log bin))
+                     '("curl" "shasum")))
+      (delete-file (expand-file-name "log" bin))
+      (setq answer nil)
+      (lispm-desktop-needs-install (list (lispm-desktop-test--downloaded)) "Sequencer"
+                                   (lambda (present) (setq answer (list present))))
+      (lispm-desktop-test--wait (lambda () answer))
+      (should (equal answer '(nil)))
+      (should (equal (lispm-desktop-needs--job-error (car lispm-desktop-needs--jobs))
+                     "LispMTestDownloaded.app is not in what was downloaded."))
+      (should (equal (last (lispm-desktop-test--download-log bin)) '("hdiutil detach")))
+      (should (equal (directory-files applications nil "\\`[^.]") nil)))))
+
 (ert-deftest lispm-desktop-test-needs-lisp-install ()
   "What LispM gets itself installs with a function of its own: the
 Installer shows what it says and how far it is, and ends as it says;

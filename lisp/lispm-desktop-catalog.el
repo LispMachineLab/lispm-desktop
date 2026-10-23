@@ -161,7 +161,7 @@ NAME, formatted with each FORMAT.")
 PATH, a library, or an application, NAME.app.")
 
 (defconst lispm-desktop-catalog-need-properties
-  '(:for :brew :cask :head :xcode :cargo :instead :more :commands :variables :file :bundle)
+  '(:for :brew :cask :head :xcode :cargo :url :sha256 :instead :more :commands :variables :file :bundle)
   "The properties of a need, (KIND NAME :for WHAT ...):
 
 :for       what the application needs it for
@@ -169,6 +169,9 @@ PATH, a library, or an application, NAME.app.")
 :head      t to install the formula's HEAD, where its release is too old
 :xcode     t for a program of Apple's command line tools
 :cargo     the crate Cargo builds a program from, for one Homebrew lacks
+:url       the https address of a .dmg or .zip holding NAME.app, for an
+           application Homebrew lacks, from its maker; :sha256, that
+           file's SHA-256, which what is downloaded must have
 :instead   programs doing its work while it is missing
 :more      what it does that they do not
 :commands  the application's commands needing it
@@ -273,6 +276,22 @@ a name Homebrew would not give is an error."
              (wrong "%s: :cargo is the name of a crate Cargo installs" name))
            (unless (eq kind 'program)
              (wrong "%s: :cargo builds a program" name)))
+         (when (or (plist-member properties :url) (plist-member properties :sha256))
+           (let ((url (plist-get properties :url))
+                 (sha256 (plist-get properties :sha256)))
+             (cond ((not (eq kind 'application))
+                    (wrong "%s: :url downloads an application" name))
+                   ((or (member name '("." "..")) (not (string-match-p "\\`[^/\0]+\\'" name)))
+                    (wrong "%s: an application downloaded is named as its NAME.app is" name))
+                   ((not (and (stringp url)
+                              (let ((case-fold-search t))
+                                (string-match-p "\\`https://[^ \t\n\"'\\\\?#]+\\.\\(?:dmg\\|zip\\)\\'" url))))
+                    (wrong "%s: :url is the https address of a .dmg or .zip holding %s.app" name name))
+                   ((not (and (stringp sha256)
+                              (let ((case-fold-search nil))
+                                (string-match-p "\\`[0-9a-f]\\{64\\}\\'" sha256))))
+                    (wrong "%s: :sha256 is the SHA-256 of the file :url gives, 64 lower-case hexadecimal digits"
+                           name)))))
          (unless (memq (plist-get properties :head) '(nil t))
            (wrong "%s: :head is t" name))
          (when (and (plist-member properties :xcode) (not (eq (plist-get properties :xcode) t)))
