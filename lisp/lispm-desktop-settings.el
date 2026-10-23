@@ -121,6 +121,7 @@
 (defvar lispm-compact-save-memory)
 (defvar lispm-git)
 (defvar lispm-default-role)
+(defvar lispm-backends)
 (defvar lispm-skill-directories)
 (declare-function lispm-model-status "lispm-settings" ())
 (declare-function lispm-model-choices "lispm-settings" ())
@@ -134,6 +135,8 @@
 (declare-function lispm-default-permission "lispm-settings" (class))
 (declare-function lispm-set-default-permission "lispm-settings" (class action &optional save))
 (declare-function lispm-trusted-skill-files "lispm-settings" ())
+(declare-function lispm-skill-name "lispm-skills" (file))
+(declare-function lispm-default-role-choices "lispm-settings" ())
 (declare-function lispm-untrust-skill "lispm-settings" (file))
 (declare-function lispm-compact-size "lispm-settings" ())
 (declare-function lispm-compact-size-name "lispm-settings" (size))
@@ -726,7 +729,7 @@ models of each backend, a separator between backends, then Other Model…."
                   items)))))
     (when items
       (push 'separator items))
-    (push (list :label (lispm-desktop-tr "Other Model…") :enabled (and backend t)
+    (push (list :label (lispm-desktop-tr "Other Model…") :enabled (and (assq backend lispm-backends) t)
                 :action #'lispm-desktop-settings--other-model)
           items)
     (nreverse items)))
@@ -837,7 +840,7 @@ skills whose code is trusted, and the way to the Sandbox panel."
           (lispm-desktop-settings--paragraph
            (lispm-desktop-tr "Projects' skills whose code runs unasked: %s."
                              (lispm-desktop-settings--sandbox-entries
-                              (mapcar (lambda (file) (file-name-base (directory-file-name file))) files) 40)))
+                              (mapcar #'lispm-skill-name files) 40)))
           (insert (lispm-desktop-settings--indent))
           (lispm-desktop-settings--button (lispm-desktop-tr "Remove…") #'lispm-desktop-settings--untrust-skill
                                           (lispm-desktop-tr "Have agents ask again before running a skill's code"))
@@ -899,7 +902,7 @@ agents read; its skills stay where they are."
 with, and the directories of skills, with Add… and Remove…."
   (lispm-desktop-settings--heading (lispm-desktop-tr "Roles & Skills"))
   (lispm-desktop-settings--paragraph (lispm-desktop-tr "Agents started without choosing a role are:"))
-  (dolist (role (lispm-roles))
+  (dolist (role (lispm-default-role-choices))
     (let ((name (symbol-name (lispm-role-name role)))
           (description (lispm-role-description role)))
       (lispm-desktop-settings--radio name (eq (lispm-role-name role) lispm-default-role)

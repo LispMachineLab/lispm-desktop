@@ -5322,11 +5322,14 @@ and the panel shows what was chosen."
       (should (string-search "The gateway is starting." (buffer-string)))
       (should (lispm-desktop-test--settings-button "Set Up Gateway…"))
       ;; The trusted skills, with what forgets them.
-      (setq lispm-trusted-skills '(("~/p/.lispm/skills/tidy.org" . "h")))
+      ;; A skill of a file of its own, and one of a directory's SKILL.org.
+      (setq lispm-trusted-skills '(("~/p/.lispm/skills/tidy.org" . "h")
+                                   ("~/p/.lispm/skills/fold/SKILL.org" . "h")))
       (run-hooks 'lispm-settings-change-hook)
-      (should (string-search "Projects' skills whose code runs unasked: tidy." (buffer-string)))
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "~/p/.lispm/skills/tidy.org")))
-        (lispm-desktop-test--press "Have agents ask again"))
+      (should (string-search "Projects' skills whose code runs unasked: tidy, fold." (buffer-string)))
+      (dolist (file '("~/p/.lispm/skills/tidy.org" "~/p/.lispm/skills/fold/SKILL.org"))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) file)))
+          (lispm-desktop-test--press "Have agents ask again")))
       (should-not lispm-trusted-skills)
       (should (string-search "you trust none yet" (buffer-string))))))
 
