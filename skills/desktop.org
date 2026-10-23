@@ -52,7 +52,10 @@ With ~eval_elisp~: ~lispm-desktop-apps~ holds the applications, as ~(KEY . PROPE
 ~(lispm-desktop-define-app KEY :name NAME :icon ICON :activate FUNCTION)~ makes a function of
 yours an application of the menu bar's Application menu, and ~(lispm-desktop-remove-app KEY)~
 takes it away; ~(lispm-desktop-app-window-show ID :name NAME :buffer BUFFER)~ shows a buffer in a
-floating window of its own, which ~(lispm-desktop-app-window-close ID)~ closes.
+floating window of its own, which ~(lispm-desktop-app-window-close ID)~ closes.  When the user asks
+for an application on the desktop, ~(lispm-desktop-make-alias KEY)~ puts its alias there, as Make
+Alias on Desktop does from its menu, and ~(lispm-desktop-remove-alias KEY)~ takes it off;
+~lispm-desktop-aliases~ lists those there.
 
 * The code
 

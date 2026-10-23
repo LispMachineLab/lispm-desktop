@@ -146,6 +146,9 @@
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
 (declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
 (declare-function lispm-desktop--darken "lispm-desktop-surface" (svg))
+(declare-function lispm-desktop-alias-possible-p "lispm-desktop-surface" (app))
+(declare-function lispm-desktop-make-alias "lispm-desktop-surface" (app))
+(declare-function lispm-desktop-remove-alias "lispm-desktop-surface" (app))
 (declare-function project-remember-projects-under "project" (dir &optional recursive))
 (defvar package-vc-selected-packages)
 (defvar lispm-desktop-finder-folders)
@@ -1529,7 +1532,9 @@ came with it go too."
     ('app (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs id))
           (lispm-desktop-store--unload (plist-get props :feature))
           (lispm-desktop-app-window-close id)
-          (lispm-desktop-remove-app id))
+          (lispm-desktop-remove-app id)
+          (when (fboundp 'lispm-desktop-remove-alias)
+            (lispm-desktop-remove-alias id)))
     ('extension (lispm-desktop-store--unload (plist-get props :feature))))
   (when (plist-get props :owned)
     (lispm-desktop-store--quietly
@@ -2046,7 +2051,7 @@ App Store becomes the desktop's, at its install and at every start."
                    (and (plist-get props :feature) (plist-get (cdr (assq id lispm-desktop-apps)) :icon))
                    (lispm-desktop-store--icon props))))
     (apply #'lispm-desktop-define-app
-           id :name (plist-get props :name) :icon icon
+           id :name (plist-get props :name) :icon icon :large-icon (lispm-desktop-store--icon props t)
            :category (lispm-desktop-store--category-of props) :description (plist-get props :description)
            :needs (lambda () (lispm-desktop-store--needs id)) :store t
            behaviour))
@@ -2088,16 +2093,18 @@ built in, see `lispm-desktop-apps-built-in', named in the language LispM
 speaks, then those installed, as their catalogs name them, see
 `lispm-desktop-finder-folders'.  Those installed are uninstalled when
 thrown away, from the folder's menu or onto the Trash."
-  `(("App Store" "app-store-32" lispm-desktop-store-show)
+  `(("App Store" "app-store-32" lispm-desktop-store-show nil store)
     ,@(mapcar (pcase-lambda (`(,id . ,props))
                 (list (lispm-desktop-tr (plist-get props :name)) (plist-get props :folder)
-                      (lambda () (lispm-desktop-apps-activate id))))
+                      (lambda () (lispm-desktop-apps-activate id))
+                      nil id))
               (lispm-desktop-apps-built-in))
     ,@(mapcan (pcase-lambda (`(,id . ,props))
                 (when (eq (plist-get props :kind) 'app)
                   (list (list (plist-get props :name) (lispm-desktop-store--icon props t)
                               (lambda () (lispm-desktop-apps-activate id))
-                              (lambda () (lispm-desktop-store-uninstall id))))))
+                              (lambda () (lispm-desktop-store-uninstall id))
+                              id))))
               lispm-desktop-store-installed)))
 
 (defun lispm-desktop-store-open-applications ()
@@ -4088,6 +4095,16 @@ installing or updating it."
 (define-obsolete-function-alias 'lispm-desktop-store-remove-selected
   #'lispm-desktop-store-uninstall-selected "0.9.0")
 
+(defun lispm-desktop-store-make-alias-selected ()
+  "Make an alias of the application selected on the desktop, see
+`lispm-desktop-make-alias'."
+  (interactive)
+  (let ((id (or (lispm-desktop-store--selected-id) (user-error (lispm-desktop-tr "Select an item first")))))
+    (unless (lispm-desktop-store-installed-p id)
+      (user-error (lispm-desktop-tr "“%s” cannot have an alias on the desktop")
+                  (plist-get (cdr (assq id (lispm-desktop-store-items))) :name)))
+    (lispm-desktop-make-alias id)))
+
 (defun lispm-desktop-store-stop-selected ()
   "Stop installing or updating the item selected, as Command-period
 stopped what Mac OS 9 was doing."
@@ -4367,6 +4384,7 @@ the one that opened the page does nothing."
   "C-s" #'lispm-desktop-store-search
   "u" #'lispm-desktop-store-update-selected
   "D" #'lispm-desktop-store-uninstall-selected
+  "M-m" #'lispm-desktop-store-make-alias-selected
   "." #'lispm-desktop-store-stop-selected
   "l" #'lispm-desktop-store-show-log-selected
   "w" #'lispm-desktop-store-copy-install-command
@@ -4451,6 +4469,9 @@ The catalogs are fetched the first time it opens after Emacs starts."
               :enabled ,(and (cdr action) t))
       (:label ,(lispm-desktop-tr "Get Info") :action lispm-desktop-store-show-item :key "i"
               :enabled ,(and id (not (lispm-desktop-store--item-page-p))))
+      (:label ,(lispm-desktop-tr "Make Alias on Desktop") :action lispm-desktop-store-make-alias-selected :key "M-m"
+              :enabled ,(and id (lispm-desktop-store-installed-p id) (fboundp 'lispm-desktop-alias-possible-p)
+                             (lispm-desktop-alias-possible-p id)))
       (:label ,(lispm-desktop-tr "Uninstall…") :action lispm-desktop-store-uninstall-selected :key "D"
               :enabled ,(and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id))))
       (:label ,(lispm-desktop-tr "Stop") :action lispm-desktop-store-stop-selected :key "."

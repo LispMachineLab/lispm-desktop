@@ -40,7 +40,8 @@
 ;; or Command-O opens, Command-Up or Delete goes to the enclosing folder,
 ;; Command-[ and Command-] back and forward, C-c u pops up the path,
 ;; Command-Shift-N makes a folder, Command-Delete moves the selected item
-;; to the Trash, Command-W closes the window, and typing a name's first
+;; to the Trash, Command-M makes an alias of the application selected on
+;; the desktop, Command-W closes the window, and typing a name's first
 ;; letters selects it.
 ;;
 ;; An item is thrown away from its menu, with Command-Delete, or dragged
@@ -108,10 +109,12 @@ stands for the folder where a directory's name would.  :title names the
 folder, in English, translated where shown, see
 `lispm-desktop-finder--title'; :icon gives its small icon as
 `lispm-desktop-platinum-icon-file' takes it, and :items is a function
-returning its items, each (NAME ICON ACTION TRASH): NAME as shown, in
+returning its items, each (NAME ICON ACTION TRASH APP): NAME as shown, in
 the language LispM speaks, ICON its large icon, ACTION a function opening
-it, and TRASH, when given, a function throwing it away, returning non-nil
-once it is gone, as an application installed is uninstalled; :trash
+it, TRASH, when given, a function throwing it away, returning non-nil
+once it is gone, as an application installed is uninstalled, and APP,
+when given, the key of the application it is in `lispm-desktop-apps',
+of which an alias can be made on the desktop; :trash
 names the menu item doing so, in English, translated where shown, by
 default \"Move to Trash\".  Nothing is made or renamed in such a folder.")
 
@@ -529,6 +532,29 @@ uninstalled."
                t)))
           (t (nth 3 (assoc name (lispm-desktop-finder--folder-items lispm-desktop-finder--directory)))))))
 
+(defun lispm-desktop-finder--app (name)
+  "Return the key of the application the item NAME of the folder shown is,
+see `lispm-desktop-finder-folders', or nil."
+  (lispm-desktop-finder--in
+    (and name (lispm-desktop-finder--folder lispm-desktop-finder--directory)
+         (nth 4 (assoc name (lispm-desktop-finder--folder-items lispm-desktop-finder--directory))))))
+
+(defun lispm-desktop-finder-alias-p ()
+  "Return non-nil when an alias of the item selected can be made on the
+desktop: it is an application, with none there yet."
+  (when-let* ((app (lispm-desktop-finder--app (lispm-desktop-finder--in lispm-desktop-finder--selected))))
+    (lispm-desktop-alias-possible-p app)))
+
+(defun lispm-desktop-finder-make-alias ()
+  "Make an alias of the application selected on the desktop, as Make Alias
+made one in Mac OS 9, see `lispm-desktop-make-alias'."
+  (interactive)
+  (let ((name (or (lispm-desktop-finder--in lispm-desktop-finder--selected)
+                  (user-error (lispm-desktop-tr "Select an item first")))))
+    (lispm-desktop-make-alias
+     (or (lispm-desktop-finder--app name)
+         (user-error (lispm-desktop-tr "“%s” cannot have an alias on the desktop") name)))))
+
 (defun lispm-desktop-finder-trash-label ()
   "Return what the menu item throwing the selected item away reads, in the
 folder shown, in the language LispM speaks: Move to Trash, or as the
@@ -705,6 +731,8 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
        separator
        (:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder :enabled ,real)
        (:label ,(lispm-desktop-tr "Rename…") :action lispm-desktop-finder-rename :enabled ,file)
+       (:label ,(lispm-desktop-tr "Make Alias on Desktop") :action lispm-desktop-finder-make-alias :key "M-m"
+               :enabled ,(lispm-desktop-finder-alias-p))
        (:label ,(lispm-desktop-finder-trash-label) :action lispm-desktop-finder-move-to-trash :key "M-DEL"
                :enabled ,(lispm-desktop-finder-trash-p))
        (:label ,(lispm-desktop-tr "Copy Path") :enabled ,file
@@ -743,6 +771,7 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
   "M-[" (lispm-desktop-graphic-binding #'lispm-desktop-finder-back)
   "M-]" (lispm-desktop-graphic-binding #'lispm-desktop-finder-forward)
   "M-N" #'lispm-desktop-finder-new-folder
+  "M-m" #'lispm-desktop-finder-make-alias
   "M-DEL" #'lispm-desktop-finder-move-to-trash
   "M-<backspace>" #'lispm-desktop-finder-move-to-trash
   "M-r" #'lispm-desktop-finder-refresh

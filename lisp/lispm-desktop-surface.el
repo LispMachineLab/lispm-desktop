@@ -43,6 +43,14 @@
 ;; View menu and the desktop's right-click menu, puts every icon back
 ;; where it stood at first.
 ;;
+;; An application's alias goes on the desktop from its menu, in the
+;; Applications folder or the App Store (Make Alias on Desktop): it opens
+;; the application as the application's own icon would, its name set in
+;; italics, as Mac OS 9 set an alias's.  It takes the column's first free
+;; cell, the column going on to the left once it reaches the Trash, and
+;; leaves the desktop from its menu, with Command-Delete, or dragged onto
+;; the Trash; the application stays.
+;;
 ;;   window --size--> layout: each icon where it was put, from the edges
 ;;                    nearest it, or in the column; the Trash at the bottom
 ;;   icon --selected--> its SVG with every colour halved
@@ -75,6 +83,7 @@
 (declare-function lispm-desktop-finder-real-p "lispm-desktop-finder" ())
 (declare-function lispm-desktop-finder-trash-label "lispm-desktop-finder" ())
 (declare-function lispm-desktop-finder-trash-p "lispm-desktop-finder" ())
+(declare-function lispm-desktop-finder-alias-p "lispm-desktop-finder" ())
 (defvar lispm-desktop-finder--selected)
 (defvar lispm-desktop-finder--had-focus)
 (declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" ())
@@ -117,12 +126,23 @@ returns it as it changes, as the Trash's does; :command opens it
 and :help describes it.  :label and :help are in English, translated
 where shown, see `lispm-desktop--item-label'.  :visible, when given, is a
 function deciding whether the icon shows; :bottom puts it in the bottom
-corner, as Mac OS 9 kept the Trash there.")
+corner, as Mac OS 9 kept the Trash there.  An icon whose key is an
+application's, as Emacs's, stands for it: no alias of it is made, see
+`lispm-desktop-aliases'.")
 
 (defun lispm-desktop--item-label (spec)
   "Return the name of the desktop icon whose properties are SPEC, in the
+language LispM speaks: an alias's is its application's."
+  (if-let* ((app (plist-get spec :alias)))
+      (or (lispm-desktop-apps-name app) (symbol-name app))
+    (lispm-desktop-tr (plist-get spec :label))))
+
+(defun lispm-desktop--item-help (spec)
+  "Return what the desktop icon whose properties are SPEC is, in the
 language LispM speaks."
-  (lispm-desktop-tr (plist-get spec :label)))
+  (if (plist-get spec :alias)
+      (lispm-desktop-tr "An alias of %s" (lispm-desktop--item-label spec))
+    (lispm-desktop-tr (plist-get spec :help))))
 
 (defconst lispm-desktop-icon-size 32
   "Side in pixels of a desktop icon.")
@@ -230,6 +250,16 @@ Dragging an icon sets this."
   :type '(alist :key-type symbol :value-type plist)
   :group 'lispm-desktop)
 
+(defcustom lispm-desktop-aliases nil
+  "Applications whose aliases stand on the desktop, by key of
+`lispm-desktop-apps', in the order they were made.  An alias's key on
+the desktop is its application's, as in `lispm-desktop-icon-places'; it
+shows while its application is one, as the Applications folder lists it,
+see `lispm-desktop--alias-app-p'.  Making and removing an alias sets
+this, see `lispm-desktop-make-alias'."
+  :type '(repeat symbol)
+  :group 'lispm-desktop)
+
 (defun lispm-desktop-choose-picture (file)
   "Cover the desktop with picture FILE, now and at every later start."
   (interactive (list (read-file-name (lispm-desktop-tr "Desktop picture: ") "~/Pictures/" nil t)))
@@ -279,6 +309,8 @@ Dragging an icon sets this."
   "M-<down>" #'lispm-desktop-open
   "<escape>" #'lispm-desktop-deselect
   "C-g" #'lispm-desktop-deselect
+  "M-DEL" #'lispm-desktop-remove-from-desktop
+  "M-<backspace>" #'lispm-desktop-remove-from-desktop
   ;; The icon selected moves with Meta added to the keys moving the
   ;; selection, as dragging it would.
   "C-M-f" #'lispm-desktop-move-icon-right
@@ -364,12 +396,43 @@ its content needs (its view box, namespaces, rendering) and the content."
 (defvar-local lispm-desktop--hits nil
   "Where each icon and its name were drawn: (KEY LEFT TOP RIGHT BOTTOM).")
 
+(defun lispm-desktop--alias-app-p (app)
+  "Return non-nil when APP, a key of `lispm-desktop-apps', is an application
+an alias can stand for: one that opens, with a large icon to draw the
+alias with, as the Applications folder lists one, see
+`lispm-desktop-apps-large-icon'.  Whether it shows in the Application
+menu, its :visible, does not matter: the LispM Guide is listed there only
+while it is open."
+  (and (functionp (plist-get (alist-get app lispm-desktop-apps) :activate))
+       (lispm-desktop-apps-large-icon app)))
+
+(defun lispm-desktop--alias-items ()
+  "Return the aliases standing on the desktop, as `lispm-desktop-items'
+holds icons: those of `lispm-desktop-aliases' whose application is one,
+see `lispm-desktop--alias-app-p', no icon of the desktop's own standing
+for it."
+  (seq-keep (lambda (app)
+              (when-let* (((not (assq app lispm-desktop-items)))
+                          ((lispm-desktop--alias-app-p app))
+                          (icon (lispm-desktop-apps-large-icon app)))
+                (list app :alias app :icon icon
+                      :command (lambda () (interactive) (lispm-desktop-apps-activate app)))))
+            lispm-desktop-aliases))
+
 (defun lispm-desktop--items ()
-  "Return the desktop's icons that show, see `lispm-desktop-items'."
-  (seq-filter (lambda (item)
-                (let ((visible (plist-get (cdr item) :visible)))
-                  (or (not visible) (funcall visible))))
-              lispm-desktop-items))
+  "Return the desktop's icons that show, see `lispm-desktop-items', the
+aliases after its own, the Trash last."
+  (let ((items (seq-filter (lambda (item)
+                             (let ((visible (plist-get (cdr item) :visible)))
+                               (or (not visible) (funcall visible))))
+                           lispm-desktop-items)))
+    (append (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items)
+            (lispm-desktop--alias-items)
+            (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items))))
+
+(defun lispm-desktop--item (key)
+  "Return the properties of the desktop icon KEY that shows, or nil."
+  (cdr (assq key (lispm-desktop--items))))
 
 (defun lispm-desktop--item-icon (spec)
   "Return the icon of the desktop item whose properties are SPEC."
@@ -550,27 +613,41 @@ from the edges nearest it."
                 (list :bottom (- height y cell-height))
               (list :top y)))))
 
-(defun lispm-desktop--column-place (index bottom)
-  "Return the place of the INDEXth cell of the column, counted up from the
-bottom corner when BOTTOM, else down from the top."
+(defun lispm-desktop--rows (height)
+  "Return how many cells a column holds on a desktop HEIGHT pixels high,
+between its margins: at least one."
   (pcase-let ((`(,_ . ,cell-height) (lispm-desktop--cell-size)))
-    (list :right lispm-desktop-margin
-          (if bottom :bottom :top) (+ lispm-desktop-margin (* index (+ cell-height lispm-desktop-gap))))))
+    (max 1 (/ (+ (- height (* 2 lispm-desktop-margin)) lispm-desktop-gap)
+              (+ cell-height lispm-desktop-gap)))))
 
-(defun lispm-desktop--cell-free-p (xy taken)
+(defun lispm-desktop--column-place (index bottom &optional rows)
+  "Return the place of the INDEXth cell of the column, counted up from the
+bottom corner when BOTTOM, else down from the top.  Past ROWS cells, as
+many as the desktop's height holds, see `lispm-desktop--rows', the cells
+go on in the next column to the left."
+  (pcase-let ((`(,_ . ,cell-height) (lispm-desktop--cell-size))
+              (rows (or rows most-positive-fixnum)))
+    (list :right (+ lispm-desktop-margin (* (/ index rows) lispm-desktop-column))
+          (if bottom :bottom :top)
+          (+ lispm-desktop-margin (* (% index rows) (+ cell-height lispm-desktop-gap))))))
+
+(defun lispm-desktop--cell-free-p (xy taken &optional gap)
   "Return non-nil when a cell at XY, (X . Y), overlaps none of the cells at
-TAKEN, a list of (X Y)."
+TAKEN, a list of (X Y), nor comes within GAP pixels, by default none, of
+one above or below it."
   (pcase-let ((`(,cell-width . ,cell-height) (lispm-desktop--cell-size)))
     (seq-every-p (pcase-lambda (`(,x ,y))
                    (or (>= (abs (- x (car xy))) cell-width)
-                       (>= (abs (- y (cdr xy))) cell-height)))
+                       (>= (abs (- y (cdr xy))) (+ cell-height (or gap 0)))))
                  taken)))
 
 (defun lispm-desktop--layout (width height)
   "Return where each icon stands on a desktop WIDTH by HEIGHT:
 \((ITEM X Y) ...), X and Y its cell's top left corner.  An icon put
 somewhere stands there, see `lispm-desktop-icon-places'; the others take the
-first cells of the column no put icon covers."
+first cells of the column no icon covers or crowds, those of the bottom
+corner first, so that a column running down to them goes on to the
+left rather than closer to them than the column's own gap."
   (let* ((items (lispm-desktop--items))
          (placed (seq-keep (lambda (item)
                              (when-let* ((place (alist-get (car item) lispm-desktop-icon-places)))
@@ -578,33 +655,38 @@ first cells of the column no put icon covers."
                                  (list item (car xy) (cdr xy)))))
                            items))
          (taken (mapcar #'cdr placed))
-         (indices (list 0 0)))
-    (cl-flet ((free-p (xy) (lispm-desktop--cell-free-p xy taken)))
-      (append
-       placed
-       (seq-keep
-        (lambda (item)
-          (unless (assq item placed)
-            (let* ((bottom (plist-get (cdr item) :bottom))
-                   (slot (if bottom 1 0))
-                   (xy nil))
-              (while (progn
-                       (setq xy (lispm-desktop--place-xy
-                                 (lispm-desktop--column-place (nth slot indices) bottom)
-                                 width height))
-                       (cl-incf (nth slot indices))
-                       (and (not (free-p xy)) (< (nth slot indices) 64))))
-              (push (list (car xy) (cdr xy)) taken)
-              (list item (car xy) (cdr xy)))))
-        ;; The bottom corner fills from the last icon up.
-        (append (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items)
-                (reverse (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items))))))))
+         (rows (lispm-desktop--rows height))
+         (indices (list 0 0))
+         (top (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items))
+         ;; The bottom corner fills from the last icon up.
+         (bottom (reverse (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items)))
+         (spots nil))
+    (cl-flet ((free-p (xy) (lispm-desktop--cell-free-p xy taken lispm-desktop-gap)))
+      (dolist (item (append bottom top))
+        (unless (assq item placed)
+          (let* ((at-bottom (plist-get (cdr item) :bottom))
+                 (slot (if at-bottom 1 0))
+                 (xy nil))
+            (while (progn
+                     (setq xy (lispm-desktop--place-xy
+                               (lispm-desktop--column-place (nth slot indices) at-bottom rows)
+                               width height))
+                     (cl-incf (nth slot indices))
+                     (and (not (free-p xy)) (< (nth slot indices) 64))))
+            (push (list (car xy) (cdr xy)) taken)
+            (push (list item (car xy) (cdr xy)) spots))))
+      (append placed (seq-keep (lambda (item) (assq item spots)) (append top bottom))))))
 
 (defun lispm-desktop--label-center (spec x)
   "Return where the name of the icon SPEC, its cell's left at X, is
 centred: under the icon, unless SPEC's :label-center moved it, as for a
 name too wide to stand whole there, see `lispm-desktop--svg'."
   (or (plist-get spec :label-center) (+ x (/ lispm-desktop-column 2))))
+
+(defun lispm-desktop--label-style (spec)
+  "Return the SVG attributes setting the name of the icon SPEC in its own
+style: an alias's in italics, as Mac OS 9 set an alias's name; else none."
+  (if (plist-get spec :alias) " font-style=\"italic\"" ""))
 
 (cl-defgeneric lispm-desktop--draw-icon (spec x y selected label-width family size ascent)
   "Return SVG of the icon SPEC with its name, its cell's top left at X, Y,
@@ -623,9 +705,10 @@ says."
      (lispm-desktop--nest (lispm-desktop--item-icon spec) selected icon-left y)
      (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
              label-left label-top label-width (+ size 4) (if selected text content))
-     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
+     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\"%s>%s</text>"
              label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size
-             (if selected content text) (lispm-desktop--escape (plist-get spec :label))))))
+             (if selected content text) (lispm-desktop--label-style spec)
+             (lispm-desktop--escape (plist-get spec :label))))))
 
 (defun lispm-desktop--coach-mark (width height origin)
   "Return SVG text of the coach mark, when it circles something on a
@@ -773,7 +856,7 @@ left blank, for the image to lie on."
                                                                                  (lispm-desktop--color))))
                                  (t (list (substring-no-properties (lispm-desktop-platinum-icon icon))))))
                        (properties (list 'lispm-desktop-item (car item)
-                                         'help-echo (lispm-desktop-tr (plist-get (cdr item) :help)))))
+                                         'help-echo (lispm-desktop--item-help (cdr item)))))
                   (seq-do-indexed
                    (lambda (line index)
                      (push (list (+ row index (- lines (length picture)))
@@ -783,7 +866,9 @@ left blank, for the image to lie on."
                    picture)
                   (push (list (+ row lines) (+ left (max 0 (/ (- column (string-width label)) 2)))
                               (apply #'propertize label
-                                     'face (if selected 'lispm-desktop-label-selected 'lispm-desktop-label)
+                                     'face (let ((face (if selected 'lispm-desktop-label-selected
+                                                         'lispm-desktop-label)))
+                                             (if (plist-get (cdr item) :alias) (list 'italic face) face))
                                      properties))
                         pieces))))
       (let ((row 1) (slot 0) (bottom-row (1+ bottom-top)))
@@ -956,7 +1041,7 @@ and the Trash from the bottom, so a dropped icon lines up with them."
                (horizontal (if (> (+ x (/ cell-width 2)) (/ width 2)) :right :left))
                (vertical (if (> (+ y (/ cell-height 2)) (/ height 2)) :bottom :top))
                (columns (max 1 (/ (- width (* 2 lispm-desktop-margin)) cell-width)))
-               (rows (max 1 (/ (+ (- height (* 2 lispm-desktop-margin)) lispm-desktop-gap) pitch)))
+               (rows (lispm-desktop--rows height))
                (cells nil))
     (dotimes (column columns)
       (dotimes (row rows)
@@ -1132,12 +1217,15 @@ selected.  The move is measured from the press, not from where the mouse
 was once the icon was drawn selected, so the copy keeps the pointer
 where it grabbed the icon.  Let go, the icon lands on the grid, see
 `lispm-desktop--drop'.  Escape or C-g gives up, and a press let go where
-it was only selects."
+it was only selects.  An alias is taken off the desktop once let go on
+the Trash, drawn selected while the pointer is on it, as Mac OS 9's
+darkened under what was dragged there."
   (pcase-let* ((`(,cell-x ,cell-y) (lispm-desktop--cell-at key window))
-               (spec (alist-get key lispm-desktop-items))
+               (spec (lispm-desktop--item key))
                (label (lispm-desktop--item-label spec))
                (frames nil)
                (to nil)
+               (over nil)
                (result
                 (unwind-protect
                     (lispm-desktop-platinum-track
@@ -1147,15 +1235,23 @@ it was only selects."
                          (setq to (cons (+ cell-x (car delta)) (+ cell-y (cdr delta))))
                          (unless frames
                            (setq frames (lispm-desktop--copy-frames (lispm-desktop--item-icon spec) label window)))
-                         (lispm-desktop--place-copy frames label (car to) (cdr to) window)))
+                         (lispm-desktop--place-copy frames label (car to) (cdr to) window)
+                         (when (plist-get spec :alias)
+                           (let ((trash (lispm-desktop--trash-at-p (+ (car press) (car delta))
+                                                                   (+ (cdr press) (cdr delta)) window)))
+                             (unless (eq trash over)
+                               (setq over trash)
+                               (lispm-desktop--select (if trash 'trash key)))))))
                      (lambda () (lispm-desktop--pointer window))
                      press)
                   (when frames
                     (lispm-desktop-popup-dispose (car frames))
                     (lispm-desktop-popup-dispose (cdr frames))))))
-    (when (and to (car result))
-      (lispm-desktop--drop key (car to) (cdr to) window)
-      (lispm-desktop--render window))
+    (cond ((and to (car result) over) (lispm-desktop-remove-alias key))
+          ((and to (car result))
+           (lispm-desktop--drop key (car to) (cdr to) window)
+           (lispm-desktop--render window))
+          (over (lispm-desktop--select key)))
     ;; Dragged or not: a press let go where it was is a click.
     (and to t)))
 
@@ -1228,12 +1324,15 @@ dragged about, this puts them back."
 (defun lispm-desktop--menu (x y &optional align)
   "Pop up the desktop's menu at X, Y of the frame.
 ALIGN is as `lispm-desktop-popup-menu' takes it.  The menu has Open for
-the icon selected, then Arrange Icons and the desktop picture, as Mac OS
-9's desktop offered them."
+the icon selected, and Remove from Desktop for an alias, then Arrange
+Icons and the desktop picture, as Mac OS 9's desktop offered them."
   (let ((selected (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer))))
     (lispm-desktop-popup-menu
      `(,@(when selected
            `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-open :key "M-o")
+             ,@(when (plist-get (lispm-desktop--item selected) :alias)
+                 `((:label ,(lispm-desktop-tr "Remove from Desktop") :action lispm-desktop-remove-from-desktop
+                           :key "M-DEL")))
              separator))
        ,@(lispm-desktop--arrange-items)
        separator
@@ -1285,7 +1384,7 @@ desktop in front."
   "Open the selected desktop icon."
   (interactive)
   (when-let* ((key (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer)))
-              (command (plist-get (alist-get key lispm-desktop-items) :command)))
+              (command (plist-get (lispm-desktop--item key) :command)))
     (lispm-desktop--select nil)
     (call-interactively command)))
 
@@ -1305,6 +1404,70 @@ desktop in front."
   "Select the next desktop icon up."
   (interactive)
   (lispm-desktop--step -1))
+
+;;;; Aliases
+
+(defun lispm-desktop-alias-possible-p (app)
+  "Return non-nil when an alias of APP, a key of `lispm-desktop-apps', can
+be made on the desktop: APP is one an alias can stand for, see
+`lispm-desktop--alias-app-p', and neither an alias of it nor an icon of
+the desktop's own standing for it, as Emacs's, is there yet."
+  (and (lispm-desktop--alias-app-p app)
+       (not (memq app lispm-desktop-aliases))
+       (not (assq app lispm-desktop-items))))
+
+(defun lispm-desktop--read-app (prompt)
+  "Read with PROMPT the name of an application an alias can be made of;
+return its key."
+  (let ((names (seq-keep (pcase-lambda (`(,app . ,_))
+                           (when (lispm-desktop-alias-possible-p app)
+                             (cons (lispm-desktop-apps-name app) app)))
+                         lispm-desktop-apps)))
+    (unless names
+      (user-error (lispm-desktop-tr "Every application is on the desktop already")))
+    (cdr (assoc (completing-read prompt names nil t) names))))
+
+(defun lispm-desktop-make-alias (app)
+  "Make an alias of the application APP on the desktop, as Mac OS 9's Make
+Alias did, and select it.  It opens APP as APP's own icon would, and
+stands in the column's first free cell; it is there at every later
+start, see `lispm-desktop-aliases'."
+  (interactive (list (lispm-desktop--read-app (lispm-desktop-tr "Make an alias of: "))))
+  (let ((name (or (lispm-desktop-apps-name app) (symbol-name app))))
+    (unless (lispm-desktop-alias-possible-p app)
+      (user-error (if (lispm-desktop--alias-app-p app)
+                      (lispm-desktop-tr "“%s” is already on the desktop")
+                    (lispm-desktop-tr "“%s” cannot have an alias on the desktop"))
+                  name))
+    (customize-save-variable 'lispm-desktop-aliases (append lispm-desktop-aliases (list app)))
+    (lispm-desktop--select app)
+    (message (lispm-desktop-tr "An alias of “%s” is on the desktop") name)))
+
+(defun lispm-desktop-remove-alias (app)
+  "Take the alias of the application APP off the desktop, and forget where
+it stood; APP itself stays."
+  (when (memq app lispm-desktop-aliases)
+    (customize-save-variable 'lispm-desktop-aliases (remq app lispm-desktop-aliases))
+    (when (assq app lispm-desktop-icon-places)
+      (customize-save-variable 'lispm-desktop-icon-places
+                               (assq-delete-all app (copy-alist lispm-desktop-icon-places))))
+    (when-let* ((buffer (get-buffer lispm-desktop-buffer-name)))
+      (with-current-buffer buffer
+        (when (eq lispm-desktop--selected app)
+          (setq lispm-desktop--selected nil)))
+      (lispm-desktop--render))))
+
+(defun lispm-desktop-remove-from-desktop ()
+  "Take the alias selected off the desktop, as Command-Delete threw an
+alias away in Mac OS 9; its application stays.  The desktop's own icons
+stay where they are."
+  (interactive)
+  (let* ((key (or (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer))
+                  (user-error (lispm-desktop-tr "No icon is selected"))))
+         (spec (lispm-desktop--item key)))
+    (unless (plist-get spec :alias)
+      (user-error (lispm-desktop-tr "“%s” cannot be taken off the desktop") (lispm-desktop--item-label spec)))
+    (lispm-desktop-remove-alias key)))
 
 ;;;; Painting
 
@@ -1492,20 +1655,28 @@ alone, filling the frame."
 ;;;; The desktop's menus
 
 (defun lispm-desktop--file-items ()
-  "Return the items of the desktop's File menu.  Open and Close Window act
-on the Finder window when it had the keyboard last, else on the desktop."
+  "Return the items of the desktop's File menu.  Open, Close Window, Make
+Alias on Desktop and Move to Trash act on the Finder window when it had
+the keyboard last, else on the desktop, where an alias selected is
+removed in place of being moved to the Trash."
   (let* ((finder (and (fboundp 'lispm-desktop-finder-shown-p) (lispm-desktop-finder-shown-p)))
          (in-finder (and finder (bound-and-true-p lispm-desktop-finder--had-focus)))
-         (selected (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer))))
+         (selected (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer)))
+         (alias (and selected (not in-finder) (plist-get (lispm-desktop--item selected) :alias))))
     `((:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder
               :enabled ,(and finder (lispm-desktop-finder-real-p) t))
       (:label ,(lispm-desktop-tr "Open") :action ,(if in-finder 'lispm-desktop-finder-open 'lispm-desktop-open)
               :enabled ,(and (or in-finder selected) t))
       (:label ,(lispm-desktop-tr "Close Window") :action lispm-desktop-finder-close :enabled ,(and finder t))
       separator
-      (:label ,(if in-finder (lispm-desktop-finder-trash-label) (lispm-desktop-tr "Move to Trash"))
-              :action lispm-desktop-finder-move-to-trash :key "M-DEL"
-              :enabled ,(and in-finder (lispm-desktop-finder-trash-p)))
+      (:label ,(lispm-desktop-tr "Make Alias on Desktop") :action lispm-desktop-finder-make-alias :key "M-m"
+              :enabled ,(and in-finder (lispm-desktop-finder-alias-p)))
+      ,(if alias
+           `(:label ,(lispm-desktop-tr "Remove from Desktop") :action lispm-desktop-remove-from-desktop
+                    :key "M-DEL")
+         `(:label ,(if in-finder (lispm-desktop-finder-trash-label) (lispm-desktop-tr "Move to Trash"))
+                  :action lispm-desktop-finder-move-to-trash :key "M-DEL"
+                  :enabled ,(and in-finder (lispm-desktop-finder-trash-p))))
       separator
       ,@(mapcar (lambda (item)
                   (list :label (lispm-desktop--item-label (cdr item))
@@ -1557,7 +1728,7 @@ the Trash is looked at every few seconds."
   (setq initial-buffer-choice #'lispm-desktop-empty-buffer
         tab-bar-new-tab-choice #'lispm-desktop--new-tab-empty)
   (dolist (setting '(lispm-desktop-color lispm-desktop-picture lispm-desktop-picture-position
-                     lispm-desktop-icon-places))
+                     lispm-desktop-icon-places lispm-desktop-aliases))
     (add-variable-watcher setting #'lispm-desktop--setting-changed))
   (lispm-desktop-check-trash)
   (unless lispm-desktop--trash-timer

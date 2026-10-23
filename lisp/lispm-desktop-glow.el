@@ -1029,9 +1029,10 @@ its name on black, or in the highlight when SELECTED.  See
      (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
              label-left label-top label-width (+ size 4)
              (if selected (plist-get palette :highlight) "#000000"))
-     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
+     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\"%s>%s</text>"
              label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size
              (if selected (plist-get palette :highlight-text) (lispm-desktop-glow-color palette :glow))
+             (lispm-desktop--label-style spec)
              (lispm-desktop--escape (plist-get spec :label))))))
 
 ;;;; Faces

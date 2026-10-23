@@ -895,8 +895,9 @@ SELECTED, in the caption's colours.  See `lispm-desktop--draw-icon'."
      (lispm-desktop--nest (lispm-desktop--item-icon spec) nil (- center (/ lispm-desktop-icon-size 2)) y)
      (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
              label-left label-top label-width (+ size 4) ground)
-     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
+     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\"%s>%s</text>"
              label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size ink
+             (lispm-desktop--label-style spec)
              (lispm-desktop--escape (plist-get spec :label))))))
 
 ;;;; Faces

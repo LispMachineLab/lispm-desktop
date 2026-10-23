@@ -657,8 +657,9 @@ Go listing every step, the one the guide is on checked."
     (lispm-desktop-guide--define-app)
     (should (equal (mapcar #'car (lispm-desktop-apps-built-in)) '(guide)))
     (should (equal (seq-take (lispm-desktop-store--folder-items) 3)
-                   (list '("App Store" "app-store-32" lispm-desktop-store-show)
-                         (list "LispM Guide" "guide-32" (nth 2 (nth 1 (lispm-desktop-store--folder-items))))
+                   (list '("App Store" "app-store-32" lispm-desktop-store-show nil store)
+                         (list "LispM Guide" "guide-32" (nth 2 (nth 1 (lispm-desktop-store--folder-items)))
+                               nil 'guide)
                          (nth 2 (lispm-desktop-store--folder-items)))))
     (should (equal (mapcar #'car (lispm-desktop-store--folder-items)) '("App Store" "LispM Guide" "Calculator")))
     (should (equal (mapcar (lambda (item) (plist-get item :label)) (lispm-desktop-store-application-items))
@@ -1729,6 +1730,222 @@ icon, Open first."
         (should (member "Desktop Picture…"
                         (mapcar (lambda (item) (and (consp item) (plist-get item :label))) shown)))))))
 
+;; An application of the desktop's test, opened by an alias.
+(defmacro lispm-desktop-test--with-alias-apps (&rest body)
+  "Run BODY with applications Calculator, of a large icon, and Plain, of
+none, and no alias on the desktop, Customize only setting what it saves."
+  (declare (indent 0))
+  `(let ((lispm-desktop-apps (append lispm-desktop-apps
+                                     (list (list 'calculator :name "Calculator" :icon "lispm"
+                                                 :large-icon "applications-32" :activate #'ignore)
+                                           (list 'plain :name "Plain" :icon "lispm" :activate #'ignore))))
+         (lispm-desktop-aliases nil)
+         (lispm-desktop-icon-places nil)
+         (inhibit-message t))
+     (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
+               ((symbol-function 'lispm-desktop--font) (lambda () '("Geneva" 12 10)))
+               ((symbol-function 'customize-save-variable)
+                (lambda (variable value &rest _) (set variable value))))
+       (with-current-buffer (lispm-desktop-buffer)
+         (setq lispm-desktop--selected nil))
+       ,@body)))
+
+(ert-deftest lispm-desktop-test-desktop-aliases ()
+  "An alias of an application with a large icon is made on the desktop
+once, selected, and stands before the Trash, named as its application, in
+italics, opening it; none is made of an application the desktop has an
+icon of, as Emacs, or of one without a large icon.  Taken off the
+desktop, it leaves no place behind, and the application stays."
+  (lispm-desktop-test--with-alias-apps
+    (let ((opened nil))
+      (setf (plist-get (alist-get 'calculator lispm-desktop-apps) :activate)
+            (lambda () (setq opened t)))
+      (should (lispm-desktop-alias-possible-p 'calculator))
+      (should-not (lispm-desktop-alias-possible-p 'editor))
+      (should-not (lispm-desktop-alias-possible-p 'plain))
+      (should-error (lispm-desktop-make-alias 'editor) :type 'user-error)
+      (should-error (lispm-desktop-make-alias 'plain) :type 'user-error)
+      (lispm-desktop-make-alias 'calculator)
+      (should (equal lispm-desktop-aliases '(calculator)))
+      (should (eq (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer)) 'calculator))
+      (should-not (lispm-desktop-alias-possible-p 'calculator))
+      (should-error (lispm-desktop-make-alias 'calculator) :type 'user-error)
+      (should (equal (mapcar #'car (lispm-desktop--items))
+                     '(home editor applications store control-panels calculator trash)))
+      (let ((spec (lispm-desktop--item 'calculator)))
+        (should (equal (lispm-desktop--item-label spec) "Calculator"))
+        (should (equal (lispm-desktop--item-help spec) "An alias of Calculator"))
+        (should (equal (lispm-desktop--item-icon spec) "applications-32"))
+        (should (string-search "font-style=\"italic\""
+                               (lispm-desktop--draw-icon (plist-put (copy-sequence spec) :label "Calculator")
+                                                         0 0 nil 60 "Geneva" 12 10)))
+        (should-not (string-search "italic" (lispm-desktop--draw-icon
+                                             (plist-put (copy-sequence (lispm-desktop--item 'home)) :label "Home")
+                                             0 0 nil 60 "Geneva" 12 10))))
+      (lispm-desktop-open)
+      (should opened)
+      ;; Shown, as the Application menu lists it, or not, it has its
+      ;; alias; no longer an application, it has none.
+      (setf (plist-get (alist-get 'calculator lispm-desktop-apps) :visible) #'ignore)
+      (should (assq 'calculator (lispm-desktop--items)))
+      (let ((lispm-desktop-apps (seq-remove (lambda (app) (eq (car app) 'calculator)) lispm-desktop-apps)))
+        (should-not (assq 'calculator (lispm-desktop--items))))
+      ;; Taken off from its menu, or with Command-Delete.
+      (setq lispm-desktop-icon-places '((calculator :left 10 :top 10) (home :left 100 :top 10)))
+      (with-current-buffer (lispm-desktop-buffer)
+        (setq lispm-desktop--selected 'home))
+      (should-error (lispm-desktop-remove-from-desktop) :type 'user-error)
+      (with-current-buffer (lispm-desktop-buffer)
+        (setq lispm-desktop--selected 'calculator))
+      (should (eq (keymap-lookup lispm-desktop-mode-map "M-DEL") 'lispm-desktop-remove-from-desktop))
+      (lispm-desktop-remove-from-desktop)
+      (should-not lispm-desktop-aliases)
+      (should (equal lispm-desktop-icon-places '((home :left 100 :top 10))))
+      (should-not (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer)))
+      (should (assq 'calculator lispm-desktop-apps)))))
+
+(ert-deftest lispm-desktop-test-desktop-alias-read-from-the-keyboard ()
+  "M-x lispm-desktop-make-alias offers the applications an alias can be
+made of, by name."
+  (lispm-desktop-test--with-alias-apps
+    (let ((offered nil))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt names &rest _)
+                   (setq offered (mapcar #'car names))
+                   "Calculator")))
+        (should (eq (lispm-desktop--read-app "Alias: ") 'calculator)))
+      (should (equal offered '("Calculator")))
+      (setq lispm-desktop-aliases '(calculator))
+      (should-error (lispm-desktop--read-app "Alias: ") :type 'user-error))))
+
+(ert-deftest lispm-desktop-test-desktop-alias-menus ()
+  "An alias's right-click menu offers to take it off the desktop, after
+Open; so does the File menu, in place of Move to Trash."
+  (lispm-desktop-test--with-alias-apps
+    (setq lispm-desktop-aliases '(calculator))
+    (let ((shown nil)
+          (lispm-desktop-finder--had-focus nil))
+      (cl-letf (((symbol-function 'lispm-desktop--press-select) #'ignore)
+                ((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(0 . 0)))
+                ((symbol-function 'lispm-desktop-popup-menu) (lambda (items &rest _) (setq shown items)))
+                ((symbol-function 'lispm-desktop-finder-shown-p) #'ignore))
+        (cl-flet ((labels (items) (mapcar (lambda (item) (and (consp item) (plist-get item :label))) items)))
+          (with-current-buffer (lispm-desktop-buffer)
+            (setq lispm-desktop--selected 'home))
+          (lispm-desktop-context-menu nil)
+          (should-not (member "Remove from Desktop" (labels shown)))
+          (should (member "Move to Trash" (labels (lispm-desktop--file-items))))
+          (with-current-buffer (lispm-desktop-buffer)
+            (setq lispm-desktop--selected 'calculator))
+          (lispm-desktop-context-menu nil)
+          (should (equal (seq-take (labels shown) 2) '("Open" "Remove from Desktop")))
+          (should (equal (plist-get (nth 1 shown) :action) 'lispm-desktop-remove-from-desktop))
+          (should (member "Remove from Desktop" (labels (lispm-desktop--file-items))))
+          (should-not (member "Move to Trash" (labels (lispm-desktop--file-items))))
+          (should (member "Calculator" (labels (lispm-desktop--file-items)))))))))
+
+(ert-deftest lispm-desktop-test-desktop-column-goes-on-to-the-left ()
+  "Icons with no place that would run past the Trash, as aliases made one
+after another, go on in the next column to the left; the Trash keeps its
+corner and no two icons share a cell."
+  (lispm-desktop-test--with-alias-apps
+    (setq lispm-desktop-apps
+          (append lispm-desktop-apps
+                  (mapcar (lambda (n) (list (intern (format "app%d" n)) :name (format "App %d" n)
+                                            :large-icon "applications-32" :activate #'ignore))
+                          '(1 2 3 4))))
+    (setq lispm-desktop-aliases '(calculator app1 app2 app3 app4))
+    (pcase-let* ((`(,cell-width . ,cell-height) (lispm-desktop--cell-size))
+                 (pitch (+ cell-height lispm-desktop-gap))
+                 ;; Five cells high.
+                 (height (+ (* 2 lispm-desktop-margin) (* 5 pitch) (- lispm-desktop-gap)))
+                 (layout (lispm-desktop--layout 800 height))
+                 (cells (mapcar #'cdr layout))
+                 (right (- 800 lispm-desktop-margin cell-width)))
+      (should (= (lispm-desktop--rows height) 5))
+      (should (= (length layout) 11))
+      (should (equal (length (delete-dups (copy-sequence cells))) 11))
+      (should (equal (alist-get 'trash (mapcar (lambda (entry) (cons (car (car entry)) (cdr entry))) layout))
+                     (list right (- height lispm-desktop-margin cell-height))))
+      ;; The first column holds four above the Trash; the rest go left.
+      (should (= (seq-count (lambda (cell) (= (car cell) right)) cells) 5))
+      (should (= (seq-count (lambda (cell) (= (car cell) (- right cell-width))) cells) 5))
+      (should (= (seq-count (lambda (cell) (= (car cell) (- right (* 2 cell-width)))) cells) 1))
+      (should (seq-every-p (lambda (cell) (<= 0 (cadr cell) (- height cell-height))) cells))
+      ;; A desktop higher by less than a cell and its gap holds no more
+      ;; above the Trash: the next would come closer to it than the gap.
+      (let* ((height (+ height (- pitch (/ lispm-desktop-gap 2))))
+             (cells (mapcar #'cdr (lispm-desktop--layout 800 height))))
+        (should (= (lispm-desktop--rows height) 5))
+        (should (= (seq-count (lambda (cell) (= (car cell) right)) cells) 5))
+        (pcase-dolist (`(,x ,y) cells)
+          (pcase-dolist (`(,ox ,oy) cells)
+            (when (and (= x ox) (/= y oy))
+              (should (>= (abs (- y oy)) pitch)))))))))
+
+(ert-deftest lispm-desktop-test-desktop-alias-dragged-to-the-trash ()
+  "An alias let go on the Trash leaves the desktop, the Trash drawn
+selected while the pointer is on it; the desktop's own icons are only
+moved, and an alias let go elsewhere is put on the grid."
+  (lispm-desktop-test--with-alias-apps
+    (setq lispm-desktop-aliases '(calculator))
+    (cl-letf (((symbol-function 'window-body-width) (lambda (&rest _) 800))
+              ((symbol-function 'window-body-height) (lambda (&rest _) 601))
+              ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 0 800 601)))
+              ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
+              ((symbol-function 'lispm-desktop--place-copy) #'ignore)
+              ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+              ((symbol-function 'lispm-desktop--render) #'ignore))
+      (let* ((cell (lispm-desktop--cell-at 'calculator nil))
+             (press (cons (+ (car cell) 40) (+ (cadr cell) 16)))
+             (trash (lispm-desktop--cell-at 'trash nil))
+             (pointer press)
+             (script nil)
+             (selected nil)
+             (unread-command-events nil))
+        (cl-letf (((symbol-function 'lispm-desktop--pointer) (lambda (_) pointer))
+                  ((symbol-function 'lispm-desktop--trash-at-p)
+                   (lambda (x y _) (and (<= (car trash) x (+ (car trash) lispm-desktop-column))
+                                        (<= (cadr trash) y (+ (cadr trash) 40)))))
+                  ((symbol-function 'lispm-desktop--select) (lambda (key) (push key selected)))
+                  ((symbol-function 'read-event)
+                   (lambda (&rest _)
+                     (pcase-let ((`(,x ,y . ,event) (pop script)))
+                       (setq pointer (cons x y))
+                       event))))
+          (let ((over (cons (+ (car trash) 40) (+ (cadr trash) 16))))
+            ;; Over the Trash and away again: put on the grid.
+            (setq script `((,(car press) ,(+ (cdr press) 30))
+                           (,(car over) ,(cdr over))
+                           (,(- (car over) 300) ,(cdr over))
+                           (,(- (car over) 300) ,(cdr over) drag-mouse-1 (nil) (nil))))
+            (should (lispm-desktop--drag 'calculator nil press))
+            (should (equal selected '(calculator trash)))
+            (should (equal lispm-desktop-aliases '(calculator)))
+            (should (assq 'calculator lispm-desktop-icon-places))
+            ;; Given up over the Trash: it stays, selected again.
+            (setq selected nil
+                  script `((,(car over) ,(cdr over)) (,(car over) ,(cdr over) . 27)))
+            (lispm-desktop--drag 'calculator nil press)
+            (should (equal selected '(calculator trash)))
+            (should (equal lispm-desktop-aliases '(calculator)))
+            ;; Let go on the Trash: gone, and so is its place.
+            (setq selected nil
+                  press (let ((cell (lispm-desktop--cell-at 'calculator nil)))
+                          (cons (+ (car cell) 40) (+ (cadr cell) 16)))
+                  script `((,(car over) ,(cdr over)) (,(car over) ,(cdr over) drag-mouse-1 (nil) (nil))))
+            (should (lispm-desktop--drag 'calculator nil press))
+            (should-not lispm-desktop-aliases)
+            (should-not (assq 'calculator lispm-desktop-icon-places))
+            ;; The desktop's own icons never select the Trash.
+            (setq selected nil
+                  press (let ((cell (lispm-desktop--cell-at 'home nil)))
+                          (cons (+ (car cell) 40) (+ (cadr cell) 16)))
+                  script `((,(car over) ,(cdr over)) (,(car over) ,(cdr over) drag-mouse-1 (nil) (nil))))
+            (lispm-desktop--drag 'home nil press)
+            (should-not selected)
+            (should (assq 'home lispm-desktop-icon-places))))))))
+
 ;; A right press used to select the icon by way of the left press, which
 ;; dragged it until the left button rose: the copy stuck to the pointer.
 (ert-deftest lispm-desktop-test-desktop-right-press-never-drags ()
@@ -2206,6 +2423,40 @@ what is installed then; the App Store cannot be thrown away."
         (lispm-desktop-finder--in
           (should-not (assoc "Calculator" lispm-desktop-finder--items))))
       (kill-buffer " *lispm-test-other*")
+      (kill-buffer lispm-desktop-finder-buffer-name))))
+
+(ert-deftest lispm-desktop-test-finder-makes-aliases ()
+  "In the Applications folder, an application's menu makes its alias on
+the desktop, with Command-M too, once; the App Store, which the desktop
+has an icon of, has none made, nor has an item of another folder."
+  (lispm-desktop-test--with-store
+    (setq lispm-desktop-store-installed
+          '((calculator :kind app :name "Calculator" :command calc :installed "built-in")))
+    (lispm-desktop-store--register-installed)
+    (let ((lispm-desktop-finder-folders
+           '((applications :title "Applications" :icon "applications"
+                           :items lispm-desktop-store--folder-items :trash "Uninstall…")))
+          (lispm-desktop-aliases nil)
+          (shown nil))
+      (cl-letf (((symbol-function 'lispm-desktop-popup-menu) (lambda (items &rest _) (setq shown items))))
+        (cl-flet ((item (label) (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) label)))
+                                          shown)))
+          (lispm-desktop-finder--go 'applications)
+          (lispm-desktop-finder--select "App Store")
+          (should-not (lispm-desktop-finder-alias-p))
+          (lispm-desktop-finder--menu '(0 . 0))
+          (should-not (plist-get (item "Make Alias on Desktop") :enabled))
+          (lispm-desktop-finder--select "Calculator")
+          (lispm-desktop-finder--menu '(0 . 0))
+          (should (plist-get (item "Make Alias on Desktop") :enabled))
+          (should (equal (plist-get (item "Make Alias on Desktop") :key) "M-m"))
+          (should (eq (keymap-lookup lispm-desktop-finder-mode-map "M-m") 'lispm-desktop-finder-make-alias))
+          (lispm-desktop-finder-make-alias)
+          (should (equal lispm-desktop-aliases '(calculator)))
+          (should-not (lispm-desktop-finder-alias-p))
+          (should-error (lispm-desktop-finder-make-alias) :type 'user-error)
+          (lispm-desktop-finder--go temporary-file-directory)
+          (should-not (lispm-desktop-finder-alias-p))))
       (kill-buffer lispm-desktop-finder-buffer-name))))
 
 (ert-deftest lispm-desktop-test-window-rolls-up-its-chrome ()
@@ -9342,7 +9593,8 @@ uninstall the programs."
 (ert-deftest lispm-desktop-test-store-item-menu ()
   "An item's right-click menu holds what the File menu does to it: its
 button's action, Get Info, opening its page, which its page disables,
-then Uninstall…, which only an item installed enables."
+Make Alias on Desktop, which only an application installed enables, then
+Uninstall…, which only an item installed enables."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--store-catalog "https://example.org/first"
                                        '((calculator :kind app :name "Calculator" :command calc)))
@@ -9352,11 +9604,23 @@ then Uninstall…, which only an item installed enables."
       (should (equal (plist-get (car items) :label) "Get"))
       (should (equal (plist-get (nth 1 items) :label) "Get Info"))
       (should (plist-get (nth 1 items) :enabled))
-      (should (equal (plist-get (nth 2 items) :label) "Uninstall…"))
+      (should (equal (plist-get (nth 2 items) :label) "Make Alias on Desktop"))
       (should-not (plist-get (nth 2 items) :enabled))
+      (should (equal (plist-get (nth 3 items) :label) "Uninstall…"))
+      (should-not (plist-get (nth 3 items) :enabled))
       (should-not (memq 'separator items)))
     (setq lispm-desktop-store-installed '((calculator :kind app :name "Calculator" :command calc :installed "built-in")))
-    (should (plist-get (nth 2 (lispm-desktop-store--item-items)) :enabled))
+    (lispm-desktop-store--register-installed)
+    (let ((lispm-desktop-aliases nil))
+      (should (plist-get (nth 2 (lispm-desktop-store--item-items)) :enabled))
+      (should (plist-get (nth 3 (lispm-desktop-store--item-items)) :enabled))
+      (lispm-desktop-store-make-alias-selected)
+      (should (equal lispm-desktop-aliases '(calculator)))
+      (should-not (plist-get (nth 2 (lispm-desktop-store--item-items)) :enabled))
+      (should (eq (keymap-lookup lispm-desktop-store-mode-map "M-m") 'lispm-desktop-store-make-alias-selected))
+      ;; Uninstalled, its alias goes with it.
+      (lispm-desktop-store-uninstall 'calculator t)
+      (should-not lispm-desktop-aliases))
     (with-current-buffer (lispm-desktop-store--buffer)
       (setq lispm-desktop-store--view 'item))
     (should-not (plist-get (nth 1 (lispm-desktop-store--item-items)) :enabled))))
