@@ -275,8 +275,8 @@ change."
 
 (lispm-deftool settings_show
     ((panel string "The panel to show; without it, the one shown last." :optional t
-            :enum ("themes" "desktop" "keyboard" "language" "browser" "network" "sandbox" "startup"
-                   "kernel" "update")))
+            :enum ("themes" "desktop" "keyboard" "language" "browser" "network" "sandbox" "lispm"
+                   "startup" "kernel" "update")))
   "Open Control Panels on a panel, for the user to look or choose themselves."
   (let ((key (and panel (intern panel))))
     (when (and key (not (assq key (lispm-desktop-settings--panels))))

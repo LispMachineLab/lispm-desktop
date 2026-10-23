@@ -39,6 +39,10 @@
 ;;               and its bookmarks
 ;;   Network     the proxy every connection LispM makes goes through, see
 ;;               lispm-desktop-proxy.el
+;;   LispM       LispM Agent's own settings: the model its agents use, what
+;;               they may do unasked, how their conversations are summed
+;;               up and remembered, their roles and skills, see LispM
+;;               Agent's lispm-settings.el; shown once it is loaded
 ;;   Sandbox     how strictly agents' shell commands and MCP servers are
 ;;               confined, the rules of the Custom level, and the domains
 ;;               they may reach, see LispM Agent's lispm-sandbox.el; shown
@@ -109,6 +113,44 @@
 (declare-function lispm-sandbox-customize "lispm-sandbox" (&optional from))
 (declare-function lispm-sandbox-srt-status "lispm-sandbox" ())
 (declare-function lispm-sandbox-install "lispm-sandbox" ())
+(defvar lispm-efforts)
+(defvar lispm-permission-classes)
+(defvar lispm-permission-actions)
+(defvar lispm-compact-sizes)
+(defvar lispm-compact-threshold)
+(defvar lispm-compact-save-memory)
+(defvar lispm-git)
+(defvar lispm-default-role)
+(defvar lispm-backends)
+(defvar lispm-skill-directories)
+(declare-function lispm-model-status "lispm-settings" ())
+(declare-function lispm-model-choices "lispm-settings" ())
+(declare-function lispm-set-model "lispm-settings" (backend model &optional save))
+(declare-function lispm-set-effort "lispm-settings" (effort &optional save))
+(declare-function lispm-effort-name "lispm-settings" (effort))
+(declare-function lispm-backend-actions "lispm-settings" ())
+(declare-function lispm-settings-set "lispm-settings" (variable value &optional save))
+(declare-function lispm-permission-class-description "lispm-settings" (class))
+(declare-function lispm-permission-action-name "lispm-settings" (action))
+(declare-function lispm-default-permission "lispm-settings" (class))
+(declare-function lispm-set-default-permission "lispm-settings" (class action &optional save))
+(declare-function lispm-trusted-skill-files "lispm-settings" ())
+(declare-function lispm-skill-name "lispm-skills" (file))
+(declare-function lispm-default-role-choices "lispm-settings" ())
+(declare-function lispm-untrust-skill "lispm-settings" (file))
+(declare-function lispm-compact-size "lispm-settings" ())
+(declare-function lispm-compact-size-name "lispm-settings" (size))
+(declare-function lispm-compact-size-note "lispm-settings" (size))
+(declare-function lispm-set-compact-size "lispm-settings" (size &optional save))
+(declare-function lispm-open-memory "lispm-settings" (file))
+(declare-function lispm-set-default-role "lispm-settings" (role &optional save))
+(declare-function lispm-skill-directory-builtin-p "lispm-settings" (directory))
+(declare-function lispm-skill-directory-count "lispm-settings" (directory))
+(declare-function lispm-add-skill-directory "lispm-settings" (directory &optional save))
+(declare-function lispm-remove-skill-directory "lispm-settings" (directory &optional save))
+(declare-function lispm-roles "lispm-core" ())
+(declare-function lispm-role-name "lispm-core" (role))
+(declare-function lispm-role-description "lispm-core" (role))
 
 (defconst lispm-desktop-settings-buffer-name " *Control Panels*"
   "Name of the control panel's window's buffer.")
@@ -121,6 +163,8 @@
     (browser ,(lispm-desktop-tr-noop "Internet") lispm-desktop-settings--browser "globe-32"
              lispm-desktop-settings--browser-p)
     (network ,(lispm-desktop-tr-noop "Network") lispm-desktop-settings--network "network-32")
+    (lispm ,(lispm-desktop-tr-noop "LispM") lispm-desktop-settings--lispm "lispm-32"
+           lispm-desktop-settings--lispm-p)
     (sandbox ,(lispm-desktop-tr-noop "Sandbox") lispm-desktop-settings--sandbox "sandbox-32"
              lispm-desktop-settings--sandbox-p)
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
@@ -143,6 +187,11 @@ given, is a function deciding whether the panel shows.")
   "Return non-nil when LispM's agents can run in a sandbox, and so it has
 settings: LispM Agent 0.3.0 or later is loaded."
   (and (featurep 'lispm-sandbox) (fboundp 'lispm-sandbox-set-level)))
+
+(defun lispm-desktop-settings--lispm-p ()
+  "Return non-nil when LispM Agent says what its settings are, for the
+LispM panel: LispM Agent 0.6.0 or later is loaded."
+  (and (featurep 'lispm-settings) (fboundp 'lispm-model-status)))
 
 (defun lispm-desktop-settings--panels ()
   "Return the panels that show here."
@@ -645,6 +694,255 @@ and the hosts reached directly."
   (insert "\n\n")
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "Hosts reached directly, not through the proxy, and their subdomains; this computer's own addresses always are.")))
+
+(defun lispm-desktop-settings--fit (text width)
+  "Return TEXT as it fits in WIDTH pixels when dimmed: whole, or its first
+words and an ellipsis."
+  (if (<= (lispm-desktop-platinum-content-width text 'shadow) width)
+      text
+    (concat (car (lispm-desktop-settings--wrap text (max 20 (- width (lispm-desktop-px 12))))) "…")))
+
+(defun lispm-desktop-settings--note-room (label)
+  "Return the pixels left for a note after a radio button or check box
+named LABEL in a row of settings."
+  (- (lispm-desktop-settings--text-width (lispm-desktop-px 48))
+     (lispm-desktop-platinum-content-width label 'default)))
+
+(defun lispm-desktop-settings--model-items ()
+  "Return the items of the menu choosing the model LispM's agents use: the
+models of each backend, a separator between backends, then Other Model…."
+  (let* ((status (lispm-model-status))
+         (backend (plist-get status :backend))
+         (model (plist-get status :model))
+         (choices (lispm-model-choices))
+         (backends (delete-dups (mapcar (lambda (choice) (plist-get choice :backend)) choices)))
+         (items nil))
+    (dolist (name backends)
+      (when items
+        (push 'separator items))
+      (dolist (choice choices)
+        (when (eq (plist-get choice :backend) name)
+          (let ((label (or (plist-get choice :label) (plist-get choice :model))))
+            (push (list :label (if (cdr backends) (format "%s (%s)" label name) label)
+                        :checked (and (eq name backend) (equal (plist-get choice :model) model))
+                        :action (lambda () (lispm-set-model name (plist-get choice :model) t)))
+                  items)))))
+    (when items
+      (push 'separator items))
+    (push (list :label (lispm-desktop-tr "Other Model…") :enabled (and (assq backend lispm-backends) t)
+                :action #'lispm-desktop-settings--other-model)
+          items)
+    (nreverse items)))
+
+(defun lispm-desktop-settings--other-model ()
+  "Ask for a model of the backend LispM's agents use, by its name, and have
+them use it, now and at later starts."
+  (let* ((status (lispm-model-status))
+         (backend (plist-get status :backend))
+         (model (string-trim (read-string (lispm-desktop-tr "Model of %s: " backend) (plist-get status :model)))))
+    (unless (string-empty-p model)
+      (lispm-set-model backend model t))))
+
+(defun lispm-desktop-settings--choose-model ()
+  "Pop up the models to choose from under the button pressed, and have
+LispM's agents use the one chosen, now and at later starts."
+  (let ((position (if (mouse-event-p last-input-event)
+                      (posn-point (event-start last-input-event))
+                    (point))))
+    (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
+      (lispm-desktop-popup-menu (lispm-desktop-settings--model-items)
+                                x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-desktop-platinum-button-height 2)))))))
+
+(defun lispm-desktop-settings--lispm-model ()
+  "Insert the LispM panel's Model group: the model LispM's agents use, its
+effort, how its backend stands, and what can be done about it."
+  (let* ((status (lispm-model-status))
+         (backend (plist-get status :backend))
+         (model (plist-get status :model)))
+    (lispm-desktop-settings--heading (lispm-desktop-tr "Model"))
+    (insert (lispm-desktop-settings--indent))
+    (if model
+        (insert (propertize model 'face 'bold) "  "
+                (propertize (lispm-desktop-tr "via %s" backend) 'face 'shadow) "  ")
+      (insert (propertize (lispm-desktop-tr "None") 'face 'bold) "  "))
+    (lispm-desktop-settings--button (lispm-desktop-tr "Choose…") #'lispm-desktop-settings--choose-model
+                                    (lispm-desktop-tr "Choose the model agents use"))
+    (insert "\n")
+    (lispm-desktop-settings--paragraph (plist-get status :message))
+    (insert "\n" (lispm-desktop-settings--indent) (propertize (lispm-desktop-tr "Effort: ") 'face 'shadow))
+    (pcase-dolist (`(,effort . ,_) lispm-efforts)
+      (let ((name (lispm-effort-name effort)))
+        (lispm-desktop-settings--radio-button name (equal effort (plist-get status :effort))
+                                              (lambda () (lispm-set-effort effort t))
+                                              (lispm-desktop-tr "Choose %s" name))
+        (insert "  ")))
+    (insert "\n\n" (lispm-desktop-settings--indent))
+    ;; What programs providing models offer: setting one up, a key.
+    (pcase-dolist (`(,label ,function ,help) (lispm-backend-actions))
+      (lispm-desktop-settings--button label function help)
+      (insert " "))
+    (lispm-desktop-settings--button (lispm-desktop-tr "Backends…") (lambda () (customize-variable 'lispm-backends))
+                                    (lispm-desktop-tr "Edit the servers of models LispM knows in Customize"))
+    (insert "\n\n")
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "Agents whose role names no model take a change from their next request on; more effort thinks longer, and costs more."))))
+
+(defun lispm-desktop-settings--permission-columns ()
+  "Return where the Permissions table's columns start: an alist from each
+action of `lispm-permission-actions' to its distance from the pane's
+right edge, as `lispm-desktop-align-right' takes it, each column as wide
+as its name."
+  (let ((right (lispm-desktop-px (+ (* 2 lispm-desktop-settings--group-margin) 6)))
+        (columns nil))
+    (pcase-dolist (`(,action . ,_) (reverse lispm-permission-actions))
+      (let ((name (lispm-permission-action-name action)))
+        (setq right (+ right (lispm-desktop-px 14)
+                       (max (lispm-desktop-platinum-content-width name 'shadow) (lispm-desktop-px 18))))
+        (push (cons action right) columns)))
+    columns))
+
+(defun lispm-desktop-settings--untrust-skill ()
+  "Ask for a project's skill whose code runs unasked, and have agents ask
+before running it again."
+  (let ((files (mapcar #'abbreviate-file-name (lispm-trusted-skill-files))))
+    (lispm-untrust-skill (completing-read (lispm-desktop-tr "Trust no longer the skill: ") files nil t))))
+
+(defun lispm-desktop-settings--lispm-permissions ()
+  "Insert the LispM panel's Permissions group: what the default policy
+lets each class of tools do, as a table of radio buttons, the projects'
+skills whose code is trusted, and the way to the Sandbox panel."
+  (let* ((columns (lispm-desktop-settings--permission-columns))
+         (window (get-buffer-window (current-buffer) t))
+         (room (- (if window (window-body-width window t) 500)
+                  (lispm-desktop-px 24) (cdar columns) (lispm-desktop-px 8))))
+    (lispm-desktop-settings--heading (lispm-desktop-tr "Permissions"))
+    (lispm-desktop-settings--paragraph (lispm-desktop-tr "What agents may do without asking you:"))
+    (insert (lispm-desktop-settings--indent))
+    (pcase-dolist (`(,action . ,right) columns)
+      (insert (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right right)))
+              (propertize (lispm-permission-action-name action) 'face 'shadow)))
+    (insert "\n")
+    (pcase-dolist (`(,class . ,_) lispm-permission-classes)
+      (let ((chosen (lispm-default-permission class))
+            (description (lispm-permission-class-description class)))
+        (insert (lispm-desktop-settings--indent) (lispm-desktop-settings--fit description room))
+        (pcase-dolist (`(,action . ,right) columns)
+          (insert (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right right))))
+          (lispm-desktop-settings--radio-button
+           "" (eq chosen action) (lambda () (lispm-set-default-permission class action t))
+           (lispm-desktop-tr "%s: %s" (lispm-permission-action-name action) description)))
+        (insert "\n")))
+    (insert "\n")
+    (lispm-desktop-settings--paragraph (lispm-desktop-tr "A role's own policy comes first for its agents."))
+    (insert "\n")
+    (if-let* ((files (lispm-trusted-skill-files)))
+        (progn
+          (lispm-desktop-settings--paragraph
+           (lispm-desktop-tr "Projects' skills whose code runs unasked: %s."
+                             (lispm-desktop-settings--sandbox-entries
+                              (mapcar #'lispm-skill-name files) 40)))
+          (insert (lispm-desktop-settings--indent))
+          (lispm-desktop-settings--button (lispm-desktop-tr "Remove…") #'lispm-desktop-settings--untrust-skill
+                                          (lispm-desktop-tr "Have agents ask again before running a skill's code"))
+          (insert "\n"))
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "A project's skill runs its code once you trust it; you trust none yet.")))
+    (when (lispm-desktop-settings--sandbox-p)
+      (insert "\n" (lispm-desktop-settings--indent))
+      (lispm-desktop-settings--button (lispm-desktop-tr "Sandbox…") (lambda () (lispm-desktop-settings-select 'sandbox))
+                                      (lispm-desktop-tr "Show the Sandbox panel"))
+      (insert "  " (propertize (lispm-desktop-tr "what commands may do once they run") 'face 'shadow) "\n"))))
+
+(defun lispm-desktop-settings--lispm-memory ()
+  "Insert the LispM panel's Memory group: how large conversations grow
+before they are summed up, whether memory is saved first, git's history,
+and Show Memory…."
+  (let ((size (lispm-compact-size)))
+    (lispm-desktop-settings--heading (lispm-desktop-tr-in "agents' memory" "Memory"))
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "A conversation grown past its size is summed up, and goes on from the summary:"))
+    (pcase-dolist (`(,choice . ,_) lispm-compact-sizes)
+      (let ((name (lispm-compact-size-name choice)))
+        (lispm-desktop-settings--radio name (eq size choice) (lambda () (lispm-set-compact-size choice t))
+                                       (lispm-desktop-settings--fit (lispm-compact-size-note choice)
+                                                                    (lispm-desktop-settings--note-room name)))))
+    (unless size
+      (lispm-desktop-settings--radio (lispm-desktop-tr "Your own size") t #'ignore
+                                     (lispm-desktop-tr "summed up past %d tokens" lispm-compact-threshold)))
+    (insert "\n")
+    (lispm-desktop-settings--check-box
+     (lispm-desktop-tr "Save memory before summing up") lispm-compact-save-memory
+     (lambda () (lispm-settings-set 'lispm-compact-save-memory (not lispm-compact-save-memory) t))
+     (lispm-desktop-tr "what should outlive the conversation"))
+    (lispm-desktop-settings--check-box
+     (lispm-desktop-tr "Keep a history in git") lispm-git
+     (lambda () (lispm-settings-set 'lispm-git (not lispm-git) t))
+     (lispm-desktop-tr "each change a commit"))
+    (insert "\n" (lispm-desktop-settings--indent))
+    (lispm-desktop-settings--button (lispm-desktop-tr "Show Memory…") (lambda () (call-interactively #'lispm-open-memory))
+                                    (lispm-desktop-tr "Open the memory of a project or a role, or a task list"))
+    (insert "\n")))
+
+(defun lispm-desktop-settings--add-skill-directory ()
+  "Ask for a directory of skills, and add it to those agents read, last."
+  (lispm-add-skill-directory (read-directory-name (lispm-desktop-tr "Directory of skills: ") "~/" nil t) t))
+
+(defun lispm-desktop-settings--remove-skill-directory ()
+  "Ask for a directory of skills, not LispM's own, and take it out of those
+agents read; its skills stay where they are."
+  (let ((directories (mapcar #'abbreviate-file-name
+                             (seq-remove #'lispm-skill-directory-builtin-p lispm-skill-directories))))
+    (lispm-remove-skill-directory
+     (completing-read (lispm-desktop-tr "Take out the directory of skills: ") directories nil t nil nil
+                      (car (last directories)))
+     t)))
+
+(defun lispm-desktop-settings--lispm-roles ()
+  "Insert the LispM panel's Roles & Skills group: the role agents start
+with, and the directories of skills, with Add… and Remove…."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Roles & Skills"))
+  (lispm-desktop-settings--paragraph (lispm-desktop-tr "Agents started without choosing a role are:"))
+  (dolist (role (lispm-default-role-choices))
+    (let ((name (symbol-name (lispm-role-name role)))
+          (description (lispm-role-description role)))
+      (lispm-desktop-settings--radio name (eq (lispm-role-name role) lispm-default-role)
+                                     (lambda () (lispm-set-default-role (lispm-role-name role) t))
+                                     (and description
+                                          (lispm-desktop-settings--fit description
+                                                                       (lispm-desktop-settings--note-room name))))))
+  (insert "\n")
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Skills come from these directories, a later one's replacing an earlier one's of the same name:"))
+  (dolist (directory lispm-skill-directories)
+    (let ((count (lispm-skill-directory-count directory))
+          (name (if (lispm-skill-directory-builtin-p directory)
+                    (lispm-desktop-tr "LispM's own skills")
+                  (abbreviate-file-name directory))))
+      (insert (lispm-desktop-settings--indent)
+              (lispm-desktop-settings--truncate name 48) "  "
+              (propertize (if (file-directory-p directory)
+                              (lispm-desktop-tr-n "%d skill" "%d skills" count count)
+                            (lispm-desktop-tr "not there yet"))
+                          'face 'shadow)
+              "\n")))
+  (insert "\n" (lispm-desktop-settings--indent))
+  (lispm-desktop-settings--button (lispm-desktop-tr "Add…") #'lispm-desktop-settings--add-skill-directory
+                                  (lispm-desktop-tr "Add a directory of skills"))
+  (when (seq-remove #'lispm-skill-directory-builtin-p lispm-skill-directories)
+    (insert " ")
+    (lispm-desktop-settings--button (lispm-desktop-tr "Remove…") #'lispm-desktop-settings--remove-skill-directory
+                                    (lispm-desktop-tr "Take a directory out of those skills come from")))
+  (insert "\n"))
+
+(defun lispm-desktop-settings--lispm ()
+  "Insert the LispM panel: the model LispM's agents use, what they may do
+without asking, how their conversations are summed up and remembered,
+and their roles and skills.  LispM Agent's lispm-settings.el does the
+rest; programs providing models add to the Model group through it."
+  (lispm-desktop-settings--lispm-model)
+  (lispm-desktop-settings--lispm-permissions)
+  (lispm-desktop-settings--lispm-memory)
+  (lispm-desktop-settings--lispm-roles))
 
 (defun lispm-desktop-settings--sandbox-level (level)
   "Run agents' shell commands and MCP servers at sandbox LEVEL, now and at
@@ -1533,7 +1831,8 @@ with /sandbox in a chat, for one."
   (add-hook 'lispm-kernel-program-obtained-functions
             (lambda (&rest _) (lispm-desktop-settings--render)))
   ;; LispM Agent's, which may be loaded later, or never.
-  (add-hook 'lispm-sandbox-change-hook #'lispm-desktop-settings--render))
+  (add-hook 'lispm-sandbox-change-hook #'lispm-desktop-settings--render)
+  (add-hook 'lispm-settings-change-hook #'lispm-desktop-settings--render))
 
 (provide 'lispm-desktop-settings)
 ;;; lispm-desktop-settings.el ends here

@@ -103,8 +103,8 @@ Optional, used when present:
   built on [[https://github.com/alacritty/alacritty][Alacritty]]'s terminal (=native/lispm-desktop-term=); Emacs redraws only those on
   screen.  The module is downloaded as built for this computer and kept only when its SHA-256 is
   the one this repository pins; Eat stands in until it is there.
-- *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, Startup, Kernel
-  and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
+- *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, LispM (LispM
+  Agent's model, permissions, memory, roles and skills), Startup, Kernel and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
   Traditional; the computer's by default, asked at the first start.
 - *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, Classic AI's
