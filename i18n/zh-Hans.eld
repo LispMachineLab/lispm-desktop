@@ -1366,4 +1366,6 @@ Rust 的包管理器 Cargo 会在安装器中
   ("Make an alias of: " . "制作替身的应用程序：")
   ("“%s” is already on the desktop" . "“%s”已在桌面上")
   ("An alias of “%s” is on the desktop" . "已在桌面上制作“%s”的替身")
-  ("“%s” cannot be taken off the desktop" . "“%s”不能从桌面上移除")))
+  ("“%s” cannot be taken off the desktop" . "“%s”不能从桌面上移除")
+  ("General" . "通用")
+  ("System" . "系统")))

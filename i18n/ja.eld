@@ -1366,4 +1366,6 @@ Rust のパッケージマネージャ Cargo が
   ("Make an alias of: " . "エイリアスを作成するアプリケーション：")
   ("“%s” is already on the desktop" . "「%s」はすでにデスクトップにあります")
   ("An alias of “%s” is on the desktop" . "「%s」のエイリアスをデスクトップに作成しました")
-  ("“%s” cannot be taken off the desktop" . "「%s」はデスクトップから取り除けません")))
+  ("“%s” cannot be taken off the desktop" . "「%s」はデスクトップから取り除けません")
+  ("General" . "一般")
+  ("System" . "システム")))

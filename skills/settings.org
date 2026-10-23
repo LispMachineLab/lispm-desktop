@@ -1,9 +1,12 @@
 #+title: Change settings
 #+description: Read and change LispM's settings, as Control Panels holds them: the look and the colour theme, the language, the keys, the proxy, the agents' sandbox, what opens at login and at startup, and how software updates; open a panel for the user.
 
-Control Panels is LispM Desktop's settings application: a window of panels, each a tab, which the
-user opens from the menu bar's λ menu or the desktop's Control Panels folder.  Each choice
-takes effect at once where it can, and is saved for later starts.  This skill gives you tools to
+Control Panels holds LispM Desktop's settings: a control panel for each category, an application
+of its own whose window's tabs are its panels, which the user opens from the menu bar's λ menu or
+the desktop's Control Panels folder.  Appearance holds the Appearance and Desktop panels;
+General, Language, Keyboard and Startup; Internet, Internet and Network; Agents, LispM and
+Sandbox; System, Kernel and Software Update.  Each choice takes effect at once where it
+can, and is saved for later starts.  This skill gives you tools to
 read the settings, change them, and show the user a panel; and names the functions behind them
 for ~eval_elisp~.
 
@@ -11,9 +14,10 @@ for ~eval_elisp~.
 
 - ~settings_get~: every setting, by name, with its value, the values it takes, and the panel it
   is on; with SETTING, that one alone.
-- ~settings_show~ PANEL: open Control Panels on a panel, for the user to look or choose
-  themselves: ~themes~ (Appearance), ~desktop~, ~keyboard~, ~language~, ~browser~ (Internet),
-  ~network~, ~sandbox~, ~startup~, ~kernel~ or ~update~ (Software Update).  It changes nothing.
+- ~settings_show~ PANEL: open the control panel holding a panel, on that panel, for the user to
+  look or choose themselves: ~themes~ (Appearance), ~desktop~, ~keyboard~, ~language~, ~browser~
+  (Internet), ~network~, ~lispm~, ~sandbox~, ~startup~, ~kernel~ or ~update~ (Software Update).
+  It changes nothing.
 
 * Changing
 
@@ -277,7 +281,7 @@ change."
     ((panel string "The panel to show; without it, the one shown last." :optional t
             :enum ("themes" "desktop" "keyboard" "language" "browser" "network" "sandbox" "lispm"
                    "startup" "kernel" "update")))
-  "Open Control Panels on a panel, for the user to look or choose themselves."
+  "Open the control panel holding a panel, on it, for the user to look or choose themselves."
   (let ((key (and panel (intern panel))))
     (when (and key (not (assq key (lispm-desktop-settings--panels))))
       (error "The panel %s does not show here" panel))

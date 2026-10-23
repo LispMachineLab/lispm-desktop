@@ -1366,4 +1366,6 @@ Rust 的套件管理器 Cargo 會在安裝程式中
   ("Make an alias of: " . "製作替身的應用程式：")
   ("“%s” is already on the desktop" . "「%s」已在桌面上")
   ("An alias of “%s” is on the desktop" . "已在桌面上製作「%s」的替身")
-  ("“%s” cannot be taken off the desktop" . "「%s」不能從桌面上移除")))
+  ("“%s” cannot be taken off the desktop" . "「%s」不能從桌面上移除")
+  ("General" . "一般")
+  ("System" . "系統")))

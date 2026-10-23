@@ -62,8 +62,12 @@
 (declare-function lispm-bar-hide-window "lispm-bar" (buffer))
 (declare-function lispm-desktop-store-show "lispm-desktop-store" ())
 (declare-function lispm-desktop-settings-show "lispm-desktop-settings" (&optional panel))
-(declare-function lispm-desktop-settings--panels "lispm-desktop-settings" ())
+(declare-function lispm-desktop-settings--panels "lispm-desktop-settings" (&optional category))
 (declare-function lispm-desktop-settings-panel-label "lispm-desktop-settings" (panel))
+(declare-function lispm-desktop-settings--categories "lispm-desktop-settings" ())
+(declare-function lispm-desktop-settings-category-label "lispm-desktop-settings" (category))
+(declare-function lispm-desktop-settings-show-category "lispm-desktop-settings" (category))
+(defvar lispm-desktop-settings-categories)
 
 (defgroup lispm-desktop-bar nil
   "The LispM bar, dropped from the menu bar."
@@ -88,14 +92,17 @@ OPEN opens it; FIELDS are more texts it is found by, as a subtitle."
 (defun lispm-desktop-bar-applications ()
   "Return the desktop's applications, and the Control Panels, for the
 LispM bar to find, as `lispm-bar-source-functions' gives them: those of
-the Application menu that can run here, but the desktop, those the App
-Store installed as its catalogs describe them, the App Store and the
-Control Panels, a panel each."
+the Application menu that can run here, but the desktop and the control
+panels, those the App Store installed as its catalogs describe them, the
+App Store; then a panel each of the control panels, and those of them
+not named as one of their panels is."
   (let ((things nil))
     (pcase-dolist (`(,key . ,props) lispm-desktop-apps)
       (let ((catalog (alist-get key lispm-desktop-store-installed)))
-        ;; Those closed too: Control Panels, and what the App Store installed.
-        (when (and (not (eq key 'desktop)) (lispm-desktop-apps-openable-p key))
+        ;; Those closed too, as what the App Store installed.
+        (when (and (not (eq key 'desktop))
+                   (not (assq key (bound-and-true-p lispm-desktop-settings-categories)))
+                   (lispm-desktop-apps-openable-p key))
           (push (lispm-desktop-bar--application
                  (lispm-desktop-apps-name key) (plist-get props :icon)
                  (lambda () (lispm-desktop-apps-activate key))
@@ -105,12 +112,21 @@ Control Panels, a panel each."
                (not (seq-find (lambda (thing) (equal (plist-get thing :name) "App Store")) things)))
       (push (lispm-desktop-bar--application "App Store" "app-store" #'lispm-desktop-store-show) things))
     (when (fboundp 'lispm-desktop-settings--panels)
-      (dolist (panel (lispm-desktop-settings--panels))
-        (push (list :kind 'control-panel :label (lispm-desktop-tr "Control Panel")
-                    :name (lispm-desktop-settings-panel-label panel)
-                    :icon (lispm-desktop-platinum-icon (or (nth 3 panel) "control-panels"))
-                    :open (let ((key (car panel))) (lambda () (lispm-desktop-settings-show key))))
-              things)))
+      (let ((panels (lispm-desktop-settings--panels)))
+        (dolist (panel panels)
+          (push (list :kind 'control-panel :label (lispm-desktop-tr "Control Panel")
+                      :name (lispm-desktop-settings-panel-label panel)
+                      :icon (lispm-desktop-platinum-icon (or (nth 3 panel) "control-panels"))
+                      :open (let ((key (car panel))) (lambda () (lispm-desktop-settings-show key))))
+                things))
+        (dolist (category (lispm-desktop-settings--categories))
+          (let ((name (lispm-desktop-settings-category-label category)))
+            (unless (member name (mapcar #'lispm-desktop-settings-panel-label panels))
+              (push (list :kind 'control-panel :label (lispm-desktop-tr "Control Panel")
+                          :name name :icon (lispm-desktop-platinum-icon (nth 3 category))
+                          :open (let ((key (car category)))
+                                  (lambda () (lispm-desktop-settings-show-category key))))
+                    things))))))
     (nreverse things)))
 
 (defun lispm-desktop-bar-activity (tool input)
