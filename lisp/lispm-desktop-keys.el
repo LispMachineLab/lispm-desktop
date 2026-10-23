@@ -54,8 +54,6 @@
     ("xu" . lispm-browser-open-url-at-point))
   "Key suffixes bound under the evil leader key, paired with their commands.")
 
-(declare-function lispm-desktop-sidebar-focus "lispm-desktop-sidebar" ())
-
 (defun lispm-desktop-setup-keymapping ()
   "Set up basic keybindings."
   (with-eval-after-load 'evil
@@ -69,8 +67,6 @@
   ;; C-x RET and C-x C-m are the same key sequence; bind it once.
   (global-set-key (kbd "C-x RET") #'toggle-frame-fullscreen)
   (lispm-desktop-bind-clipboard-keys global-map)
-  ;; Into the sidebar and back: C-x o leaves side windows out.
-  (global-set-key (kbd "C-c s") #'lispm-desktop-sidebar-focus)
   (lispm-desktop-setup-meta-key-issue))
 
 

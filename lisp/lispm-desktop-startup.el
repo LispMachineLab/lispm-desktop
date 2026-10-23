@@ -54,6 +54,7 @@
 (require 'subr-x)
 (require 'xml)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-start-as)
 
 (defvar lispm-desktop-apps)
 (declare-function lispm-desktop-apps-activate "lispm-desktop-apps" (app))
@@ -373,13 +374,23 @@ running or just started.  Signal an error when ITEM cannot be opened."
        (call-interactively command)))
     (_ (error (lispm-desktop-tr "It names nothing to open: %S") item))))
 
+(defun lispm-desktop-startup-opens-p (item)
+  "Return non-nil when the startup ITEM opens at a start: when it is not
+turned off, and, as LispM starts as its terminal, is a program or a
+command; applications, documents and folders open in the desktop's
+windows."
+  (and (not (plist-get item :disabled))
+       (or (not (lispm-desktop-started-as-terminal-p))
+           (memq (lispm-desktop-startup-item-kind item) '(program command)))))
+
 (defun lispm-desktop-startup-open-items ()
-  "Open the startup items not turned off, in their order, as at a start.
-An item that cannot be opened is passed over, and told of."
+  "Open the startup items not turned off, in their order, as at a start;
+as LispM's terminal, only programs and commands.  An item that cannot be
+opened is passed over, and told of."
   (interactive)
   (let ((failed nil))
     (dolist (item lispm-desktop-startup-items)
-      (unless (plist-get item :disabled)
+      (when (lispm-desktop-startup-opens-p item)
         (condition-case err
             (lispm-desktop-startup-open-item item)
           (error (push (lispm-desktop-tr "%s (%s)" (lispm-desktop-startup-item-name item)

@@ -591,11 +591,13 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 (defun lispm-desktop-setup-sidebar ()
   "Let the sidebar's views close from their windows' close boxes, its lists
 scroll as Finder's did and follow a change of language, and the project
-tree wear a list's toolbar."
+tree wear a list's toolbar; C-c s goes into the sidebar and back."
   (setq lispm-desktop-platinum-side-window-close-function #'lispm-desktop-sidebar--close-side-window)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-sidebar--refresh-lists)
-  (add-hook 'treemacs-mode-hook #'lispm-desktop-sidebar--files-toolbar))
+  (add-hook 'treemacs-mode-hook #'lispm-desktop-sidebar--files-toolbar)
+  ;; Into the sidebar and back: C-x o leaves side windows out.
+  (global-set-key (kbd "C-c s") #'lispm-desktop-sidebar-focus))
 
 (provide 'lispm-desktop-sidebar)
 ;;; lispm-desktop-sidebar.el ends here

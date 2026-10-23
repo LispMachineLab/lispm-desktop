@@ -174,8 +174,12 @@
         (lispm-desktop-bind-clipboard-keys map))))
 
   (use-package yasnippet
-    :init (yas-global-mode 1))
+    :init (yas-global-mode 1)))
 
+(defun lispm-desktop-setup-tab-bar ()
+  "Set up the tab bar, which the desktop's menu bar is drawn on, and its
+tabs as workspaces, each owning its own buffers.  LispM's terminal has
+neither."
   ;; The tab bar is the menu bar; its items come from `lispm-desktop-setup-platinum'.
   (use-package tab-bar
     :ensure nil

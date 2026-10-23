@@ -63,6 +63,11 @@
 ;;                  in Control Panels
 ;;   guide          a tour of all this, as Apple Guide gave one, the
 ;;                  first time LispM starts and from the Help menu (C-c ?)
+;;   terminal       LispM's terminal: the sessions, a listener and a who
+;;                  line, used from the keyboard; entered at once (C-c T,
+;;                  LispM Terminal), see lispm-desktop-lispm.el, or LispM
+;;                  started as it instead of all this (the Startup panel,
+;;                  or --start-as=terminal), see lispm-desktop-start-as.el
 ;;
 ;; Its init.el runs `lispm-desktop-setup' and then the user's own file,
 ;; `lispm-desktop-user-file'.  An existing configuration can use it the same way:
@@ -120,6 +125,7 @@
 (require 'lispm-desktop-update)
 (require 'lispm-desktop-emacs)
 (require 'lispm-desktop-startup)
+(require 'lispm-desktop-start-as)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-needs)
 (require 'lispm-desktop-store)
@@ -210,68 +216,101 @@ boxes.  A download that fails, as offline, is only reported."
              (not (lispm-desktop-sidebar-current-view)))
     (lispm-desktop-sidebar-select lispm-desktop-startup-view)))
 
+(defun lispm-desktop--setup-desktop (first)
+  "Set Emacs up as the desktop; FIRST is non-nil at the first start."
+  ;; First, so that whatever is fetched next goes through it.
+  (lispm-desktop-setup-proxy)
+  (lispm-desktop-setup-common-packages)
+  (lispm-desktop-setup-tab-bar)
+  (lispm-desktop-setup-clipboard)
+  (lispm-desktop-setup-keymapping)
+  (lispm-desktop-setup-interface)
+  (lispm-desktop-setup-term)
+  (lispm-desktop-setup-loading)
+  (lispm-desktop-setup-platinum)
+  (lispm-desktop-setup-sidebar)
+  (lispm-desktop-popup-enable)
+  (lispm-desktop-setup-apps)
+  (lispm-desktop-setup-coherence)
+  (lispm-desktop-setup-standalone)
+  (lispm-desktop-setup-desktop)
+  (lispm-desktop-setup-editor)
+  (lispm-desktop-setup-workspaces)
+  (lispm-desktop-setup-finder)
+  (lispm-desktop-setup-browser)
+  (lispm-desktop-setup-browser-places)
+  (lispm-desktop-setup-settings)
+  (lispm-desktop-setup-update)
+  (lispm-desktop-setup-emacs)
+  (lispm-desktop-setup-startup)
+  (lispm-desktop-setup-app-windows)
+  (lispm-desktop-setup-app-ui)
+  (lispm-desktop-setup-needs)
+  (lispm-desktop-setup-app-games)
+  (lispm-desktop-setup-store)
+  (lispm-desktop-setup-strip)
+  (lispm-desktop-setup-guide)
+  (setq lispm-desktop--set-up t)
+  (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
+  (lispm-desktop-setup-look)
+  (lispm-desktop-setup-glass)
+  (lispm-desktop-setup-i18n)
+  (lispm-desktop-setup-langs)
+  (lispm-desktop-setup-ai)
+  (lispm-desktop-setup-agent-list)
+  (lispm-desktop-setup-shells)
+  ;; LispM is set up first, so its agent comes first; but the
+  ;; others are set up even when it cannot be, as offline at a
+  ;; first start that would install it.
+  (condition-case err
+      (lispm-desktop-setup-lispm)
+    (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
+  (lispm-agents-setup-claude)
+  (lispm-agents-setup-codex)
+  ;; After the agents, whose sessions it reads; off unless asked for.
+  (lispm-desktop-setup-kernel)
+  ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
+  (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
+  (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
+  (when first
+    (lispm-desktop--install-missing-fonts)))
+
+(defun lispm-desktop--setup-terminal ()
+  "Set Emacs up as LispM's terminal: as `lispm-desktop--setup-desktop'
+does but for the desktop itself, its windows' chrome, menu bar, sidebar,
+Finder, applications, workspaces, agents' windows and guide.  The
+proxy, the packages and keys, the language, the theme and LispM's agents
+are set up as there; then the first frame becomes the terminal, see
+`lispm-desktop-start-as--open-terminal'."
+  (lispm-desktop-setup-proxy)
+  (lispm-desktop-setup-common-packages)
+  (lispm-desktop-setup-clipboard)
+  (lispm-desktop-setup-keymapping)
+  (lispm-desktop-setup-plain-interface)
+  (lispm-desktop-setup-update)
+  (lispm-desktop-setup-emacs)
+  (lispm-desktop-setup-startup)
+  (setq lispm-desktop--set-up t)
+  (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
+  (lispm-desktop-setup-i18n)
+  (lispm-desktop-setup-langs)
+  (condition-case err
+      (lispm-desktop-setup-lispm)
+    (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
+  (lispm-desktop-setup-kernel)
+  (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
+
 (defun lispm-desktop-setup ()
-  "Set Emacs up as lispm-desktop."
-  (let ((first (setq lispm-desktop-first-start (lispm-desktop--first-start))))
+  "Set Emacs up as lispm-desktop: as the desktop, or as LispM's terminal
+when LispM starts as that, see `lispm-desktop-start-as'."
+  (let ((as (lispm-desktop-setup-start-as))
+        (first (setq lispm-desktop-first-start (lispm-desktop--first-start))))
     ;; The first start's page stays up while LispM is set up, and goes
     ;; however that ends.
     (unwind-protect
-        (progn
-          ;; First, so that whatever is fetched next goes through it.
-          (lispm-desktop-setup-proxy)
-          (lispm-desktop-setup-common-packages)
-          (lispm-desktop-setup-clipboard)
-          (lispm-desktop-setup-keymapping)
-          (lispm-desktop-setup-interface)
-          (lispm-desktop-setup-term)
-          (lispm-desktop-setup-loading)
-          (lispm-desktop-setup-platinum)
-          (lispm-desktop-setup-sidebar)
-          (lispm-desktop-popup-enable)
-          (lispm-desktop-setup-apps)
-          (lispm-desktop-setup-coherence)
-          (lispm-desktop-setup-standalone)
-          (lispm-desktop-setup-desktop)
-          (lispm-desktop-setup-editor)
-          (lispm-desktop-setup-workspaces)
-          (lispm-desktop-setup-finder)
-          (lispm-desktop-setup-browser)
-          (lispm-desktop-setup-browser-places)
-          (lispm-desktop-setup-settings)
-          (lispm-desktop-setup-update)
-          (lispm-desktop-setup-emacs)
-          (lispm-desktop-setup-startup)
-          (lispm-desktop-setup-app-windows)
-          (lispm-desktop-setup-app-ui)
-          (lispm-desktop-setup-needs)
-          (lispm-desktop-setup-app-games)
-          (lispm-desktop-setup-store)
-          (lispm-desktop-setup-strip)
-          (lispm-desktop-setup-guide)
-          (setq lispm-desktop--set-up t)
-          (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
-          (lispm-desktop-setup-look)
-          (lispm-desktop-setup-glass)
-          (lispm-desktop-setup-i18n)
-          (lispm-desktop-setup-langs)
-          (lispm-desktop-setup-ai)
-          (lispm-desktop-setup-agent-list)
-          (lispm-desktop-setup-shells)
-          ;; LispM is set up first, so its agent comes first; but the
-          ;; others are set up even when it cannot be, as offline at a
-          ;; first start that would install it.
-          (condition-case err
-              (lispm-desktop-setup-lispm)
-            (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
-          (lispm-agents-setup-claude)
-          (lispm-agents-setup-codex)
-          ;; After the agents, whose sessions it reads; off unless asked for.
-          (lispm-desktop-setup-kernel)
-          ;; After init, so personal.el can still set `lispm-desktop-window-manager'.
-          (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
-          (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
-          (when first
-            (lispm-desktop--install-missing-fonts)))
+        (if (eq as 'terminal)
+            (lispm-desktop--setup-terminal)
+          (lispm-desktop--setup-desktop first))
       (lispm-desktop-assistant-close))))
 
 

@@ -242,6 +242,36 @@ Emacs commands, and programs run in the background while LispM runs, their outpu
         (:program "npm run dev" :name "Site" :directory "~/site/")))
 #+end_src
 
+** LispM's terminal
+
+LispM's terminal is LispM used from the keyboard alone, as on a Lisp Machine's console: the
+sessions on the left, a listener on the right and a who line at the bottom (LispM Agent's
+=M-x lispm-terminal=).  There is no menu bar, no window chrome, no Finder and no applications.
+
+Enter it at once with LispM Terminal: its icon on the desktop or in the Applications folder, the
+λ menu's Applications, Special ▸ Enter Terminal, the LispM bar ("terminal"), =C-c T=, or by
+asking LispM for the terminal or console mode.  It opens in a frame of its own over the desktop
+(a frame of its own on a text terminal too); =C-c C-q=, or asking LispM to go back, closes it and
+the desktop is as it was.
+
+Or start LispM as the terminal: Start As in the Startup panel, =M-x lispm-desktop-start-as-terminal=
+or Special ▸ Start as Terminal…, which offer to restart at once; back with
+=M-x lispm-desktop-start-as-desktop=, or by asking LispM for desktop mode: it starts as the desktop
+from then on, and once its reply is done asks whether to restart into it.  The proxy, the keys, the language, the theme, LispM's
+agents, Software Update and the startup programs and commands are as on the desktop.  For one
+start, the command line chooses (Emacs's own =--terminal= names a terminal device, hence
+=--start-as=):
+
+#+begin_src sh
+open -a LispM --args --start-as=terminal
+emacs -nw --init-directory ~/lispm-desktop --start-as=terminal
+#+end_src
+
+The choice is made as LispM is set up, before =personal.el= loads: set =lispm-desktop-start-as=
+with Customize, as the panel does, or before =(lispm-desktop-setup)= in a configuration of your
+own.  An application opened on its own, from the Finder or the Dock, starts LispM as the desktop
+out of sight whatever the choice, as its window is drawn from there.
+
 ** Background work
 
 LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a runtime for work Emacs should not wait on, is on by default.

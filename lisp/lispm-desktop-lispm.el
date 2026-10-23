@@ -38,6 +38,16 @@
 ;; - its chats are laid out as terminals, on the left of the main area,
 ;;   with the files they open on the right.
 ;;
+;; LispM's terminal, LispM Agent's lispm-terminal.el, the sessions, a
+;; listener and a who line, used from the keyboard, is an application of
+;; the desktop's too, LispM Terminal: in the Applications folder, on the
+;; desktop, in the λ menu's Applications, the Special menu (Enter
+;; Terminal) and the LispM bar, and on C-c T; LispM enters it too when
+;; asked to.  It is entered at once, in a frame of its own over the
+;; desktop, a new one on a text terminal; C-c C-q, or asking LispM, leaves
+;; it and the frame goes, the desktop as it was.  To start LispM as the
+;; terminal instead, see lispm-desktop-start-as.el.
+;;
 ;; LispM is lispm-agent, found or installed by lispm-desktop-deps.el: a
 ;; copy already on `load-path', else a checkout beside the desktop's, else
 ;; one package-vc installs from its repository.
@@ -45,8 +55,10 @@
 ;;; Code:
 
 (require 'lispm-desktop-ai)
+(require 'lispm-desktop-apps)
 (require 'lispm-desktop-deps)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-start-as)
 
 (defvar lispm-desktop-conversation-modes)
 (defvar lispm-interface)
@@ -67,6 +79,12 @@
 (declare-function lispm-desktop-store-skill-sources "lispm-desktop-store" ())
 (defvar lispm-skill-sources)
 (declare-function lispm-desktop-setup-bar "lispm-desktop-bar" ())
+(declare-function lispm-terminal "lispm-terminal" (&optional agent))
+(declare-function lispm-terminal-soon "lispm-terminal" (function))
+(defvar lispm-terminal-mode)
+(defvar lispm-terminal-keys-mode)
+(defvar lispm-terminal-enter-function)
+(defvar lispm-terminal-leave-function)
 
 ;;;; Sessions as lispm-desktop-ai sees them
 
@@ -157,6 +175,140 @@ With a prefix argument, choose its ROLE."
       (lispm-agents-show (lispm-desktop-lispm-new (lispm-agents-default-directory) role))
     (lispm-agents-new 'lispm)))
 
+;;;; LispM's terminal, entered from the desktop
+
+(defvar lispm-desktop-lispm-terminal--frame nil
+  "The frame LispM's terminal was entered in from the desktop, or nil.")
+
+(defvar lispm-desktop-lispm-terminal--from nil
+  "The window selected as LispM's terminal was entered, given the
+keyboard back as it is left.")
+
+(defun lispm-desktop-lispm-terminal-open-p ()
+  "Return non-nil while LispM's terminal is entered from the desktop."
+  (frame-live-p lispm-desktop-lispm-terminal--frame))
+
+(defun lispm-desktop-lispm-terminal--parameters (screen)
+  "Return the parameters of a frame for LispM's terminal over SCREEN, the
+frame the desktop is drawn in: where SCREEN is and as large, or full
+screen as it is, with none of the desktop's bars or window dividers, and
+no screen of the desktop's, see `lispm-desktop-apps-screen-p'.  On a
+text terminal a frame fills the terminal anyway."
+  `((name . ,(lispm-desktop-tr "LispM Terminal"))
+    (lispm-desktop-own-frame . lispm-terminal)
+    (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
+    (vertical-scroll-bars . nil) (horizontal-scroll-bars . nil)
+    (right-divider-width . 0) (bottom-divider-width . 0)
+    ,@(when (display-graphic-p screen)
+        (if-let* ((fullscreen (frame-parameter screen 'fullscreen)))
+            `((fullscreen . ,fullscreen))
+          (let ((position (frame-position screen)))
+            `((left . ,(car position)) (top . ,(cdr position))
+              (undecorated . ,(frame-parameter screen 'undecorated))
+              (width . (text-pixels . ,(frame-text-width screen)))
+              ;; The menu bar, in the tab bar, is the screen's own.
+              (height . (text-pixels . ,(+ (frame-text-height screen)
+                                           (if (fboundp 'tab-bar-height) (tab-bar-height screen t) 0))))))))))
+
+(defun lispm-desktop-lispm-terminal (&optional agent)
+  "Enter LispM's terminal now: the sessions, a listener and a who line,
+used from the keyboard, in a frame of its own over the desktop; the
+listener talks to AGENT, by default to LispM or the agent it talked to
+last.  \`C-c C-q' leaves it, the desktop as it was.  Entered already,
+the terminal comes in front."
+  (interactive)
+  (unless (lispm-desktop-lispm-terminal-available-p)
+    (user-error (lispm-desktop-tr "This LispM Agent has no terminal")))
+  (if (lispm-desktop-lispm-terminal-open-p)
+      (let ((frame lispm-desktop-lispm-terminal--frame))
+        (select-frame-set-input-focus frame)
+        (when agent
+          (lispm-terminal agent)
+          (set-window-parameter (frame-selected-window frame) 'tab-line-format 'none)))
+    (require 'lispm-terminal)
+    (let* ((from (selected-window))
+           ;; None of the desktop's ways with a new frame: a screen's menu
+           ;; bar, glass.
+           (frame (let ((after-make-frame-functions nil)
+                        (before-make-frame-hook nil))
+                    (make-frame (lispm-desktop-lispm-terminal--parameters (lispm-desktop-apps-screen))))))
+      (setq lispm-desktop-lispm-terminal--frame frame
+            lispm-desktop-lispm-terminal--from from)
+      (select-frame-set-input-focus frame)
+      (condition-case err
+          (if agent (lispm-terminal agent) (lispm-terminal))
+        (error (delete-frame frame t)
+               (signal (car err) (cdr err))))
+      ;; The listener has no title bar, as the windows beside it have
+      ;; none: the desktop gives every window one.
+      (set-window-parameter (frame-selected-window frame) 'tab-line-format 'none))))
+
+(defun lispm-desktop-lispm-terminal-enter (agent)
+  "Enter LispM's terminal for AGENT, asked by the tool terminal_enter, in a
+frame of its own as `lispm-desktop-lispm-terminal' does, once the tool
+call is over: the desktop's frame stays as it is.  This is
+`lispm-terminal-enter-function' on the desktop; nil, for the usual words."
+  (lispm-terminal-soon (lambda () (lispm-desktop-lispm-terminal agent)))
+  nil)
+
+(defvar-local lispm-desktop-lispm-terminal--line-numbers nil
+  "Non-nil in a buffer whose line numbers LispM's terminal hides.")
+
+(defun lispm-desktop-lispm-terminal--keys-changed ()
+  "Hide the line numbers the desktop gives every buffer while LispM's
+terminal shows it, as its keys are on there, and show them again as it
+leaves.  Turned off as the buffer's mode is set, as that of the
+sessions is, the desktop's global mode leaves them off.  This is a
+`lispm-terminal-keys-mode-hook' function."
+  (if lispm-terminal-keys-mode
+      (when (fboundp 'display-line-numbers-mode)
+        (setq lispm-desktop-lispm-terminal--line-numbers (bound-and-true-p display-line-numbers-mode))
+        (display-line-numbers-mode -1))
+    (when lispm-desktop-lispm-terminal--line-numbers
+      (kill-local-variable 'lispm-desktop-lispm-terminal--line-numbers)
+      (display-line-numbers-mode 1))))
+
+(defun lispm-desktop-lispm-terminal--left ()
+  "Close the frame LispM's terminal was entered in once the terminal
+leaves it: by \`C-c C-q', or for another frame.  The frame goes before
+the terminal would give it back as it was.  This is a
+`lispm-terminal-mode-hook' function."
+  (when (and (not (bound-and-true-p lispm-terminal-mode)) (lispm-desktop-lispm-terminal-open-p))
+    (delete-frame lispm-desktop-lispm-terminal--frame t)))
+
+(defun lispm-desktop-lispm-terminal--deleted (frame)
+  "Give the keyboard back to the window the terminal was entered from as
+FRAME, the terminal's, goes, however it goes, unless that window is gone
+or hidden in the Dock.  This is a `delete-frame-functions' function, run
+before Emacs chooses a frame to select."
+  (when (eq frame lispm-desktop-lispm-terminal--frame)
+    (let ((from lispm-desktop-lispm-terminal--from))
+      (setq lispm-desktop-lispm-terminal--frame nil
+            lispm-desktop-lispm-terminal--from nil)
+      (when (and (eq frame (selected-frame)) (window-live-p from)
+                 (eq (frame-visible-p (window-frame from)) t))
+        (select-frame-set-input-focus (window-frame from))
+        (select-window from)))))
+
+(defun lispm-desktop-lispm-setup-terminal ()
+  "Make LispM's terminal an application of the desktop's, built in, when
+LispM Agent has it: LispM Terminal, entered on \`C-c T', see
+`lispm-desktop-lispm-terminal'."
+  (when (lispm-desktop-lispm-terminal-available-p)
+    (lispm-desktop-define-app 'lispm-terminal :name (lispm-desktop-tr-noop "LispM Terminal")
+                              :icon "terminal" :folder "terminal-32"
+                              :activate #'lispm-desktop-lispm-terminal
+                              :running #'lispm-desktop-lispm-terminal-open-p)
+    (keymap-global-set "C-c T" #'lispm-desktop-lispm-terminal)
+    ;; Asked of LispM, the terminal is entered so too, never in the
+    ;; desktop's own frame; it is left as by C-c C-q, as the terminal
+    ;; leaves by itself, and the frame goes with it.
+    (setq lispm-terminal-enter-function #'lispm-desktop-lispm-terminal-enter)
+    (add-hook 'lispm-terminal-mode-hook #'lispm-desktop-lispm-terminal--left)
+    (add-hook 'lispm-terminal-keys-mode-hook #'lispm-desktop-lispm-terminal--keys-changed)
+    ;; Before the terminal's own, which leaves it as its frame goes.
+    (add-hook 'delete-frame-functions #'lispm-desktop-lispm-terminal--deleted -90)))
+
 (defun lispm-desktop--system-skills ()
   "Return where the desktop's own skills are, as LispM Agent's
 `lispm-skill-sources' are told: the manuals of the desktop, its Control
@@ -206,8 +358,15 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
     (add-hook 'lispm-language-functions #'lispm-desktop-current-language)
     (add-hook 'lispm-desktop-language-changed-hook #'lispm-language-changed))
   (lispm-mode-line-mode 1)
-  ;; LispM itself, the system's agent, has a bar of its own in the menu bar.
-  (lispm-desktop-setup-bar))
+  ;; LispM itself, the system's agent, has a bar of its own in the menu
+  ;; bar, and the desktop enters LispM's terminal; started as the
+  ;; terminal, LispM has neither, and talks to it in its listener, and
+  ;; asked to leave the terminal, there is no desktop to go back to: it
+  ;; restarts as one.
+  (if (lispm-desktop-started-as-terminal-p)
+      (setq lispm-terminal-leave-function #'lispm-desktop-start-as-leave-terminal)
+    (lispm-desktop-setup-bar)
+    (lispm-desktop-lispm-setup-terminal)))
 
 (provide 'lispm-desktop-lispm)
 ;;; lispm-desktop-lispm.el ends here
