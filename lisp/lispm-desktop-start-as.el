@@ -1,4 +1,4 @@
-;;; lispm-desktop-start-as.el --- What LispM starts as: the desktop or its terminal  -*- lexical-binding: t; -*-
+;;; lispm-desktop-start-as.el --- What LispM starts as: the desktop or Focus Mode  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
@@ -23,11 +23,12 @@
 
 ;;; Commentary:
 
-;; LispM starts as the desktop, or as LispM's terminal: no desktop, menu
-;; bar or windows' chrome, only the sessions on the left, a listener on
-;; the right and a who line at the bottom, all used from the keyboard, as
-;; a Lisp Machine's console was.  The terminal is LispM Agent's, see its
-;; lispm-terminal.el.
+;; LispM starts as the desktop, or in Focus Mode, LispM's terminal: no
+;; desktop, menu bar or windows' chrome, only the sessions on the left, a
+;; listener on the right and a who line at the bottom, all used from the
+;; keyboard, as a Lisp Machine's console was.  The terminal is LispM
+;; Agent's, see its lispm-terminal.el; the desktop enters it at once too,
+;; see lispm-desktop-lispm.el.  The setting's value for it is `terminal'.
 ;;
 ;;   the setting       `lispm-desktop-start-as', in the Startup panel of
 ;;                     Control Panels
@@ -39,9 +40,9 @@
 ;;
 ;;                     Emacs's own --terminal names the device a text
 ;;                     terminal is on, hence --start-as.
-;;   switching         M-x lispm-desktop-start-as-terminal, and Start as
-;;                     Terminal… in the desktop's Special menu; from the
-;;                     terminal, M-x lispm-desktop-start-as-desktop, or
+;;   switching         M-x lispm-desktop-start-as-terminal, and Start in
+;;                     Focus Mode… in the desktop's Special menu; from
+;;                     Focus Mode, M-x lispm-desktop-start-as-desktop, or
 ;;                     asking LispM for desktop mode.  The setting changes
 ;;                     and an alert offers to restart.
 ;;
@@ -62,14 +63,14 @@
 
 (defcustom lispm-desktop-start-as 'desktop
   "What LispM starts as: `desktop', the desktop with its menu bar, windows,
-Finder and applications; or `terminal', LispM's terminal, the sessions,
-a listener and a who line, used from the keyboard alone.  It takes
+Finder and applications; or `terminal', Focus Mode, LispM's terminal, the
+sessions, a listener and a who line, used from the keyboard alone.  It takes
 effect at the next start, read as LispM is set up: before personal.el
 loads, so it is set with Customize, as Control Panels do.
 --start-as=desktop or --start-as=terminal on the command line chooses
 for one start."
   :type '(choice (const :tag "The desktop" desktop)
-                 (const :tag "LispM's terminal" terminal))
+                 (const :tag "Focus Mode, LispM's terminal" terminal))
   :group 'lispm-desktop)
 
 (defconst lispm-desktop-start-as-choices '(("desktop" . desktop) ("terminal" . terminal))
@@ -148,7 +149,7 @@ terminal, which says so."
                          lispm-desktop-start-as)
                      'terminal)
                  (or (lispm-desktop-lispm-terminal-available-p)
-                     (ignore (message (lispm-desktop-tr "This LispM Agent has no terminal: LispM starts as the desktop")))))
+                     (ignore (message (lispm-desktop-tr "This LispM Agent has no Focus Mode: LispM starts as the desktop")))))
             'terminal
           'desktop)))
 
@@ -159,7 +160,7 @@ opened the files the command line names."
   (condition-case err
       (progn (require 'lispm-terminal)
              (lispm-terminal))
-    (error (message (lispm-desktop-tr "LispM's terminal could not open: %s") (error-message-string err)))))
+    (error (message (lispm-desktop-tr "Focus Mode could not open: %s") (error-message-string err)))))
 
 (defun lispm-desktop-setup-start-as ()
   "Settle what LispM starts as and return it, `desktop' or `terminal', see
@@ -185,11 +186,11 @@ to restart into it unless it runs as AS already."
   (customize-save-variable 'lispm-desktop-start-as as)
   (cond ((eq as lispm-desktop-started-as)
          (message (if (eq as 'terminal)
-                      (lispm-desktop-tr "LispM starts as the terminal, as it runs now")
+                      (lispm-desktop-tr "LispM starts in Focus Mode, as it runs now")
                     (lispm-desktop-tr "LispM starts as the desktop, as it runs now"))))
         ((eq 'restart (lispm-desktop-popup-alert
                        'note (if (eq as 'terminal)
-                                 (lispm-desktop-tr "LispM starts as the terminal from its next start.")
+                                 (lispm-desktop-tr "LispM starts in Focus Mode from its next start.")
                                (lispm-desktop-tr "LispM starts as the desktop from its next start."))
                        `((,(lispm-desktop-tr "Later") later cancel)
                          (,(lispm-desktop-tr "Restart") restart default))
@@ -197,8 +198,9 @@ to restart into it unless it runs as AS already."
          (lispm-desktop-restart-as as))))
 
 (defun lispm-desktop-start-as-terminal ()
-  "Have LispM start as its terminal from now on: the sessions, a listener
-and a who line, without the desktop.  An alert offers to restart now."
+  "Have LispM start in Focus Mode from now on: its terminal, the sessions,
+a listener and a who line, without the desktop.  An alert offers to
+restart now."
   (interactive)
   (lispm-desktop-start-as-switch 'terminal))
 
@@ -235,7 +237,7 @@ restart into it.  Return what to tell AGENT.  This is
   (let ((inhibit-message t))
     (customize-save-variable 'lispm-desktop-start-as 'desktop))
   (lispm-desktop-start-as--after-turn agent #'lispm-desktop-start-as-desktop)
-  "LispM started as its terminal, so there is no desktop to go back to \
+  "LispM started in Focus Mode, its terminal, so there is no desktop to go back to \
 yet: from now on it starts as the desktop, and once this reply is done \
 the user is asked whether to restart into it now (agents stop, and \
 their sessions can be resumed).  Tell them so in one short line.")

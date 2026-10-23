@@ -47,6 +47,8 @@
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-i18n)
 
+(declare-function lispm-desktop-lispm-terminal "lispm-desktop-lispm" (&optional agent))
+
 (defvar lispm-bar-source-functions)
 (defvar lispm-bar-read-function)
 (defvar lispm-bar-show-function)
@@ -89,13 +91,25 @@ OPEN opens it; FIELDS are more texts it is found by, as a subtitle."
         :fields (cons (cons 3 name) (delq nil (mapcar (lambda (text) (and text (cons 1.5 text))) fields)))
         :open open))
 
+(defun lispm-desktop-bar--focus-mode ()
+  "Return Focus Mode, LispM's terminal entered at once, for the bar to
+find, by its name in English and in the language spoken, and by
+\"terminal\" and \"console\"."
+  (let ((name (lispm-desktop-tr "Focus Mode")))
+    (list :kind 'mode :label (lispm-desktop-tr "Mode") :name name
+          :icon (lispm-desktop-platinum-icon "terminal")
+          :detail (lispm-desktop-tr "LispM's terminal: the sessions and a listener, by keyboard")
+          :fields `((3 . ,name) (3 . "Focus Mode") (1.5 . "terminal console")
+                    (1.5 . ,(lispm-desktop-tr "LispM's terminal: the sessions and a listener, by keyboard")))
+          :open #'lispm-desktop-lispm-terminal)))
+
 (defun lispm-desktop-bar-applications ()
   "Return the desktop's applications, and the Control Panels, for the
 LispM bar to find, as `lispm-bar-source-functions' gives them: those of
 the Application menu that can run here, but the desktop and the control
 panels, those the App Store installed as its catalogs describe them, the
-App Store; then a panel each of the control panels, and those of them
-not named as one of their panels is."
+App Store; Focus Mode, where LispM Agent has it; then a panel each of the
+control panels, and those of them not named as one of their panels is."
   (let ((things nil))
     (pcase-dolist (`(,key . ,props) lispm-desktop-apps)
       (let ((catalog (alist-get key lispm-desktop-store-installed)))
@@ -111,6 +125,8 @@ not named as one of their panels is."
     (when (and (fboundp 'lispm-desktop-store-show)
                (not (seq-find (lambda (thing) (equal (plist-get thing :name) "App Store")) things)))
       (push (lispm-desktop-bar--application "App Store" "app-store" #'lispm-desktop-store-show) things))
+    (when (lispm-desktop-lispm-terminal-available-p)
+      (push (lispm-desktop-bar--focus-mode) things))
     (when (fboundp 'lispm-desktop-settings--panels)
       (let ((panels (lispm-desktop-settings--panels)))
         (dolist (panel panels)

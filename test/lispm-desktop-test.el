@@ -2629,13 +2629,15 @@ the floating browser rolls up."
   "The Application menu lists the applications, the one in front checked;
 the browser only where it can run."
   (let ((lispm-desktop-apps--frontmost 'editor))
-    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
+              ((symbol-function 'lispm-desktop-lispm-terminal-available-p) #'ignore))
       (let ((items (lispm-desktop-apps-application-items)))
         (should (equal (mapcar (lambda (item) (plist-get item :label)) items)
                        '("Desktop" "Emacs")))
         (should (plist-get (nth 1 items) :checked))
         (should (equal (cdr (lispm-desktop-apps-application)) "Emacs"))))
-    (cl-letf (((symbol-function 'lispm-browser-available-p) #'always))
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
+              ((symbol-function 'lispm-desktop-lispm-terminal-available-p) #'ignore))
       (should (= 3 (length (lispm-desktop-apps-application-items)))))))
 
 (ert-deftest lispm-desktop-test-documents-go-to-the-editor ()
@@ -6079,16 +6081,44 @@ hide, and Hide Desktop is not offered."
 
 (ert-deftest lispm-desktop-test-coherence-application-menu ()
   "The Application menu begins with Hide Desktop, or Show Desktop while the
-desktop is hidden, where windows can go out."
-  (let ((lispm-desktop-apps--frontmost 'desktop))
+desktop is hidden, where windows can go out, then Focus Mode where LispM
+Agent has its terminal; without windows going out, Focus Mode comes
+first, alone."
+  (let ((lispm-desktop-apps--frontmost 'desktop)
+        (lispm-desktop-lispm-terminal--frame nil)
+        (focus nil))
     (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
+              ((symbol-function 'lispm-desktop-lispm-terminal-available-p) (lambda () focus))
               ((symbol-function 'lispm-desktop-coherence-available-p) #'always))
       (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore))
         (let ((items (lispm-desktop-apps-application-items)))
           (should (equal (plist-get (car items) :label) "Hide Desktop"))
           (should (eq (cadr items) 'separator))))
       (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) #'always))
-        (should (equal (plist-get (car (lispm-desktop-apps-application-items)) :label) "Show Desktop"))))))
+        (should (equal (plist-get (car (lispm-desktop-apps-application-items)) :label) "Show Desktop")))
+      (setq focus t)
+      (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore))
+        (let ((items (lispm-desktop-apps-application-items)))
+          (should (equal (mapcar (lambda (item) (and (consp item) (plist-get item :label))) (seq-take items 3))
+                         '("Hide Desktop" "Focus Mode" nil)))
+          (should (equal (seq-take (nth 1 items) 6)
+                         '(:label "Focus Mode" :action lispm-desktop-apps-focus-mode :key "C-c T")))
+          (should-not (plist-get (nth 1 items) :checked))
+          (should (eq (nth 2 items) 'separator))))
+      ;; Entered once the menu has closed.
+      (let ((later nil))
+        (cl-letf (((symbol-function 'run-at-time) (lambda (_time _repeat function) (setq later function))))
+          (lispm-desktop-apps-focus-mode))
+        (should (eq later #'lispm-desktop-lispm-terminal)))
+      ;; Checked while it is entered.
+      (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore)
+                ((symbol-function 'lispm-desktop-lispm-terminal-open-p) #'always))
+        (should (plist-get (nth 1 (lispm-desktop-apps-application-items)) :checked)))
+      ;; No Hide Desktop: Focus Mode alone first.
+      (cl-letf (((symbol-function 'lispm-desktop-coherence-available-p) #'ignore))
+        (let ((items (lispm-desktop-apps-application-items)))
+          (should (equal (plist-get (car items) :label) "Focus Mode"))
+          (should (eq (cadr items) 'separator)))))))
 
 (ert-deftest lispm-desktop-test-coherence-geometry-counts-from-the-screen ()
   "A window out remembers its place over its screen, as one floating there:
@@ -13644,12 +13674,12 @@ check box, and adds and removes them."
                            (setq button (next-button (button-end button))))
                          (should button)
                          (button-activate button)))))
-          (dolist (label '("Start As" "Desktop" "Terminal" "Login" "Open LispM when you log in"
+          (dolist (label '("Start As" "Desktop" "Focus Mode" "Login" "Open LispM when you log in"
                            "Startup Items" "Browser" "ollama" "ollama serve" "Add…" "Remove…" "Open…"))
             (should (string-search label text)))
           (should (equal (lispm-desktop-platinum-title-text) "General"))
           ;; What LispM starts as, saved for the next start.
-          (funcall press "Terminal")
+          (funcall press "Focus Mode")
           (should (eq lispm-desktop-start-as 'terminal))
           (funcall press "Open LispM when you log in")
           (should (equal login '(t)))
@@ -13862,7 +13892,7 @@ frame.  The desktop sets up all it did, and opens no terminal."
   "Switching saves what LispM starts as, and offers to restart into it at
 once: the restart starts as that whatever the command line says, and a
 restart called off leaves no note.  Nothing is offered when LispM runs
-so already.  The desktop's Special menu switches to the terminal, while
+so already.  The desktop's Special menu starts it in Focus Mode, while
 LispM Agent has it."
   (let ((lispm-desktop-start-as-restart-file (make-temp-file "lispm-desktop-test-restart-as"))
         (lispm-desktop-start-as 'desktop)
@@ -13886,7 +13916,7 @@ LispM Agent has it."
                (lambda (format &rest args) (setq told (apply #'format-message format args)))))
       (lispm-desktop-start-as-terminal)
       (should (eq lispm-desktop-start-as 'terminal))
-      (should (equal asked '("LispM starts as the terminal from its next start." later restart)))
+      (should (equal asked '("LispM starts in Focus Mode from its next start." later restart)))
       (should (equal restarted (cons (emacs-pid) 'terminal)))
       (should-not (file-exists-p lispm-desktop-start-as-restart-file))
       (setq answer 'later restarted nil asked nil)
@@ -13898,17 +13928,18 @@ LispM Agent has it."
         (setq asked nil)
         (lispm-desktop-start-as-terminal)
         (should-not asked)
-        (should (equal told "LispM starts as the terminal, as it runs now")))))
-  (let ((lispm-desktop-apps (cons '(lispm-terminal :name "LispM Terminal") lispm-desktop-apps)))
-    (should (member '(:label "Start as Terminal…" :action lispm-desktop-start-as-terminal)
+        (should (equal told "LispM starts in Focus Mode, as it runs now")))))
+  (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) #'always))
+    (should (member '(:label "Start in Focus Mode\u2026" :action lispm-desktop-start-as-terminal)
                     (lispm-desktop--special-items)))))
 
-(ert-deftest lispm-desktop-test-lispm-terminal-application ()
-  "With LispM Agent's terminal, the desktop has LispM Terminal, built in:
-in the Applications folder, the λ menu's Applications, on the desktop,
-in the Special menu with its key, C-c T, and found by the LispM bar; the
-Application menu lists it only while it is entered.  Without the
-terminal there is none of it."
+(ert-deftest lispm-desktop-test-focus-mode-entries ()
+  "With LispM Agent's terminal, the desktop has Focus Mode: a mode, no
+application, so neither in the Applications folder, the λ menu's
+Applications, on the desktop nor in the Special menu, where only
+starting in it is; but on C-c T, asked of LispM, and found by the LispM
+bar by \"focus\" and by \"terminal\".  Without the terminal there is
+none of it."
   (let ((lispm-desktop-apps lispm-desktop-apps)
         (lispm-terminal-mode-hook nil)
         (lispm-terminal-keys-mode-hook nil)
@@ -13916,38 +13947,42 @@ terminal there is none of it."
         (delete-frame-functions nil)
         (lispm-desktop-lispm-terminal--frame nil)
         (there nil)
-        (keys nil))
+        (keys nil)
+        (labels (lambda (items) (mapcar (lambda (item) (and (consp item) (plist-get item :label))) items))))
     (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) (lambda () there))
               ((symbol-function 'keymap-global-set) (lambda (key command) (push (cons key command) keys))))
       (lispm-desktop-lispm-setup-terminal)
-      (should-not (assq 'lispm-terminal lispm-desktop-apps))
-      (should-not (assq 'lispm-terminal (lispm-desktop--items)))
-      (should-not (seq-find (lambda (item) (equal (plist-get item :label) "Enter Terminal"))
-                            (lispm-desktop--special-items)))
+      (should-not keys)
+      (should-not (member "Start in Focus Mode\u2026" (funcall labels (lispm-desktop--special-items))))
       (setq there t)
       (lispm-desktop-lispm-setup-terminal)
-      (should (assq 'lispm-terminal (lispm-desktop-apps-built-in)))
-      (should (equal (seq-take (seq-find (lambda (item) (equal (car item) "LispM Terminal"))
-                                         (lispm-desktop-store--folder-items))
-                               2)
-                     '("LispM Terminal" "terminal-32")))
-      (should (member "LispM Terminal" (mapcar (lambda (item) (plist-get item :label))
-                                               (lispm-desktop-store-application-items))))
-      (should (equal (plist-get (cdr (assq 'lispm-terminal (lispm-desktop--items))) :command)
-                     'lispm-desktop-lispm-terminal))
-      (should (member '(:label "Enter Terminal" :action lispm-desktop-lispm-terminal :key "C-c T")
+      (should-not (assq 'lispm-terminal lispm-desktop-apps))
+      (should-not (assq 'lispm-terminal (lispm-desktop--items)))
+      (should-not (seq-find (lambda (item) (member (car item) '("Focus Mode" "LispM Terminal")))
+                            (lispm-desktop-store--folder-items)))
+      (should-not (seq-intersection '("Focus Mode" "LispM Terminal")
+                                    (funcall labels (lispm-desktop-store-application-items))))
+      (let ((special (funcall labels (lispm-desktop--special-items))))
+        (should (member "Start in Focus Mode\u2026" special))
+        (should-not (member "Enter Terminal" special)))
+      (should (member '(:label "Start in Focus Mode\u2026" :action lispm-desktop-start-as-terminal)
                       (lispm-desktop--special-items)))
       (should (equal (assoc "C-c T" keys) '("C-c T" . lispm-desktop-lispm-terminal)))
-      (should (lispm-desktop-apps-openable-p 'lispm-terminal))
-      (should-not (lispm-desktop-apps-running-p 'lispm-terminal))
       (should (memq #'lispm-desktop-lispm-terminal--left lispm-terminal-mode-hook))
       (should (memq #'lispm-desktop-lispm-terminal--keys-changed lispm-terminal-keys-mode-hook))
       ;; Asked of LispM, it is entered in a frame of its own too.
       (should (eq lispm-terminal-enter-function #'lispm-desktop-lispm-terminal-enter))
       (should (memq #'lispm-desktop-lispm-terminal--deleted delete-frame-functions))
+      (let ((found (seq-find (lambda (thing) (equal (plist-get thing :name) "Focus Mode"))
+                             (lispm-desktop-bar-applications))))
+        (should found)
+        (should (eq (plist-get found :open) #'lispm-desktop-lispm-terminal))
+        (should-not (eq (plist-get found :kind) 'application)))
       (when (require 'lispm-bar nil t)
         (let ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications)))
-          (should (equal (plist-get (car (lispm-bar-find "terminal")) :name) "LispM Terminal")))))))
+          (dolist (words '("focus" "terminal"))
+            (should (equal (list words (plist-get (car (lispm-bar-find words)) :name))
+                           (list words "Focus Mode")))))))))
 
 (ert-deftest lispm-desktop-test-lispm-terminal-enter-and-leave ()
   "Entering LispM's terminal makes it a frame of its own, with none of
