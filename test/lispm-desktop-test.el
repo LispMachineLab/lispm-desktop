@@ -35,6 +35,13 @@
 (cl-letf (((symbol-function 'lispm-desktop-deps--requirements) #'ignore))
   (require 'lispm-desktop))
 
+;; LispM Agent's terminal, which the desktop enters; bound by tests.
+(defvar lispm-terminal-mode)
+(defvar lispm-terminal-mode-hook)
+(defvar lispm-terminal-keys-mode)
+(defvar lispm-terminal-keys-mode-hook)
+(defvar lispm-terminal-enter-function)
+
 ;; The words as the code writes them, whatever the computer's language.
 (setq lispm-desktop-language 'en
       lispm-language 'en)
@@ -8958,8 +8965,9 @@ would come with nothing."
 (ert-deftest lispm-desktop-test-skill-sources ()
   "LispM's agents are told where the desktop's skills are and where the
 App Store copies those it installs, the desktop's last, so that no
-catalog's skill replaces one of them.  The LispM bar is the desktop's
-only: LispM's terminal talks to LispM in its listener."
+catalog's skill replaces one of them.  The LispM bar, and entering
+LispM's terminal, are the desktop's only: started as the terminal, LispM
+talks to LispM in its listener."
   (lispm-desktop-test--with-store
     (should (equal (lispm-desktop-store-skill-sources)
                    `((:directory ,(file-name-as-directory (expand-file-name "skills" lispm-desktop-store-directory))
@@ -8983,11 +8991,13 @@ only: LispM's terminal talks to LispM in its listener."
                                             (unless (eq feature 'lispm) (apply real-require feature more))))
               ((symbol-function 'lispm-agents-define) #'ignore)
               ((symbol-function 'lispm-mode-line-mode) #'ignore)
-              ((symbol-function 'lispm-desktop-setup-bar) (lambda () (push lispm-desktop-started-as bars))))
+              ((symbol-function 'lispm-desktop-setup-bar) (lambda () (push lispm-desktop-started-as bars)))
+              ((symbol-function 'lispm-desktop-lispm-setup-terminal)
+               (lambda () (push (list 'terminal lispm-desktop-started-as) bars))))
       (dolist (as '(desktop terminal))
         (let ((lispm-desktop-started-as as))
           (lispm-desktop-setup-lispm))))
-    (should (equal bars '(desktop)))
+    (should (equal bars '((terminal desktop) desktop)))
     (should (equal lispm-skill-sources '(lispm-desktop-store-skill-sources lispm-desktop--system-skills)))))
 
 ;;;; The desktop's own skills
@@ -13412,7 +13422,7 @@ start as the desktop."
         (command-line-args '("emacs"))
         (there t))
     (delete-file lispm-desktop-start-as-restart-file)
-    (cl-letf (((symbol-function 'lispm-desktop-start-as--terminal-there-p) (lambda () there))
+    (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) (lambda () there))
               ((symbol-function 'message) #'ignore))
       (cl-flet ((note (pid as)
                   (with-temp-file lispm-desktop-start-as-restart-file
@@ -13505,7 +13515,8 @@ frame.  The desktop sets up all it did, and opens no terminal."
   "Switching saves what LispM starts as, and offers to restart into it at
 once: the restart starts as that whatever the command line says, and a
 restart called off leaves no note.  Nothing is offered when LispM runs
-so already.  The desktop's Special menu switches to the terminal."
+so already.  The desktop's Special menu switches to the terminal, while
+LispM Agent has it."
   (let ((lispm-desktop-start-as-restart-file (make-temp-file "lispm-desktop-test-restart-as"))
         (lispm-desktop-start-as 'desktop)
         (lispm-desktop-started-as 'desktop)
@@ -13541,8 +13552,160 @@ so already.  The desktop's Special menu switches to the terminal."
         (lispm-desktop-start-as-terminal)
         (should-not asked)
         (should (equal told "LispM starts as the terminal, as it runs now")))))
-  (should (member '(:label "Start as Terminal…" :action lispm-desktop-start-as-terminal)
-                  (lispm-desktop--special-items))))
+  (let ((lispm-desktop-apps (cons '(lispm-terminal :name "LispM Terminal") lispm-desktop-apps)))
+    (should (member '(:label "Start as Terminal…" :action lispm-desktop-start-as-terminal)
+                    (lispm-desktop--special-items)))))
+
+(ert-deftest lispm-desktop-test-lispm-terminal-application ()
+  "With LispM Agent's terminal, the desktop has LispM Terminal, built in:
+in the Applications folder, the λ menu's Applications, on the desktop,
+in the Special menu with its key, C-c T, and found by the LispM bar; the
+Application menu lists it only while it is entered.  Without the
+terminal there is none of it."
+  (let ((lispm-desktop-apps lispm-desktop-apps)
+        (lispm-terminal-mode-hook nil)
+        (lispm-terminal-keys-mode-hook nil)
+        (lispm-terminal-enter-function nil)
+        (delete-frame-functions nil)
+        (lispm-desktop-lispm-terminal--frame nil)
+        (there nil)
+        (keys nil))
+    (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) (lambda () there))
+              ((symbol-function 'keymap-global-set) (lambda (key command) (push (cons key command) keys))))
+      (lispm-desktop-lispm-setup-terminal)
+      (should-not (assq 'lispm-terminal lispm-desktop-apps))
+      (should-not (assq 'lispm-terminal (lispm-desktop--items)))
+      (should-not (seq-find (lambda (item) (equal (plist-get item :label) "Enter Terminal"))
+                            (lispm-desktop--special-items)))
+      (setq there t)
+      (lispm-desktop-lispm-setup-terminal)
+      (should (assq 'lispm-terminal (lispm-desktop-apps-built-in)))
+      (should (equal (seq-take (seq-find (lambda (item) (equal (car item) "LispM Terminal"))
+                                         (lispm-desktop-store--folder-items))
+                               2)
+                     '("LispM Terminal" "terminal-32")))
+      (should (member "LispM Terminal" (mapcar (lambda (item) (plist-get item :label))
+                                               (lispm-desktop-store-application-items))))
+      (should (equal (plist-get (cdr (assq 'lispm-terminal (lispm-desktop--items))) :command)
+                     'lispm-desktop-lispm-terminal))
+      (should (member '(:label "Enter Terminal" :action lispm-desktop-lispm-terminal :key "C-c T")
+                      (lispm-desktop--special-items)))
+      (should (equal (assoc "C-c T" keys) '("C-c T" . lispm-desktop-lispm-terminal)))
+      (should (lispm-desktop-apps-openable-p 'lispm-terminal))
+      (should-not (lispm-desktop-apps-running-p 'lispm-terminal))
+      (should (memq #'lispm-desktop-lispm-terminal--left lispm-terminal-mode-hook))
+      (should (memq #'lispm-desktop-lispm-terminal--keys-changed lispm-terminal-keys-mode-hook))
+      ;; Asked of LispM, it is entered in a frame of its own too.
+      (should (eq lispm-terminal-enter-function #'lispm-desktop-lispm-terminal-enter))
+      (should (memq #'lispm-desktop-lispm-terminal--deleted delete-frame-functions))
+      (when (require 'lispm-bar nil t)
+        (let ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications)))
+          (should (equal (plist-get (car (lispm-bar-find "terminal")) :name) "LispM Terminal")))))))
+
+(ert-deftest lispm-desktop-test-lispm-terminal-enter-and-leave ()
+  "Entering LispM's terminal makes it a frame of its own, with none of
+the desktop's bars, and runs the terminal there; entered already, it
+comes in front.  As the terminal leaves, the frame goes, and the
+keyboard goes back to the window it was entered from."
+  (let ((lispm-desktop-lispm-terminal--frame nil)
+        (lispm-desktop-lispm-terminal--from nil)
+        (frame (selected-frame))
+        (made nil) (focused nil) (ran nil) (deleted nil)
+        (real-require (symbol-function 'require)))
+    (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) (lambda () t))
+              ((symbol-function 'require)
+               (lambda (feature &rest more) (unless (eq feature 'lispm-terminal) (apply real-require feature more))))
+              ((symbol-function 'make-frame) (lambda (parameters) (setq made parameters) frame))
+              ((symbol-function 'select-frame-set-input-focus) (lambda (to &rest _) (push to focused)))
+              ((symbol-function 'lispm-terminal) (lambda (&optional agent) (push (or agent (selected-frame)) ran)))
+              ((symbol-function 'delete-frame)
+               (lambda (gone &rest _) (push gone deleted) (lispm-desktop-lispm-terminal--deleted gone))))
+      (unwind-protect
+          (progn
+            (lispm-desktop-lispm-terminal)
+            ;; The listener wears no title bar of the desktop's.
+            (should (eq (window-parameter (frame-selected-window frame) 'tab-line-format) 'none))
+            (should (eq lispm-desktop-lispm-terminal--frame frame))
+            (should (lispm-desktop-lispm-terminal-open-p))
+            (should (equal ran (list frame)))
+            (dolist (parameter '((lispm-desktop-own-frame . lispm-terminal) (menu-bar-lines . 0) (tab-bar-lines . 0)
+                                 (right-divider-width . 0) (bottom-divider-width . 0)))
+              (should (member parameter made)))
+            ;; A text terminal's frame fills it: no place nor size.
+            (should-not (assq 'width made))
+            (setq made nil)
+            (lispm-desktop-lispm-terminal)
+            (should-not made)
+            (should (equal ran (list frame)))
+            (should (equal focused (list frame frame)))
+            ;; Asked of an agent, the terminal in front shows it.
+            (cl-letf (((symbol-function 'run-at-time) (lambda (_time _repeat function) (funcall function))))
+              (should-not (lispm-desktop-lispm-terminal-enter 'an-agent)))
+            (should-not made)
+            (should (equal ran (list 'an-agent frame)))
+            (should (equal focused (list frame frame frame)))
+            ;; While the terminal runs, its frame stays.
+            (let ((lispm-terminal-mode t))
+              (lispm-desktop-lispm-terminal--left))
+            (should-not deleted)
+            (let ((lispm-terminal-mode nil))
+              (lispm-desktop-lispm-terminal--left)
+              (should (equal deleted (list frame)))
+              (should-not (lispm-desktop-lispm-terminal-open-p))
+              (should-not lispm-desktop-lispm-terminal--from)
+              (should (equal focused (list frame frame frame frame)))
+              (lispm-desktop-lispm-terminal--left)
+              (should (equal deleted (list frame))))
+            ;; No terminal, no entering.
+            (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) #'ignore))
+              (should-error (lispm-desktop-lispm-terminal) :type 'user-error)))
+        (set-window-parameter (frame-selected-window frame) 'tab-line-format nil)))))
+
+(ert-deftest lispm-desktop-test-lispm-terminal-line-numbers ()
+  "LispM's terminal shows a buffer without the line numbers the desktop
+gives every buffer, and gives them back as it leaves it; a buffer that
+had none gets none."
+  (with-temp-buffer
+    (display-line-numbers-mode 1)
+    (let ((lispm-terminal-keys-mode t))
+      (lispm-desktop-lispm-terminal--keys-changed))
+    (should-not display-line-numbers-mode)
+    (let ((lispm-terminal-keys-mode nil))
+      (lispm-desktop-lispm-terminal--keys-changed))
+    (should display-line-numbers-mode)
+    (display-line-numbers-mode -1)
+    (let ((lispm-terminal-keys-mode t))
+      (lispm-desktop-lispm-terminal--keys-changed))
+    (let ((lispm-terminal-keys-mode nil))
+      (lispm-desktop-lispm-terminal--keys-changed))
+    (should-not display-line-numbers-mode)))
+
+(ert-deftest lispm-desktop-test-lispm-terminal-frame-geometry ()
+  "On a graphical display the terminal's frame is where the desktop's is
+and as large, its menu bar counted, or full screen as the desktop is.
+Marked as an application's own, it is no screen of the desktop's."
+  (let ((screen (selected-frame))
+        (fullscreen nil))
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+              ((symbol-function 'frame-position) (lambda (&rest _) '(40 . 30)))
+              ((symbol-function 'frame-text-width) (lambda (&rest _) 1000))
+              ((symbol-function 'frame-text-height) (lambda (&rest _) 600))
+              ((symbol-function 'tab-bar-height) (lambda (&rest _) 24))
+              ((symbol-function 'frame-parameter)
+               (lambda (_frame parameter) (and (eq parameter 'fullscreen) fullscreen))))
+      (let ((parameters (lispm-desktop-lispm-terminal--parameters screen)))
+        (should (equal (mapcar (lambda (name) (alist-get name parameters)) '(left top width height))
+                       '(40 30 (text-pixels . 1000) (text-pixels . 624))))
+        (should-not (assq 'fullscreen parameters)))
+      (setq fullscreen 'fullboth)
+      (let ((parameters (lispm-desktop-lispm-terminal--parameters screen)))
+        (should (eq (alist-get 'fullscreen parameters) 'fullboth))
+        (should-not (assq 'width parameters)))))
+  (should (lispm-desktop-apps-screen-p (selected-frame)))
+  (unwind-protect
+      (progn (set-frame-parameter nil 'lispm-desktop-own-frame 'lispm-terminal)
+             (should-not (lispm-desktop-apps-screen-p (selected-frame))))
+    (set-frame-parameter nil 'lispm-desktop-own-frame nil)))
 
 ;;;; Looks
 

@@ -122,7 +122,7 @@ line, so its process id tells it from any other start."
              (rassq (cdr note) lispm-desktop-start-as-choices)
              (cdr note))))))
 
-(defun lispm-desktop-start-as--terminal-there-p ()
+(defun lispm-desktop-lispm-terminal-available-p ()
   "Return non-nil when LispM Agent has its terminal, lispm-terminal.el."
   (locate-library "lispm-terminal"))
 
@@ -138,7 +138,7 @@ without the terminal, and says so."
                          (lispm-desktop-start-as--argument (cdr command-line-args))
                          lispm-desktop-start-as)
                      'terminal)
-                 (or (lispm-desktop-start-as--terminal-there-p)
+                 (or (lispm-desktop-lispm-terminal-available-p)
                      (ignore (message (lispm-desktop-tr "This LispM Agent has no terminal: LispM starts as the desktop")))))
             'terminal
           'desktop)))

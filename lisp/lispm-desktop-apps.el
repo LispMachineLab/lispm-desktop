@@ -138,8 +138,11 @@ so does the minibuffer they share."
 (defun lispm-desktop-apps-screen-p (frame)
   "Return non-nil when FRAME is a screen, the frame the desktop is drawn
 in: one of its own that is neither a floating window out on the
-computer's screen nor the minibuffer they share."
+computer's screen nor the minibuffer they share, nor a frame an
+application has to itself, as LispM's terminal entered from the desktop
+has, marked by its frame parameter `lispm-desktop-own-frame'."
   (not (or (frame-parent frame) (frame-parameter frame 'lispm-desktop-window)
+           (frame-parameter frame 'lispm-desktop-own-frame)
            (lispm-desktop-apps-out-p frame) (lispm-desktop-platinum-chrome-frame-p frame))))
 
 (defun lispm-desktop-apps-window-screen (frame)

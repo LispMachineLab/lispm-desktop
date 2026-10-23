@@ -98,6 +98,11 @@ A workspace's main area shows it where it holds nothing else.")
 (defconst lispm-desktop-tab-name "Desktop"
   "Name of the desktop's own workspace.")
 
+(defun lispm-desktop--lispm-terminal-p ()
+  "Return non-nil when LispM's terminal is an application of the desktop's,
+LispM Agent having it, see `lispm-desktop-lispm-setup-terminal'."
+  (and (assq 'lispm-terminal lispm-desktop-apps) t))
+
 (defun lispm-desktop--browser-p ()
   "Return non-nil when the embedded browser can run in this Emacs."
   (and (fboundp 'lispm-browser-available-p) (lispm-browser-available-p)))
@@ -109,6 +114,9 @@ A workspace's main area shows it where it holds nothing else.")
             :help ,(lispm-desktop-tr-noop "The editor: your projects, agents and shells"))
     (browser :label ,(lispm-desktop-tr-noop "Browser") :icon "netscape" :command lispm-desktop-browser-show
              :visible lispm-desktop--browser-p :help ,(lispm-desktop-tr-noop "The web browser"))
+    (lispm-terminal :label ,(lispm-desktop-tr-noop "LispM Terminal") :icon "terminal-32"
+                    :command lispm-desktop-lispm-terminal :visible lispm-desktop--lispm-terminal-p
+                    :help ,(lispm-desktop-tr-noop "LispM's terminal: the sessions and a listener, by keyboard"))
     (applications :label ,(lispm-desktop-tr-noop "Applications") :icon "applications-32"
                   :command lispm-desktop-store-open-applications
                   :help ,(lispm-desktop-tr-noop "The applications installed, and the App Store installing more"))
@@ -1685,12 +1693,15 @@ removed in place of being moved to the Trash."
 
 (defun lispm-desktop--special-items ()
   "Return the items of the desktop's Special menu, Mac OS 9's last ones,
-and last, where its Logout was, LispM started as its terminal instead."
+and last, where its Logout was, LispM's terminal: entered now, or LispM
+started as it instead."
   `(,@(when (fboundp 'restart-emacs)
         `((:label ,(lispm-desktop-tr "Restart") :action restart-emacs)))
     (:label ,(lispm-desktop-tr "Shut Down") :action save-buffers-kill-emacs)
-    separator
-    (:label ,(lispm-desktop-tr "Start as Terminal…") :action lispm-desktop-start-as-terminal)))
+    ,@(when (lispm-desktop--lispm-terminal-p)
+        `(separator
+          (:label ,(lispm-desktop-tr "Enter Terminal") :action lispm-desktop-lispm-terminal :key "C-c T")
+          (:label ,(lispm-desktop-tr "Start as Terminal…") :action lispm-desktop-start-as-terminal)))))
 
 (defun lispm-desktop--view-items ()
   "Return the items of the desktop's View menu."

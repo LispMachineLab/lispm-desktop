@@ -60,10 +60,11 @@
 ;;                  in Control Panels
 ;;   guide          a tour of all this, as Apple Guide gave one, the
 ;;                  first time LispM starts and from the Help menu (C-c ?)
-;;   terminal       LispM started as LispM's terminal instead of all this:
-;;                  the sessions, a listener and a who line, used from the
-;;                  keyboard (the Startup panel, or --start-as=terminal),
-;;                  see lispm-desktop-start-as.el
+;;   terminal       LispM's terminal: the sessions, a listener and a who
+;;                  line, used from the keyboard; entered at once (C-c T,
+;;                  LispM Terminal), see lispm-desktop-lispm.el, or LispM
+;;                  started as it instead of all this (the Startup panel,
+;;                  or --start-as=terminal), see lispm-desktop-start-as.el
 ;;
 ;; Its init.el runs `lispm-desktop-setup' and then the user's own file,
 ;; `lispm-desktop-user-file'.  An existing configuration can use it the same way:
