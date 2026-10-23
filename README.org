@@ -41,9 +41,9 @@ what only it can do, as OpenGL drawn in a buffer ([[https://github.com/LispMachi
 curl -fsSL https://lispm.ai/install.sh | LISPM_EMACS=32 sh
 #+end_src
 
-Control Panels' Kernel panel switches between the two: it downloads the other Emacs while LispM
-runs, then restarts LispM on it, keeping the LispM.app before in =~/.lispm/backup= to switch back
-to at once.
+The System control panel's Kernel tab switches between the two: it downloads the other Emacs
+while LispM runs, then restarts LispM on it, keeping the LispM.app before in =~/.lispm/backup= to
+switch back to at once.
 
 ** In your own Emacs
 
@@ -105,8 +105,10 @@ Optional, used when present:
   built on [[https://github.com/alacritty/alacritty][Alacritty]]'s terminal (=native/lispm-desktop-term=); Emacs redraws only those on
   screen.  The module is downloaded as built for this computer and kept only when its SHA-256 is
   the one this repository pins; Eat stands in until it is there.
-- *Control Panels*: Appearance, Desktop, Keyboard, Language, Internet, Network, Sandbox, LispM (LispM
-  Agent's model, permissions, memory, roles and skills), Startup, Kernel and Software Update, plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
+- *Control Panels*, one for each category, a few tabs each: Appearance (Appearance, Desktop),
+  General (Language, Keyboard, Startup), Internet (Internet, Network), Agents (LispM: LispM
+  Agent's model, permissions, memory, roles and skills; Sandbox) and System (Kernel, Software
+  Update), plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
   Traditional; the computer's by default, asked at the first start.
 - *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, Classic AI's
@@ -241,8 +243,8 @@ shows the sessions it has while it reads them anew.  It also makes the downloads
 in the background, as the App Store's refresh of the package archives, with curl, where url.el
 would negotiate TLS on Emacs's thread; package.el checks and keeps what it gets as always.
 
-Use LispM Kernel in Control Panels › Kernel turns it off and on, and the panel says how it stands;
-so does:
+Use LispM Kernel in Control Panels › System › Kernel turns it off and on, and the panel says how
+it stands; so does:
 
 #+begin_src emacs-lisp
 (setopt lispm-desktop-kernel nil)               ; off at once, and at every start

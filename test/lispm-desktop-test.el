@@ -4845,7 +4845,8 @@ in the hook's order, as Spotlight's came after Mac OS X's."
 (ert-deftest lispm-desktop-test-bar-finds-applications ()
   "The LispM bar finds the desktop's applications and its Control Panels,
 each of which Return opens; one the App Store installed, its window
-closed, too."
+closed, too.  Each panel is found, and each control panel not named as
+one of its panels is, as a control panel, not an application."
   (skip-unless (require 'lispm-bar nil t))
   (let* ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications))
          (lispm-desktop-apps (append lispm-desktop-apps
@@ -4853,27 +4854,33 @@ closed, too."
                                               :listed-while-open t)
                                        (gone :name "Gone" :activate ignore :visible ,#'ignore)
                                        (lib :name "Lib" :store t :activate ignore :visible ,#'ignore))))
-         (things (lispm-desktop-bar-applications))
-         (named (lambda (name) (seq-find (lambda (thing) (equal (plist-get thing :name) name)) things))))
+         (things (progn (lispm-desktop-settings--define-apps) (lispm-desktop-bar-applications)))
+         (named (lambda (name) (seq-filter (lambda (thing) (equal (plist-get thing :name) name)) things))))
     (should (funcall named "Emacs"))
-    (should (funcall named "Control Panels"))
     (should (funcall named "Feeds"))
     (should-not (funcall named "Gone"))
     (should-not (funcall named "Lib"))
     ;; The desktop is no application to open; its Control Panel is.
-    (should (eq (plist-get (funcall named "Desktop") :kind) 'control-panel))
-    (should (eq (plist-get (funcall named "Network") :kind) 'control-panel))
-    (should (equal (plist-get (funcall named "Network") :label) "Control Panel"))
+    (should (eq (plist-get (car (funcall named "Desktop")) :kind) 'control-panel))
+    (should (eq (plist-get (car (funcall named "Network")) :kind) 'control-panel))
+    (should (equal (plist-get (car (funcall named "Network")) :label) "Control Panel"))
+    (should (eq (plist-get (car (funcall named "System")) :kind) 'control-panel))
+    (should (= (length (funcall named "Appearance")) 1))
     (should (seq-every-p (lambda (thing) (functionp (plist-get thing :open))) things))
     (should (equal (plist-get (car (lispm-bar-find "netw")) :name) "Network"))
     (let ((shown nil))
-      (cl-letf (((symbol-function 'lispm-desktop-settings-show) (lambda (&optional panel) (setq shown panel))))
-        (funcall (plist-get (funcall named "Network") :open)))
-      (should (eq shown 'network)))))
+      (cl-letf (((symbol-function 'lispm-desktop-settings-show) (lambda (&optional panel) (setq shown panel)))
+                ((symbol-function 'lispm-desktop-settings-show-category) (lambda (category) (setq shown category))))
+        (funcall (plist-get (car (funcall named "Network")) :open))
+        (should (eq shown 'network))
+        (funcall (plist-get (car (funcall named "System")) :open))
+        (should (eq shown 'settings-system))))))
 
 (ert-deftest lispm-desktop-test-bar-activity ()
   "The bar says what LispM does with the desktop's tools in its words."
-  (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "settings"))) "Opening Control Panels…"))
+  (let ((lispm-desktop-apps lispm-desktop-apps))
+    (lispm-desktop-settings--define-apps)
+    (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "settings-system"))) "Opening System…")))
   (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "Stickies"))) "Opening Stickies…"))
   (should-not (lispm-desktop-bar-activity "read_file" '((path . "x")))))
 
@@ -5287,14 +5294,13 @@ positions, the keys, the browser's pages."
   (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
             ((symbol-function 'lispm-browser-history) (lambda () '(("u" "t" 0 1))))
             ((symbol-function 'lispm-browser-bookmarks) (lambda () nil)))
-    (with-current-buffer (lispm-desktop-settings--buffer)
-      (pcase-dolist (`(,panel . ,labels)
-                     '((themes "Dracula" "Platinum")
-                       (desktop "From the theme" "Fill" "Tile" "Arrange Icons")
-                       (keyboard "Vim keys" "Emacs keys" "next start")
-                       (browser "Home Page" "Clear History" "Edit Bookmarks")
-                       (network "Proxy" "None" "HTTP" "SOCKS5" "Direct Connections")))
-        (lispm-desktop-settings-select panel)
+    (pcase-dolist (`(,panel ,title . ,labels)
+                   '((themes "Appearance" "Dracula" "Platinum")
+                     (desktop "Appearance" "From the theme" "Fill" "Tile" "Arrange Icons")
+                     (keyboard "General" "Vim keys" "Emacs keys" "next start")
+                     (browser "Internet" "Home Page" "Clear History" "Edit Bookmarks")
+                     (network "Internet" "Proxy" "None" "HTTP" "SOCKS5" "Direct Connections")))
+      (with-current-buffer (lispm-desktop-settings-select panel)
         (let ((text (concat (buffer-string)
                             ;; Push buttons draw their labels in their images.
                             (mapconcat #'identity
@@ -5304,7 +5310,39 @@ positions, the keys, the browser's pages."
                                        " "))))
           (dolist (label labels)
             (should (string-search label text))))
-        (should (equal (nth 1 (assq panel lispm-desktop-settings-panels)) lispm-desktop-platinum-title))))))
+        ;; The window is titled with its control panel's name.
+        (should (equal (lispm-desktop-platinum-title-text) title))))))
+
+(ert-deftest lispm-desktop-test-settings-categories ()
+  "Every panel is a tab of one control panel, its window's tabs only those
+of its own; a control panel shows while a panel of it does, the Agents
+one only with LispM Agent.  Each control panel's window has a buffer of
+its own, which shows the panel chosen in it, a panel chosen elsewhere
+shown in its own control panel's window."
+  (let ((tabbed (apply #'append (mapcar (lambda (category) (nth 4 category))
+                                        lispm-desktop-settings-categories))))
+    (should (equal (sort (copy-sequence tabbed) #'string<)
+                   (sort (mapcar #'car lispm-desktop-settings-panels) #'string<))))
+  (should (eq (lispm-desktop-settings-category 'kernel) 'settings-system))
+  (should (eq (lispm-desktop-settings-category 'network) 'settings-internet))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'ignore)
+            ((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore)
+            ((symbol-function 'lispm-browser-available-p) #'ignore))
+    (should-not (assq 'settings-agents (lispm-desktop-settings--categories)))
+    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-internet)) '(network))))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore))
+    (should (assq 'settings-agents (lispm-desktop-settings--categories)))
+    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-agents)) '(lispm))))
+  (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-system)) '(kernel update)))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--fill) #'ignore))
+    (let ((language (lispm-desktop-settings-select 'keyboard))
+          (system (lispm-desktop-settings-select 'update)))
+      (should-not (eq language system))
+      (should (eq (buffer-local-value 'lispm-desktop-settings--category language) 'settings-general))
+      (should (eq (buffer-local-value 'lispm-desktop-settings--panel language) 'keyboard))
+      (should (eq (buffer-local-value 'lispm-desktop-settings--panel system) 'update))
+      (should (eq lispm-desktop-settings--last-panel 'update)))))
 
 (ert-deftest lispm-desktop-test-settings-kernel-panel ()
   "The Kernel panel's check box turns lispm-kernel on and off, saved, and
@@ -5319,9 +5357,8 @@ the panel says how it stands, with what can be done about it."
                (lambda (variable value) (push (cons variable value) saved)))
               ((symbol-function 'lispm-desktop-kernel-status) (lambda () status))
               ((symbol-function 'lispm-desktop-settings--kernel-later) #'ignore))
-      (with-current-buffer (lispm-desktop-settings--buffer)
-        (lispm-desktop-settings-select 'kernel)
-        (should (equal lispm-desktop-platinum-title "Kernel"))
+      (with-current-buffer (lispm-desktop-settings-select 'kernel)
+        (should (equal (lispm-desktop-platinum-title-text) "System"))
         (should (string-search "Emacs reads the sessions itself" (buffer-string)))
         (let ((button (next-button (point-min))))
           (while (and button (not (string-search "Use LispM Kernel" (button-label button))))
@@ -5356,8 +5393,7 @@ the panel says how it stands, with what can be done about it."
         (lispm-desktop-editing-style 'vim))
     (cl-letf (((symbol-function 'customize-save-variable)
                (lambda (variable value) (push (cons variable value) saved))))
-      (with-current-buffer (lispm-desktop-settings--buffer)
-        (lispm-desktop-settings-select 'keyboard)
+      (with-current-buffer (lispm-desktop-settings-select 'keyboard)
         (let ((button (next-button (point-min))))
           (while (and button (not (string-search "Emacs keys" (button-label button))))
             (setq button (next-button (button-end button))))
@@ -5378,8 +5414,7 @@ when none is given; with one, the choice is saved."
                (lambda (variable value) (push (cons variable value) saved) (set variable value)))
               ((symbol-function 'read-string)
                (lambda (&rest _) (if (functionp answer) (funcall answer) answer))))
-      (with-current-buffer (lispm-desktop-settings--buffer)
-        (lispm-desktop-settings-select 'network)
+      (with-current-buffer (lispm-desktop-settings-select 'network)
         (let ((press (lambda (label)
                        (let ((button (next-button (point-min))))
                          (while (and button (not (string-search label (button-label button))))
@@ -5545,9 +5580,8 @@ and the panel shows what was chosen."
   (skip-unless (image-type-available-p 'svg))
   (lispm-desktop-test--with-lispm-settings
     (lispm-desktop-setup-settings)
-    (with-current-buffer (lispm-desktop-settings--buffer)
-      (lispm-desktop-settings-select 'lispm)
-      (should (equal lispm-desktop-platinum-title "LispM"))
+    (with-current-buffer (lispm-desktop-settings-select 'lispm)
+      (should (equal (lispm-desktop-platinum-title-text) "Agents"))
       (dolist (text '("Model" "test-model" "via test" "Ready; it needs no key." "Effort: " "Extra high"
                       "Choose…" "Backends…" "Permissions" "Allow" "Ask" "Deny" "Run shell commands"
                       "Memory" "Small" "Only when asked" "Save memory before summing up" "Show Memory…"
@@ -5666,8 +5700,7 @@ never offered to take out."
                  (lambda (_prompt collection &rest _) (setq offered collection) (car collection))))
         (lispm-desktop-settings--add-skill-directory)
         (should (equal (cadr lispm-skill-directories) (abbreviate-file-name directory)))
-        (with-current-buffer (lispm-desktop-settings--buffer)
-          (lispm-desktop-settings-select 'lispm)
+        (with-current-buffer (lispm-desktop-settings-select 'lispm)
           (should (string-search "1 skill" (buffer-string)))
           (should (lispm-desktop-test--settings-button "Remove…")))
         (lispm-desktop-settings--remove-skill-directory)
@@ -5764,9 +5797,8 @@ installation and the domains show as they change."
           (lispm-desktop-update-changed-hook nil)
           (lispm-desktop-startup-changed-hook nil))
       (lispm-desktop-setup-settings)
-      (with-current-buffer (lispm-desktop-settings--buffer)
-        (lispm-desktop-settings-select 'sandbox)
-        (should (equal lispm-desktop-platinum-title "Sandbox"))
+      (with-current-buffer (lispm-desktop-settings-select 'sandbox)
+        (should (equal (lispm-desktop-platinum-title-text) "Agents"))
         (dolist (text '("Sandbox Level" "No sandbox." "Reads all but secrets; reaches package registries."
                         "Reaches only allowed domains." "Reads only the project; no network."
                         "Any level but None installs srt" "Allowed Domains" "None." "Change…"))
@@ -5863,8 +5895,7 @@ rules show, each with what changes it, and what is wrong with them."
                  (lambda (variable value) (set variable value) (run-hooks 'lispm-sandbox-change-hook)))
                 ((symbol-function 'lispm-sandbox-customize) #'ignore))
         (lispm-desktop-setup-settings)
-        (with-current-buffer (lispm-desktop-settings--buffer)
-          (lispm-desktop-settings-select 'sandbox)
+        (with-current-buffer (lispm-desktop-settings-select 'sandbox)
           (should-not (string-search "Custom Rules" (lispm-desktop-test--settings-text)))
           (button-activate (lispm-desktop-test--settings-button "Custom"))
           (should (equal chosen '((custom t))))
@@ -5886,26 +5917,32 @@ rules show, each with what changes it, and what is wrong with them."
           (should-not (string-search "Custom Rules" (lispm-desktop-test--settings-text))))))))
 
 (ert-deftest lispm-desktop-test-control-panels-folder ()
-  "The Control Panels folder is a Finder folder of a panel each: opening an
-item opens its panel, and nothing is made, renamed or thrown away there."
+  "The Control Panels folder is a Finder folder of a control panel each, a
+category of settings: opening an item opens its control panel, which can
+have an alias on the desktop, and nothing is made, renamed or thrown
+away there."
   (let ((opened nil)
         (lispm-desktop-finder-folders nil))
     (setf (alist-get 'control-panels lispm-desktop-finder-folders)
           '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
-    (cl-letf (((symbol-function 'lispm-desktop-settings-show) (lambda (panel) (setq opened panel)))
+    (cl-letf (((symbol-function 'lispm-desktop-settings-show-category) (lambda (category) (setq opened category)))
               ((symbol-function 'lispm-desktop-finder--render) #'ignore))
       (lispm-desktop-finder--go 'control-panels)
       (with-current-buffer (lispm-desktop-finder--buffer)
-        (should (member "Appearance" (mapcar #'car lispm-desktop-finder--items)))
-        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("Keyboard"))
-                       "keyboard-32"))
+        (let ((names (mapcar #'car lispm-desktop-finder--items)))
+          (should (member "Appearance" names))
+          (should (member "System" names))
+          (should-not (member "Keyboard" names)))
+        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+                       "language-32"))
+        (should (eq (lispm-desktop-finder--app "System") 'settings-system))
         (should (equal (lispm-desktop-finder--title lispm-desktop-finder--directory) "Control Panels"))
         (should-not (lispm-desktop-finder-real-p))
         (should-not (lispm-desktop-finder--parent lispm-desktop-finder--directory))
         (setq lispm-desktop-finder--selected "Appearance")
         (should-not (lispm-desktop-finder-trash-p)))
       (lispm-desktop-finder-open)
-      (should (eq opened 'themes))
+      (should (eq opened 'settings-appearance))
       (should-error (lispm-desktop-finder-new-folder "x") :type 'user-error)
       (should-error (lispm-desktop-finder-move-to-trash) :type 'user-error)
       (lispm-desktop-finder--go temporary-file-directory)
@@ -5931,20 +5968,30 @@ software under; Licence shows the licence in the editor, OK nothing."
       (should (equal shown '(copying editor))))))
 
 (ert-deftest lispm-desktop-test-settings-in-menus ()
-  "The λ menu opens each panel; the Application menu lists Settings while
-its window is open."
+  "The λ menu's Control Panels opens each control panel; the Application
+menu lists a control panel while its window is open, and its menus are
+its own, its View menu its own panels."
   (let ((settings (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) "Control Panels")))
                             (lispm-desktop-lambda-items))))
     (should settings)
-    (should (member "Appearance" (mapcar (lambda (item) (plist-get item :label))
-                                         (funcall (plist-get settings :submenu))))))
-  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
-    (cl-letf (((symbol-function 'lispm-desktop-settings-open-p) #'ignore))
-      (should-not (member "Control Panels" (mapcar (lambda (item) (plist-get item :label))
-                                                   (lispm-desktop-apps-application-items)))))
-    (cl-letf (((symbol-function 'lispm-desktop-settings-open-p) #'always))
-      (should (member "Control Panels" (mapcar (lambda (item) (plist-get item :label))
-                                               (lispm-desktop-apps-application-items)))))))
+    (let ((labels (mapcar (lambda (item) (plist-get item :label)) (funcall (plist-get settings :submenu)))))
+      (should (member "Appearance" labels))
+      (should (member "System" labels))
+      (should-not (member "Kernel" labels))))
+  (let ((lispm-desktop-apps lispm-desktop-apps))
+    (lispm-desktop-settings--define-apps)
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+      (cl-letf (((symbol-function 'lispm-desktop-settings-open-p) #'ignore))
+        (should-not (member "System" (mapcar (lambda (item) (plist-get item :label))
+                                             (lispm-desktop-apps-application-items)))))
+      (cl-letf (((symbol-function 'lispm-desktop-settings-open-p) #'always))
+        (should (member "System" (mapcar (lambda (item) (plist-get item :label))
+                                         (lispm-desktop-apps-application-items))))))
+    (cl-letf (((symbol-function 'lispm-desktop-settings--fill) #'ignore))
+      (let* ((menus (funcall (plist-get (alist-get 'settings-system lispm-desktop-apps) :menus)))
+             (view (funcall (nth 2 (assq 'lispm-desktop-settings-view menus)))))
+        (should (equal (mapcar (lambda (item) (plist-get item :label)) view)
+                       '("Kernel" "Software Update")))))))
 
 ;;;; lispm-desktop-coherence
 
@@ -7833,7 +7880,8 @@ Dock.  A window is at (1 2 300 200), or at its parameter `geometry'."
 (defconst lispm-desktop-test--window-kinds
   '((screen (visibility . t))
     (finder (lispm-desktop-window-kind . finder) (lispm-desktop-app . desktop) (visibility . t))
-    (settings (lispm-desktop-window-kind . settings) (lispm-desktop-app . settings) (visibility . t))
+    (settings-appearance (lispm-desktop-window-kind . settings-appearance)
+                         (lispm-desktop-app . settings-appearance) (visibility . t))
     (store (lispm-desktop-window-kind . store) (lispm-desktop-app . store) (visibility . t))
     (editor (lispm-desktop-window-kind . editor) (lispm-desktop-app . editor) (visibility . t))
     (browser (lispm-desktop-window-kind . browser) (lispm-desktop-app . browser) (visibility . t)))
@@ -7850,22 +7898,22 @@ excepted, and the floating editor too, whose own code shows and hides it."
     (let ((lispm-desktop-browser-floating t)
           (floating nil))
       (cl-letf (((symbol-function 'lispm-desktop-editor-floating-p) (lambda () floating)))
-        (cl-flet ((shown () (seq-filter #'frame-visible-p '(finder settings store editor browser))))
+        (cl-flet ((shown () (seq-filter #'frame-visible-p '(finder settings-appearance store editor browser))))
           (lispm-desktop-apps-set-frontmost 'editor)
           (should (equal (shown) '(editor)))
           (setq raised nil)
           (lispm-desktop-apps-set-frontmost 'desktop)
-          (should (equal (shown) '(finder settings store editor browser)))
+          (should (equal (shown) '(finder settings-appearance store editor browser)))
           (should-not raised)
           (lispm-desktop-apps-set-frontmost 'store)
           (should (equal raised '(store)))
           (setq floating t raised nil)
           (lispm-desktop-apps-set-frontmost 'editor)
-          (should (equal (shown) '(finder settings store editor browser)))
+          (should (equal (shown) '(finder settings-appearance store editor browser)))
           (should (equal raised '(editor)))
           (setq lispm-desktop-browser-floating nil)
           (lispm-desktop-apps-set-frontmost 'store)
-          (should (equal (shown) '(finder settings store editor browser))))))))
+          (should (equal (shown) '(finder settings-appearance store editor browser))))))))
 
 (ert-deftest lispm-desktop-test-app-window-close-bookkeeping ()
   "A floating window closed, by its close box or deleted as by C-x 5 0, is
@@ -7873,13 +7921,13 @@ remembered where it was, at the height it rolls down to; the keyboard goes
 on only when it had it, and the desktop comes in front only when the
 window's application was in front.  A window closed twice is closed once."
   (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
-    (set-frame-parameter 'settings 'rolled 500)
+    (set-frame-parameter 'settings-appearance 'rolled 500)
     (lispm-desktop-apps-set-frontmost 'store)
     ;; Control Panels, behind the App Store and without the keyboard.
-    (lispm-desktop-app-window-close 'settings)
-    (should-not (lispm-desktop-app-window-open-p 'settings))
-    (should-not (frame-parameter 'settings 'rolled))
-    (should (equal (alist-get 'settings lispm-desktop-app-window--geometry) '(1 2 300 200)))
+    (lispm-desktop-app-window-close 'settings-appearance)
+    (should-not (lispm-desktop-app-window-open-p 'settings-appearance))
+    (should-not (frame-parameter 'settings-appearance 'rolled))
+    (should (equal (alist-get 'settings-appearance lispm-desktop-app-window--geometry) '(1 2 300 200)))
     (should-not after)
     (should (eq (lispm-desktop-apps-frontmost) 'store))
     ;; The App Store, in front and with the keyboard, deleted as by C-x 5 0.
@@ -7897,7 +7945,7 @@ window's application was in front.  A window closed twice is closed once."
   '((screen (visibility . t))
     (outer-a (lispm-desktop-platinum-frames . a) (parent-frame . screen) (visibility . t))
     (a (lispm-desktop-window . t) (parent-frame . outer-a) (lispm-desktop-platinum-frame . outer-a)
-       (lispm-desktop-app . settings) (visibility . t))
+       (lispm-desktop-app . settings-appearance) (visibility . t))
     (b (lispm-desktop-window . t) (parent-frame . screen) (lispm-desktop-app . editor))
     (outer-c (lispm-desktop-platinum-frames . c) (parent-frame . screen) (visibility . t))
     (c (lispm-desktop-window . t) (parent-frame . outer-c) (lispm-desktop-platinum-frame . outer-c)
@@ -7913,7 +7961,7 @@ keyboard.  While the screen is hidden in the Dock, the window after is
 the one in front of those out on the computer's screen, and with none
 left the keyboard stays where it is."
   (lispm-desktop-test--with-frames lispm-desktop-test--windows-behind
-    (let ((lispm-desktop-apps--frontmost 'settings)
+    (let ((lispm-desktop-apps--frontmost 'settings-appearance)
           (lispm-desktop-apps-frontmost-functions nil)
           (order '(outer-a a b outer-c c))
           (top '(screen))
@@ -7926,10 +7974,10 @@ left the keyboard stays where it is."
         (should (eq (lispm-desktop-apps-focus-after 'a) 'c))
         (should (equal focused '(c)))
         (should (eq (lispm-desktop-apps-frontmost) 'desktop))
-        (setq order '(outer-c c) lispm-desktop-apps--frontmost 'settings)
+        (setq order '(outer-c c) lispm-desktop-apps--frontmost 'settings-appearance)
         (should-not (lispm-desktop-apps-focus-after 'c))
         (should (equal focused '(screen c)))
-        (should (eq (lispm-desktop-apps-frontmost) 'settings))
+        (should (eq (lispm-desktop-apps-frontmost) 'settings-appearance))
         ;; Hidden in the Dock, with C out on the computer's screen.
         (set-frame-parameter 'screen 'lispm-desktop-hidden t)
         (set-frame-parameter 'outer-c 'parent-frame nil)
@@ -7958,10 +8006,10 @@ for the menu; the Finder window only when it had it last."
         (should (eq selected 'editor))
         (should (eq (lispm-desktop-apps-frontmost) 'editor))
         ;; Control Panels in front, closed from its File menu.
-        (lispm-desktop-apps-set-frontmost 'settings)
+        (lispm-desktop-apps-set-frontmost 'settings-appearance)
         (setq selected 'screen behind 'browser)
-        (lispm-desktop-app-window-close 'settings)
-        (should (equal after '(settings store)))
+        (lispm-desktop-app-window-close 'settings-appearance)
+        (should (equal after '(settings-appearance store)))
         (should (eq selected 'browser))
         (should (eq (lispm-desktop-apps-frontmost) 'browser))
         ;; The Finder window, closed from the desktop's File menu while the
@@ -7969,7 +8017,7 @@ for the menu; the Finder window only when it had it last."
         (lispm-desktop-apps-set-frontmost 'desktop)
         (setq selected 'screen)
         (lispm-desktop-app-window-close 'finder)
-        (should (equal after '(settings store)))
+        (should (equal after '(settings-appearance store)))
         (should (eq selected 'screen))))))
 
 (ert-deftest lispm-desktop-test-editor-close-focuses-the-window-behind ()
@@ -8039,10 +8087,10 @@ screen.  So does the browser quitting while in front; once another
 application came in front, as the window behind the floating browser
 took the keyboard, the desktop stays behind."
   (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
-    (lispm-desktop-app-window-ensure 'settings)
+    (lispm-desktop-app-window-ensure 'settings-appearance)
     (should (= activated 1))
     (setq hidden t)
-    (lispm-desktop-app-window-ensure 'settings)
+    (lispm-desktop-app-window-ensure 'settings-appearance)
     (should (= activated 1))
     (cl-letf (((symbol-function 'lispm-desktop-browser--close-workspace) #'ignore))
       (lispm-desktop-apps-set-frontmost 'browser)
@@ -8051,7 +8099,7 @@ took the keyboard, the desktop stays behind."
       (setq hidden nil)
       (lispm-desktop-browser--quit)
       (should (= activated 2))
-      (lispm-desktop-apps-set-frontmost 'settings)
+      (lispm-desktop-apps-set-frontmost 'settings-appearance)
       (lispm-desktop-browser--quit)
       (should (= activated 2)))))
 
@@ -8060,16 +8108,16 @@ took the keyboard, the desktop stays behind."
 keyboard back; the Finder window only when it had it."
   (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
     (let ((lispm-desktop-finder--had-focus nil))
-      (lispm-desktop-apps-set-frontmost 'settings)
+      (lispm-desktop-apps-set-frontmost 'settings-appearance)
       (lispm-desktop-app-window--refocus)
-      (should (equal focused '(settings)))
+      (should (equal focused '(settings-appearance)))
       (lispm-desktop-apps-set-frontmost 'desktop)
       (setq selected 'screen)
       (lispm-desktop-app-window--refocus)
-      (should (equal focused '(settings)))
+      (should (equal focused '(settings-appearance)))
       (setq lispm-desktop-finder--had-focus t)
       (lispm-desktop-app-window--refocus)
-      (should (equal focused '(finder settings))))))
+      (should (equal focused '(finder settings-appearance))))))
 
 (ert-deftest lispm-desktop-test-app-window-first-places ()
   "Each kind's window opens first where its kind puts it, under the menu
@@ -8094,7 +8142,7 @@ cascade of an application's window."
                     (lispm-desktop-app-window-make-frame id 'screen)
                     (list (alist-get 'left made) (alist-get 'top made))))
           (should (equal (place 'finder) '(40 30)))
-          (should (equal (place 'settings) '(340 50)))
+          (should (equal (place 'settings-appearance) '(340 50)))
           (should (equal (place 'editor) '(72 20)))
           (should (equal (place 'browser) '(120 30)))
           ;; The App Store, the only window open that cascades, is not counted
@@ -11221,8 +11269,7 @@ Switch shows once it is ready."
       (cl-letf (((symbol-function 'customize-save-variable)
                  (lambda (variable value) (push (cons variable value) saved)))
                 ((symbol-function 'lispm-desktop-emacs-stage) (lambda (major) (setq staged major))))
-        (with-current-buffer (lispm-desktop-settings--buffer)
-          (lispm-desktop-settings-select 'kernel)
+        (with-current-buffer (lispm-desktop-settings-select 'kernel)
           (let ((text (concat (buffer-string)
                               (mapconcat #'identity
                                          (delq nil (mapcar (lambda (position)
@@ -11251,7 +11298,7 @@ Switch shows once it is ready."
                                        (concat (if (eql other 32) (cdr lispm-desktop-test--emacs-builds)
                                                  (car lispm-desktop-test--emacs-builds))
                                                ".arm64"))
-        (with-current-buffer (lispm-desktop-settings--buffer)
+        (with-current-buffer (lispm-desktop-settings--buffer 'settings-system)
           (lispm-desktop-settings--render)
           (should (seq-some (lambda (position)
                               (equal (get-text-property position 'lispm-desktop-platinum-label) "Restart to Switch"))
@@ -11274,8 +11321,7 @@ installed; its check boxes save their choices."
               lispm-desktop-update--results
               (list '(:name "LispM Desktop" :directory "/x/" :state update :release "v0.3.0"
                       :changes ("Mend the menu" "Draw it"))))
-        (with-current-buffer (lispm-desktop-settings--buffer)
-          (lispm-desktop-settings-select 'update)
+        (with-current-buffer (lispm-desktop-settings-select 'update)
           (let ((text (concat (buffer-string)
                               (mapconcat #'identity
                                          (delq nil (mapcar (lambda (position)
@@ -11287,7 +11333,7 @@ installed; its check boxes save their choices."
                              "Every day" "Every week" "Ask me before installing updates" "0.2.0+3, 626d068"
                              "Show Log"))
               (should (string-search label text))))
-          (should (equal lispm-desktop-platinum-title "Software Update"))
+          (should (equal (lispm-desktop-platinum-title-text) "System"))
           (let ((button (next-button (point-min))))
             (while (and button (not (string-search "Ask me" (button-label button))))
               (setq button (next-button (button-end button))))
@@ -13254,8 +13300,7 @@ items, each turned on or off by its check box, and adds and removes them."
               ((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
               ((symbol-function 'read-string) (lambda (&rest _) (pop answers)))
               ((symbol-function 'read-directory-name) (lambda (&rest _) (pop answers))))
-      (with-current-buffer (lispm-desktop-settings--buffer)
-        (lispm-desktop-settings-select 'startup)
+      (with-current-buffer (lispm-desktop-settings-select 'startup)
         (let ((text (concat (buffer-string)
                             (mapconcat #'identity
                                        (delq nil (mapcar (lambda (position)
@@ -13275,7 +13320,7 @@ items, each turned on or off by its check box, and adds and removes them."
           (dolist (label '("Login" "Open LispM when you log in" "Startup Items" "Browser"
                            "ollama" "ollama serve" "Add…" "Remove…" "Open…"))
             (should (string-search label text)))
-          (should (equal lispm-desktop-platinum-title "Startup"))
+          (should (equal (lispm-desktop-platinum-title-text) "General"))
           (funcall press "Open LispM when you log in")
           (should (equal login '(t)))
           ;; The program's check box turns it on.

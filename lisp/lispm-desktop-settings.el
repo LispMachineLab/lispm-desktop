@@ -23,40 +23,47 @@
 
 ;;; Commentary:
 
-;; Control Panels is an application of its own, as Mac OS 9's control
-;; panels were.  Its folder, opened from the desktop's Control Panels icon,
-;; is a Finder window holding a panel each; the λ menu's Control Panels
-;; lists them too.  A panel opens in a window floating over the desktop,
-;; titled with its name, its tabs choosing among the panels as the
-;; Appearance control panel's did:
+;; The Control Panels folder, opened from the desktop's Control Panels
+;; icon, is a Finder window holding a control panel for each category of
+;; settings; the λ menu's Control Panels lists them too.  Each control
+;; panel is an application of its own, as Mac OS 9's were, an alias of it
+;; can stand on the desktop, and it opens in a window floating over the
+;; desktop, titled with its name, its tabs choosing among its panels as
+;; the Appearance control panel's did.  Few tabs to a window keep each
+;; name whole in a language with long ones.
 ;;
-;;   Appearance  the colour theme
-;;   Desktop     the desktop's colour, its picture and how it covers it,
-;;               and Arrange Icons
-;;   Keyboard    Vim or Emacs keys
-;;   Language    the language LispM speaks, see lispm-desktop-i18n.el
-;;   Internet    the browser's home page and search address, its history
-;;               and its bookmarks
-;;   Network     the proxy every connection LispM makes goes through, see
-;;               lispm-desktop-proxy.el
-;;   LispM       LispM Agent's own settings: the model its agents use, what
-;;               they may do unasked, how their conversations are summed
-;;               up and remembered, their roles and skills, see LispM
-;;               Agent's lispm-settings.el; shown once it is loaded
-;;   Sandbox     how strictly agents' shell commands and MCP servers are
-;;               confined, the rules of the Custom level, and the domains
-;;               they may reach, see LispM Agent's lispm-sandbox.el; shown
-;;               once it is loaded
-;;   Startup     whether the computer opens LispM at login, and the
-;;               startup items LispM opens once started, see
-;;               lispm-desktop-startup.el
-;;   Kernel      whether LispM Kernel, lispm-kernel, runs LispM's background
-;;               work, and how it stands, see lispm-desktop-kernel.el; and
-;;               the Emacs LispM.app runs on, see lispm-desktop-emacs.el
-;;   Software Update  Update Now, and how LispM checks for updates and
-;;               installs them by itself, see lispm-desktop-update.el;
-;;               whether the App Store's applications update by
-;;               themselves, and which can be
+;;   Appearance
+;;     Appearance  the colour theme
+;;     Desktop     the desktop's colour, its picture and how it covers it,
+;;                 and Arrange Icons
+;;   General
+;;     Language    the language LispM speaks, see lispm-desktop-i18n.el
+;;     Keyboard    Vim or Emacs keys
+;;     Startup     whether the computer opens LispM at login, and the
+;;                 startup items LispM opens once started, see
+;;                 lispm-desktop-startup.el
+;;   Internet
+;;     Internet    the browser's home page and search address, its history
+;;                 and its bookmarks
+;;     Network     the proxy every connection LispM makes goes through, see
+;;                 lispm-desktop-proxy.el
+;;   Agents, shown once LispM Agent is loaded
+;;     LispM       LispM Agent's own settings: the model its agents use,
+;;                 what they may do unasked, how their conversations are
+;;                 summed up and remembered, their roles and skills, see
+;;                 LispM Agent's lispm-settings.el
+;;     Sandbox     how strictly agents' shell commands and MCP servers are
+;;                 confined, the rules of the Custom level, and the domains
+;;                 they may reach, see LispM Agent's lispm-sandbox.el
+;;   System
+;;     Kernel      whether LispM Kernel, lispm-kernel, runs LispM's
+;;                 background work, and how it stands, see
+;;                 lispm-desktop-kernel.el; and the Emacs LispM.app runs
+;;                 on, see lispm-desktop-emacs.el
+;;     Software Update  Update Now, and how LispM checks for updates and
+;;                 installs them by itself, see lispm-desktop-update.el;
+;;                 whether the App Store's applications update by
+;;                 themselves, and which can be
 ;;
 ;; Each choice takes effect at once where it can, and is saved for the next
 ;; start with Customize, as the menus' choices are; personal.el can still
@@ -164,9 +171,6 @@
 (declare-function lispm-role-name "lispm-core" (role))
 (declare-function lispm-role-description "lispm-core" (role))
 
-(defconst lispm-desktop-settings-buffer-name " *Control Panels*"
-  "Name of the control panel's window's buffer.")
-
 (defconst lispm-desktop-settings-panels
   `((themes ,(lispm-desktop-tr-noop "Appearance") lispm-desktop-settings--themes "appearance-32")
     (desktop ,(lispm-desktop-tr-noop "Desktop") lispm-desktop-settings--desktop "desktop-picture-32")
@@ -182,14 +186,43 @@
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
     (kernel ,(lispm-desktop-tr-noop "Kernel") lispm-desktop-settings--kernel "kernel-32")
     (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32"))
-  "The panels, in their tabs' order: (KEY LABEL INSERT ICON [VISIBLE]).
+  "The panels: (KEY LABEL INSERT ICON [VISIBLE]).
 LABEL is in English, translated where shown, see
 `lispm-desktop-settings-panel-label'.  INSERT fills the window with the
-panel, ICON is its large icon in the Control Panels folder; VISIBLE, when
-given, is a function deciding whether the panel shows.")
+panel, ICON is its large icon, as the LispM bar finds it; VISIBLE, when
+given, is a function deciding whether the panel shows.  Each is a tab of
+a control panel, see `lispm-desktop-settings-categories'.")
 
-(defvar-local lispm-desktop-settings--panel 'themes
-  "The panel the control panel's window shows.")
+(defconst lispm-desktop-settings-categories
+  `((settings-appearance ,(lispm-desktop-tr-noop "Appearance") "appearance" "appearance-32"
+                         (themes desktop))
+    (settings-general ,(lispm-desktop-tr-noop "General") "keyboard" "language-32"
+                      (language keyboard startup))
+    (settings-internet ,(lispm-desktop-tr-noop "Internet") "globe" "network-32"
+                       (browser network))
+    (settings-agents ,(lispm-desktop-tr-noop "Agents") "lispm" "lispm-32"
+                     (lispm sandbox))
+    (settings-system ,(lispm-desktop-tr-noop "System") "computer" "kernel-32"
+                     (kernel update)))
+  "The control panels, a category of settings each, in the Control Panels
+folder's order: (KEY LABEL ICON LARGE-ICON PANELS).  KEY is the control
+panel's application, in `lispm-desktop-apps', and the kind of its window;
+LABEL its name, in English, translated where shown, see
+`lispm-desktop-settings-category-label'; ICON and LARGE-ICON its icons,
+as `lispm-desktop-platinum-icon-file' takes them, the large one in the
+Control Panels folder; PANELS, keys of `lispm-desktop-settings-panels',
+its window's tabs in their order.  A control panel shows while one of
+its panels does.")
+
+(defvar-local lispm-desktop-settings--category nil
+  "The control panel whose window shows this buffer, a key of
+`lispm-desktop-settings-categories'.")
+
+(defvar-local lispm-desktop-settings--panel nil
+  "The panel the control panel's window shows; nil, its first.")
+
+(defvar lispm-desktop-settings--last-panel 'themes
+  "The panel shown last, which `lispm-desktop-settings-show' shows again.")
 
 (defun lispm-desktop-settings--browser-p ()
   "Return non-nil when the browser can run, and so has settings."
@@ -205,21 +238,48 @@ settings: LispM Agent 0.3.0 or later is loaded."
 LispM panel: LispM Agent 0.6.0 or later is loaded."
   (and (featurep 'lispm-settings) (fboundp 'lispm-model-status)))
 
-(defun lispm-desktop-settings--panels ()
-  "Return the panels that show here."
-  (seq-filter (lambda (panel)
-                (let ((visible (nth 4 panel)))
-                  (or (not visible) (funcall visible))))
-              lispm-desktop-settings-panels))
+(defun lispm-desktop-settings--panels (&optional category)
+  "Return the panels that show here; with CATEGORY, a key of
+`lispm-desktop-settings-categories', those of its control panel, in
+their tabs' order."
+  (let ((shown (seq-filter (lambda (panel)
+                             (let ((visible (nth 4 panel)))
+                               (or (not visible) (funcall visible))))
+                           lispm-desktop-settings-panels)))
+    (if category
+        (delq nil (mapcar (lambda (key) (assq key shown))
+                          (nth 4 (assq category lispm-desktop-settings-categories))))
+      shown)))
 
 (defun lispm-desktop-settings-panel-label (panel)
   "Return the name of PANEL, an entry of `lispm-desktop-settings-panels',
 in the language LispM speaks."
   (lispm-desktop-tr (nth 1 panel)))
 
-(defun lispm-desktop-settings-open-p ()
-  "Return non-nil while the control panel's window is open."
-  (lispm-desktop-app-window-open-p 'settings))
+(defun lispm-desktop-settings--categories ()
+  "Return the control panels that show here: those a panel of which does."
+  (seq-filter (lambda (category) (lispm-desktop-settings--panels (car category)))
+              lispm-desktop-settings-categories))
+
+(defun lispm-desktop-settings-category-label (category)
+  "Return the name of CATEGORY, an entry of
+`lispm-desktop-settings-categories', in the language LispM speaks."
+  (lispm-desktop-tr (nth 1 category)))
+
+(defun lispm-desktop-settings-category (panel)
+  "Return the control panel PANEL, a key of `lispm-desktop-settings-panels',
+is a tab of: a key of `lispm-desktop-settings-categories'."
+  (car (seq-find (lambda (category) (memq panel (nth 4 category)))
+                 lispm-desktop-settings-categories)))
+
+(defun lispm-desktop-settings-open-p (&optional category)
+  "Return non-nil while the window of the control panel CATEGORY, a key of
+`lispm-desktop-settings-categories', is open; without CATEGORY, while
+that of any is."
+  (if category
+      (lispm-desktop-app-window-open-p category)
+    (seq-some (lambda (category) (lispm-desktop-app-window-open-p (car category)))
+              lispm-desktop-settings-categories)))
 
 ;;;; Controls
 ;;
@@ -1258,9 +1318,7 @@ LispM Agent's lispm-sandbox.el does the rest."
           (run-at-time 0.5 nil
                        (lambda ()
                          (setq lispm-desktop-settings--kernel-timer nil)
-                         (when-let* (((lispm-desktop-settings-open-p))
-                                     (buffer (get-buffer lispm-desktop-settings-buffer-name))
-                                     ((eq (buffer-local-value 'lispm-desktop-settings--panel buffer) 'kernel)))
+                         (when (lispm-desktop-settings--shown-p 'kernel)
                            (lispm-desktop-settings--render)))))))
 
 (defun lispm-desktop-settings--kernel-status ()
@@ -1482,11 +1540,12 @@ on a day before, 18 October 2026 at 09:12."
   "The loading Software Update's check is, while it runs.")
 
 (defun lispm-desktop-settings--update-loading ()
-  "Show the watch on the pointer over Control Panels while Software Update
-checks."
+  "Show the watch on the pointer over the control panel of Software Update
+while it checks."
   (cond ((and (lispm-desktop-update-checking-p) (not lispm-desktop-settings--update-loading))
          (setq lispm-desktop-settings--update-loading
-               (lispm-desktop-loading-start lispm-desktop-settings-buffer-name)))
+               (lispm-desktop-loading-start
+                (lispm-desktop-settings--buffer-name (lispm-desktop-settings-category 'update)))))
         ((and (not (lispm-desktop-update-checking-p)) lispm-desktop-settings--update-loading)
          (lispm-desktop-loading-stop lispm-desktop-settings--update-loading)
          (setq lispm-desktop-settings--update-loading nil))))
@@ -1682,14 +1741,15 @@ which LispM.app switches."
     (lispm-desktop-settings-select panel)))
 
 (defun lispm-desktop-settings--tabs ()
-  "Return the window's header line: a tab per panel, the shown one in front."
+  "Return the window's header line: a tab per panel of its control panel,
+the shown one in front."
   (lispm-desktop-platinum-tabs
    (mapcar (lambda (panel)
              (let ((label (lispm-desktop-settings-panel-label panel)))
                (list label (eq (car panel) lispm-desktop-settings--panel)
                      'lispm-desktop-settings-panel (car panel) 'keymap lispm-desktop-settings-tab-map
                      'pointer 'arrow 'help-echo (lispm-desktop-tr "Show %s" label))))
-           (lispm-desktop-settings--panels))
+           (lispm-desktop-settings--panels lispm-desktop-settings--category))
    (- (window-pixel-width) (window-right-divider-width))))
 
 (defun lispm-desktop-settings--control-index ()
@@ -1700,44 +1760,60 @@ which LispM.app switches."
         (setq count (1+ count)))
       count)))
 
-(defun lispm-desktop-settings--render ()
-  "Fill the control panel's window with the panel it shows, point kept."
-  (when-let* ((buffer (get-buffer lispm-desktop-settings-buffer-name)))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t)
-            (line (line-number-at-pos))
-            (panel (or (assq lispm-desktop-settings--panel (lispm-desktop-settings--panels))
-                       (car (lispm-desktop-settings--panels)))))
-        (setq lispm-desktop-settings--panel (car panel))
-        (let ((control (lispm-desktop-settings--control-index)))
-          (erase-buffer)
+(defun lispm-desktop-settings--fill (buffer)
+  "Fill BUFFER, a control panel's window's, with the panel it shows, point
+kept; with none of its panels showing here, leave it empty."
+  (with-current-buffer buffer
+    (let* ((inhibit-read-only t)
+           (line (line-number-at-pos))
+           (panels (lispm-desktop-settings--panels lispm-desktop-settings--category))
+           (panel (or (assq lispm-desktop-settings--panel panels) (car panels))))
+      (setq lispm-desktop-settings--panel (car panel))
+      (let ((control (lispm-desktop-settings--control-index)))
+        (erase-buffer)
+        (when panel
           (insert (propertize " " 'display '(space :height (10))) "\n")
           (funcall (nth 2 panel))
-          (lispm-desktop-settings--frame-groups)
-          (goto-char (point-min))
-          (if control
-              ;; The keyboard stays on the control it was on.
-              (dotimes (_ (1+ control)) (forward-button 1 nil nil t))
-            (forward-line (1- line))))
-        (setq lispm-desktop-platinum-focus nil
-              lispm-desktop-platinum-title (lispm-desktop-settings-panel-label panel))
-        (lispm-desktop-platinum-show-focus)
-        (force-mode-line-update)))))
+          (lispm-desktop-settings--frame-groups))
+        (goto-char (point-min))
+        (if control
+            ;; The keyboard stays on the control it was on.
+            (dotimes (_ (1+ control)) (forward-button 1 nil nil t))
+          (forward-line (1- line))))
+      (setq lispm-desktop-platinum-focus nil)
+      (lispm-desktop-platinum-show-focus)
+      (force-mode-line-update))))
+
+(defun lispm-desktop-settings--render ()
+  "Fill each control panel's window with the panel it shows, point kept."
+  (dolist (category lispm-desktop-settings-categories)
+    (when-let* ((buffer (get-buffer (lispm-desktop-settings--buffer-name (car category)))))
+      (lispm-desktop-settings--fill buffer))))
+
+(defun lispm-desktop-settings--shown-p (panel)
+  "Return non-nil while the window of PANEL's control panel is open on it,
+PANEL a key of `lispm-desktop-settings-panels'."
+  (let ((category (lispm-desktop-settings-category panel)))
+    (when-let* (((lispm-desktop-settings-open-p category))
+                (buffer (get-buffer (lispm-desktop-settings--buffer-name category))))
+      (eq (buffer-local-value 'lispm-desktop-settings--panel buffer) panel))))
 
 (defun lispm-desktop-settings-select (panel)
-  "Show PANEL, a key of the panels, in the control panel's window.
-The panels are `lispm-desktop-settings-panels'."
-  (with-current-buffer (lispm-desktop-settings--buffer)
+  "Show PANEL, a key of `lispm-desktop-settings-panels', in the window of
+its control panel; return the window's buffer."
+  (setq lispm-desktop-settings--last-panel panel)
+  (with-current-buffer (lispm-desktop-settings--buffer (lispm-desktop-settings-category panel))
     (setq lispm-desktop-settings--panel panel)
     (goto-char (point-min))
-    (lispm-desktop-settings--render)))
+    (lispm-desktop-settings--fill (current-buffer))
+    (current-buffer)))
 
 (defun lispm-desktop-settings-next-panel (&optional back)
-  "Show the next panel, or the previous one when BACK."
+  "Show the next panel of the control panel, or the previous one when BACK."
   (interactive)
-  (let* ((keys (mapcar #'car (lispm-desktop-settings--panels)))
-         (index (or (seq-position keys lispm-desktop-settings--panel) 0)))
-    (lispm-desktop-settings-select (nth (mod (+ index (if back -1 1)) (length keys)) keys))))
+  (when-let* ((keys (mapcar #'car (lispm-desktop-settings--panels lispm-desktop-settings--category))))
+    (let ((index (or (seq-position keys lispm-desktop-settings--panel) 0)))
+      (lispm-desktop-settings-select (nth (mod (+ index (if back -1 1)) (length keys)) keys)))))
 
 (defun lispm-desktop-settings-previous-panel ()
   "Show the previous panel."
@@ -1753,31 +1829,32 @@ as the pane.  This is a buffer-local `window-size-change-functions' function."
   (let ((width (window-body-width window t)))
     (unless (eql width lispm-desktop-settings--width)
       (setq lispm-desktop-settings--width width)
-      (lispm-desktop-settings--render))))
+      (lispm-desktop-settings--fill (window-buffer window)))))
 
 (defun lispm-desktop-settings--widen ()
-  "Widen the control panel's window, while it is open, until its tabs show
+  "Widen each control panel's window that is open until its tabs show
 whole, as far as its screen allows; a row of tabs still too wide cuts its
 widest names short.  A language with longer names than the one the
 window opened in needs it.  This is one of
 `lispm-desktop-language-changed-hook'."
-  (when-let* ((frame (lispm-desktop-app-window-frame 'settings))
-              ((frame-live-p frame))
-              ((not (lispm-desktop-app-window-rolled-p frame)))
-              (window (get-buffer-window lispm-desktop-settings-buffer-name frame)))
-    (let ((short (- (+ (lispm-desktop-platinum-tabs-width
-                        (mapcar #'lispm-desktop-settings-panel-label (lispm-desktop-settings--panels)))
-                       12)
-                    (window-pixel-width window)))
-          (most (- (if-let* ((screen (lispm-desktop-apps-window-screen frame)))
-                       (frame-inner-width screen)
-                     (display-pixel-width))
-                   60)))
-      (when (and (> short 0) (< (frame-text-width frame) most))
-        (let ((frame-resize-pixelwise t))
-          (set-frame-size frame (min most (+ (frame-text-width frame) short)) (frame-text-height frame) t))
-        (lispm-desktop-platinum-frame-update frame)
-        (lispm-desktop-apps-keep-on-desktop frame)))))
+  (dolist (category lispm-desktop-settings-categories)
+    (when-let* ((frame (lispm-desktop-app-window-frame (car category)))
+                ((not (lispm-desktop-app-window-rolled-p frame)))
+                (window (get-buffer-window (lispm-desktop-settings--buffer-name (car category)) frame)))
+      (let ((short (- (+ (lispm-desktop-platinum-tabs-width
+                          (mapcar #'lispm-desktop-settings-panel-label
+                                  (lispm-desktop-settings--panels (car category))))
+                         12)
+                      (window-pixel-width window)))
+            (most (- (if-let* ((screen (lispm-desktop-apps-window-screen frame)))
+                         (frame-inner-width screen)
+                       (display-pixel-width))
+                     60)))
+        (when (and (> short 0) (< (frame-text-width frame) most))
+          (let ((frame-resize-pixelwise t))
+            (set-frame-size frame (min most (+ (frame-text-width frame) short)) (frame-text-height frame) t))
+          (lispm-desktop-platinum-frame-update frame)
+          (lispm-desktop-apps-keep-on-desktop frame))))))
 
 (defvar-keymap lispm-desktop-settings-mode-map
   :doc "Keymap of the control panel's window."
@@ -1791,12 +1868,15 @@ window opened in needs it.  This is one of
   "M-w" #'lispm-desktop-settings-close)
 
 (define-derived-mode lispm-desktop-settings-mode lispm-desktop-app-window-mode "Control Panels"
-  "Major mode of the control panel's window: a panel of settings, a tab each.
+  "Major mode of a control panel's window: a panel of settings, a tab each.
 \\{lispm-desktop-settings-mode-map}"
   (setq-local lispm-desktop-platinum-info (lambda () (lispm-desktop-tr "Choices are kept for the next start."))
               header-line-format '(:eval (lispm-desktop-settings--tabs))
-              lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Control Panels"))
-              lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "control-panels")
+              ;; The control panel's name, whichever tab is in front.
+              lispm-desktop-platinum-title
+              (lambda ()
+                (when-let* ((category (assq lispm-desktop-settings--category lispm-desktop-settings-categories)))
+                  (lispm-desktop-settings-category-label category)))
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
   ;; The pane the tabs choose among, lighter than the window's platinum.
@@ -1807,95 +1887,156 @@ window opened in needs it.  This is one of
   (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
   (hl-line-mode -1))
 
-(defun lispm-desktop-settings--buffer ()
-  "Return the control panel's window's buffer, made when missing."
-  (or (get-buffer lispm-desktop-settings-buffer-name)
-      (with-current-buffer (get-buffer-create lispm-desktop-settings-buffer-name)
-        (lispm-desktop-settings-mode)
-        (current-buffer))))
+(defun lispm-desktop-settings--buffer-name (category)
+  "Return the name of the buffer of CATEGORY's window, CATEGORY a key of
+`lispm-desktop-settings-categories'."
+  (format " *Control Panels: %s*" category))
 
-(defun lispm-desktop-settings--default-geometry (screen)
-  "Return where the control panel's window opens first: the middle of
-SCREEN, wide enough for every panel's tab."
-  (let ((width (max 520 (+ (lispm-desktop-platinum-tabs-width
-                            (mapcar #'lispm-desktop-settings-panel-label (lispm-desktop-settings--panels)))
+(defun lispm-desktop-settings--buffer (category)
+  "Return the buffer of CATEGORY's window, made when missing, CATEGORY a
+key of `lispm-desktop-settings-categories'."
+  (let ((name (lispm-desktop-settings--buffer-name category)))
+    (or (get-buffer name)
+        (with-current-buffer (get-buffer-create name)
+          (lispm-desktop-settings-mode)
+          (setq lispm-desktop-settings--category category
+                lispm-desktop-platinum-icon
+                (lispm-desktop-platinum-icon (nth 2 (assq category lispm-desktop-settings-categories))))
+          (current-buffer)))))
+
+(defun lispm-desktop-settings--default-geometry (category screen)
+  "Return where CATEGORY's window opens first: about the middle of SCREEN,
+wide enough for its tabs, each control panel's a little right of and
+below the one before it in the Control Panels folder, as Mac OS 9
+cascaded windows."
+  (let ((step (* lispm-desktop-app-window-cascade
+                 (or (seq-position (mapcar #'car lispm-desktop-settings-categories) category) 0)))
+        (width (max 520 (+ (lispm-desktop-platinum-tabs-width
+                            (mapcar #'lispm-desktop-settings-panel-label
+                                    (lispm-desktop-settings--panels category)))
                            ;; The window's sides, and a little of the
                            ;; pane's edge after the last tab.
                            24)))
         (height 500))
-    (list (max 20 (/ (- (frame-inner-width screen) width) 2))
-          (+ (lispm-desktop-app-window-menu-bar-height screen) 50)
+    (list (+ (max 20 (/ (- (frame-inner-width screen) width) 2)) step)
+          (+ (lispm-desktop-app-window-menu-bar-height screen) 50 step)
           width height)))
 
-(lispm-desktop-app-window-define 'settings
-  :name (lispm-desktop-tr-noop "Control Panels") :geometry #'lispm-desktop-settings--default-geometry
-  :buffer #'lispm-desktop-settings--buffer :roll 'chrome)
+(dolist (category lispm-desktop-settings-categories)
+  (let ((key (car category)))
+    (lispm-desktop-app-window-define key
+      :name (nth 1 category)
+      :geometry (lambda (screen) (lispm-desktop-settings--default-geometry key screen))
+      :buffer (lambda () (lispm-desktop-settings--buffer key))
+      :roll 'chrome)))
 
 (defun lispm-desktop-settings-show (&optional panel)
-  "Open the control panel's window over the desktop, showing PANEL, a key of
-`lispm-desktop-settings-panels', or the panel it showed last."
+  "Open the window of PANEL's control panel over the desktop, showing PANEL,
+a key of `lispm-desktop-settings-panels', or the panel shown last.  A
+panel that does not show here gives way to the first that does."
   (interactive)
-  (lispm-desktop-app-window-ensure 'settings)
-  (if panel
-      (lispm-desktop-settings-select panel)
-    (lispm-desktop-settings--render))
-  (lispm-desktop-app-window-present 'settings))
+  (let* ((panel (or panel lispm-desktop-settings--last-panel))
+         (panel (if (assq panel (lispm-desktop-settings--panels))
+                    panel
+                  (car (car (lispm-desktop-settings--panels)))))
+         (category (lispm-desktop-settings-category panel)))
+    (lispm-desktop-app-window-ensure category)
+    (lispm-desktop-settings-select panel)
+    (lispm-desktop-app-window-present category)))
+
+(defun lispm-desktop-settings-show-category (category)
+  "Open the window of the control panel CATEGORY, a key of
+`lispm-desktop-settings-categories', over the desktop, showing the panel
+it showed last; one of whose panels none shows here gives way to the
+panel shown last."
+  (if (not (lispm-desktop-settings--panels category))
+      (lispm-desktop-settings-show)
+    (lispm-desktop-app-window-ensure category)
+    (lispm-desktop-settings--fill (lispm-desktop-settings--buffer category))
+    (lispm-desktop-app-window-present category)))
+
+(defun lispm-desktop-settings--current-category ()
+  "Return the control panel of the current buffer, else the one in front."
+  (or lispm-desktop-settings--category
+      (car (assq (lispm-desktop-apps-frontmost) lispm-desktop-settings-categories))))
 
 (defun lispm-desktop-settings-close ()
-  "Close the control panel's window; the desktop comes in front."
+  "Close the window of the control panel, that of the current buffer or
+the one in front; the desktop comes in front."
   (interactive)
-  (lispm-desktop-app-window-close 'settings))
+  (when-let* ((category (lispm-desktop-settings--current-category)))
+    (lispm-desktop-app-window-close category)))
 
 ;;;; Menus
 
 (defun lispm-desktop-settings-panel-items ()
-  "Return a menu item opening each panel, as the λ menu's Control Panels
-lists them, as Mac OS 9's Apple menu listed its control panels."
-  (mapcar (lambda (panel)
-            (list :label (lispm-desktop-settings-panel-label panel)
-                  :action (lambda () (lispm-desktop-settings-show (car panel)))))
-          (lispm-desktop-settings--panels)))
+  "Return a menu item opening each control panel, as the λ menu's Control
+Panels lists them, as Mac OS 9's Apple menu listed its control panels."
+  (mapcar (lambda (category)
+            (list :label (lispm-desktop-settings-category-label category)
+                  :action (lambda () (lispm-desktop-settings-show-category (car category)))))
+          (lispm-desktop-settings--categories)))
 
 (defun lispm-desktop-settings--folder-items ()
-  "Return the Control Panels folder's items, see `lispm-desktop-finder-folders'."
-  (mapcar (lambda (panel)
-            (list (lispm-desktop-settings-panel-label panel) (nth 3 panel)
-                  (lambda () (lispm-desktop-settings-show (car panel)))))
-          (lispm-desktop-settings--panels)))
+  "Return the Control Panels folder's items, a control panel each, of which
+an alias can be made on the desktop, see `lispm-desktop-finder-folders'."
+  (mapcar (lambda (category)
+            (list (lispm-desktop-settings-category-label category) (nth 3 category)
+                  (lambda () (lispm-desktop-settings-show-category (car category)))
+                  nil (car category)))
+          (lispm-desktop-settings--categories)))
 
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
 (defvar lispm-desktop-finder-folders)
 
 (defun lispm-desktop-settings-open-folder ()
-  "Open the Control Panels folder in the Finder window: a panel each, as
-the Control Panels folder of Mac OS 9's System Folder."
+  "Open the Control Panels folder in the Finder window: a control panel
+each, as the Control Panels folder of Mac OS 9's System Folder."
   (interactive)
   (lispm-desktop-finder-open-directory 'control-panels))
 
-(defun lispm-desktop-settings--file-items ()
-  "Return the items of the Control Panels File menu."
-  `((:label ,(lispm-desktop-tr "Close Window") :action lispm-desktop-settings-close)))
+(defun lispm-desktop-settings--file-items (category)
+  "Return the items of the File menu of the control panel CATEGORY."
+  `((:label ,(lispm-desktop-tr "Close Window")
+            :action ,(lambda () (lispm-desktop-app-window-close category)))))
 
-(defun lispm-desktop-settings--view-items ()
-  "Return the items of the Control Panels View menu: a panel each, the shown one
-checked."
-  (let ((shown (buffer-local-value 'lispm-desktop-settings--panel (lispm-desktop-settings--buffer))))
+(defun lispm-desktop-settings--view-items (category)
+  "Return the items of the View menu of the control panel CATEGORY: a
+panel each, the shown one checked."
+  (let ((shown (buffer-local-value 'lispm-desktop-settings--panel (lispm-desktop-settings--buffer category))))
     (mapcar (lambda (panel)
               (list :label (lispm-desktop-settings-panel-label panel)
                     :action (lambda () (lispm-desktop-settings-show (car panel)))
                     :checked (eq (car panel) shown)))
-            (lispm-desktop-settings--panels))))
+            (lispm-desktop-settings--panels category))))
 
-(defun lispm-desktop-settings-menus ()
-  "Return the Control Panels menus, for the menu bar while they are in front."
-  `((lispm-desktop-settings-file ,(lispm-desktop-tr "File") lispm-desktop-settings--file-items)
-    (lispm-desktop-settings-view ,(lispm-desktop-tr "View") lispm-desktop-settings--view-items)))
+(defun lispm-desktop-settings-menus (category)
+  "Return the menus of the control panel CATEGORY, a key of
+`lispm-desktop-settings-categories', for the menu bar while it is in front."
+  `((lispm-desktop-settings-file ,(lispm-desktop-tr "File")
+                                 ,(lambda () (lispm-desktop-settings--file-items category)))
+    (lispm-desktop-settings-view ,(lispm-desktop-tr "View")
+                                 ,(lambda () (lispm-desktop-settings--view-items category)))))
+
+(defun lispm-desktop-settings--define-apps ()
+  "Make each control panel an application, which the Application menu
+lists while its window is open, as Mac OS 9's did.  Its large icon lets
+an alias of it stand on the desktop; not built in, the Applications
+folder leaves it out."
+  (pcase-dolist (`(,key ,name ,icon ,large-icon . ,_) lispm-desktop-settings-categories)
+    (lispm-desktop-define-app key :name name :icon icon :large-icon large-icon
+                              :menus (lambda () (lispm-desktop-settings-menus key))
+                              :activate (lambda () (lispm-desktop-settings-show-category key))
+                              :visible (lambda () (lispm-desktop-settings-open-p key))
+                              :listed-while-open t)))
 
 (defun lispm-desktop-setup-settings ()
-  "Make Control Panels an application: its folder holds a panel each, and
-its window follows the application in front and shows the theme's colours
-when they change, and what is chosen elsewhere: the sandbox level chosen
-with /sandbox in a chat, for one."
+  "Make the control panels applications, a category of settings each, the
+Control Panels folder holding them; their windows follow the application
+in front and show the theme's colours when they change, and what is
+chosen elsewhere: the sandbox level chosen with /sandbox in a chat, for
+one."
+  (lispm-desktop-settings--define-apps)
   (setf (alist-get 'control-panels lispm-desktop-finder-folders)
         `(:title ,(lispm-desktop-tr-noop "Control Panels") :icon "control-panels"
                  :items lispm-desktop-settings--folder-items))

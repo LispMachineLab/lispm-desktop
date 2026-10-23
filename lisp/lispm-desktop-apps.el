@@ -56,11 +56,7 @@
             :activate lispm-desktop-editor-activate)
     (browser :name ,(lispm-desktop-tr-noop "Browser") :icon "netscape" :menus lispm-desktop-browser-menus
              :activate lispm-desktop-browser-show :visible lispm-browser-available-p
-             :running lispm-browser-tabs)
-    (settings :name ,(lispm-desktop-tr-noop "Control Panels") :icon "control-panels"
-              :menus lispm-desktop-settings-menus
-              :activate lispm-desktop-settings-show :visible lispm-desktop-settings-open-p
-              :listed-while-open t))
+             :running lispm-browser-tabs))
   "The applications, in the Application menu's order: (KEY . PROPERTIES).
 :name and :icon (see `lispm-desktop-platinum-icon-file') name an application,
 :name in English, translated where shown, see `lispm-desktop-apps-name';
