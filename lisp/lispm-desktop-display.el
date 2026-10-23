@@ -557,9 +557,13 @@ CLIENT's process, each action numbered and kept."
       (lambda (item)
         (cond ((eq item 'separator) (list :separator t))
               ((not (plist-get item :label)) nil)
-              (t (let ((id (cl-incf (process-get client :menu-count)))
+              (t (let ((id (1+ (or (process-get client :menu-count) 0)))
                        (submenu (plist-get item :submenu)))
-                   (push (cons id (plist-get item :action)) (process-get client :menu-actions))
+                   ;; Not `cl-incf': on Emacs 30 it returns what `process-put' does.
+                   (process-put client :menu-count id)
+                   (process-put client :menu-actions
+                                (cons (cons id (plist-get item :action))
+                                      (process-get client :menu-actions)))
                    `(:id ,id :label ,(substring-no-properties (plist-get item :label))
                          :enabled ,(if (and (plist-member item :enabled) (not (plist-get item :enabled))) :false t)
                          :checked ,(if (plist-get item :checked) t :false)
