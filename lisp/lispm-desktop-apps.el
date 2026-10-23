@@ -59,7 +59,8 @@
              :running lispm-browser-tabs)
     (settings :name ,(lispm-desktop-tr-noop "Control Panels") :icon "control-panels"
               :menus lispm-desktop-settings-menus
-              :activate lispm-desktop-settings-show :visible lispm-desktop-settings-open-p))
+              :activate lispm-desktop-settings-show :visible lispm-desktop-settings-open-p
+              :listed-while-open t))
   "The applications, in the Application menu's order: (KEY . PROPERTIES).
 :name and :icon (see `lispm-desktop-platinum-icon-file') name an application,
 :name in English, translated where shown, see `lispm-desktop-apps-name';
@@ -67,11 +68,14 @@
 `lispm-desktop-platinum-menus-function' does, :activate brings it in front,
 :visible, when given, is a function deciding whether it can run here, and
 :running one deciding whether it runs now; without it, an application runs
-whenever it can.  :folder, a large icon as :icon is a small one, makes it
-an application built in: the Applications folder holds it, and the λ
-menu's Applications lists it, whether it runs or not.  The functions are
-symbols or lambdas; an application whose function is not defined does not
-run.  Applications installed later are added with `lispm-desktop-define-app'.")
+whenever it can.  :listed-while-open non-nil makes :visible say only
+whether its window is open, which lists it in the Application menu: it
+opens whatever :visible says, see `lispm-desktop-apps-openable-p'.
+:folder, a large icon as :icon is a small one, makes it an application
+built in: the Applications folder holds it, and the λ menu's Applications
+lists it, whether it runs or not.  The functions are symbols or lambdas;
+an application whose function is not defined does not run.  Applications
+installed later are added with `lispm-desktop-define-app'.")
 
 (defvar lispm-desktop-apps--frontmost nil
   "The application in front, a key of `lispm-desktop-apps', or nil at first.")
@@ -352,6 +356,23 @@ function."
       (unless (equal fullscreen (frame-parameter frame 'lispm-desktop-apps-fullscreen))
         (set-frame-parameter frame 'lispm-desktop-apps-fullscreen fullscreen)
         (run-at-time 1 nil #'lispm-desktop-apps--place-windows frame t)))))
+
+(defun lispm-desktop-apps-openable-p (app)
+  "Return non-nil when APP, a key of `lispm-desktop-apps', can be opened
+here: its :activate is a function, and its :visible, if any, says it can
+run, unless :listed-while-open says it only lists APP while its window
+is open, as Control Panels' and that of an application the App Store
+opens by its command do."
+  (let* ((props (alist-get app lispm-desktop-apps))
+         (visible (plist-get props :visible)))
+    (and (functionp (plist-get props :activate))
+         (or (plist-get props :listed-while-open) (not visible)
+             (and (functionp visible) (funcall visible) t)))))
+
+(defun lispm-desktop-apps-running-p (app)
+  "Return non-nil when APP, a key of `lispm-desktop-apps', runs now, as the
+Application menu lists it."
+  (and (assq app (lispm-desktop-apps--running)) t))
 
 (defun lispm-desktop-apps--available ()
   "Return the applications that can run here."

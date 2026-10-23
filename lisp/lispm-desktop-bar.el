@@ -93,12 +93,9 @@ Store installed as its catalogs describe them, the App Store and the
 Control Panels, a panel each."
   (let ((things nil))
     (pcase-dolist (`(,key . ,props) lispm-desktop-apps)
-      (let ((visible (plist-get props :visible))
-            (catalog (alist-get key lispm-desktop-store-installed)))
-        (when (and (not (eq key 'desktop))
-                   (functionp (plist-get props :activate))
-                   ;; Control Panels are offered whether open or not.
-                   (or (eq key 'settings) (not visible) (and (functionp visible) (funcall visible))))
+      (let ((catalog (alist-get key lispm-desktop-store-installed)))
+        ;; Those closed too: Control Panels, and what the App Store installed.
+        (when (and (not (eq key 'desktop)) (lispm-desktop-apps-openable-p key))
           (push (lispm-desktop-bar--application
                  (lispm-desktop-apps-name key) (plist-get props :icon)
                  (lambda () (lispm-desktop-apps-activate key))

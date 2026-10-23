@@ -11,7 +11,8 @@ skill gives you tools over them, and names the functions behind them for ~eval_e
 
 - ~desktop_apps~: every application that can run here, by its key, with its name, whether it runs
   now, whether a window of it is open, which one is in front, and where it comes from: LispM's
-  own, built in, or installed by the App Store.
+  own, built in, or installed by the App Store.  Control Panels and the App Store's applications
+  are listed while closed too, not running.
 - ~desktop_open~ APP: bring the application APP, a key ~desktop_apps~ gives, in front, opening
   its window.  An application the App Store lists but did not install is not there yet: the skill
   app-store installs it.
@@ -73,19 +74,10 @@ floating window of its own, which ~(lispm-desktop-app-window-close ID)~ closes.
   '(("applications" . applications) ("control-panels" . control-panels))
   "The folders desktop_folder names that are no directory on disk.")
 
-(defun lispm-desktop-skill-available-p (props)
-  "Non-nil when the application of PROPS can run here."
-  (let ((visible (plist-get props :visible)))
-    (or (not visible) (and (functionp visible) (funcall visible)))))
-
-(defun lispm-desktop-skill-running-p (props)
-  "Non-nil when the application of PROPS runs now."
-  (let ((running (plist-get props :running)))
-    (or (not running) (and (functionp running) (funcall running)))))
-
 (defun lispm-desktop-skill-apps ()
-  "The applications that can run here, as (KEY . PROPERTIES)."
-  (seq-filter (lambda (app) (lispm-desktop-skill-available-p (cdr app))) lispm-desktop-apps))
+  "The applications that can be opened here, as (KEY . PROPERTIES): Control
+Panels and those the App Store opens by their command whether open or not."
+  (seq-filter (lambda (app) (lispm-desktop-apps-openable-p (car app))) lispm-desktop-apps))
 
 (defun lispm-desktop-skill-app (name)
   "The key of the application NAME, a key or a name, case ignored; an error
@@ -129,7 +121,7 @@ if there is no such application."
                  (format "%s %s: %s; %s%s; %s"
                          (if (eq key front) ">" " ")
                          key (or (plist-get props :name) key)
-                         (if (lispm-desktop-skill-running-p props) "running" "not running")
+                         (if (lispm-desktop-apps-running-p key) "running" "not running")
                          (if (lispm-desktop-app-window-of-app key) ", its window open" "")
                          (lispm-desktop-skill-origin key props)))
                (lispm-desktop-skill-apps) "\n")))

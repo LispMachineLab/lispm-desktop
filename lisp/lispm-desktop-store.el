@@ -2030,7 +2030,8 @@ activates, is an error."
                 (list :menus (lambda () (lispm-desktop-app-ui-menus id)))))))
     (list :menus (lambda () (lispm-desktop-app-ui-menus id))
           :activate (lambda () (lispm-desktop-store-open id))
-          :visible (lambda () (lispm-desktop-app-window-open-p id)))))
+          :visible (lambda () (lispm-desktop-app-window-open-p id))
+          :listed-while-open t)))
 
 (defun lispm-desktop-store--register-app (id props)
   "Make the installed application ID, of PROPS, one of the desktop's: what
