@@ -69,5 +69,11 @@
   (add-to-list 'initial-frame-alist frame-setting))
 
 
+;; Started for an application opened on its own, LispM keeps its desktop
+;; out of sight, see lispm-desktop-standalone.el: the first frame, the
+;; desktop's, is made unseen.
+(when (and (eq initial-window-system 'ns) (member "--lispm-hidden" command-line-args))
+  (add-to-list 'initial-frame-alist '(visibility . nil)))
+
 (provide 'lispm-desktop-early)
 ;;; lispm-desktop-early.el ends here

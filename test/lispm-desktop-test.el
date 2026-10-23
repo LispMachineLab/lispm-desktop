@@ -6118,6 +6118,294 @@ usual, and a message already inhibited stays so."
             ((symbol-function 'frame-live-p) #'always))
     (should (eq (lispm-desktop-apps-screen) 'screen))))
 
+(ert-deftest lispm-desktop-test-coherence-out-of-sight ()
+  "The desktop hides out of sight only where windows can go out, and says
+so of itself once hidden so."
+  (should-error (lispm-desktop-coherence-put-out-of-sight) :type 'user-error)
+  (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p)
+             (lambda (&rest _) '(:left 0 :out-of-sight out-of-sight))))
+    (should (lispm-desktop-coherence-out-of-sight-p 'screen)))
+  (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&rest _) '(:left 0))))
+    (should-not (lispm-desktop-coherence-out-of-sight-p 'screen))))
+
+(ert-deftest lispm-desktop-test-apps-changed-hook ()
+  "Defining an application, or removing one, runs the hook the computer's
+applications are made by."
+  (let ((lispm-desktop-apps nil)
+        (lispm-desktop-apps--frontmost nil)
+        (runs 0))
+    (let ((lispm-desktop-apps-changed-hook (list (lambda () (cl-incf runs)))))
+      (lispm-desktop-define-app 'tetris :name "Tetris")
+      (lispm-desktop-define-app 'tetris :name "Tetris")
+      (lispm-desktop-remove-app 'tetris))
+    (should (= runs 3))))
+
+;;;; lispm-desktop-standalone
+
+(ert-deftest lispm-desktop-test-standalone-unsupported ()
+  "Applications open on their own only with a display, on macOS."
+  (should (string-match-p "display" (lispm-desktop-standalone-unsupported))))
+
+(ert-deftest lispm-desktop-test-standalone-started-hidden ()
+  "LispM started with --lispm-hidden keeps its desktop out of sight."
+  (let ((command-line-args '("emacs")))
+    (should-not (lispm-desktop-standalone-started-hidden-p)))
+  (let ((command-line-args '("emacs" "--lispm-hidden")))
+    (should (lispm-desktop-standalone-started-hidden-p))))
+
+(ert-deftest lispm-desktop-test-standalone-apps ()
+  "The applications installed from the App Store open on their own, and
+those built in that run here; the editor and the desktop do not."
+  (let ((lispm-desktop-apps
+         `((desktop :name "Desktop" :activate ignore)
+           (editor :name "Emacs" :activate ignore)
+           (store :name "App Store" :activate ignore)
+           (browser :name "Browser" :activate ignore)
+           (tetris :name "Tetris" :activate ignore :store t)
+           (broken :name "Broken" :store t))))
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+      (should (equal (lispm-desktop-standalone-apps) '(store tetris))))
+    (cl-letf (((symbol-function 'lispm-browser-available-p) #'always))
+      (should (equal (lispm-desktop-standalone-apps) '(store browser tetris))))))
+
+(ert-deftest lispm-desktop-test-standalone-bundle-plist ()
+  "A computer's application says which application it is, where LispM
+listens and how to start it, its name kept to what a file may be called
+and written as XML."
+  (let ((lispm-desktop-apps '((rock :name "Rock & Roll/Jazz: <Live>" :store t)))
+        (lispm-desktop-standalone-directory "/Applications/LispM Apps/"))
+    (should (equal (lispm-desktop-standalone--file-name 'rock) "Rock & Roll-Jazz- <Live>"))
+    (should (equal (lispm-desktop-standalone-bundle 'rock)
+                   "/Applications/LispM Apps/Rock & Roll-Jazz- <Live>.app"))
+    (should (equal (lispm-desktop-standalone--identifier 'rock) "org.lispmachinelab.lispm.app.rock"))
+    (let ((plist (lispm-desktop-standalone--info-plist
+                  'rock '("/Applications/LispM.app" "--lispm-hidden" "--init-directory=/a&b/") "STAMP")))
+      (should (string-match-p "<string>Rock &amp; Roll-Jazz- &lt;Live&gt;</string>" plist))
+      (should (string-match-p "<key>LispMApp</key>\n\t<string>rock</string>" plist))
+      (should (string-match-p (regexp-quote (lispm-desktop-display-socket)) plist))
+      (should (string-match-p "<key>LispMApplication</key>\n\t<string>/Applications/LispM.app</string>" plist))
+      (should (string-match-p "<array>\n\t\t<string>--lispm-hidden</string>\n\t\t<string>--init-directory=/a&amp;b/</string>\n\t</array>" plist))
+      (should-not (string-match-p "LSUIElement" plist))
+      (let ((bundle (make-temp-file "lispm-desktop-test-bundle" t)))
+        (unwind-protect
+            (progn
+              (should-not (lispm-desktop-standalone--made-stamp bundle))
+              (make-directory (expand-file-name "Contents" bundle))
+              (with-temp-file (expand-file-name "Contents/Info.plist" bundle)
+                (insert plist))
+              (should (equal (lispm-desktop-standalone--made-stamp bundle) "STAMP")))
+          (delete-directory bundle t))))))
+
+(ert-deftest lispm-desktop-test-standalone-emacs ()
+  "LispM's applications start the Emacs LispM runs in, out of sight:
+LispM.app names its init directory itself; another Emacs is told the
+init directory unless it is Emacs's own."
+  (let* ((root (make-temp-file "lispm-desktop-test-app" t))
+         (macos (expand-file-name "Test.app/Contents/MacOS/" root)))
+    (unwind-protect
+        (progn
+          (make-directory macos t)
+          (let ((invocation-directory macos)
+                (user-emacs-directory "/somewhere/init/"))
+            (should (equal (lispm-desktop-standalone--emacs)
+                           (list (file-truename (expand-file-name "Test.app" root))
+                                 "--lispm-hidden" "--init-directory=/somewhere/init/")))
+            (let ((user-emacs-directory "~/.emacs.d/"))
+              (should (equal (cdr (lispm-desktop-standalone--emacs)) '("--lispm-hidden"))))
+            (with-temp-file (expand-file-name "LispM" macos))
+            (set-file-modes (expand-file-name "LispM" macos) #o755)
+            (should (equal (cdr (lispm-desktop-standalone--emacs)) '("--lispm-hidden"))))
+          (let ((invocation-directory "/usr/local/bin/"))
+            (should-not (lispm-desktop-standalone--emacs))))
+      (delete-directory root t))))
+
+(ert-deftest lispm-desktop-test-standalone-dock ()
+  "With the desktop out of sight, LispM keeps out of the Dock while every
+window is drawn in its application's process, or is about to be; a
+window it shows itself puts its tile back, wearing that application's
+icon."
+  (let ((exported '(tetris-frame))
+        (lispm-desktop-apps--frontmost 'calculator)
+        (lispm-desktop-standalone--launched nil))
+    (cl-letf (((symbol-function 'lispm-desktop-standalone--screen) (lambda () 'screen))
+              ((symbol-function 'lispm-desktop-apps-windows) (lambda (_) '(tetris-frame calculator-frame)))
+              ((symbol-function 'frame-visible-p) (lambda (frame) (memq frame '(tetris-frame calculator-frame))))
+              ((symbol-function 'lispm-desktop-display-exported-p) (lambda (frame) (memq frame exported)))
+              ((symbol-function 'frame-parameter)
+               (lambda (frame parameter)
+                 (and (eq parameter 'lispm-desktop-app)
+                      (intern (string-remove-suffix "-frame" (symbol-name frame)))))))
+      (should (eq (lispm-desktop-standalone--dock-wanted) 'calculator))
+      (setf (alist-get 'calculator lispm-desktop-standalone--launched) (current-time))
+      (should (eq (lispm-desktop-standalone--dock-wanted) 'none))
+      (setq lispm-desktop-standalone--launched nil
+            exported '(tetris-frame calculator-frame))
+      (should (eq (lispm-desktop-standalone--dock-wanted) 'none)))
+    (cl-letf (((symbol-function 'lispm-desktop-standalone--screen) #'ignore))
+      (should-not (lispm-desktop-standalone--dock-wanted)))))
+
+;;;; lispm-desktop-display
+
+(ert-deftest lispm-desktop-test-display-socket ()
+  "Each init directory has a socket of its own, short enough for one."
+  (let ((temporary-file-directory "/var/folders/xy/abcdefghijklmnopqrstuvwxyz/T/"))
+    (let ((one (let ((user-emacs-directory "~/.lispm/lispm-desktop/")) (lispm-desktop-display-socket)))
+          (two (let ((user-emacs-directory "~/.emacs.d/")) (lispm-desktop-display-socket))))
+      (should (string-prefix-p temporary-file-directory one))
+      (should-not (equal one two))
+      (should (< (length one) 104)))))
+
+(ert-deftest lispm-desktop-test-display-build-plan ()
+  "The display is built with clang from its two sources, the module with
+this Emacs's header, in a directory named by what it is built from."
+  (let ((lispm-desktop-display-directory "/cache/display/"))
+    (cl-letf (((symbol-function 'executable-find) (lambda (program) (and (equal program "xcrun") "/usr/bin/xcrun")))
+              ((symbol-function 'lispm-desktop-display--module-header) (lambda () "/emacs/include/")))
+      (let ((system-type 'gnu/linux))
+        (should-not (lispm-desktop-display--build-plan)))
+      (let* ((system-type 'darwin)
+             (plan (lispm-desktop-display--build-plan))
+             (commands (plist-get plan :commands)))
+        (should (string-match-p "\\`/cache/display/[0-9a-f]\\{16\\}/\\'" (plist-get plan :directory)))
+        (should (string-suffix-p "/lispm-desktop-display.dylib" (plist-get plan :module)))
+        (should (string-suffix-p "/lispm-app" (plist-get plan :executable)))
+        (should (member "-dynamiclib" (car commands)))
+        (should (member "/emacs/include/" (car commands)))
+        (should (string-suffix-p "display.m" (car (last (car commands)))))
+        (should (string-suffix-p "app.m" (car (last (cadr commands)))))
+        (should-not (lispm-desktop-display--built-p plan))))))
+
+(ert-deftest lispm-desktop-test-display-keys ()
+  "A key from an application's process is Emacs's own event: Option is
+Meta, Command is Super, and keys that are no characters keep Shift."
+  (cl-flet ((key (key &rest mods)
+              (lispm-desktop-display--key (list :key key :mods mods))))
+    (should (eq (key "a") ?a))
+    (should (eq (key "a" "control") ?\C-a))
+    (should (eq (key "x" "meta") ?\M-x))
+    (should (eq (key "c" "super") ?\s-c))
+    (should (eq (key "left") 'left))
+    (should (eq (key "left" "shift") 'S-left))
+    (should (eq (key "return" "meta") 'M-return))
+    (should (eq (key "backspace") 'backspace))))
+
+(defmacro lispm-desktop-test--with-display-client (&rest body)
+  "Run BODY with `client' a process standing for an application's, nothing
+it is sent sent anywhere, and the events it brings in `unread-command-events'."
+  (declare (indent 0))
+  `(let ((client (make-pipe-process :name " lispm-desktop-test-client" :noquery t))
+         (unread-command-events nil)
+         (sent nil))
+     (unwind-protect
+         (cl-letf (((symbol-function 'lispm-desktop-display--send)
+                    (lambda (_client &rest message) (push message sent)))
+                   ((symbol-function 'lispm-desktop-display--keyboard) #'ignore))
+           ,@body)
+       (delete-process client))))
+
+(ert-deftest lispm-desktop-test-display-filter-lines ()
+  "What a process says comes in lines of JSON, which may arrive split."
+  (lispm-desktop-test--with-display-client
+    (let ((handled nil))
+      (cl-letf (((symbol-function 'lispm-desktop-display--handle)
+                 (lambda (_client message) (push message handled))))
+        (lispm-desktop-display--filter client "{\"op\":\"te")
+        (should-not handled)
+        (lispm-desktop-display--filter client "xt\",\"text\":\"λ\"}\n{\"op\":\"focus\",\"on\":false}\n{")
+        (should (equal (reverse handled) '((:op "text" :text "λ") (:op "focus" :on nil))))
+        (should (equal (process-get client :pending) "{"))))))
+
+(ert-deftest lispm-desktop-test-display-handle ()
+  "Keys and text become events at once; what may show something comes as a
+special event of its own, run from the command loop."
+  (lispm-desktop-test--with-display-client
+    (lispm-desktop-display--handle client '(:op "open" :app "tetris" :pid 42))
+    (should (eq (process-get client :app) 'tetris))
+    (lispm-desktop-display--handle client '(:op "text" :text "hé"))
+    (lispm-desktop-display--handle client '(:op "key" :key "g" :mods ("control")))
+    (lispm-desktop-display--handle client '(:op "menu" :id 3))
+    (lispm-desktop-display--handle client '(:op "quit"))
+    (should (equal unread-command-events
+                   (list (list 'lispm-desktop-display-open client) ?h ?é ?\C-g
+                         (list 'lispm-desktop-display-menu client 3)
+                         (list 'lispm-desktop-display-quit client))))
+    (dolist (event '(lispm-desktop-display-open lispm-desktop-display-menu
+                     lispm-desktop-display-quit lispm-desktop-display-desktop))
+      (let ((special-event-map (make-sparse-keymap)))
+        (lispm-desktop-display--bind-events)
+        (should (lookup-key special-event-map (vector event)))))))
+
+(ert-deftest lispm-desktop-test-display-mouse ()
+  "A press is a down event, a release where it was a click, double and
+triple too, a release elsewhere a drag; motion counts while pressed."
+  (lispm-desktop-test--with-display-client
+    (cl-letf (((symbol-function 'lispm-desktop-display--posn) (lambda (_client x y) (list 'posn x y))))
+      (cl-flet ((mouse (kind x y &optional clicks &rest mods)
+                  (lispm-desktop-display--mouse client (list :kind kind :button 1 :x x :y y
+                                                             :clicks (or clicks 1) :mods mods))))
+        (mouse "move" 1 1)
+        (should-not unread-command-events)
+        (mouse "down" 10 10)
+        (mouse "up" 11 10)
+        (should (equal unread-command-events '((down-mouse-1 (posn 10 10)) (mouse-1 (posn 11 10)))))
+        (setq unread-command-events nil)
+        (mouse "down" 10 10 2)
+        (mouse "up" 10 10 2)
+        (should (equal unread-command-events '((double-down-mouse-1 (posn 10 10))
+                                               (double-mouse-1 (posn 10 10)))))
+        (setq unread-command-events nil)
+        (mouse "down" 10 10 1 "control")
+        (mouse "move" 30 40)
+        (mouse "up" 30 40 1 "control")
+        (should (equal unread-command-events '((C-down-mouse-1 (posn 10 10))
+                                               (mouse-movement (posn 30 40))
+                                               (C-drag-mouse-1 (posn 10 10) (posn 30 40)))))))))
+
+(ert-deftest lispm-desktop-test-display-menus ()
+  "The application's menus go to its process as JSON, each item numbered,
+its action kept for when the process says it was chosen."
+  (lispm-desktop-test--with-display-client
+    (process-put client :menu-count 0)
+    (let ((items (lispm-desktop-display--menu-items
+                  client
+                  (lambda ()
+                    `((:label "New Game" :action tetris-start-game :key "n")
+                      separator
+                      (:label "Pause" :action ignore :enabled nil :checked t)
+                      (:label "More" :submenu ((:label "Deeper" :action identity))))))))
+      (should (equal (aref items 0) '(:id 1 :label "New Game" :enabled t :checked :false :key "n")))
+      (should (equal (aref items 1) '(:separator t)))
+      (should (equal (plist-get (aref items 2) :enabled) :false))
+      (should (equal (plist-get (aref items 2) :checked) t))
+      (should (equal (aref (plist-get (aref items 3) :items) 0)
+                     '(:id 4 :label "Deeper" :enabled t :checked :false)))
+      (should (eq (alist-get 1 (process-get client :menu-actions)) 'tetris-start-game))
+      (should (json-serialize (list :op "menus" :menus (vector (list :title "Game" :items items))))))))
+
+(ert-deftest lispm-desktop-test-display-labels ()
+  "The application menu of a process speaks LispM's language."
+  (let ((lispm-desktop-apps '((tetris :name "Tetris"))))
+    (should (equal (lispm-desktop-display--labels 'tetris)
+                   '(:about "About Tetris" :desktop "Show Desktop" :hide "Hide Tetris" :quit "Quit Tetris")))))
+
+(ert-deftest lispm-desktop-test-display-drag ()
+  "A window drawn in an application's process moves as the computer's
+windows do, its process dragging it; others, and growing, as before."
+  (lispm-desktop-test--with-display-client
+    (let ((dragged nil))
+      (cl-letf (((symbol-function 'lispm-desktop-display--client-of)
+                 (lambda (frame) (and (eq frame 'exported) client))))
+        (process-put client :down '(1 0 0 posn))
+        (should-not (lispm-desktop-display--drag-outline (lambda (&rest _) (setq dragged t)) 'exported 'move))
+        (should-not dragged)
+        (should (equal sent '((:op "drag"))))
+        (should-not (process-get client :down))
+        (lispm-desktop-display--drag-outline (lambda (&rest _) (setq dragged t)) 'exported 'grow)
+        (should dragged)
+        (setq dragged nil)
+        (lispm-desktop-display--drag-outline (lambda (&rest _) (setq dragged t)) 'other 'move)
+        (should dragged)))))
+
 ;;;; lispm-desktop-frame
 
 (defmacro lispm-desktop-test--with-frame-clock (&rest body)
