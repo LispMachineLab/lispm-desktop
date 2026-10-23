@@ -92,6 +92,7 @@ local settings, or in its old global configuration other than the default
                 (lispm-agents-setup-claude)
                 (cl-letf (((symbol-function 'lispm-agents-available-p) #'always)
                           ((symbol-function 'lispm-agents-ide-start) #'ignore)
+                          ((symbol-function 'lispm-agents-claude--context) #'ignore)
                           ((symbol-function 'lispm-desktop-terminal-make)
                            (lambda (_name &rest program)
                              (setq command program)
@@ -102,6 +103,17 @@ local settings, or in its old global configuration other than the default
                     (kill-buffer " *lispm-desktop-test-launch*"))))
               (should (equal command `("claude" ,@auto "--session-id" "x")))))
         (delete-directory home t)))))
+
+(ert-deftest lispm-desktop-test-agents-type-into-desktop-terminals ()
+  "Agents are given what they are sent, as typed, in the desktop's terminals."
+  (should (eq lispm-agents-terminal-send-function #'lispm-desktop-terminal-send))
+  (let (sent)
+    (cl-letf (((symbol-function 'lispm-desktop-term-buffer-p) #'always)
+              ((symbol-function 'lispm-desktop-term-send-string)
+               (lambda (string buffer &optional paste) (push (list string buffer paste) sent))))
+      (lispm-desktop-terminal-send 'terminal "\r")
+      (lispm-desktop-terminal-paste 'terminal "text"))
+    (should (equal sent '(("text" terminal t) ("\r" terminal nil))))))
 
 (ert-deftest lispm-desktop-test-agent-list-says-it-is-reading ()
   "The agents sidebar's bottom edge counts the sessions and the terminals

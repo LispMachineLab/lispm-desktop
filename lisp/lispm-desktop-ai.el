@@ -117,10 +117,13 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
   (when (lispm-agents-buffer-p buffer)
     (lispm-agents-icon (lispm-agents-of-buffer buffer))))
 
+(defvar lispm-agents-terminal-send-function)
+
 ;; On the desktop the agents run in its terminals and show in its windows.
 (setq lispm-agents-terminal-make-function #'lispm-desktop-terminal-make
       lispm-agents-terminal-live-p-function #'lispm-desktop-terminal-live-p
       lispm-agents-terminal-paste-function #'lispm-desktop-terminal-paste
+      lispm-agents-terminal-send-function #'lispm-desktop-terminal-send
       lispm-agents-show-function #'lispm-desktop-agent--show
       lispm-agents-main-window-function #'lispm-desktop-platinum-main-window
       lispm-agents-confirm-function #'lispm-desktop-agent--confirm

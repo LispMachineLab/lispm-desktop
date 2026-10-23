@@ -1224,6 +1224,7 @@ A buffer of that name still running is returned as it is."
 
 (declare-function eat-make "eat" (name program &optional startfile &rest switches))
 (declare-function eat-term-send-string-as-yank "eat" (terminal args))
+(declare-function eat-term-send-string "eat" (terminal string))
 (defvar eat-terminal)
 
 (defun lispm-desktop-terminal-make (name program &rest args)
@@ -1247,6 +1248,13 @@ It is a lispm-desktop-term once the module is built, else an Eat terminal."
       (lispm-desktop-term-send-string text buffer t)
     (with-current-buffer buffer
       (eat-term-send-string-as-yank eat-terminal (list text)))))
+
+(defun lispm-desktop-terminal-send (buffer text)
+  "Send TEXT to the program of terminal BUFFER, as typed."
+  (if (lispm-desktop-term-buffer-p buffer)
+      (lispm-desktop-term-send-string text buffer)
+    (with-current-buffer buffer
+      (eat-term-send-string eat-terminal text))))
 
 (defun lispm-desktop-term--title-status (buffer)
   "Return what the program of terminal BUFFER says it is doing, or nil.
