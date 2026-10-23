@@ -1486,8 +1486,17 @@ opened stays open; a program it runs runs on."
     (_ (lispm-desktop-tr "names nothing to open"))))
 
 (defun lispm-desktop-settings--startup ()
-  "Insert the Startup panel: whether the computer opens LispM at login,
-and the startup items LispM opens once started."
+  "Insert the Startup panel: what LispM starts as, whether the computer
+opens it at login, and the startup items LispM opens once started."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Start As"))
+  (lispm-desktop-settings--radio (lispm-desktop-tr "Desktop") (eq lispm-desktop-start-as 'desktop)
+                                 (lambda () (lispm-desktop-settings--save 'lispm-desktop-start-as 'desktop))
+                                 (lispm-desktop-tr "Windows, menus and applications"))
+  (lispm-desktop-settings--radio (lispm-desktop-tr "Terminal") (eq lispm-desktop-start-as 'terminal)
+                                 (lambda () (lispm-desktop-settings--save 'lispm-desktop-start-as 'terminal))
+                                 (lispm-desktop-tr "Sessions and a listener, by keyboard"))
+  (insert "\n")
+  (lispm-desktop-settings--note (lispm-desktop-tr "Takes effect at the next start."))
   (lispm-desktop-settings--heading (lispm-desktop-tr "Login"))
   (if (not (lispm-desktop-startup-login-file))
       (lispm-desktop-settings--paragraph (lispm-desktop-tr "This system gives LispM no way to open at login."))

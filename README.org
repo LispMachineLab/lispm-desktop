@@ -233,6 +233,27 @@ Emacs commands, and programs run in the background while LispM runs, their outpu
         (:program "npm run dev" :name "Site" :directory "~/site/")))
 #+end_src
 
+** Starting as the terminal
+
+LispM can start as LispM's terminal instead of the desktop: the sessions on the left, a listener
+on the right and a who line at the bottom, everything done from the keyboard by asking LispM, as
+on a Lisp Machine's console (LispM Agent's =M-x lispm-terminal=).  There is no menu bar, no
+window chrome, no Finder and no applications; the proxy, the keys, the language, the theme,
+LispM's agents, Software Update and the startup programs and commands are as on the desktop.
+Choose it under Start As in the Startup panel, with =M-x lispm-desktop-start-as-terminal= or
+Start as Terminal… in the Special menu, which offer to restart at once; back with
+=M-x lispm-desktop-start-as-desktop=.  For one start, the command line chooses (Emacs's own
+=--terminal= names a terminal device, hence =--start-as=):
+
+#+begin_src sh
+open -a LispM --args --start-as=terminal
+emacs -nw --init-directory ~/lispm-desktop --start-as=terminal
+#+end_src
+
+The choice is made as LispM is set up, before =personal.el= loads: set =lispm-desktop-start-as=
+with Customize, as the panel does, or before =(lispm-desktop-setup)= in a configuration of your
+own.
+
 ** Background work
 
 LispM Kernel ([[https://github.com/LispMachineLab/lispm-kernel][lispm-kernel]]), a runtime for work Emacs should not wait on, is on by default.

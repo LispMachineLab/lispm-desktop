@@ -318,13 +318,31 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
   :type 'boolean
   :group 'lispm-desktop)
 
-(defun lispm-desktop-setup-interface ()
-  "Set up interface."
+(defun lispm-desktop-setup-plain-interface ()
+  "Set up what of the interface needs no desktop, which LispM's terminal
+keeps too: parentheses paired and shown, the mouse and lines on a text
+terminal, the fonts, and neither splash screen nor bell."
   (electric-pair-mode 1)
+  (show-paren-mode 1)
   ;; A terminal reports the mouse only when asked to; on a graphical
   ;; display this changes nothing.
   (when lispm-desktop-tty-mouse
     (xterm-mouse-mode 1))
+  ;; On a text terminal, windows meet at a line and menus and alerts are
+  ;; outlined in lines, not in | - and +.
+  (when (fboundp 'standard-display-unicode-special-glyphs)
+    (standard-display-unicode-special-glyphs))
+  (when (lispm-desktop-gui-p)
+    (lispm-desktop-pin-default-font)
+    (lispm-desktop-pin-cjk-font))
+  ;; LispM opens on the desktop, as Mac OS did, or on its terminal: no
+  ;; splash screen.
+  (setq inhibit-startup-screen t
+        ring-bell-function 'ignore))
+
+(defun lispm-desktop-setup-interface ()
+  "Set up interface."
+  (lispm-desktop-setup-plain-interface)
   ;; A window moved on a text terminal leaves no copy where it was.
   (when (featurep 'tty-child-frames)
     (add-function :before pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames))
@@ -332,9 +350,6 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
   (lispm-desktop-tty-images-setup)
   (when (lispm-desktop-macos-p)
     (define-key global-map [ns-drag-file] 'ns-find-file))
-  (when (lispm-desktop-gui-p)
-    (lispm-desktop-pin-default-font)
-    (lispm-desktop-pin-cjk-font))
   (lispm-desktop-ansi-apply-faces)
   (add-hook 'enable-theme-functions #'lispm-desktop-ansi-apply-faces)
   (setq lispm-desktop-platinum-window-kind-function #'lispm-desktop-main-area--kind)
@@ -351,20 +366,12 @@ since the clicks are Emacs's.  See `xterm-mouse-mode'."
                '(lispm-desktop-sidebar-view-buffer-p lispm-desktop-sidebar-display-view))
   (setq switch-to-buffer-obey-display-actions t
         switch-to-buffer-in-dedicated-window 'pop)
-  ;; Emacs opens on the desktop, as Mac OS did: no splash screen.
-  (setq inhibit-startup-screen t
-        ring-bell-function 'ignore
-        doc-view-continuous t)
+  (setq doc-view-continuous t)
   (set-face-attribute 'mode-line nil :height 120)
   (when (fboundp 'menu-bar-mode)
     (menu-bar-mode 1)
     (mapc #'lispm-desktop-frame-menu-bar (frame-list))
     (add-hook 'after-make-frame-functions #'lispm-desktop-frame-menu-bar))
-  ;; On a text terminal, windows meet at a line and menus and alerts are
-  ;; outlined in lines, not in | - and +.
-  (when (fboundp 'standard-display-unicode-special-glyphs)
-    (standard-display-unicode-special-glyphs))
-  (show-paren-mode 1)
   (when (fboundp 'tooltip-mode)
     (tooltip-mode 1))
   (global-prettify-symbols-mode 1)

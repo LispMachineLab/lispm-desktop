@@ -47,6 +47,7 @@
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-deps)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-start-as)
 
 (defvar lispm-desktop-conversation-modes)
 (defvar lispm-interface)
@@ -206,8 +207,10 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
     (add-hook 'lispm-language-functions #'lispm-desktop-current-language)
     (add-hook 'lispm-desktop-language-changed-hook #'lispm-language-changed))
   (lispm-mode-line-mode 1)
-  ;; LispM itself, the system's agent, has a bar of its own in the menu bar.
-  (lispm-desktop-setup-bar))
+  ;; LispM itself, the system's agent, has a bar of its own in the menu
+  ;; bar; LispM's terminal has no menu bar, and talks to it in its listener.
+  (unless (lispm-desktop-started-as-terminal-p)
+    (lispm-desktop-setup-bar)))
 
 (provide 'lispm-desktop-lispm)
 ;;; lispm-desktop-lispm.el ends here

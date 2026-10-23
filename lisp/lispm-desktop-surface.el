@@ -1684,10 +1684,13 @@ removed in place of being moved to the Trash."
                 (lispm-desktop--items)))))
 
 (defun lispm-desktop--special-items ()
-  "Return the items of the desktop's Special menu, Mac OS 9's last ones."
+  "Return the items of the desktop's Special menu, Mac OS 9's last ones,
+and last, where its Logout was, LispM started as its terminal instead."
   `(,@(when (fboundp 'restart-emacs)
         `((:label ,(lispm-desktop-tr "Restart") :action restart-emacs)))
-    (:label ,(lispm-desktop-tr "Shut Down") :action save-buffers-kill-emacs)))
+    (:label ,(lispm-desktop-tr "Shut Down") :action save-buffers-kill-emacs)
+    separator
+    (:label ,(lispm-desktop-tr "Start as Terminal…") :action lispm-desktop-start-as-terminal)))
 
 (defun lispm-desktop--view-items ()
   "Return the items of the desktop's View menu."
