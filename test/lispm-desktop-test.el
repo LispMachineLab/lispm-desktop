@@ -13673,21 +13673,54 @@ terminal too.  One no package offers is not installed."
       (when-let* ((buffer (get-buffer (lispm-service-buffer-name 'lispm-desktop-test-echo))))
         (kill-buffer buffer)))))
 
+(defun lispm-desktop-test--popup-choosing (label)
+  "Return a stand-in for `lispm-desktop-settings--popup-under-button' that
+chooses the item LABEL, following submenus, and runs it."
+  (lambda (items) (lispm-desktop-popup--run (funcall (lispm-desktop-test--choose label) items))))
+
 (ert-deftest lispm-desktop-test-startup-add-service ()
-  "The Startup panel adds a service an installed package offers, asking at
-which sandbox level it runs, which it keeps as the service's own."
+  "Add… pops up a menu of what can open at startup; its Service submenu
+lists the services packages offer, each with the sandbox levels.  The
+one chosen is added, its level kept as the service's own, and it is
+offered no more, the level it has checked."
   (skip-unless (require 'lispm-services nil t))
   (let ((lispm-services nil)
         (lispm-service-levels nil)
         (lispm-desktop-startup-items nil)
-        (answers (list "Service of an installed package, in the sandbox" "Echo" "Middle")))
+        (shown nil))
     (lispm-define-service 'lispm-desktop-test-echo :name "Echo" :command '("true"))
-    (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
+    (cl-letf (((symbol-function 'lispm-desktop-settings--popup-under-button)
+               (lambda (items)
+                 (setq shown items)
+                 (funcall (lispm-desktop-test--popup-choosing "Middle") items)))
               ((symbol-function 'customize-save-variable)
                (lambda (variable value) (set variable value))))
       (lispm-desktop-settings--startup-add))
+    (should (equal (mapcar (lambda (item) (and (consp item) (plist-get item :label))) shown)
+                   '("Application" "Document or Folder…" "Program, Run in the Background…"
+                     "Service, in the Sandbox" nil "Emacs Command…")))
     (should (equal lispm-desktop-startup-items '((:service lispm-desktop-test-echo))))
-    (should (equal lispm-service-levels '((lispm-desktop-test-echo . middle))))))
+    (should (equal lispm-service-levels '((lispm-desktop-test-echo . middle))))
+    (let ((echo (car (lispm-desktop-settings--startup-service-items))))
+      (should-not (lispm-desktop-popup--enabled-p echo))
+      (should (plist-get echo :checked))
+      (should (plist-get (seq-find (lambda (item) (equal (plist-get item :label) "Middle"))
+                                   (lispm-desktop-popup--submenu echo))
+                         :checked)))))
+
+(ert-deftest lispm-desktop-test-startup-add-app ()
+  "Add…'s Application submenu lists the applications by name; one among
+the startup items already is checked and not offered again."
+  (let* ((lispm-desktop-apps '((stickies :name "Stickies") (browser :name "Browser")))
+         (lispm-desktop-startup-items '((:app browser)))
+         (items (lispm-desktop-settings--startup-app-items)))
+    (should (equal (mapcar (lambda (item) (plist-get item :label)) items) '("Browser" "Stickies")))
+    (should (plist-get (car items) :checked))
+    (should-not (lispm-desktop-popup--enabled-p (car items)))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (set variable value))))
+      (lispm-desktop-popup--run (cadr items)))
+    (should (equal lispm-desktop-startup-items '((:app browser) (:app stickies))))))
 
 (ert-deftest lispm-desktop-test-startup-after-start ()
   "The startup items open once Emacs waits for input, never in a batch
@@ -13710,10 +13743,13 @@ check box, and adds and removes them."
   (let ((saved nil)
         (login nil)
         (answers nil)
+        (choice nil)
         (lispm-desktop-start-as 'desktop)
         (lispm-desktop-startup-items '((:app browser) (:program "ollama serve" :disabled t))))
     (cl-letf (((symbol-function 'lispm-desktop-startup-login-file) (lambda () "/nowhere/lispm.plist"))
               ((symbol-function 'lispm-desktop-open-at-login) (lambda (open) (setq login (list open))))
+              ((symbol-function 'lispm-desktop-settings--popup-under-button)
+               (lambda (items) (funcall (lispm-desktop-test--popup-choosing choice) items)))
               ((symbol-function 'customize-save-variable)
                (lambda (variable value) (push (cons variable value) saved) (set variable value)))
               ((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
@@ -13748,13 +13784,15 @@ check box, and adds and removes them."
           ;; The program's check box turns it on.
           (funcall press "ollama")
           (should (equal lispm-desktop-startup-items '((:app browser) (:program "ollama serve"))))
-          (setq answers '("Program, run in the background" "make serve" "~/site/" "Site"))
+          ;; Add… and Remove… pop up menus.
+          (setq choice "Program, Run in the Background…"
+                answers '("make serve" "~/site/" "Site"))
           (funcall press "Add…")
           (should (equal (car (last lispm-desktop-startup-items))
                          '(:program "make serve" :directory "~/site/" :name "Site")))
-          (setq answers '("Program, run in the background" "make serve" "~/" "Site"))
+          (setq answers '("make serve" "~/" "Site"))
           (should-error (funcall press "Add…") :type 'user-error)
-          (setq answers '("Browser"))
+          (setq choice "Browser")
           (funcall press "Remove…")
           (should (equal (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)
                          '("ollama" "Site")))
