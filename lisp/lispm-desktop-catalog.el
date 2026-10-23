@@ -71,11 +71,14 @@
 ;; with :feature, a library that, loaded, says what the application does
 ;; with `lispm-desktop-define-app' under the item's ID.  An extension's
 ;; :feature, loaded, makes it take part in the editor; its :program is
-;; what it needs on PATH, :install how to install that; its :category,
-;; when it names one, files it there, as AI Harness one bringing an
-;; agent into the editor, and one naming none is in Extensions.  :needs
-;; are what an application uses beyond Emacs, each (KIND NAME :for WHAT
-;; ...), see `lispm-desktop-catalog-need-properties'.  :requires names
+;; what it needs on PATH, :install how to install that by hand; its
+;; :category, when it names one, files it there, as AI Harness one
+;; bringing an agent into the editor, and one naming none is in
+;; Extensions.  :needs are what an application or an extension uses
+;; beyond Emacs, each (KIND NAME :for WHAT ...), see
+;; `lispm-desktop-catalog-need-properties': the App Store installs them
+;; with it, so a program Homebrew or Cargo installs is an extension's
+;; need, not its :program, which its user installs.  :requires names
 ;; the items installed before it.  :emacs is the lowest major version of
 ;; Emacs it runs in, as 32 for what only Emacs 32's canvas images can
 ;; show: an older Emacs's App Store lists it, but does not install it.
@@ -125,7 +128,7 @@ An application gives its :category too; an extension may.")
   `((app :required (:kind ,@lispm-desktop-catalog-listing :category)
          :optional (:package :command :feature :needs :requires :emacs))
     (extension :required (:kind ,@lispm-desktop-catalog-listing :package :feature)
-               :optional (:category :program :install :requires :emacs)))
+               :optional (:category :program :install :needs :requires :emacs)))
   "The properties an item of each kind has, as (KIND :required KEYS
 :optional KEYS).  An application has :command or :feature besides.")
 
@@ -163,22 +166,22 @@ NAME, formatted with each FORMAT.")
   "The properties of a package pinned to a commit of its repository.")
 
 (defconst lispm-desktop-catalog-need-kinds '(program library application)
-  "The kinds of what an application needs beyond Emacs: a program on
+  "The kinds of what an item needs beyond Emacs: a program on
 PATH, a library, or an application, NAME.app.")
 
 (defconst lispm-desktop-catalog-need-properties
   '(:for :brew :cask :head :xcode :cargo :instead :more :commands :variables :file :bundle)
   "The properties of a need, (KIND NAME :for WHAT ...):
 
-:for       what the application needs it for
+:for       what the application or extension needs it for
 :brew      the Homebrew formula installing it; :cask for an application
 :head      t to install the formula's HEAD, where its release is too old
 :xcode     t for a program of Apple's command line tools
 :cargo     the crate Cargo builds a program from, for one Homebrew lacks
 :instead   programs doing its work while it is missing
 :more      what it does that they do not
-:commands  the application's commands needing it
-:variables the application's options holding it, set again once installed
+:commands  its commands needing it
+:variables its options holding it, set again once installed
 :file      a library's file, under its formula's prefix
 :bundle    an application's bundle identifier")
 
@@ -295,8 +298,8 @@ a name Homebrew would not give is an error."
       (_ (wrong "a need is (KIND NAME :for WHAT ...)")))))
 
 (defun lispm-desktop-catalog-needs-problems (needs)
-  "Return what is wrong with NEEDS, an application's :needs, as
-`lispm-desktop-catalog-need-problems' says it of each."
+  "Return what is wrong with NEEDS, an application's or an extension's
+:needs, as `lispm-desktop-catalog-need-problems' says it of each."
   (if (proper-list-p needs)
       (mapcan #'lispm-desktop-catalog-need-problems needs)
     (list (cons 'error ":needs is a list of (KIND NAME :for WHAT ...)"))))
@@ -366,7 +369,8 @@ only an application has: how it opens, its category, its needs."
 
 (defun lispm-desktop-catalog--extension-problems (props)
   "Return what is wrong with PROPS, an extension's properties, in what only
-an extension has: its feature, the program it needs, its category."
+an extension has: its feature, the program it needs, its category; and
+in its needs, as an application's."
   (append
    (lispm-desktop-catalog--saying
      (unless (lispm-desktop-catalog--symbol-p (plist-get props :feature))
@@ -377,8 +381,15 @@ an extension has: its feature, the program it needs, its category."
            (cond ((not (stringp value)) (wrong "%s is a string" key))
                  ((not (lispm-desktop-catalog--line-p value)) (short "%s is a string of one line" key))))))
      (when (and (plist-member props :install) (not (plist-member props :program)))
-       (short ":install says how to install its :program, which it lacks")))
-   (lispm-desktop-catalog-category-problems 'extension (plist-get props :category))))
+       (short ":install says how to install its :program, which it lacks"))
+     ;; Its :program missing, it is not installed: the need would never be.
+     (when-let* ((program (plist-get props :program))
+                 ((proper-list-p (plist-get props :needs)))
+                 ((seq-find (lambda (need) (equal (car-safe (cdr-safe need)) program))
+                            (plist-get props :needs))))
+       (short ":program %s is one of its :needs, which install it: the need is enough" program)))
+   (lispm-desktop-catalog-category-problems 'extension (plist-get props :category))
+   (lispm-desktop-catalog-needs-problems (plist-get props :needs))))
 
 (defun lispm-desktop-catalog--spdx-p (license)
   "Return non-nil when LICENSE reads as an SPDX expression: identifiers,
