@@ -16,8 +16,8 @@ over the App Store, and names the functions behind them for ~eval_elisp~.
   each counts by how well it matches an item's name, subtitle, description, category, skills,
   needs and introduction, a word misspelt or begun counting too, and what matches most words
   comes first.  CATEGORY keeps one category (~news~, ~music~, ~social~, ~productivity~,
-  ~utilities~, ~games~, ~classic-ai~, ~extensions~ or ~updates~, those an update is ready for);
-  INSTALLED keeps those installed.
+  ~utilities~, ~games~, ~classic-ai~, ~ai-harness~, ~extensions~ or ~updates~, those an update is
+  ready for); INSTALLED keeps those installed.
 - ~store_item~ ID: all the App Store knows of one item: its description and introduction, who
   made it and under what licence, where it comes from, what it requires and needs beyond Emacs
   (a program such as a music player), whether it is installed, being installed, or failed, and
@@ -57,8 +57,9 @@ words that find them:
   application signs in to the accounts, in the browser, which only the user does; its skill
   then switches the model LispM's agents use, once the user approves.
 - Web feeds, music, videos: ~news~ and ~music~.  Chat: ~social~.  Passwords, what agents run,
-  notes: ~utilities~ and ~productivity~.  Other agents in the editor, Common Lisp: ~extensions~.
-  The programs of AI's first decades: ~classic-ai~.
+  notes: ~utilities~ and ~productivity~.  Other agents in the editor: ~ai-harness~.  Common Lisp
+  and the editor's other extensions: ~extensions~.  The programs of AI's first decades:
+  ~classic-ai~.
 
 * Installing, updating, uninstalling
 
@@ -244,8 +245,8 @@ with what ENDED, a function of no argument, returns, (TEXT . FAILED)."
 (lispm-deftool store_search
     ((query string "A few words of what the user wants done, or of an item's name." :optional t)
      (category string "Only the items of this category." :optional t
-               :enum ("news" "music" "social" "productivity" "utilities" "games" "classic-ai" "extensions"
-                      "updates"))
+               :enum ("news" "music" "social" "productivity" "utilities" "games" "classic-ai" "ai-harness"
+                      "extensions" "updates"))
      (installed boolean "Only the items installed (default false)." :optional t))
   "Find the App Store's applications and extensions for what the user wants done, the best matches first, with what each is, its status and the skills it gives agents."
   (let* ((items (lispm-desktop-skill-store-items))

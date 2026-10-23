@@ -62,9 +62,11 @@
 ;; lispm-desktop-app-ui.el; the commands a need names offer it too.
 ;; :category, one of `lispm-desktop-store-categories', as Classic AI, the
 ;; programs of AI's first decades, ELIZA's Doctor, SHRDLU and MYCIN, and
-;; :subtitle, a few words, place an application in the window.  :requires names the
-;; items installed before.  Items of other kinds, as LispM's roles, are
-;; not the App Store's: it passes them over.
+;; :subtitle, a few words, place an application in the window; an
+;; extension is in Extensions, or in AI Harness when it brings an agent
+;; into the editor, as Hermes, and says so with its :category.
+;; :requires names the items installed before.  Items of other kinds, as
+;; LispM's roles, are not the App Store's: it passes them over.
 ;;
 ;; A catalog's skills, LispM Agent's manuals of what its applications and
 ;; extensions let agents do, come with them: never shown in the grid nor
@@ -204,12 +206,14 @@ NAME in English, translated where shown.")
     (utilities ,(lispm-desktop-tr-noop "Utilities"))
     (games ,(lispm-desktop-tr-noop "Games"))
     (classic-ai ,(lispm-desktop-tr-noop "Classic AI"))
+    (ai-harness ,(lispm-desktop-tr-noop "AI Harness"))
     (extensions ,(lispm-desktop-tr-noop "Extensions"))
     (updates ,(lispm-desktop-tr-noop "Updates")))
   "The categories down the App Store's left side, in order: (CATEGORY NAME),
 NAME in English, translated where shown.
-An application names its :category in its catalog; every extension is in
-Extensions.  All holds every item and Updates those an update is ready
+An application names its :category in its catalog; an extension is in
+Extensions unless it names one of `lispm-desktop-catalog-extension-categories',
+as AI Harness.  All holds every item and Updates those an update is ready
 for; a category holding nothing is left out.")
 
 (defconst lispm-desktop-store-buffer-name " *App Store*"
@@ -576,9 +580,13 @@ Emacs is older, or nil."
     (and (natnump emacs) (< emacs-major-version emacs) emacs)))
 
 (defun lispm-desktop-store--category-of (props)
-  "Return the category of the item of PROPS: Extensions for an extension,
-else its :category."
-  (if (eq (plist-get props :kind) 'extension) 'extensions (plist-get props :category)))
+  "Return the category of the item of PROPS: its :category; for an
+extension, the one it names of `lispm-desktop-catalog-extension-categories',
+else Extensions."
+  (let ((category (plist-get props :category)))
+    (if (eq (plist-get props :kind) 'extension)
+        (if (memq category lispm-desktop-catalog-extension-categories) category 'extensions)
+      category)))
 
 (defun lispm-desktop-store--action (id props)
   "Return what the button of the item ID, of PROPS, does, as (LABEL .

@@ -959,6 +959,7 @@
   ("Utilities" . "ユーティリティ")
   ("Games" . "ゲーム")
   ("Classic AI" . "クラシックAI")
+  ("AI Harness" . "AIハーネス")
   ("Updates" . "アップデート")
   ("git failed" . "gitでエラーが起きました")
   ("The App Store is checking its catalogs already" . "App Storeはすでにカタログを確認中です")

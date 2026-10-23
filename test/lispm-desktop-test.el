@@ -8907,6 +8907,22 @@ neither."
                                                      :icon "x" :banner "x" :about "x" :author "X"
                                                      :license "MIT" :feature x :package x))
                    '("an extension's :package is (NAME :url URL :rev SHA), from git")))
+    ;; An extension may name its category, one of an extension's.
+    (let ((extension (lambda (category)
+                       `(x :kind extension :name "X" :subtitle "X" :description "X." :icon "x"
+                           :banner "x" :about "x" :author "X" :license "MIT" :feature x
+                           :package (x :url "https://example.org/x"
+                                       :rev "acbb86e342d2b8f85dfb30dce9df01db9a829c77")
+                           ,@(and category (list :category category))))))
+      (should-not (lispm-desktop-catalog-item-problems (funcall extension nil)))
+      (should-not (lispm-desktop-catalog-item-problems (funcall extension 'ai-harness)))
+      (should (equal (lispm-desktop-test--problems (funcall extension 'games))
+                     '(":category is one of ai-harness")))
+      (should (equal (lispm-desktop-test--problems (funcall extension "ai-harness"))
+                     '(":category is a symbol"))))
+    (should (equal (lispm-desktop-test--problems (funcall item :category 'ai-harness) 'warning)
+                   (list (concat ":category is one of "
+                                 (mapconcat #'symbol-name lispm-desktop-catalog-categories ", ")))))
     (should-not (lispm-desktop-catalog-item-problems '(reviewer :kind role :name "Reviewer" :file "roles/r.org")))
     (should (lispm-desktop-catalog-item-problems '("elfeed" :kind app)))))
 
@@ -8971,10 +8987,11 @@ its introduction."
 
 (ert-deftest lispm-desktop-test-catalog-agrees-with-the-store ()
   "The App Store installs the kinds the catalog's format names, and lists
-its categories, besides All, Extensions and Updates."
+its categories, an application's and then an extension's, besides All,
+Extensions and Updates."
   (should (equal (mapcar #'car lispm-desktop-store-kinds) lispm-desktop-catalog-kinds))
   (should (equal (seq-difference (mapcar #'car lispm-desktop-store-categories) '(all extensions updates))
-                 lispm-desktop-catalog-categories))
+                 (append lispm-desktop-catalog-categories lispm-desktop-catalog-extension-categories)))
   (should (equal lispm-desktop-needs-kinds lispm-desktop-catalog-need-kinds)))
 
 (ert-deftest lispm-desktop-test-store-catalogs-read ()
@@ -10400,20 +10417,26 @@ packages, those that read back alone, and runs the installer on its task."
 (ert-deftest lispm-desktop-test-store-categories ()
   "The categories down the left are All, those holding an item, in their
 order, and Updates, each with its count; an extension is in Extensions,
-whatever category it names; a search keeps the items it matches."
+or in AI Harness when it names it, never in an application's category;
+a search keeps the items it matches."
   (lispm-desktop-test--with-store
     (lispm-desktop-test--store-catalog
      "https://example.org/store"
      '((tetris :kind app :name "Tetris" :command tetris :category games :subtitle "Falling blocks")
        (snake :kind app :name "Snake" :command snake :category games)
        (calculator :kind app :name "Calculator" :command calc :category utilities)
-       (ext :kind extension :name "Ext" :feature ext :package ext :category games)))
+       (ext :kind extension :name "Ext" :feature ext :package ext :category games)
+       (agent :kind extension :name "Agent" :feature agent :package agent :category ai-harness)))
     (should (equal (lispm-desktop-store--categories)
-                   '((all "All" 4) (utilities "Utilities" 1) (games "Games" 2)
+                   '((all "All" 5) (utilities "Utilities" 1) (games "Games" 2) (ai-harness "AI Harness" 1)
                      (extensions "Extensions" 1) (updates "Updates" 0))))
     (with-temp-buffer
       (setq lispm-desktop-store--category 'games)
       (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(snake tetris)))
+      (setq lispm-desktop-store--category 'ai-harness)
+      (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(agent)))
+      (setq lispm-desktop-store--category 'extensions)
+      (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(ext)))
       (setq lispm-desktop-store--category 'all
             lispm-desktop-store--filter "BLOCK")
       (should (equal (mapcar #'car (lispm-desktop-store--shown)) '(tetris)))

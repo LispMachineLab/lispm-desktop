@@ -71,12 +71,14 @@
 ;; with :feature, a library that, loaded, says what the application does
 ;; with `lispm-desktop-define-app' under the item's ID.  An extension's
 ;; :feature, loaded, makes it take part in the editor; its :program is
-;; what it needs on PATH, :install how to install that.  :needs are what
-;; an application uses beyond Emacs, each (KIND NAME :for WHAT ...), see
-;; `lispm-desktop-catalog-need-properties'.  :requires names the items
-;; installed before it.  :emacs is the lowest major version of Emacs it
-;; runs in, as 32 for what only Emacs 32's canvas images can show: an
-;; older Emacs's App Store lists it, but does not install it.
+;; what it needs on PATH, :install how to install that; its :category,
+;; when it names one, files it there, as AI Harness one bringing an
+;; agent into the editor, and one naming none is in Extensions.  :needs
+;; are what an application uses beyond Emacs, each (KIND NAME :for WHAT
+;; ...), see `lispm-desktop-catalog-need-properties'.  :requires names
+;; the items installed before it.  :emacs is the lowest major version of
+;; Emacs it runs in, as 32 for what only Emacs 32's canvas images can
+;; show: an older Emacs's App Store lists it, but does not install it.
 ;;
 ;; A skill is LispM Agent's manual of what applications and extensions
 ;; let agents do, an org file of instructions and of code defining tools:
@@ -117,13 +119,13 @@
   '(:name :subtitle :description :icon :banner :about :author :license)
   "What every application and extension gives of itself, which its page in
 the App Store shows: lacking any of it, the App Store does not list it.
-An application gives its :category too.")
+An application gives its :category too; an extension may.")
 
 (defconst lispm-desktop-catalog-properties
   `((app :required (:kind ,@lispm-desktop-catalog-listing :category)
          :optional (:package :command :feature :needs :requires :emacs))
     (extension :required (:kind ,@lispm-desktop-catalog-listing :package :feature)
-               :optional (:program :install :requires :emacs)))
+               :optional (:category :program :install :requires :emacs)))
   "The properties an item of each kind has, as (KIND :required KEYS
 :optional KEYS).  An application has :command or :feature besides.")
 
@@ -135,7 +137,11 @@ with the applications and extensions it :requires, never on its own: its
 and its :file, skills/ID.org or skills/ID/.")
 
 (defconst lispm-desktop-catalog-categories '(news music social productivity utilities games classic-ai)
-  "The categories an application names; every extension is in Extensions.")
+  "The categories an application names.")
+
+(defconst lispm-desktop-catalog-extension-categories '(ai-harness)
+  "The categories an extension may name: AI Harness, for one bringing an
+agent into the editor.  An extension naming none is in Extensions.")
 
 (defconst lispm-desktop-catalog-files
   '((:icon "icons/%s.svg" "icons/%s-32.svg")
@@ -329,6 +335,17 @@ a name Homebrew would not give is an error."
              (wrong ":lisp-dir is a directory inside the package")))))
       (_ (wrong ":package is a package's name or (NAME :url URL :rev SHA)")))))
 
+(defun lispm-desktop-catalog-category-problems (kind category)
+  "Return what is wrong with CATEGORY, the :category of an item of KIND, as
+a list of (SEVERITY . TEXT), see `lispm-desktop-catalog-item-problems'."
+  (let ((categories (if (eq kind 'extension)
+                        lispm-desktop-catalog-extension-categories
+                      lispm-desktop-catalog-categories)))
+    (lispm-desktop-catalog--saying
+      (cond ((not (symbolp category)) (wrong ":category is a symbol"))
+            ((and category (not (memq category categories)))
+             (short ":category is one of %s" (mapconcat #'symbol-name categories ", ")))))))
+
 (defun lispm-desktop-catalog--application-problems (props)
   "Return what is wrong with PROPS, an application's properties, in what
 only an application has: how it opens, its category, its needs."
@@ -343,27 +360,25 @@ only an application has: how it opens, its category, its needs."
              ((and feature (not (lispm-desktop-catalog--symbol-p feature)))
               (wrong ":feature is a library's name"))
              ((and command feature)
-              (short "an application has :command or :feature, not both"))))
-     (let ((category (plist-get props :category)))
-       (cond ((not (symbolp category)) (wrong ":category is a symbol"))
-             ((and category (not (memq category lispm-desktop-catalog-categories)))
-              (short ":category is one of %s"
-                     (mapconcat #'symbol-name lispm-desktop-catalog-categories ", "))))))
+              (short "an application has :command or :feature, not both")))))
+   (lispm-desktop-catalog-category-problems 'app (plist-get props :category))
    (lispm-desktop-catalog-needs-problems (plist-get props :needs))))
 
 (defun lispm-desktop-catalog--extension-problems (props)
   "Return what is wrong with PROPS, an extension's properties, in what only
-an extension has: its feature, and the program it needs."
-  (lispm-desktop-catalog--saying
-    (unless (lispm-desktop-catalog--symbol-p (plist-get props :feature))
-      (wrong "an extension needs :feature, the library its package provides"))
-    (dolist (key '(:program :install))
-      (when (plist-member props key)
-        (let ((value (plist-get props key)))
-          (cond ((not (stringp value)) (wrong "%s is a string" key))
-                ((not (lispm-desktop-catalog--line-p value)) (short "%s is a string of one line" key))))))
-    (when (and (plist-member props :install) (not (plist-member props :program)))
-      (short ":install says how to install its :program, which it lacks"))))
+an extension has: its feature, the program it needs, its category."
+  (append
+   (lispm-desktop-catalog--saying
+     (unless (lispm-desktop-catalog--symbol-p (plist-get props :feature))
+       (wrong "an extension needs :feature, the library its package provides"))
+     (dolist (key '(:program :install))
+       (when (plist-member props key)
+         (let ((value (plist-get props key)))
+           (cond ((not (stringp value)) (wrong "%s is a string" key))
+                 ((not (lispm-desktop-catalog--line-p value)) (short "%s is a string of one line" key))))))
+     (when (and (plist-member props :install) (not (plist-member props :program)))
+       (short ":install says how to install its :program, which it lacks")))
+   (lispm-desktop-catalog-category-problems 'extension (plist-get props :category))))
 
 (defun lispm-desktop-catalog--spdx-p (license)
   "Return non-nil when LICENSE reads as an SPDX expression: identifiers,

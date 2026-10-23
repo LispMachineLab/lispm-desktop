@@ -959,6 +959,7 @@
   ("Utilities" . "工具程式")
   ("Games" . "遊戲")
   ("Classic AI" . "經典 AI")
+  ("AI Harness" . "AI Harness")
   ("Updates" . "更新項目")
   ("git failed" . "git 執行失敗")
   ("The App Store is checking its catalogs already" . "App Store 已在檢查它的目錄")

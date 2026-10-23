@@ -959,6 +959,7 @@
   ("Utilities" . "Dienstprogramme")
   ("Games" . "Spiele")
   ("Classic AI" . "Klassische KI")
+  ("AI Harness" . "KI-Harness")
   ("Updates" . "Updates")
   ("git failed" . "git ist fehlgeschlagen")
   ("The App Store is checking its catalogs already" . "Der App Store prüft seine Kataloge bereits")
