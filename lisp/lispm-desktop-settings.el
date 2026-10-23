@@ -1395,94 +1395,127 @@ LispM runs on, which LispM.app switches."
    (lispm-desktop-tr "A change takes effect at once, and nothing needs restarting.  What it lacks, the Installer gets."))
   (lispm-desktop-settings--emacs-kernel))
 
-(defun lispm-desktop-settings--startup-read-item ()
-  "Ask what LispM is to open at startup; return it as a startup item, see
-`lispm-desktop-startup-items'."
-  (let* ((kinds `((,(lispm-desktop-tr "Application") . app) (,(lispm-desktop-tr "Document or folder") . file)
-                  (,(lispm-desktop-tr "Program, run in the background") . program)
-                  ;; Where LispM Agent has services, and a package offers one.
-                  ,@(when (bound-and-true-p lispm-services)
-                      `((,(lispm-desktop-tr "Service of an installed package, in the sandbox") . service)))
-                  (,(lispm-desktop-tr "Emacs command") . command)))
-         (kind (or (cdr (assoc (completing-read (lispm-desktop-tr "Open at startup: ") kinds nil t) kinds))
-                   (user-error (lispm-desktop-tr "Choose what to open")))))
-    (pcase kind
-      ('app
-       (let ((apps (mapcar (pcase-lambda (`(,key . ,properties))
-                             (cons (lispm-desktop-tr (plist-get properties :name)) key))
-                           lispm-desktop-apps)))
-         (list :app (or (cdr (assoc (completing-read (lispm-desktop-tr "Application: ") apps nil t) apps))
-                        (user-error (lispm-desktop-tr "Choose an application"))))))
-      ('file
-       (list :file (abbreviate-file-name (read-file-name (lispm-desktop-tr "Document or folder: ") nil nil t))))
-      ('program
-       (let ((command (string-trim (read-string (lispm-desktop-tr "Program, as a shell command: ")))))
-         (when (string-empty-p command)
-           (user-error (lispm-desktop-tr "Type the command running the program")))
-         (let* ((directory (abbreviate-file-name
-                            (file-name-as-directory
-                             (read-directory-name (lispm-desktop-tr "Run it in: ") "~/" nil t))))
-                (default (lispm-desktop-startup-program-name command))
-                (name (string-trim (read-string (lispm-desktop-tr "Name: ") default))))
-           `(:program ,command
-             ,@(unless (equal directory "~/") (list :directory directory))
-             ,@(unless (or (string-empty-p name) (equal name default)) (list :name name))))))
-      ('service
-       (let* ((services (mapcar (lambda (entry) (cons (lispm-service-name (car entry)) (car entry)))
-                                lispm-services))
-              (id (or (cdr (assoc (completing-read (lispm-desktop-tr "Service: ") services nil t) services))
-                      (user-error (lispm-desktop-tr "Choose a service")))))
-         (list :service id :sandbox (lispm-desktop-settings--read-service-level id))))
-      ('command
-       (list :command (intern (completing-read (lispm-desktop-tr "Emacs command: ") obarray #'commandp t)))))))
+(defun lispm-desktop-settings--startup-added-p (item)
+  "Return non-nil when a startup item of ITEM's name is there already."
+  (member (lispm-desktop-startup-item-name item)
+          (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)))
 
-(defun lispm-desktop-settings--read-service-level (id)
-  "Ask at which sandbox level the service ID is to run, each level said
-with what it allows; by default the one it has, else Low."
-  (let* ((levels (mapcar (lambda (entry) (cons (lispm-sandbox-level-name (car entry)) (car entry)))
-                         lispm-sandbox-levels))
-         (completion-extra-properties
-          (list :annotation-function
-                (lambda (name) (concat "  " (lispm-sandbox-level-description (cdr (assoc name levels)))))))
-         (current (lispm-sandbox-level-name (if (lispm-service-managed-p id) (lispm-service-level id) 'low))))
-    (cdr (assoc (completing-read (lispm-desktop-tr "Run it in the sandbox at: ") levels nil t nil nil current)
-                levels))))
+(defun lispm-desktop-settings--startup-add-item (item)
+  "Add ITEM, a startup item, after the others.  A service's :sandbox is
+the level it then runs at however it starts, kept as its own."
+  (when (lispm-desktop-settings--startup-added-p item)
+    (user-error (lispm-desktop-tr "There is already a startup item called “%s”")
+                (lispm-desktop-startup-item-name item)))
+  (when-let* ((id (plist-get item :service)))
+    (lispm-service-set-level id (plist-get item :sandbox) t)
+    (setq item (lispm-desktop-startup-item-with item :sandbox nil)))
+  (lispm-desktop-settings--save 'lispm-desktop-startup-items
+                                (append lispm-desktop-startup-items (list item))))
+
+(defun lispm-desktop-settings--startup-offer (item label)
+  "Return the menu item labelled LABEL adding ITEM, a startup item: checked,
+and not to be chosen, when it is there already."
+  (let ((added (lispm-desktop-settings--startup-added-p item)))
+    (list :label label :checked (and added t) :enabled (not added)
+          :action (lambda () (lispm-desktop-settings--startup-add-item item)))))
+
+(defun lispm-desktop-settings--startup-app-items ()
+  "Return the items of the Application submenu of Add…: the applications,
+by name."
+  (sort (mapcar (pcase-lambda (`(,key . ,properties))
+                  (lispm-desktop-settings--startup-offer (list :app key)
+                                                         (lispm-desktop-tr (plist-get properties :name))))
+                lispm-desktop-apps)
+        (lambda (a b) (string-lessp (downcase (plist-get a :label)) (downcase (plist-get b :label))))))
+
+(defun lispm-desktop-settings--startup-service-items ()
+  "Return the items of the Service submenu of Add…: each service a package
+offers, with a submenu of the sandbox levels it may run at, the one it
+has checked."
+  (mapcar (pcase-lambda (`(,id . ,_))
+            (let ((added (lispm-desktop-settings--startup-added-p (list :service id))))
+              (list :label (lispm-service-name id) :checked (and added t) :enabled (not added)
+                    :submenu (mapcar (pcase-lambda (`(,level . ,_))
+                                       (list :label (lispm-sandbox-level-name level)
+                                             :checked (and (lispm-service-managed-p id)
+                                                           (eq (lispm-service-level id) level))
+                                             :action (lambda ()
+                                                       (lispm-desktop-settings--startup-add-item
+                                                        (list :service id :sandbox level)))))
+                                     lispm-sandbox-levels))))
+          lispm-services))
+
+(defun lispm-desktop-settings--startup-add-items ()
+  "Return the items of the menu Add… pops up: what LispM can open at
+startup, applications and services in submenus of their own."
+  (let ((apps (lispm-desktop-settings--startup-app-items)))
+    `((:label ,(lispm-desktop-tr "Application") :enabled ,(and apps t) :submenu ,apps)
+      (:label ,(lispm-desktop-tr "Document or Folder…") :action lispm-desktop-settings--startup-add-file)
+      (:label ,(lispm-desktop-tr "Program, Run in the Background…")
+              :action lispm-desktop-settings--startup-add-program)
+      ;; Where LispM Agent has services, and a package offers one.
+      ,@(when (bound-and-true-p lispm-services)
+          `((:label ,(lispm-desktop-tr "Service, in the Sandbox")
+                    :submenu ,(lispm-desktop-settings--startup-service-items))))
+      separator
+      (:label ,(lispm-desktop-tr "Emacs Command…") :action lispm-desktop-settings--startup-add-command))))
+
+(defun lispm-desktop-settings--startup-add-file ()
+  "Ask for a document or folder, and open it at startup."
+  (lispm-desktop-settings--startup-add-item
+   (list :file (abbreviate-file-name (read-file-name (lispm-desktop-tr "Document or folder: ") nil nil t)))))
+
+(defun lispm-desktop-settings--startup-add-program ()
+  "Ask for a program, as a shell command, where it runs and its name, and
+run it in the background at startup."
+  (let ((command (string-trim (read-string (lispm-desktop-tr "Program, as a shell command: ")))))
+    (when (string-empty-p command)
+      (user-error (lispm-desktop-tr "Type the command running the program")))
+    (let* ((directory (abbreviate-file-name
+                       (file-name-as-directory
+                        (read-directory-name (lispm-desktop-tr "Run it in: ") "~/" nil t))))
+           (default (lispm-desktop-startup-program-name command))
+           (name (string-trim (read-string (lispm-desktop-tr "Name: ") default))))
+      (lispm-desktop-settings--startup-add-item
+       `(:program ,command
+         ,@(unless (equal directory "~/") (list :directory directory))
+         ,@(unless (or (string-empty-p name) (equal name default)) (list :name name)))))))
+
+(defun lispm-desktop-settings--startup-add-command ()
+  "Ask for an Emacs command, and call it at startup."
+  (lispm-desktop-settings--startup-add-item
+   (list :command (intern (completing-read (lispm-desktop-tr "Emacs command: ") obarray #'commandp t)))))
 
 (defun lispm-desktop-settings--startup-add ()
-  "Ask what LispM is to open at startup, and add it to the startup items,
-after the others.  A service gets the sandbox level asked, which it then
-runs at however it starts."
-  (let* ((item (lispm-desktop-settings--startup-read-item))
-         (name (lispm-desktop-startup-item-name item)))
-    (when (member name (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items))
-      (user-error (lispm-desktop-tr "There is already a startup item called “%s”") name))
-    (when-let* ((id (plist-get item :service)))
-      (lispm-service-set-level id (plist-get item :sandbox) t)
-      (setq item (lispm-desktop-startup-item-with item :sandbox nil)))
-    (lispm-desktop-settings--save 'lispm-desktop-startup-items
-                                  (append lispm-desktop-startup-items (list item)))))
+  "Pop up what LispM can open at startup under the button pressed, and add
+the one chosen to the startup items, after the others."
+  (lispm-desktop-settings--popup-under-button (lispm-desktop-settings--startup-add-items)))
 
-(defun lispm-desktop-settings--startup-choose (prompt)
-  "Ask with PROMPT for one of the startup items, the first by default;
-return its index."
-  (let ((names (or (mapcar #'lispm-desktop-startup-item-name lispm-desktop-startup-items)
-                   (user-error (lispm-desktop-tr "There are no startup items")))))
-    (seq-position names (completing-read prompt names nil t nil nil (car names)))))
+(defun lispm-desktop-settings--startup-items-menu (action)
+  "Return a menu of the startup items, by name, calling ACTION with the
+index of the one chosen."
+  (seq-map-indexed (lambda (item index)
+                     (list :label (lispm-desktop-startup-item-name item)
+                           :action (lambda () (funcall action index))))
+                   lispm-desktop-startup-items))
 
 (defun lispm-desktop-settings--startup-remove ()
-  "Ask for a startup item and take it out of the startup items.  What it
-opened stays open; a program or service it runs runs on, a service at the
-sandbox level it has."
-  (let ((index (lispm-desktop-settings--startup-choose (lispm-desktop-tr "Remove the startup item: "))))
-    (lispm-desktop-settings--save 'lispm-desktop-startup-items
-                                  (append (seq-take lispm-desktop-startup-items index)
-                                          (seq-drop lispm-desktop-startup-items (1+ index))))))
+  "Pop up the startup items under the button pressed, and take the one
+chosen out of them.  What it opened stays open; a program or service it
+runs runs on, a service at the sandbox level it has."
+  (lispm-desktop-settings--popup-under-button
+   (lispm-desktop-settings--startup-items-menu
+    (lambda (index)
+      (lispm-desktop-settings--save 'lispm-desktop-startup-items
+                                    (append (seq-take lispm-desktop-startup-items index)
+                                            (seq-drop lispm-desktop-startup-items (1+ index))))))))
 
 (defun lispm-desktop-settings--startup-open ()
-  "Ask for a startup item and open it now; a program's output shows."
-  (lispm-desktop-startup-open-item
-   (nth (lispm-desktop-settings--startup-choose (lispm-desktop-tr "Open the startup item: ")) lispm-desktop-startup-items)
-   t))
+  "Pop up the startup items under the button pressed, and open the one
+chosen now; a program's or service's output shows."
+  (lispm-desktop-settings--popup-under-button
+   (lispm-desktop-settings--startup-items-menu
+    (lambda (index) (lispm-desktop-startup-open-item (nth index lispm-desktop-startup-items) t)))))
 
 (defun lispm-desktop-settings--startup-toggle (index)
   "Turn the startup item at INDEX off when it is on, on when it is off."
