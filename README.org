@@ -231,7 +231,9 @@ Agent's [[https://github.com/LispMachineLab/lispm-agent#the-sandbox][sandbox]].
 The Startup panel opens LispM at login (a launch agent on macOS, an XDG autostart entry on
 GNU/Linux) and opens startup items once the desktop shows: applications, documents, folders,
 Emacs commands, and programs run in the background while LispM runs, their output in
-=*Startup: NAME*=.
+=*Startup: NAME*=.  A service an installed package offers, as Holon's daemon, runs the same way
+in LispM's sandbox, at the level chosen as it is added (LispM Agent's ~lispm-service-levels~),
+its output in =*Service: NAME*=.
 
 #+begin_src emacs-lisp
 (lispm-desktop-open-at-login t)
