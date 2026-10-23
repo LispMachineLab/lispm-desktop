@@ -39,14 +39,13 @@
 ;;   with the files they open on the right.
 ;;
 ;; LispM's terminal, LispM Agent's lispm-terminal.el, the sessions, a
-;; listener and a who line, used from the keyboard, is an application of
-;; the desktop's too, LispM Terminal: in the Applications folder, on the
-;; desktop, in the λ menu's Applications, the Special menu (Enter
-;; Terminal) and the LispM bar, and on C-c T; LispM enters it too when
-;; asked to.  It is entered at once, in a frame of its own over the
-;; desktop, a new one on a text terminal; C-c C-q, or asking LispM, leaves
-;; it and the frame goes, the desktop as it was.  To start LispM as the
-;; terminal instead, see lispm-desktop-start-as.el.
+;; listener and a who line, used from the keyboard, is the desktop's
+;; Focus Mode: in the Application menu under Hide Desktop, in the LispM
+;; bar, and on C-c T; LispM enters it too when asked to.  It is entered at
+;; once, in a frame of its own over the desktop, a new one on a text
+;; terminal; C-c C-q, or asking LispM, leaves it and the frame goes, the
+;; desktop as it was.  To start LispM in Focus Mode instead, see
+;; lispm-desktop-start-as.el.
 ;;
 ;; LispM is lispm-agent, found or installed by lispm-desktop-deps.el: a
 ;; copy already on `load-path', else a checkout beside the desktop's, else
@@ -194,7 +193,7 @@ frame the desktop is drawn in: where SCREEN is and as large, or full
 screen as it is, with none of the desktop's bars or window dividers, and
 no screen of the desktop's, see `lispm-desktop-apps-screen-p'.  On a
 text terminal a frame fills the terminal anyway."
-  `((name . ,(lispm-desktop-tr "LispM Terminal"))
+  `((name . ,(lispm-desktop-tr "Focus Mode"))
     (lispm-desktop-own-frame . lispm-terminal)
     (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
     (vertical-scroll-bars . nil) (horizontal-scroll-bars . nil)
@@ -211,14 +210,14 @@ text terminal a frame fills the terminal anyway."
                                            (if (fboundp 'tab-bar-height) (tab-bar-height screen t) 0))))))))))
 
 (defun lispm-desktop-lispm-terminal (&optional agent)
-  "Enter LispM's terminal now: the sessions, a listener and a who line,
-used from the keyboard, in a frame of its own over the desktop; the
+  "Enter Focus Mode now: LispM's terminal, the sessions, a listener and a
+who line, used from the keyboard, in a frame of its own over the desktop; the
 listener talks to AGENT, by default to LispM or the agent it talked to
 last.  \`C-c C-q' leaves it, the desktop as it was.  Entered already,
 the terminal comes in front."
   (interactive)
   (unless (lispm-desktop-lispm-terminal-available-p)
-    (user-error (lispm-desktop-tr "This LispM Agent has no terminal")))
+    (user-error (lispm-desktop-tr "This LispM Agent has no Focus Mode")))
   (if (lispm-desktop-lispm-terminal-open-p)
       (let ((frame lispm-desktop-lispm-terminal--frame))
         (select-frame-set-input-focus frame)
@@ -291,14 +290,10 @@ before Emacs chooses a frame to select."
         (select-window from)))))
 
 (defun lispm-desktop-lispm-setup-terminal ()
-  "Make LispM's terminal an application of the desktop's, built in, when
-LispM Agent has it: LispM Terminal, entered on \`C-c T', see
-`lispm-desktop-lispm-terminal'."
+  "Make LispM's terminal the desktop's Focus Mode, when LispM Agent has
+it: entered on \`C-c T', see `lispm-desktop-lispm-terminal', and from the
+Application menu, see `lispm-desktop-apps-application-items'."
   (when (lispm-desktop-lispm-terminal-available-p)
-    (lispm-desktop-define-app 'lispm-terminal :name (lispm-desktop-tr-noop "LispM Terminal")
-                              :icon "terminal" :folder "terminal-32"
-                              :activate #'lispm-desktop-lispm-terminal
-                              :running #'lispm-desktop-lispm-terminal-open-p)
     (keymap-global-set "C-c T" #'lispm-desktop-lispm-terminal)
     ;; Asked of LispM, the terminal is entered so too, never in the
     ;; desktop's own frame; it is left as by C-c C-q, as the terminal

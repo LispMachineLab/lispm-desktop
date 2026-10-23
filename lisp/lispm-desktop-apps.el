@@ -48,6 +48,10 @@
 (require 'subr-x)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-start-as)
+
+(declare-function lispm-desktop-lispm-terminal-open-p "lispm-desktop-lispm" ())
+(declare-function lispm-desktop-lispm-terminal "lispm-desktop-lispm" (&optional agent))
 
 (defvar lispm-desktop-apps
   `((desktop :name ,(lispm-desktop-tr-noop "Desktop") :icon "disk" :menus lispm-desktop-menus
@@ -441,17 +445,35 @@ LispM speaks, or nil."
 
 (declare-function lispm-desktop-coherence-available-p "lispm-desktop-coherence" (&optional screen))
 
-(defun lispm-desktop-apps-application-items ()
-  "Return the Application menu's items: Hide Desktop or Show Desktop, as
-Mac OS 9's began with Hide and Show, then every application, the front
-one checked, as Mac OS 9's listed the running applications."
+(defun lispm-desktop-apps-focus-mode ()
+  "Enter Focus Mode, LispM's terminal, once the menu that chose it has
+closed: entered while the menu bar closes, a text terminal would show
+the desktop again.  See `lispm-desktop-lispm-terminal'."
+  (interactive)
+  (run-at-time 0 nil #'lispm-desktop-lispm-terminal))
+
+(defun lispm-desktop-apps--mode-items ()
+  "Return the items of the Application menu above its applications: Hide
+Desktop or Show Desktop where the desktop goes in the Dock, then Focus
+Mode, LispM's terminal entered at once, where LispM Agent has it,
+checked while it is entered; leaving it is done in it, C-c C-q."
   `(,@(when (and (fboundp 'lispm-desktop-coherence-available-p)
                  (lispm-desktop-coherence-available-p (lispm-desktop-apps-screen)))
         (if (lispm-desktop-apps-hidden-p)
-            `((:label ,(lispm-desktop-tr "Show Desktop") :action lispm-desktop-show-desktop :key "C-c h")
-              separator)
-          `((:label ,(lispm-desktop-tr "Hide Desktop") :action lispm-desktop-hide-desktop :key "C-c h")
-            separator)))
+            `((:label ,(lispm-desktop-tr "Show Desktop") :action lispm-desktop-show-desktop :key "C-c h"))
+          `((:label ,(lispm-desktop-tr "Hide Desktop") :action lispm-desktop-hide-desktop :key "C-c h"))))
+    ,@(when (lispm-desktop-lispm-terminal-available-p)
+        `((:label ,(lispm-desktop-tr "Focus Mode") :action lispm-desktop-apps-focus-mode :key "C-c T"
+                  :checked ,(and (fboundp 'lispm-desktop-lispm-terminal-open-p)
+                                 (lispm-desktop-lispm-terminal-open-p)))))))
+
+(defun lispm-desktop-apps-application-items ()
+  "Return the Application menu's items: Hide Desktop or Show Desktop, as
+Mac OS 9's began with Hide and Show, and Focus Mode, see
+`lispm-desktop-apps--mode-items'; then every application, the front one
+checked, as Mac OS 9's listed the running applications."
+  `(,@(when-let* ((modes (lispm-desktop-apps--mode-items)))
+        (append modes '(separator)))
     ,@(mapcar (pcase-lambda (`(,key . ,_))
                 (list :label (lispm-desktop-apps-name key)
                       :action (lambda () (lispm-desktop-apps-activate key))

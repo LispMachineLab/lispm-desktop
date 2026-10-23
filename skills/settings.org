@@ -1,5 +1,5 @@
 #+title: Change settings
-#+description: Read and change LispM's settings, as Control Panels holds them: the look and the colour theme, the language, the keys, the proxy, the agents' sandbox, whether LispM starts as the desktop or its terminal at its next start, what opens at login and at startup, and how software updates; open a panel for the user.
+#+description: Read and change LispM's settings, as Control Panels holds them: the look and the colour theme, the language, the keys, the proxy, the agents' sandbox, whether LispM starts as the desktop or in Focus Mode (its terminal) at its next start, what opens at login and at startup, and how software updates; open a panel for the user.
 
 Control Panels holds LispM Desktop's settings: a control panel for each category, an application
 of its own whose window's tabs are its panels, which the user opens from the menu bar's λ menu or
@@ -39,10 +39,10 @@ for ~eval_elisp~.
     ~middle~, ~high~, or ~custom~, the user's own rules.  ~settings_set~ only makes it stricter;
     see below.
   - ~start-as~: what LispM starts as at its next start, ~desktop~ (windows, menus and
-    applications) or ~terminal~ (LispM's terminal: the sessions, a listener and a who line,
-    without the desktop); nothing changes now.  Change it only when the user asks what LispM is
-    to start as, as "always start in console mode".  To go into the terminal now (console, TUI,
-    terminal or keyboard mode) or back to the desktop (desktop mode), use ~terminal_enter~ or
+    applications) or ~terminal~ (Focus Mode, LispM's terminal: the sessions, a listener and a
+    who line, without the desktop); nothing changes now.  Change it only when the user asks what LispM is
+    to start as, as "always start in Focus Mode" or "in console mode".  To go into the terminal now
+    (Focus Mode, console, TUI, terminal or keyboard mode) or back to the desktop (desktop mode), use ~terminal_enter~ or
     ~terminal_leave~ of the skill terminal instead: they switch at once, and back to the
     desktop where LispM started as the terminal.
   - ~open-at-login~: ~true~ to have the computer open LispM when the user logs in.

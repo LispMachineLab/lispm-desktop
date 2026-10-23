@@ -1492,7 +1492,7 @@ opens it at login, and the startup items LispM opens once started."
   (lispm-desktop-settings--radio (lispm-desktop-tr "Desktop") (eq lispm-desktop-start-as 'desktop)
                                  (lambda () (lispm-desktop-settings--save 'lispm-desktop-start-as 'desktop))
                                  (lispm-desktop-tr "Windows, menus and applications"))
-  (lispm-desktop-settings--radio (lispm-desktop-tr "Terminal") (eq lispm-desktop-start-as 'terminal)
+  (lispm-desktop-settings--radio (lispm-desktop-tr "Focus Mode") (eq lispm-desktop-start-as 'terminal)
                                  (lambda () (lispm-desktop-settings--save 'lispm-desktop-start-as 'terminal))
                                  (lispm-desktop-tr "Sessions and a listener, by keyboard"))
   (insert "\n")
