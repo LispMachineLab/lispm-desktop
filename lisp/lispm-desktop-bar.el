@@ -135,6 +135,19 @@ tools, for the bar's activity line, as \"Opening Stickies…\"; or nil."
 (defvar lispm-desktop-bar--panel nil
   "The LispM bar's panel under its field: a child frame showing the bar's lines.")
 
+(defvar lispm-desktop-bar--room nil
+  "How tall the panel may grow while the bar is open, in pixels:
+\(COMPACT . OPENED-OUT), measured once as it opens.  Measuring the
+screen lays out the menu bar, the tab bar: done on every redraw of the
+spinner, it once crashed Emacs 31.1 in the bidi iterator.")
+
+(defvar lispm-desktop-bar--focused nil
+  "The frames whose keys go to the bar's field while it is open.")
+
+(defvar lispm-desktop-bar--return-to nil
+  "The frame selected once the bar closes: the one it was opened from, or
+the last one LispM selected while it was open, as an application opened.")
+
 (defun lispm-desktop-bar--graphic-p ()
   "Return non-nil when the bar drops from the menu bar: on a graphical
 display, the desktop drawn.  On a text terminal it keeps the minibuffer."
@@ -204,10 +217,55 @@ missing, painted in the palette now in use."
 menu bar's right end, where the bar's title is."
   (max 0 (- (frame-inner-width screen) lispm-desktop-bar-width 16)))
 
-(defun lispm-desktop-bar--place-field (field)
-  "Put FIELD, the bar's, under the menu bar's right end, a line tall."
-  (lispm-desktop-popup-set-size field lispm-desktop-bar-width (frame-char-height field))
-  (set-frame-position field (lispm-desktop-bar--x (frame-parent field)) (lispm-desktop-platinum--menu-y)))
+(defun lispm-desktop-bar--place-field (field panel)
+  "Put FIELD, the bar's, under the menu bar's right end, a line tall, and
+PANEL, empty, under it; note how tall the panel may grow, see
+`lispm-desktop-bar--room'."
+  (let ((screen (frame-parent field))
+        (top (lispm-desktop-platinum--menu-y)))
+    (lispm-desktop-popup-set-size field lispm-desktop-bar-width (frame-char-height field))
+    (set-frame-position field (lispm-desktop-bar--x screen) top)
+    (lispm-desktop-popup-set-size panel lispm-desktop-bar-width (frame-char-height panel))
+    ;; The two share a line, as one panel.
+    (pcase-let ((`(,_ ,_ ,_ ,bottom) (frame-edges field 'outer-edges)))
+      (set-frame-position panel (lispm-desktop-bar--x screen) (1- bottom)))
+    (let* ((screen-height (frame-native-height screen))
+           (below (- screen-height top (frame-pixel-height field) 16)))
+      (setq lispm-desktop-bar--room (cons (min below (floor (* screen-height 0.5)))
+                                          (min below (floor (* screen-height 0.66))))))))
+
+(defun lispm-desktop-bar--keep-in-front ()
+  "Keep the bar over the windows opened while it is open, as when LispM
+opens an application, and send it the keys typed in them.  A frame
+selected meanwhile would take the minibuffer the field reads from: the
+field is selected again, and that frame once the bar closes."
+  (let ((field lispm-desktop-bar--field)
+        (panel lispm-desktop-bar--panel))
+    (when (and (lispm-bar-open-p) (frame-live-p field) (frame-visible-p field)
+               (active-minibuffer-window))
+      (unless (memq (selected-frame) (list field panel))
+        (setq lispm-desktop-bar--return-to (selected-frame))
+        (select-frame field 'norecord))
+      (let ((new nil))
+        (dolist (frame (frame-list))
+          (unless (or (memq frame (list field panel)) (memq frame lispm-desktop-bar--focused)
+                      (not (frame-visible-p frame))
+                      ;; Menus and the like never have the keyboard.
+                      (frame-parameter frame 'no-accept-focus))
+            (redirect-frame-focus frame field)
+            (push frame lispm-desktop-bar--focused)
+            (setq new t)))
+        (let ((top (seq-find #'frame-visible-p (ignore-errors (frame-list-z-order (frame-parent field))))))
+          (when (or new (and top (not (memq top (list field panel)))))
+            (when (frame-visible-p panel)
+              (raise-frame panel))
+            (raise-frame field)))))))
+
+(defun lispm-desktop-bar--selection-changed (_frame)
+  "Keep the bar in front once another window is selected, as LispM's
+applications are when they open.  This is a `window-selection-change-functions'
+function while the bar is open."
+  (run-at-time 0.05 nil #'lispm-desktop-bar--keep-in-front))
 
 (defun lispm-desktop-bar-show (buffer)
   "Show BUFFER, the bar's lines, in the panel under its field, as tall as
@@ -217,24 +275,25 @@ they are, up to half the screen, or two thirds of it opened out.  This is
         (field lispm-desktop-bar--field))
     (if (not (and (frame-live-p panel) (frame-visible-p field)))
         (lispm-bar-show-in-window buffer)
-      (let ((window (frame-root-window panel))
-            (screen (frame-parent panel)))
+      (let ((window (frame-root-window panel)))
         (unless (eq (window-buffer window) buffer)
           (set-window-buffer window buffer)
           (set-window-dedicated-p window t)
           (with-current-buffer buffer
             (lispm-desktop-popup-hold-size)))
-        (lispm-desktop-popup-set-size panel lispm-desktop-bar-width (frame-char-height panel))
-        (let* ((most (floor (* (frame-inner-height screen) (if (lispm-bar-expanded-p) 0.66 0.5))))
-               (height (cdr (window-text-pixel-size window nil nil nil most))))
-          (lispm-desktop-popup-set-size panel lispm-desktop-bar-width (max (frame-char-height panel) height)))
-        (pcase-let ((`(,_ ,_ ,_ ,bottom) (frame-edges field 'outer-edges)))
-          ;; The two share a line, as one panel.
-          (set-frame-position panel (lispm-desktop-bar--x screen) (1- bottom)))
+        ;; The size only: the spinner redraws four times a second.
+        (let* ((most (if (lispm-bar-expanded-p) (cdr lispm-desktop-bar--room) (car lispm-desktop-bar--room)))
+               (size (cons lispm-desktop-bar-width
+                           (max (frame-char-height panel)
+                                (cdr (window-text-pixel-size window nil nil nil (max 1 (or most 400))))))))
+          (unless (equal size (frame-parameter panel 'lispm-desktop-popup-size))
+            (lispm-desktop-popup-set-size panel (car size) (cdr size))))
         (with-selected-window window
           (when (>= (point) (point-max))
             (recenter -1)))
-        (make-frame-visible panel)))))
+        (unless (frame-visible-p panel)
+          (make-frame-visible panel))
+        (lispm-desktop-bar--keep-in-front)))))
 
 (defun lispm-desktop-bar-hide (buffer)
   "Hide the bar's panel and field once it closes; BUFFER is its lines'.
@@ -266,25 +325,31 @@ minibuffer as ever."
     (pcase-let* ((screen (lispm-desktop-apps-screen))
                  (`(,field . ,panel) (lispm-desktop-bar--frames screen))
                  (from (selected-frame))
-                 (focused (delete-dups (list from screen panel)))
                  (minibuffer-follows-selected-frame nil)
                  (resize-mini-frames nil))
+      (setq lispm-desktop-bar--focused (delete-dups (list from screen panel))
+            lispm-desktop-bar--return-to from)
       (lispm-desktop-platinum-with-open-menu 'lispm-desktop-bar
-        (lispm-desktop-bar--place-field field)
+        (lispm-desktop-bar--place-field field panel)
         (make-frame-visible field)
         (unwind-protect
             (progn
-              (dolist (frame focused)
+              (dolist (frame lispm-desktop-bar--focused)
                 (redirect-frame-focus frame field))
               (add-hook 'post-command-hook #'lispm-desktop-bar--close-elsewhere)
+              (add-hook 'window-selection-change-functions #'lispm-desktop-bar--selection-changed)
               (select-frame field 'norecord)
               (funcall read))
           (remove-hook 'post-command-hook #'lispm-desktop-bar--close-elsewhere)
-          (dolist (frame focused)
-            (when (frame-live-p frame)
+          (remove-hook 'window-selection-change-functions #'lispm-desktop-bar--selection-changed)
+          (dolist (frame lispm-desktop-bar--focused)
+            (when (and (frame-live-p frame) (eq (frame-focus frame) field))
               (redirect-frame-focus frame nil)))
-          (when (frame-live-p from)
-            (select-frame from 'norecord))
+          (setq lispm-desktop-bar--focused nil)
+          (let ((to (if (frame-live-p lispm-desktop-bar--return-to) lispm-desktop-bar--return-to from)))
+            (setq lispm-desktop-bar--return-to nil)
+            (when (frame-live-p to)
+              (select-frame to 'norecord)))
           (dolist (frame (list panel field))
             (when (frame-live-p frame)
               (make-frame-invisible frame t))))))))
