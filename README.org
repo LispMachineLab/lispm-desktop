@@ -76,7 +76,9 @@ Optional, used when present:
   Windows 3.2, OS/2, Phosphor or Neon colour theme, or any theme installed.
 - *A desktop* with Mac OS 9's icons down its right edge (home disk, Emacs, browser,
   Applications, App Store, Control Panels, Trash), dragged with the mouse or selected with
-  =C-n= =C-p= =C-f= =C-b=, over a colour or a picture of your own.
+  =C-n= =C-p= =C-f= =C-b=, over a colour or a picture of your own.  An application's alias goes
+  there from its right-click menu in the Applications folder or the App Store (Make Alias on
+  Desktop, =M-m=), and leaves from its own (=M-DEL=) or onto the Trash.
 - *A guide* that tours the desktop at the first start, Apple Guide style, with coach marks and
   Show Me (=C-c ?= brings it back).
 - *Finder windows*: folders as large icons, with back, forward, up, rename and Move to Trash;

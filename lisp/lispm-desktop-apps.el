@@ -73,9 +73,13 @@ whether its window is open, which lists it in the Application menu: it
 opens whatever :visible says, see `lispm-desktop-apps-openable-p'.
 :folder, a large icon as :icon is a small one, makes it an application
 built in: the Applications folder holds it, and the λ menu's Applications
-lists it, whether it runs or not.  The functions are symbols or lambdas;
-an application whose function is not defined does not run.  Applications
-installed later are added with `lispm-desktop-define-app'.")
+lists it, whether it runs or not.  :large-icon is the large icon of one
+that is not built in, as one installed from the App Store is drawn in
+the Applications folder.  An application with a large icon can have an
+alias on the desktop, see `lispm-desktop-aliases'.  The functions are
+symbols or lambdas; an application whose function is not defined does
+not run.  Applications installed later are added with
+`lispm-desktop-define-app'.")
 
 (defvar lispm-desktop-apps--frontmost nil
   "The application in front, a key of `lispm-desktop-apps', or nil at first.")
@@ -385,6 +389,13 @@ Application menu lists it."
   "Return the applications built in, those with a :folder icon, as
 `lispm-desktop-apps' says: (KEY . PROPERTIES)."
   (seq-filter (lambda (app) (plist-get (cdr app) :folder)) lispm-desktop-apps))
+
+(defun lispm-desktop-apps-large-icon (app)
+  "Return the large icon of APP, a key of `lispm-desktop-apps', as
+`lispm-desktop-platinum-icon-file' takes it: its :folder icon, built in,
+else its :large-icon, or nil when it has none."
+  (let ((props (alist-get app lispm-desktop-apps)))
+    (or (plist-get props :folder) (plist-get props :large-icon))))
 
 (defun lispm-desktop-apps-activate (app)
   "Bring APP, a key of `lispm-desktop-apps', in front."
