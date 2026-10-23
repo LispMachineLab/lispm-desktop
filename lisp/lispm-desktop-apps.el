@@ -107,6 +107,9 @@ The floating windows show while any other application is in front."
     ('editor (not (and (fboundp 'lispm-desktop-editor-floating-p) (lispm-desktop-editor-floating-p))))
     ('browser (not (bound-and-true-p lispm-desktop-browser-floating)))))
 
+(defvar lispm-desktop-apps-changed-hook nil
+  "Hook run once an application was defined, again or anew, or removed.")
+
 (defun lispm-desktop-define-app (key &rest properties)
   "Make KEY an application with PROPERTIES, as `lispm-desktop-apps' holds one.
 An application defined again keeps its place in the Application menu; a
@@ -118,6 +121,7 @@ list is copied, never changed in place.  Return KEY."
                     lispm-desktop-apps)
           (append lispm-desktop-apps (list (cons key properties)))))
   (force-mode-line-update t)
+  (run-hooks 'lispm-desktop-apps-changed-hook)
   key)
 
 (defun lispm-desktop-remove-app (key)
@@ -125,7 +129,8 @@ list is copied, never changed in place.  Return KEY."
   (setq lispm-desktop-apps (seq-remove (lambda (app) (eq (car app) key)) lispm-desktop-apps))
   (when (eq lispm-desktop-apps--frontmost key)
     (lispm-desktop-apps-set-frontmost 'desktop))
-  (force-mode-line-update t))
+  (force-mode-line-update t)
+  (run-hooks 'lispm-desktop-apps-changed-hook))
 
 (defun lispm-desktop-apps-out-p (frame)
   "Return the screen FRAME belongs to when FRAME is out on the computer's

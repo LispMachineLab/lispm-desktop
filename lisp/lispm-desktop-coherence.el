@@ -35,7 +35,10 @@
 ;;     out, the full-screen editor and browser floated first, and puts
 ;;     the desktop in the Dock; Show Desktop, C-c h again or a click on
 ;;     its tile in the Dock brings it back, the windows over it going in
-;;     and the applications full screen as they were.
+;;     and the applications full screen as they were;
+;;   - an application opened on its own, from the computer's Finder or
+;;     Dock, puts the desktop out of sight instead, nowhere in the Dock,
+;;     see lispm-desktop-standalone.el; Show Desktop brings it back too.
 ;;
 ;; A window out is still the desktop's: it keeps its frame, its title bar,
 ;; its boxes and its grow box, and moves among the computer's windows as
@@ -428,9 +431,15 @@ when the desktop shows; so does the window in front keep the keyboard."
                                    (lispm-desktop-coherence--hide screen selected)))))
       (lispm-desktop-coherence--hide screen selected))))
 
-(defun lispm-desktop-coherence--hide (screen selected)
+(defvar lispm-desktop-coherence-changed-hook nil
+  "Hook run once a screen was hidden, in the Dock or out of sight, or shown
+again, with the screen as the selected one's.")
+
+(defun lispm-desktop-coherence--hide (screen selected &optional out-of-sight)
   "Hide SCREEN, not full screen, in the Dock, its windows out, and give the
-keyboard to SELECTED when it is one of them, else to the window in front."
+keyboard to SELECTED when it is one of them, else to the window in front.
+OUT-OF-SIGHT hides it out of sight instead, nowhere in the Dock, see
+`lispm-desktop-coherence-put-out-of-sight'."
   (let* ((front (lispm-desktop-apps-frontmost))
          (full (seq-filter
                 #'identity
@@ -443,20 +452,52 @@ keyboard to SELECTED when it is one of them, else to the window in front."
         (set-frame-parameter screen 'lispm-desktop-hidden
                              (list :left left :top top :width (frame-text-width screen)
                                    :height (frame-text-height screen) :front front :full full
-                                   :undecorated (frame-parameter screen 'undecorated))))
+                                   :undecorated (frame-parameter screen 'undecorated)
+                                   :out-of-sight out-of-sight)))
       (dolist (window (lispm-desktop-apps-windows screen))
         (when (and (lispm-desktop-platinum-window-parent window) (frame-visible-p window))
           (lispm-desktop-coherence-take-out window)))
-      (when (frame-parameter screen 'undecorated)
-        (set-frame-parameter screen 'undecorated nil))
-      (iconify-frame screen)
+      (cond (out-of-sight
+             ;; Children of a screen made invisible stay on the computer's
+             ;; screen, as the Control Strip would: they hide with it, and
+             ;; show with it again.
+             (let ((children (seq-filter (lambda (frame)
+                                           (and (eq (frame-parent frame) screen) (frame-visible-p frame)))
+                                         (frame-list))))
+               (dolist (child children)
+                 (make-frame-invisible child t))
+               (set-frame-parameter screen 'lispm-desktop-hidden
+                                    (plist-put (frame-parameter screen 'lispm-desktop-hidden)
+                                               :children children)))
+             (make-frame-invisible screen t))
+            (t
+             (when (frame-parameter screen 'undecorated)
+               (set-frame-parameter screen 'undecorated nil))
+             (iconify-frame screen)))
       (when-let* ((keyboard (if (and (frame-live-p selected) (lispm-desktop-apps-out-p selected))
                                 selected
                               (seq-find #'frame-visible-p
                                         (lispm-desktop-apps-windows-out-in-order screen)))))
         (select-frame-set-input-focus keyboard))
       (unless lispm-desktop-coherence--watch
-        (setq lispm-desktop-coherence--watch (run-with-timer 0.5 0.5 #'lispm-desktop-coherence--watch))))))
+        (setq lispm-desktop-coherence--watch (run-with-timer 0.5 0.5 #'lispm-desktop-coherence--watch)))
+      (with-selected-frame (if (frame-live-p selected) selected (selected-frame))
+        (run-hooks 'lispm-desktop-coherence-changed-hook)))))
+
+(defun lispm-desktop-coherence-put-out-of-sight (&optional screen)
+  "Hide SCREEN, by default the selected one, out of sight: as Hide Desktop
+does, its windows out on the computer's screen, but nowhere in the Dock,
+as an X server runs where nobody looks.  Show Desktop, in the Application
+menu of a window out, or \\[lispm-desktop-toggle-desktop], brings it back."
+  (let ((screen (or screen (lispm-desktop-apps-screen))))
+    (when-let* ((why (lispm-desktop-coherence-unsupported screen)))
+      (user-error (lispm-desktop-tr "The desktop cannot hide: %s") why))
+    (lispm-desktop-coherence--hide screen (selected-frame) 'out-of-sight)))
+
+(defun lispm-desktop-coherence-out-of-sight-p (&optional screen)
+  "Return non-nil while SCREEN, by default the selected one, is hidden out of
+sight, see `lispm-desktop-coherence-put-out-of-sight'."
+  (plist-get (lispm-desktop-apps-hidden-p screen) :out-of-sight))
 
 (defun lispm-desktop-show-desktop (&optional screen)
   "Bring the desktop hidden in the Dock back, SCREEN or the selected one.
@@ -468,6 +509,9 @@ front then comes in front."
     (when-let* ((hidden (lispm-desktop-apps-hidden-p screen)))
       (set-frame-parameter screen 'lispm-desktop-hidden nil)
       (make-frame-visible screen)
+      (dolist (child (plist-get hidden :children))
+        (when (frame-live-p child)
+          (make-frame-visible child)))
       (when (plist-get hidden :undecorated)
         (set-frame-parameter screen 'undecorated t)
         (set-frame-position screen (plist-get hidden :left) (plist-get hidden :top))
@@ -488,7 +532,8 @@ front then comes in front."
         (when (memq 'browser full) (lispm-desktop-browser-full-screen))
         (pcase (plist-get hidden :front)
           ('desktop (lispm-desktop-activate))
-          ((and app (guard (not (memq app full)))) (lispm-desktop-apps-activate app)))))))
+          ((and app (guard (not (memq app full)))) (lispm-desktop-apps-activate app))))
+      (run-hooks 'lispm-desktop-coherence-changed-hook))))
 
 (defun lispm-desktop-toggle-desktop ()
   "Hide the desktop in the Dock, or show it again when it is hidden."

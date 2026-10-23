@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.11.0
+;; Version: 0.12.0
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -42,6 +42,9 @@
 ;;   workspaces     one per project, owning that project's buffers
 ;;   coherence      windows out on the computer's screen, the desktop in
 ;;                  the Dock (C-c h)
+;;   on their own   each application one of the computer's own, in
+;;                  ~/Applications/LispM Apps: opened from the Finder or
+;;                  the Dock, it opens alone, the desktop out of sight
 ;;   loading        Mac OS 9's watch on the pointer while LispM is busy,
 ;;                  or loads something for what is in front
 ;;   agents         LispM's, running inside Emacs, and Claude Code and
@@ -106,6 +109,7 @@
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-coherence)
+(require 'lispm-desktop-standalone)
 (require 'lispm-desktop-browser)
 (require 'lispm-desktop-browser-places)
 (require 'lispm-desktop-surface)
@@ -154,6 +158,9 @@ A key of `lispm-desktop-sidebar-views'."
   :type '(choice (const :tag "None" nil) symbol)
   :group 'lispm-desktop)
 
+(defvar lispm-desktop-first-start nil
+  "Non-nil when this start of LispM was its first, its questions asked.")
+
 (defun lispm-desktop--first-start ()
   "Settle what the first start asks; return non-nil when this is it.
 The editing style and the appearance not chosen yet are asked, see
@@ -167,7 +174,11 @@ until the next start asks again."
     (let* ((questions (if lispm-desktop-language
                           questions
                         (cons lispm-desktop-assistant-language-question questions)))
-           (answers (unless noninteractive (lispm-desktop-assistant-ask questions))))
+           (answers (unless noninteractive
+                      ;; Started out of sight, LispM shows to ask.
+                      (unless (frame-visible-p (selected-frame))
+                        (make-frame-visible))
+                      (lispm-desktop-assistant-ask questions))))
       ;; Customize's word on the file it wrote would sit under the page.
       (let ((inhibit-message t))
         (dolist (question questions)
@@ -221,6 +232,7 @@ boxes.  A download that fails, as offline, is only reported."
   (lispm-desktop-popup-enable)
   (lispm-desktop-setup-apps)
   (lispm-desktop-setup-coherence)
+  (lispm-desktop-setup-standalone)
   (lispm-desktop-setup-desktop)
   (lispm-desktop-setup-editor)
   (lispm-desktop-setup-workspaces)
@@ -292,7 +304,7 @@ are set up as there; then the first frame becomes the terminal, see
   "Set Emacs up as lispm-desktop: as the desktop, or as LispM's terminal
 when LispM starts as that, see `lispm-desktop-start-as'."
   (let ((as (lispm-desktop-setup-start-as))
-        (first (lispm-desktop--first-start)))
+        (first (setq lispm-desktop-first-start (lispm-desktop--first-start))))
     ;; The first start's page stays up while LispM is set up, and goes
     ;; however that ends.
     (unwind-protect

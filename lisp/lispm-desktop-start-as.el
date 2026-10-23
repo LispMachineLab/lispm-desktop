@@ -57,6 +57,7 @@
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-terminal "lispm-terminal" (&optional agent))
 (declare-function lispm-terminal-soon "lispm-terminal" (function))
+(declare-function lispm-desktop-standalone-started-hidden-p "lispm-desktop-standalone" ())
 (defvar lispm-turn-end-functions)
 
 (defcustom lispm-desktop-start-as 'desktop
@@ -133,10 +134,15 @@ line, so its process id tells it from any other start."
   "Settle what this start is, `lispm-desktop-started-as', and return it.
 It is what a restart asked for, else what the command line says, else
 `lispm-desktop-start-as'.  A batch Emacs, as LispM.app's installer runs to
-install every package, sets the desktop up; so does a LispM Agent
-without the terminal, and says so."
+install every package, sets the desktop up; so does LispM started out of
+sight for an application of the computer's own, opened from the Finder
+or the Dock, whose window the desktop draws, see
+lispm-desktop-standalone.el; and so does a LispM Agent without the
+terminal, which says so."
   (setq lispm-desktop-started-as
         (if (and (not noninteractive)
+                 (not (and (fboundp 'lispm-desktop-standalone-started-hidden-p)
+                           (lispm-desktop-standalone-started-hidden-p)))
                  (eq (or (lispm-desktop-start-as--restart)
                          (lispm-desktop-start-as--argument (cdr command-line-args))
                          lispm-desktop-start-as)
