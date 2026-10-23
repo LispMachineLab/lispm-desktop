@@ -122,6 +122,11 @@
 (defvar lispm-git)
 (defvar lispm-default-role)
 (defvar lispm-backends)
+(defvar lispm-compact-idle)
+(defvar lispm-memory-sizes)
+(defvar lispm-memory-max-entries)
+(defvar lispm-memory-model)
+(defvar lispm-episodes)
 (defvar lispm-skill-directories)
 (declare-function lispm-model-status "lispm-settings" ())
 (declare-function lispm-model-choices "lispm-settings" ())
@@ -137,6 +142,13 @@
 (declare-function lispm-trusted-skill-files "lispm-settings" ())
 (declare-function lispm-skill-name "lispm-skills" (file))
 (declare-function lispm-default-role-choices "lispm-settings" ())
+(declare-function lispm-set-compact-idle "lispm-settings" (on &optional save))
+(declare-function lispm-memory-size "lispm-settings" ())
+(declare-function lispm-memory-size-name "lispm-settings" (size))
+(declare-function lispm-memory-size-note "lispm-settings" (size))
+(declare-function lispm-set-memory-size "lispm-settings" (size &optional save))
+(declare-function lispm-memory-model-choices "lispm-settings" ())
+(declare-function lispm-set-memory-model "lispm-settings" (model &optional save))
 (declare-function lispm-untrust-skill "lispm-settings" (file))
 (declare-function lispm-compact-size "lispm-settings" ())
 (declare-function lispm-compact-size-name "lispm-settings" (size))
@@ -743,15 +755,18 @@ them use it, now and at later starts."
     (unless (string-empty-p model)
       (lispm-set-model backend model t))))
 
-(defun lispm-desktop-settings--choose-model ()
-  "Pop up the models to choose from under the button pressed, and have
-LispM's agents use the one chosen, now and at later starts."
+(defun lispm-desktop-settings--popup-under-button (items)
+  "Pop up the menu of ITEMS under the push button pressed."
   (let ((position (if (mouse-event-p last-input-event)
                       (posn-point (event-start last-input-event))
                     (point))))
     (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
-      (lispm-desktop-popup-menu (lispm-desktop-settings--model-items)
-                                x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-desktop-platinum-button-height 2)))))))
+      (lispm-desktop-popup-menu items x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-desktop-platinum-button-height 2)))))))
+
+(defun lispm-desktop-settings--choose-model ()
+  "Pop up the models to choose from under the button pressed, and have
+LispM's agents use the one chosen, now and at later starts."
+  (lispm-desktop-settings--popup-under-button (lispm-desktop-settings--model-items)))
 
 (defun lispm-desktop-settings--lispm-model ()
   "Insert the LispM panel's Model group: the model LispM's agents use, its
@@ -853,10 +868,66 @@ skills whose code is trusted, and the way to the Sandbox panel."
                                       (lispm-desktop-tr "Show the Sandbox panel"))
       (insert "  " (propertize (lispm-desktop-tr "what commands may do once they run") 'face 'shadow) "\n"))))
 
+(defun lispm-desktop-settings--memory-model-items ()
+  "The menu of the models that may consolidate memory: each agent's own,
+the models of the backend agents use, and Other Model…."
+  (append
+   (list (list :label (lispm-desktop-tr "Each agent's own model") :checked (null lispm-memory-model)
+               :action (lambda () (lispm-set-memory-model nil t))))
+   (when-let* ((models (lispm-memory-model-choices)))
+     (cons 'separator
+           (mapcar (lambda (model)
+                     (list :label model :checked (equal model lispm-memory-model)
+                           :action (lambda () (lispm-set-memory-model model t))))
+                   models)))
+   (list 'separator
+         (list :label (lispm-desktop-tr "Other Model…") :action #'lispm-desktop-settings--other-memory-model))))
+
+(defun lispm-desktop-settings--other-memory-model ()
+  "Ask for the model that consolidates memory, by its name, and use it,
+now and at later starts; an empty name is each agent's own."
+  (lispm-set-memory-model (read-string (lispm-desktop-tr "Model consolidating memory: ") lispm-memory-model) t))
+
+(defun lispm-desktop-settings--choose-memory-model ()
+  "Pop up the models that may consolidate memory under the button pressed."
+  (lispm-desktop-settings--popup-under-button (lispm-desktop-settings--memory-model-items)))
+
+(defun lispm-desktop-settings--lispm-memory-budget ()
+  "Insert the long-term part of the LispM panel's Memory group: the size a
+memory consolidates itself past, the episodes kept, and the model that
+consolidates."
+  (let ((size (lispm-memory-size)))
+    (insert "\n")
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "A memory grown past its size consolidates itself: entries merged, folded or dropped, each change a commit:"))
+    (pcase-dolist (`(,choice . ,_) lispm-memory-sizes)
+      (let ((name (lispm-memory-size-name choice)))
+        (lispm-desktop-settings--radio name (eq size choice) (lambda () (lispm-set-memory-size choice t))
+                                       (lispm-desktop-settings--fit (lispm-memory-size-note choice)
+                                                                    (lispm-desktop-settings--note-room name)))))
+    (unless size
+      (lispm-desktop-settings--radio (lispm-desktop-tr "Your own size") t #'ignore
+                                     (lispm-desktop-tr "consolidated past your own budget")))
+    (unless lispm-git
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "Without a history in git, memory is never consolidated.")))
+    (insert "\n")
+    (lispm-desktop-settings--check-box
+     (lispm-desktop-tr "Keep episodes") lispm-episodes
+     (lambda () (lispm-settings-set 'lispm-episodes (not lispm-episodes) t))
+     (lispm-desktop-tr "summaries of past conversations, by day, week and month"))
+    (insert (lispm-desktop-settings--indent)
+            (propertize (lispm-desktop-tr "Consolidated by: ") 'face 'shadow)
+            (propertize (or lispm-memory-model (lispm-desktop-tr "Each agent's own model")) 'face 'bold) "  ")
+    (lispm-desktop-settings--button (lispm-desktop-tr "Choose…") #'lispm-desktop-settings--choose-memory-model
+                                    (lispm-desktop-tr "Choose the model that consolidates memory"))
+    (insert "\n")))
+
 (defun lispm-desktop-settings--lispm-memory ()
   "Insert the LispM panel's Memory group: how large conversations grow
-before they are summed up, whether memory is saved first, git's history,
-and Show Memory…."
+before they are summed up, and whether at idle, whether memory is saved
+first, git's history, how large long-term memory grows before it
+consolidates itself (with a LispM Agent that does), and Show Memory…."
   (let ((size (lispm-compact-size)))
     (lispm-desktop-settings--heading (lispm-desktop-tr-in "agents' memory" "Memory"))
     (lispm-desktop-settings--paragraph
@@ -870,6 +941,11 @@ and Show Memory…."
       (lispm-desktop-settings--radio (lispm-desktop-tr "Your own size") t #'ignore
                                      (lispm-desktop-tr "summed up past %d tokens" lispm-compact-threshold)))
     (insert "\n")
+    (when (fboundp 'lispm-set-compact-idle)
+      (lispm-desktop-settings--check-box
+       (lispm-desktop-tr "Sum up while idle") lispm-compact-idle
+       (lambda () (lispm-set-compact-idle (not lispm-compact-idle) t))
+       (lispm-desktop-tr "so the next request does not wait")))
     (lispm-desktop-settings--check-box
      (lispm-desktop-tr "Save memory before summing up") lispm-compact-save-memory
      (lambda () (lispm-settings-set 'lispm-compact-save-memory (not lispm-compact-save-memory) t))
@@ -878,6 +954,8 @@ and Show Memory…."
      (lispm-desktop-tr "Keep a history in git") lispm-git
      (lambda () (lispm-settings-set 'lispm-git (not lispm-git) t))
      (lispm-desktop-tr "each change a commit"))
+    (when (fboundp 'lispm-set-memory-size)
+      (lispm-desktop-settings--lispm-memory-budget))
     (insert "\n" (lispm-desktop-settings--indent))
     (lispm-desktop-settings--button (lispm-desktop-tr "Show Memory…") (lambda () (call-interactively #'lispm-open-memory))
                                     (lispm-desktop-tr "Open the memory of a project or a role, or a task list"))
