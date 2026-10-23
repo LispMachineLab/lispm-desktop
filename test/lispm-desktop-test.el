@@ -8907,19 +8907,29 @@ neither."
                                                      :icon "x" :banner "x" :about "x" :author "X"
                                                      :license "MIT" :feature x :package x))
                    '("an extension's :package is (NAME :url URL :rev SHA), from git")))
-    ;; An extension may name its category, one of an extension's.
-    (let ((extension (lambda (category)
+    (let ((extension (lambda (&rest properties)
                        `(x :kind extension :name "X" :subtitle "X" :description "X." :icon "x"
                            :banner "x" :about "x" :author "X" :license "MIT" :feature x
                            :package (x :url "https://example.org/x"
                                        :rev "acbb86e342d2b8f85dfb30dce9df01db9a829c77")
-                           ,@(and category (list :category category))))))
-      (should-not (lispm-desktop-catalog-item-problems (funcall extension nil)))
-      (should-not (lispm-desktop-catalog-item-problems (funcall extension 'ai-harness)))
-      (should (equal (lispm-desktop-test--problems (funcall extension 'games))
+                           ,@properties)))
+          (holon '(program "holon" :for "running agents" :brew "holon-run/tap/holon")))
+      ;; An extension may name its category, one of an extension's.
+      (should-not (lispm-desktop-catalog-item-problems (funcall extension)))
+      (should-not (lispm-desktop-catalog-item-problems (funcall extension :category 'ai-harness)))
+      (should (equal (lispm-desktop-test--problems (funcall extension :category 'games))
                      '(":category is one of ai-harness")))
-      (should (equal (lispm-desktop-test--problems (funcall extension "ai-harness"))
-                     '(":category is a symbol"))))
+      (should (equal (lispm-desktop-test--problems (funcall extension :category "ai-harness"))
+                     '(":category is a symbol")))
+      ;; Its needs are an application's, a tap's formula among them; a
+      ;; :program they install is one too many, never installed.
+      (should-not (lispm-desktop-catalog-item-problems (funcall extension :needs (list holon))))
+      (should (equal (lispm-desktop-test--problems
+                      (funcall extension :needs '((program "holon" :for "running agents" :brew "holon; rm -rf ~")))
+                      'error)
+                     '("holon: :brew is the name of what Homebrew installs")))
+      (should (equal (lispm-desktop-test--problems (funcall extension :program "holon" :needs (list holon)))
+                     '(":program holon is one of its :needs, which install it: the need is enough"))))
     (should (equal (lispm-desktop-test--problems (funcall item :category 'ai-harness) 'warning)
                    (list (concat ":category is one of "
                                  (mapconcat #'symbol-name lispm-desktop-catalog-categories ", ")))))
@@ -9727,6 +9737,65 @@ command installing it."
         (should (string-search "brew install ext" (cadr err))))
       (should-error (lispm-desktop-store-act 'ext) :type 'user-error)
       (should-not lispm-desktop-store-installed))))
+
+(ert-deftest lispm-desktop-test-store-extension-installs-its-needs ()
+  "An extension's needs come with it, as an app's: Get installs it, the
+alert saying what comes along, and the Installer installs the need once
+it is loaded; its page offers Install Missing meanwhile, and the
+commands the need names offer it.  Uninstalled, it lets them run again,
+and Uninstall All has the Installer uninstall what it alone needed."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-extension 'lispm-desktop-test-ext
+      (setq lispm-desktop-test--extension-events nil)
+      (let ((need '(program "lispm-desktop-test-no-such-program" :for "running agents"
+                            :brew "owner/tap/lispm-desktop-test-no-such-program"
+                            :commands (lispm-desktop-test--agent)))
+            (lispm-desktop-needs--guards nil)
+            (details nil) (installs nil) (uninstalls nil) (packages nil))
+        (defalias 'lispm-desktop-test--agent #'ignore)
+        (lispm-desktop-test--store-catalog
+         "https://example.org/store"
+         `((ext :kind extension :name "Ext" :feature lispm-desktop-test-ext :needs (,need)
+                :package (lispm-desktop-test-ext :url "https://example.org/ext" :rev "fedcba9876543210"))))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
+                       (lambda (_question detail &rest _) (push detail details) t))
+                      ((symbol-function 'package-installed-p) (lambda (name &rest _) (memq name packages)))
+                      ((symbol-function 'package-vc-install)
+                       (lambda (spec _rev)
+                         (push (car spec) packages)
+                         (lispm-desktop-test--write-extension extension-directory 'lispm-desktop-test-ext)))
+                      ((symbol-function 'lispm-desktop-store--delete-package) #'ignore)
+                      ((symbol-function 'lispm-desktop-needs-install)
+                       (lambda (needs who _then)
+                         (push (list (mapcar #'lispm-desktop-needs-name needs) who (featurep 'lispm-desktop-test-ext))
+                               installs)))
+                      ((symbol-function 'lispm-desktop-needs-brewed-p) (lambda (_need) t))
+                      ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) 'all))
+                      ((symbol-function 'lispm-desktop-needs-uninstall)
+                       (lambda (needs who &rest _) (push (list (mapcar #'lispm-desktop-needs-name needs) who)
+                                                         uninstalls))))
+              (let ((props (cdr (assq 'ext (lispm-desktop-store-items)))))
+                (should (equal (lispm-desktop-store--action 'ext props) '("Get" . install)))
+                (should (equal (lispm-desktop-store--install-commands props)
+                               "brew install owner/tap/lispm-desktop-test-no-such-program")))
+              (lispm-desktop-store-install 'ext)
+              (should (string-search "lispm-desktop-test-no-such-program" (car details)))
+              (should (equal installs '((("lispm-desktop-test-no-such-program") "Ext" t))))
+              (should (equal (car (lispm-desktop-store--action 'ext (cdr (assq 'ext (lispm-desktop-store-items)))))
+                             "Installed"))
+              (with-temp-buffer
+                (setq-local lispm-desktop-store--view 'item
+                            lispm-desktop-store--selected 'ext)
+                (should (assoc "Install Missing" (lispm-desktop-store--item-buttons))))
+              (should (assq 'lispm-desktop-test--agent lispm-desktop-needs--guards))
+              (lispm-desktop-store-uninstall 'ext)
+              (should-not (assq 'lispm-desktop-test--agent lispm-desktop-needs--guards))
+              (should (equal uninstalls '((("lispm-desktop-test-no-such-program") "Ext"))))
+              (should-not (featurep 'lispm-desktop-test-ext))
+              (should-not lispm-desktop-store-installed))
+          (lispm-desktop-needs-unguard 'lispm-desktop-test--agent)
+          (fmakunbound 'lispm-desktop-test--agent))))))
 
 (ert-deftest lispm-desktop-test-store-extension-from-a-checkout ()
   "An extension whose library is on the load path already, as a
@@ -12945,7 +13014,8 @@ failed, it tries again; stopped, it stops it, and hears no more of it."
 
 (ert-deftest lispm-desktop-test-needs-brewed ()
   "What Homebrew installed is found in its Cellar or Caskroom, whoever had
-it installed; Apple's command line tools never are."
+it installed, and a library in its keg, a tap's formula by its own name;
+Apple's command line tools never are."
   (let* ((prefix (make-temp-file "lispm-test-prefix" t))
          (exec-path (list (expand-file-name "bin" prefix)))
          (process-environment (copy-sequence process-environment))
@@ -12958,7 +13028,13 @@ it installed; Apple's command line tools never are."
           (set-file-modes (expand-file-name "bin/brew" prefix) #o755)
           (make-directory (expand-file-name "Cellar/mpv" prefix) t)
           (make-directory (expand-file-name "Caskroom/1password-cli" prefix) t)
+          (make-directory (expand-file-name "Cellar/holon" prefix) t)
+          (make-directory (expand-file-name "opt/tdlib/lib" prefix) t)
+          (with-temp-file (expand-file-name "opt/tdlib/lib/libtdjson.dylib" prefix))
           (should (lispm-desktop-needs-brewed-p '(program "mpv" :for "playing music" :brew "mpv")))
+          (should (lispm-desktop-needs-brewed-p '(program "holon" :for "running agents" :brew "holon-run/tap/holon")))
+          (should (lispm-desktop-needs-present-p '(library "TDLib" :for "Telegram" :brew "owner/tap/tdlib"
+                                                           :file "lib/libtdjson.dylib")))
           (should (lispm-desktop-needs-brewed-p '(program "op" :for "reading vaults" :cask "1password-cli")))
           (should-not (lispm-desktop-needs-brewed-p '(program "yt-dlp" :for "fetching videos" :brew "yt-dlp")))
           (should-not (lispm-desktop-needs-brewed-p '(program "cc" :for "building" :xcode t))))

@@ -54,12 +54,14 @@
 ;; extension's :feature, loaded, makes it take part in the editor;
 ;; unloaded, it takes part no more.  An extension needing a :program can
 ;; be installed only while that program is on PATH; :install says how to
-;; install the program.  An app's :needs are the programs, libraries and
-;; applications it uses beyond Emacs, as EMMS a player, each as
-;; lispm-desktop-needs.el says: Get installs those missing with the app,
-;; in the Installer, the alert asking for both; its information says what
-;; is missing, Install Missing installs it, and its window offers it, see
-;; lispm-desktop-app-ui.el; the commands a need names offer it too.
+;; install the program.  An item's :needs are the programs, libraries and
+;; applications it uses beyond Emacs, as EMMS a player and the Holon
+;; extension Holon's program, each as lispm-desktop-needs.el says: Get
+;; installs those missing with the item, in the Installer, the alert
+;; asking for both; its information says what is missing, Install Missing
+;; installs it, an app's window offers it, see lispm-desktop-app-ui.el,
+;; and the commands a need names offer it too.  Uninstall All uninstalls
+;; what nothing else needs.
 ;; :category, one of `lispm-desktop-store-categories', as Classic AI, the
 ;; programs of AI's first decades, ELIZA's Doctor, SHRDLU and MYCIN, and
 ;; :subtitle, a few words, place an application in the window; an
@@ -1543,7 +1545,8 @@ came with it go too."
           (lispm-desktop-remove-app id)
           (when (fboundp 'lispm-desktop-remove-alias)
             (lispm-desktop-remove-alias id)))
-    ('extension (lispm-desktop-store--unload (plist-get props :feature))))
+    ('extension (lispm-desktop-needs-unguard-all (lispm-desktop-store--needs id))
+                (lispm-desktop-store--unload (plist-get props :feature))))
   (when (plist-get props :owned)
     (lispm-desktop-store--quietly
       (lispm-desktop-store--delete-package (plist-get props :package))))
@@ -1557,9 +1560,10 @@ came with it go too."
   (equal (lispm-desktop-needs-key need) (lispm-desktop-needs-key other)))
 
 (defun lispm-desktop-store--needs-leftovers (id)
-  "Return what the app ID needs that Homebrew installed and nothing else
-uses once it is uninstalled: no other application, installed or built
-in, and no command but the app's own, see `lispm-desktop-needs-guarded-p'."
+  "Return what the item ID needs that Homebrew installed and nothing else
+uses once it is uninstalled: no other item, installed or an application
+built in, and no command but the item's own, see
+`lispm-desktop-needs-guarded-p'."
   (let* ((needs (lispm-desktop-store--needs id))
          (own (mapcan (lambda (need) (copy-sequence (lispm-desktop-needs-get need :commands))) needs))
          (others (append (mapcan (pcase-lambda (`(,app . ,_))
@@ -1679,7 +1683,7 @@ Return non-nil when it was uninstalled."
                    (user-error (lispm-desktop-tr "The App Store did not install %s") id))))
     (when (lispm-desktop-store--busy-p id)
       (user-error (lispm-desktop-tr "%s is being updated; stop that first") (plist-get props :name)))
-    (let* ((needs (and (eq (plist-get props :kind) 'app) (lispm-desktop-store--needs-leftovers id)))
+    (let* ((needs (lispm-desktop-store--needs-leftovers id))
            (packages (lispm-desktop-store--package-leftovers id props))
            (choice (if noconfirm 'item (lispm-desktop-store--confirm-uninstall id props needs packages))))
       (when choice
@@ -2008,9 +2012,9 @@ background; what goes wrong is said in an alert."
        :setup (lambda () (lispm-desktop-app-ui-run id (plist-get props :command)))))))
 
 (defun lispm-desktop-store--needs (id)
-  "Return what the app ID needs beyond Emacs, as its catalog declares it
+  "Return what the item ID needs beyond Emacs, as its catalog declares it
 now, else as it was installed with: a catalog may come to declare it
-after the app was installed.  The catalogs are read from their clones,
+after the item was installed.  The catalogs are read from their clones,
 if they were not yet."
   (unless lispm-desktop-store--catalogs
     (ignore-errors (lispm-desktop-store-read-catalogs)))
@@ -2067,10 +2071,12 @@ App Store becomes the desktop's, at its install and at every start."
 
 (defun lispm-desktop-store--register (id props)
   "Make the installed item ID, of PROPS, take part: an application one of
-the desktop's, an extension loaded."
+the desktop's, an extension loaded, the commands its needs name offering
+them where they are missing."
   (pcase (plist-get props :kind)
     ('app (lispm-desktop-store--register-app id props))
-    ('extension (require (plist-get props :feature)))))
+    ('extension (require (plist-get props :feature))
+                (lispm-desktop-needs-guard-all (plist-get props :needs) (plist-get props :name)))))
 
 (defun lispm-desktop-store--register-installed ()
   "Make the applications and extensions installed take part, as at every start."
@@ -2924,7 +2930,7 @@ language LispM speaks."
 (defun lispm-desktop-store--notes (props)
   "Return what the item of PROPS lacks, in sentences of the language LispM
 speaks, each after two spaces, or \"\": how to install the program it
-needs when PATH lacks it, and what of an app's needs is missing."
+needs when PATH lacks it, and what of its needs is missing."
   (concat (when-let* ((emacs (lispm-desktop-store--newer-emacs props)))
             (concat "  " (lispm-desktop-tr "It runs in Emacs %d or later; this is Emacs %s.  The Kernel panel of Control Panels switches LispM to it."
                                            emacs emacs-version)))
@@ -4130,7 +4136,7 @@ stopped what Mac OS 9 was doing."
 
 (defun lispm-desktop-store--install-commands (props)
   "Return the command installing what the item of PROPS uses and lacks,
-or nil: an extension's program, an app's needs, theirs joined."
+or nil: an extension's program, or the item's needs, theirs joined."
   (let ((commands (if (lispm-desktop-store--missing-program props)
                       (ensure-list (plist-get props :install))
                     (delq nil (mapcar #'lispm-desktop-needs-install-command

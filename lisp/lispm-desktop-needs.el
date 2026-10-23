@@ -263,9 +263,11 @@ its formula's prefix when relative, or else its formula's keg."
         (formula (lispm-desktop-needs-get need :brew)))
     (cond ((and file (file-name-absolute-p file)) (file-exists-p file))
           ((and formula (lispm-desktop-needs--brew-prefix))
+           ;; A tap's formula, OWNER/TAP/NAME, is kept as NAME.
            (file-exists-p (expand-file-name (or file "")
-                                            (expand-file-name formula (expand-file-name
-                                                                       "opt" (lispm-desktop-needs--brew-prefix)))))))))
+                                            (expand-file-name (file-name-nondirectory formula)
+                                                              (expand-file-name
+                                                               "opt" (lispm-desktop-needs--brew-prefix)))))))))
 
 (defun lispm-desktop-needs-present-p (need)
   "Return non-nil when NEED is installed here."
