@@ -41,8 +41,9 @@
 ;;                     terminal is on, hence --start-as.
 ;;   switching         M-x lispm-desktop-start-as-terminal, and Start as
 ;;                     Terminal… in the desktop's Special menu; from the
-;;                     terminal, M-x lispm-desktop-start-as-desktop.  The
-;;                     setting changes and an alert offers to restart.
+;;                     terminal, M-x lispm-desktop-start-as-desktop, or
+;;                     asking LispM for desktop mode.  The setting changes
+;;                     and an alert offers to restart.
 ;;
 ;; As the terminal, `lispm-desktop-setup' leaves the desktop out, see
 ;; lispm-desktop.el, and the first frame becomes the terminal once Emacs
@@ -54,7 +55,9 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-terminal "lispm-terminal" ())
+(declare-function lispm-terminal "lispm-terminal" (&optional agent))
+(declare-function lispm-terminal-soon "lispm-terminal" (function))
+(defvar lispm-turn-end-functions)
 
 (defcustom lispm-desktop-start-as 'desktop
   "What LispM starts as: `desktop', the desktop with its menu bar, windows,
@@ -198,6 +201,38 @@ and a who line, without the desktop.  An alert offers to restart now."
 restart now."
   (interactive)
   (lispm-desktop-start-as-switch 'desktop))
+
+(defvar lispm-desktop-start-as--waiting nil
+  "The `lispm-turn-end-functions' function waiting to offer a restart, or nil.")
+
+(defun lispm-desktop-start-as--after-turn (agent function)
+  "Call FUNCTION once AGENT's turn is over and its session saved, and
+the command then under way is done, the LispM bar closed.  Asked again
+before, as by a second call of the tool in the same turn, it is called
+once."
+  (unless lispm-desktop-start-as--waiting
+    (letrec ((once (lambda (ended _reply)
+                     (when (eq ended agent)
+                       (remove-hook 'lispm-turn-end-functions once)
+                       (setq lispm-desktop-start-as--waiting nil)
+                       (lispm-terminal-soon function)))))
+      (setq lispm-desktop-start-as--waiting once)
+      (add-hook 'lispm-turn-end-functions once))))
+
+(defun lispm-desktop-start-as-leave-terminal (agent)
+  "Leave LispM's terminal for AGENT, asked by the tool terminal_leave,
+as LispM started as the terminal: there is no desktop to go back to, so
+LispM starts as the desktop from now on, and once AGENT's turn is over
+and saved, the alert of `lispm-desktop-start-as-desktop' offers to
+restart into it.  Return what to tell AGENT.  This is
+`lispm-terminal-leave-function' while LispM runs as its terminal."
+  (let ((inhibit-message t))
+    (customize-save-variable 'lispm-desktop-start-as 'desktop))
+  (lispm-desktop-start-as--after-turn agent #'lispm-desktop-start-as-desktop)
+  "LispM started as its terminal, so there is no desktop to go back to \
+yet: from now on it starts as the desktop, and once this reply is done \
+the user is asked whether to restart into it now (agents stop, and \
+their sessions can be resumed).  Tell them so in one short line.")
 
 (provide 'lispm-desktop-start-as)
 ;;; lispm-desktop-start-as.el ends here

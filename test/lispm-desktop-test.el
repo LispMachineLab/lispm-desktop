@@ -41,6 +41,8 @@
 (defvar lispm-terminal-keys-mode)
 (defvar lispm-terminal-keys-mode-hook)
 (defvar lispm-terminal-enter-function)
+(defvar lispm-terminal-leave-function)
+(defvar lispm-turn-end-functions)
 
 ;; The words as the code writes them, whatever the computer's language.
 (setq lispm-desktop-language 'en
@@ -8985,6 +8987,7 @@ talks to LispM in its listener."
         (lispm-language-functions nil)
         (lispm-desktop-language-changed-hook nil)
         (real-require (symbol-function 'require))
+        (lispm-terminal-leave-function nil)
         (bars nil))
     (cl-letf (((symbol-function 'lispm-desktop-deps-ensure) #'ignore)
               ((symbol-function 'require) (lambda (feature &rest more)
@@ -8998,6 +9001,8 @@ talks to LispM in its listener."
         (let ((lispm-desktop-started-as as))
           (lispm-desktop-setup-lispm))))
     (should (equal bars '((terminal desktop) desktop)))
+    ;; Started as the terminal, leaving it is going to the desktop.
+    (should (eq lispm-terminal-leave-function #'lispm-desktop-start-as-leave-terminal))
     (should (equal lispm-skill-sources '(lispm-desktop-store-skill-sources lispm-desktop--system-skills)))))
 
 ;;;; The desktop's own skills
@@ -13449,6 +13454,56 @@ start as the desktop."
         (setq there t)
         (should (eq (lispm-desktop-start-as--choose) 'desktop))))))
 
+(ert-deftest lispm-desktop-test-alert-fallback-keys ()
+  "An alert asked in the minibuffer has a letter for each button, typed
+without an input method: one of its label, else of its value's name,
+as for labels in Chinese, else a digit.  It is asked there even from a
+timer, where Emacs would pop up a dialog box."
+  (should (equal (lispm-desktop-popup--alert-keys '(("Later" later cancel) ("Restart" restart default)))
+                 '((?l "Later" later) (?r "Restart" restart))))
+  (should (equal (lispm-desktop-popup--alert-keys '(("Save" save) ("Same" same)))
+                 '((?s "Save" save) (?a "Same" same))))
+  (should (equal (mapcar #'car (lispm-desktop-popup--alert-keys
+                                '(("\u7a0d\u540e" later cancel) ("\u91cd\u65b0\u542f\u52a8" restart default))))
+                 '(?l ?r)))
+  (should (equal (mapcar #'car (lispm-desktop-popup--alert-keys '(("\u662f" 1) ("\u5426" 2))))
+                 '(?1 ?2)))
+  ;; Asked from a timer, as after an agent's turn, still in the
+  ;; minibuffer, never in a dialog box.
+  (let ((dialog 'unset))
+    (cl-letf (((symbol-function 'read-multiple-choice)
+               (lambda (_prompt choices &rest _) (setq dialog use-dialog-box) (cadr choices))))
+      (let ((use-dialog-box t))
+        (should (eq (lispm-desktop-popup--alert-fallback
+                     "Restart?" '(("Later" later cancel) ("Restart" restart default)) nil 'later)
+                    'restart))))
+    (should-not dialog)))
+
+(ert-deftest lispm-desktop-test-start-as-leave-terminal ()
+  "Asked to leave the terminal LispM started as, LispM starts as the
+desktop from then on, tells the agent so, and offers to restart into it
+once the turn that asked is over and saved: then only, and once."
+  (let ((lispm-desktop-start-as 'terminal)
+        (lispm-desktop-started-as 'terminal)
+        (lispm-turn-end-functions nil)
+        (lispm-desktop-start-as--waiting nil)
+        (offered 0))
+    (cl-letf (((symbol-function 'customize-save-variable) (lambda (variable value &rest _) (set variable value)))
+              ((symbol-function 'lispm-terminal-soon) #'funcall)
+              ((symbol-function 'lispm-desktop-start-as-desktop) (lambda () (cl-incf offered))))
+      (should (string-search "desktop" (lispm-desktop-start-as-leave-terminal 'asker)))
+      (should (eq lispm-desktop-start-as 'desktop))
+      ;; The tool called twice in a turn.
+      (lispm-desktop-start-as-leave-terminal 'asker)
+      (should (= offered 0))
+      (run-hook-with-args 'lispm-turn-end-functions 'another "Done.")
+      (should (= offered 0))
+      (run-hook-with-args 'lispm-turn-end-functions 'asker "Done.")
+      (should (= offered 1))
+      (should-not lispm-turn-end-functions)
+      (run-hook-with-args 'lispm-turn-end-functions 'asker "Done.")
+      (should (= offered 1)))))
+
 (defconst lispm-desktop-test--desktop-only-setup
   '(lispm-desktop-setup-tab-bar lispm-desktop-setup-interface lispm-desktop-setup-term
     lispm-desktop-setup-loading lispm-desktop-setup-platinum lispm-desktop-setup-sidebar
@@ -13639,7 +13694,7 @@ keyboard goes back to the window it was entered from."
             (should (equal ran (list frame)))
             (should (equal focused (list frame frame)))
             ;; Asked of an agent, the terminal in front shows it.
-            (cl-letf (((symbol-function 'run-at-time) (lambda (_time _repeat function) (funcall function))))
+            (cl-letf (((symbol-function 'lispm-terminal-soon) #'funcall))
               (should-not (lispm-desktop-lispm-terminal-enter 'an-agent)))
             (should-not made)
             (should (equal ran (list 'an-agent frame)))

@@ -1,5 +1,5 @@
 #+title: Change settings
-#+description: Read and change LispM's settings, as Control Panels holds them: the look and the colour theme, the language, the keys, the proxy, the agents' sandbox, whether LispM starts as the desktop or its terminal, what opens at login and at startup, and how software updates; open a panel for the user.
+#+description: Read and change LispM's settings, as Control Panels holds them: the look and the colour theme, the language, the keys, the proxy, the agents' sandbox, whether LispM starts as the desktop or its terminal at its next start, what opens at login and at startup, and how software updates; open a panel for the user.
 
 Control Panels holds LispM Desktop's settings: a control panel for each category, an application
 of its own whose window's tabs are its panels, which the user opens from the menu bar's λ menu or
@@ -38,9 +38,13 @@ for ~eval_elisp~.
   - ~sandbox~: how strictly agents' shell commands and MCP servers are confined: ~none~, ~low~,
     ~middle~, ~high~, or ~custom~, the user's own rules.  ~settings_set~ only makes it stricter;
     see below.
-  - ~start-as~: what LispM starts as, ~desktop~ (windows, menus and applications) or ~terminal~
-    (LispM's terminal: the sessions, a listener and a who line, without the desktop); it takes
-    effect at the next start, so tell the user to restart LispM to switch.
+  - ~start-as~: what LispM starts as at its next start, ~desktop~ (windows, menus and
+    applications) or ~terminal~ (LispM's terminal: the sessions, a listener and a who line,
+    without the desktop); nothing changes now.  Change it only when the user asks what LispM is
+    to start as, as "always start in console mode".  To go into the terminal now (console, TUI,
+    terminal or keyboard mode) or back to the desktop (desktop mode), use ~terminal_enter~ or
+    ~terminal_leave~ of the skill terminal instead: they switch at once, and back to the
+    desktop where LispM started as the terminal.
   - ~open-at-login~: ~true~ to have the computer open LispM when the user logs in.
   - ~startup-item~, with ITEM: what LispM opens once started.  VALUE ~on~ or ~off~ turns the
     item named ITEM on or off, ~remove~ takes it out; ~add~ adds ITEM, an application's key or a
@@ -231,7 +235,7 @@ change."
                       (t (error "That loosens the sandbox: only settings_lower_sandbox does, asking the user"))))))
           ("sandbox-domains" sandbox ,(lambda () (string-join lispm-sandbox-allowed-domains ", "))
            "the user's to change, in the Sandbox panel" nil)))
-    ("start-as" startup ,(lambda () lispm-desktop-start-as) "desktop, terminal"
+    ("start-as" startup ,(lambda () lispm-desktop-start-as) "desktop, terminal; at the next start"
      ,(lambda (value _)
         (lispm-desktop-skill-save 'lispm-desktop-start-as (lispm-desktop-skill-choice value '(desktop terminal)))))
     ("open-at-login" startup ,(lambda () (and (lispm-desktop-startup-login-p) t)) "true, false"

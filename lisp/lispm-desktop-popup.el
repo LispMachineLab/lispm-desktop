@@ -1330,17 +1330,29 @@ are events pressing a button too, as Command-D pressed Don't Save."
           (lispm-desktop-popup-dispose popup))
         choice))))
 
+(defun lispm-desktop-popup--alert-keys (buttons)
+  "Return a key for each of BUTTONS, as an alert takes them, as (KEY
+LABEL VALUE): a letter of its label not taken yet, else of its value's
+name, else a digit.  Each is typed without an input method, as a label
+in Chinese or Japanese has no letter to type."
+  (let ((used nil))
+    (mapcar (pcase-lambda (`(,label ,value . ,_))
+              (let ((key (seq-find (lambda (c) (and (or (<= ?a c ?z) (<= ?1 c ?9)) (not (memq c used))))
+                                   (concat (downcase label)
+                                           (and (symbolp value) (downcase (symbol-name value)))
+                                           "123456789"))))
+                (push key used)
+                (list key label value)))
+            buttons)))
+
 (defun lispm-desktop-popup--alert-fallback (message buttons detail cancel)
   "Ask MESSAGE in the minibuffer, offering BUTTONS; return the value chosen.
-DETAIL follows MESSAGE; quitting returns CANCEL."
+DETAIL follows MESSAGE; quitting returns CANCEL.  Never in a dialog box,
+which `read-multiple-choice' would pop up when asked from a timer, as
+after an agent's turn: a key answers in the minibuffer."
   (condition-case nil
-      (let* ((keys (let ((used nil))
-                     (mapcar (pcase-lambda (`(,label ,value ,_))
-                               (let ((key (seq-find (lambda (c) (not (memq c used)))
-                                                    (downcase label))))
-                                 (push key used)
-                                 (list key label value)))
-                             buttons)))
+      (let* ((keys (lispm-desktop-popup--alert-keys buttons))
+             (use-dialog-box nil)
              (answer (read-multiple-choice
                       (concat message (when detail (concat "  " detail)))
                       (mapcar (pcase-lambda (`(,key ,label ,_)) (list key label)) keys))))

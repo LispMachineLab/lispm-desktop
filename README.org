@@ -247,7 +247,8 @@ the desktop is as it was.
 
 Or start LispM as the terminal: Start As in the Startup panel, =M-x lispm-desktop-start-as-terminal=
 or Special ▸ Start as Terminal…, which offer to restart at once; back with
-=M-x lispm-desktop-start-as-desktop=.  The proxy, the keys, the language, the theme, LispM's
+=M-x lispm-desktop-start-as-desktop=, or by asking LispM for desktop mode: it starts as the desktop
+from then on, and once its reply is done asks whether to restart into it.  The proxy, the keys, the language, the theme, LispM's
 agents, Software Update and the startup programs and commands are as on the desktop.  For one
 start, the command line chooses (Emacs's own =--terminal= names a terminal device, hence
 =--start-as=):

@@ -84,6 +84,7 @@
 (defvar lispm-terminal-mode)
 (defvar lispm-terminal-keys-mode)
 (defvar lispm-terminal-enter-function)
+(defvar lispm-terminal-leave-function)
 
 ;;;; Sessions as lispm-desktop-ai sees them
 
@@ -247,10 +248,7 @@ the terminal comes in front."
 frame of its own as `lispm-desktop-lispm-terminal' does, once the tool
 call is over: the desktop's frame stays as it is.  This is
 `lispm-terminal-enter-function' on the desktop; nil, for the usual words."
-  (let ((enter (lambda () (lispm-desktop-lispm-terminal agent))))
-    (if (fboundp 'lispm-terminal-soon)
-        (lispm-terminal-soon enter)
-      (run-at-time 0 nil enter)))
+  (lispm-terminal-soon (lambda () (lispm-desktop-lispm-terminal agent)))
   nil)
 
 (defvar-local lispm-desktop-lispm-terminal--line-numbers nil
@@ -303,7 +301,8 @@ LispM Agent has it: LispM Terminal, entered on \`C-c T', see
                               :running #'lispm-desktop-lispm-terminal-open-p)
     (keymap-global-set "C-c T" #'lispm-desktop-lispm-terminal)
     ;; Asked of LispM, the terminal is entered so too, never in the
-    ;; desktop's own frame; it is left as by C-c C-q.
+    ;; desktop's own frame; it is left as by C-c C-q, as the terminal
+    ;; leaves by itself, and the frame goes with it.
     (setq lispm-terminal-enter-function #'lispm-desktop-lispm-terminal-enter)
     (add-hook 'lispm-terminal-mode-hook #'lispm-desktop-lispm-terminal--left)
     (add-hook 'lispm-terminal-keys-mode-hook #'lispm-desktop-lispm-terminal--keys-changed)
@@ -361,8 +360,11 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
   (lispm-mode-line-mode 1)
   ;; LispM itself, the system's agent, has a bar of its own in the menu
   ;; bar, and the desktop enters LispM's terminal; started as the
-  ;; terminal, LispM has neither, and talks to it in its listener.
-  (unless (lispm-desktop-started-as-terminal-p)
+  ;; terminal, LispM has neither, and talks to it in its listener, and
+  ;; asked to leave the terminal, there is no desktop to go back to: it
+  ;; restarts as one.
+  (if (lispm-desktop-started-as-terminal-p)
+      (setq lispm-terminal-leave-function #'lispm-desktop-start-as-leave-terminal)
     (lispm-desktop-setup-bar)
     (lispm-desktop-lispm-setup-terminal)))
 
