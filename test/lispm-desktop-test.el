@@ -13627,6 +13627,68 @@ running alone, and its stop is noted with its exit code."
           (kill-buffer buffer)))
       (delete-directory directory t))))
 
+(ert-deftest lispm-desktop-test-startup-service ()
+  "A service an installed package offers is a startup item: named as the
+service, run as LispM Agent runs it, its output in its own buffer, told of
+by the Startup panel with its sandbox level, and opened as LispM's
+terminal too.  One no package offers is not installed."
+  (skip-unless (require 'lispm-services nil t))
+  (let* ((lispm-services nil)
+         (lispm-service-levels '((lispm-desktop-test-echo . none)))
+         (lispm-service--processes nil)
+         (lispm-service--ended nil)
+         (changes 0)
+         (lispm-services-changed-hook (list #'lispm-desktop-startup--services-changed))
+         (lispm-desktop-startup-changed-hook (list (lambda () (setq changes (1+ changes)))))
+         (item '(:service lispm-desktop-test-echo)))
+    (lispm-define-service 'lispm-desktop-test-echo
+			  :name "Echo" :description "Says it is up, then waits."
+			  :command '("sh" "-c" "echo up; exec sleep 30"))
+    (unwind-protect
+        (progn
+          (should (eq (lispm-desktop-startup-item-kind item) 'service))
+          (should (equal (lispm-desktop-startup-item-name item) "Echo"))
+          (should (equal (lispm-desktop-settings--startup-item-note item)
+                         "service, no sandbox: Says it is up, then waits."))
+          (lispm-desktop-startup-open-item item)
+          (should (eq (lispm-desktop-startup-service-status item) 'running))
+          (should (> changes 0))
+          (should (equal (lispm-desktop-settings--startup-item-note item)
+                         "running, no sandbox: Says it is up, then waits."))
+          (let ((lispm-service-levels '((lispm-desktop-test-echo . middle))))
+            (should (equal (lispm-desktop-settings--startup-item-note item)
+                           "running, sandbox Middle: Says it is up, then waits.")))
+          (cl-flet ((up () (with-current-buffer (lispm-service-buffer-name 'lispm-desktop-test-echo)
+                             (string-search "\nup\n" (buffer-string)))))
+            (lispm-desktop-test--wait #'up)
+            (should (up)))
+          (lispm-service-stop 'lispm-desktop-test-echo)
+          (should (string-prefix-p "stopped, exit" (lispm-desktop-settings--startup-item-note item)))
+          (let ((lispm-desktop-started-as 'terminal))
+            (should (lispm-desktop-startup-opens-p item)))
+          (let ((gone '(:service lispm-desktop-test-gone)))
+            (should (equal (lispm-desktop-settings--startup-item-note gone) "service, not installed"))
+            (should-error (lispm-desktop-startup-open-item gone))))
+      (lispm-service-stop 'lispm-desktop-test-echo)
+      (when-let* ((buffer (get-buffer (lispm-service-buffer-name 'lispm-desktop-test-echo))))
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-startup-add-service ()
+  "The Startup panel adds a service an installed package offers, asking at
+which sandbox level it runs, which it keeps as the service's own."
+  (skip-unless (require 'lispm-services nil t))
+  (let ((lispm-services nil)
+        (lispm-service-levels nil)
+        (lispm-desktop-startup-items nil)
+        (answers (list "Service of an installed package, in the sandbox" "Echo" "Middle")))
+    (lispm-define-service 'lispm-desktop-test-echo :name "Echo" :command '("true"))
+    (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
+              ((symbol-function 'customize-save-variable)
+               (lambda (variable value) (set variable value))))
+      (lispm-desktop-settings--startup-add))
+    (should (equal lispm-desktop-startup-items '((:service lispm-desktop-test-echo))))
+    (should (equal lispm-service-levels '((lispm-desktop-test-echo . middle))))))
+
 (ert-deftest lispm-desktop-test-startup-after-start ()
   "The startup items open once Emacs waits for input, never in a batch
 Emacs."

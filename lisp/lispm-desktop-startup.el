@@ -33,11 +33,14 @@
 ;;                   deletes it when asked, and otherwise only looks.
 ;;   startup items   what LispM opens once it has started, as Mac OS 9
 ;;                   opened the items of its Startup Items folder:
-;;                   applications, documents and folders, programs and
-;;                   Emacs commands, see `lispm-desktop-startup-items'.  A
-;;                   program runs in the background as a service while
-;;                   LispM runs, its output in a buffer of its own, and
-;;                   stops as LispM quits.
+;;                   applications, documents and folders, programs,
+;;                   services and Emacs commands, see
+;;                   `lispm-desktop-startup-items'.  A program runs in the
+;;                   background as a service while LispM runs, its output
+;;                   in a buffer of its own, and stops as LispM quits; so
+;;                   does a service an installed package offers, as
+;;                   Holon's daemon, in the sandbox (LispM Agent's
+;;                   lispm-services.el).
 ;;
 ;; personal.el can set both:
 ;;
@@ -57,9 +60,14 @@
 (require 'lispm-desktop-start-as)
 
 (defvar lispm-desktop-apps)
+(defvar lispm-services)
 (declare-function lispm-desktop-apps-activate "lispm-desktop-apps" (app))
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
+(declare-function lispm-service-name "lispm-services" (id))
+(declare-function lispm-service-start "lispm-services" (id &optional show))
+(declare-function lispm-service-status "lispm-services" (id))
+(declare-function lispm-service-buffer-name "lispm-services" (id))
 
 (defgroup lispm-desktop-startup nil
   "What starts with LispM: LispM itself at login, and its startup items."
@@ -79,6 +87,10 @@ thing to open:
                       directory :directory, by default the home directory.
                       Its output goes to its own buffer, and it stops as
                       LispM quits.
+  (:service ID)       a service an installed package offers, as `holon',
+                      Holon's daemon: run as LispM Agent runs it, in the
+                      sandbox at its level (`lispm-service-levels'), while
+                      LispM runs
   (:command COMMAND)  an Emacs command, called as if typed
 
 :name names an item, by default after what it opens; :disabled, non-nil,
@@ -86,6 +98,7 @@ keeps an item in the list without opening it."
   :type '(repeat (plist :options ((:app symbol)
                                   (:file file)
                                   (:program string)
+                                  (:service symbol)
                                   (:command function)
                                   (:name string)
                                   (:directory directory)
@@ -238,10 +251,10 @@ Items; on GNU/Linux an autostart entry."
 ;;;; Startup items
 
 (defun lispm-desktop-startup-item-kind (item)
-  "Return what ITEM opens: `app', `file', `program' or `command', or nil
-when it names none of them."
+  "Return what ITEM opens: `app', `file', `program', `service' or
+`command', or nil when it names none of them."
   (seq-find (lambda (kind) (plist-get item (intern (format ":%s" kind))))
-            '(app file program command)))
+            '(app file program service command)))
 
 (defun lispm-desktop-startup-program-name (command)
   "Return the name of the program the shell COMMAND runs, as \"ollama\"
@@ -276,6 +289,8 @@ application's in the language LispM speaks."
                       (name (file-name-nondirectory file)))
                  (if (string-empty-p name) file name)))
         ('program (lispm-desktop-startup-program-name (plist-get item :program)))
+        ('service (let ((id (plist-get item :service)))
+                    (if (fboundp 'lispm-service-name) (lispm-service-name id) (symbol-name id))))
         ('command (symbol-name (plist-get item :command))))
       (lispm-desktop-tr "Unknown")))
 
@@ -342,15 +357,27 @@ and it reaches the network as LispM's own programs do."
       (run-hooks 'lispm-desktop-startup-changed-hook)
       process)))
 
-(defun lispm-desktop-startup--show-program (item)
-  "Show the output of ITEM's program in the editor."
+(defun lispm-desktop-startup--show-output (buffer-name)
+  "Show the output of a program or service, in the buffer BUFFER-NAME, in
+the editor."
   (lispm-desktop-editor-activate)
-  (pop-to-buffer-same-window (lispm-desktop-startup-program-buffer-name item)))
+  (pop-to-buffer-same-window buffer-name))
+
+(defun lispm-desktop-startup-service-p (id)
+  "Return non-nil when ID is a service an installed package offers."
+  (and (fboundp 'lispm-service-start) (assq id (bound-and-true-p lispm-services)) t))
+
+(defun lispm-desktop-startup-service-status (item)
+  "Return how ITEM's service stands, as `lispm-service-status' tells it:
+`running', (exited . CODE), (failed . WHY), or nil when it has not run."
+  (and (lispm-desktop-startup-service-p (plist-get item :service))
+       (lispm-service-status (plist-get item :service))))
 
 (defun lispm-desktop-startup-open-item (item &optional show)
   "Open ITEM, a startup item, see `lispm-desktop-startup-items'.
-A program already running is left running; with SHOW, its output shows,
-running or just started.  Signal an error when ITEM cannot be opened."
+A program or service already running is left running; with SHOW, its
+output shows, running or just started.  Signal an error when ITEM cannot
+be opened."
   (pcase (lispm-desktop-startup-item-kind item)
     ('app
      (let ((app (plist-get item :app)))
@@ -366,7 +393,14 @@ running or just started.  Signal an error when ITEM cannot be opened."
      (unless (lispm-desktop-startup-program-process item)
        (lispm-desktop-startup--start-program item))
      (when show
-       (lispm-desktop-startup--show-program item)))
+       (lispm-desktop-startup--show-output (lispm-desktop-startup-program-buffer-name item))))
+    ('service
+     (let ((id (plist-get item :service)))
+       (unless (lispm-desktop-startup-service-p id)
+         (error (lispm-desktop-tr "No service %s is installed") id))
+       (lispm-service-start id)
+       (when show
+         (lispm-desktop-startup--show-output (lispm-service-buffer-name id)))))
     ('command
      (let ((command (plist-get item :command)))
        (unless (commandp command)
@@ -376,17 +410,17 @@ running or just started.  Signal an error when ITEM cannot be opened."
 
 (defun lispm-desktop-startup-opens-p (item)
   "Return non-nil when the startup ITEM opens at a start: when it is not
-turned off, and, as LispM starts as its terminal, is a program or a
-command; applications, documents and folders open in the desktop's
+turned off, and, as LispM starts as its terminal, is a program, a service
+or a command; applications, documents and folders open in the desktop's
 windows."
   (and (not (plist-get item :disabled))
        (or (not (lispm-desktop-started-as-terminal-p))
-           (memq (lispm-desktop-startup-item-kind item) '(program command)))))
+           (memq (lispm-desktop-startup-item-kind item) '(program service command)))))
 
 (defun lispm-desktop-startup-open-items ()
   "Open the startup items not turned off, in their order, as at a start;
-as LispM's terminal, only programs and commands.  An item that cannot be
-opened is passed over, and told of."
+as LispM's terminal, only programs, services and commands.  An item that
+cannot be opened is passed over, and told of."
   (interactive)
   (let ((failed nil))
     (dolist (item lispm-desktop-startup-items)
@@ -406,9 +440,16 @@ Emacs opens none."
   (unless noninteractive
     (run-at-time 0 nil #'lispm-desktop-startup-open-items)))
 
+(defun lispm-desktop-startup--services-changed ()
+  "Have what shows the startup items follow a service as it starts or
+stops, or comes or goes."
+  (run-hooks 'lispm-desktop-startup-changed-hook))
+
 (defun lispm-desktop-setup-startup ()
-  "Open the startup items once LispM has started."
-  (add-hook 'window-setup-hook #'lispm-desktop-startup--after-start 95))
+  "Open the startup items once LispM has started, and follow services."
+  (add-hook 'window-setup-hook #'lispm-desktop-startup--after-start 95)
+  (with-eval-after-load 'lispm-services
+    (add-hook 'lispm-services-changed-hook #'lispm-desktop-startup--services-changed)))
 
 (provide 'lispm-desktop-startup)
 ;;; lispm-desktop-startup.el ends here

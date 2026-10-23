@@ -48,8 +48,8 @@ for ~eval_elisp~.
   - ~open-at-login~: ~true~ to have the computer open LispM when the user logs in.
   - ~startup-item~, with ITEM: what LispM opens once started.  VALUE ~on~ or ~off~ turns the
     item named ITEM on or off, ~remove~ takes it out; ~add~ adds ITEM, an application's key or a
-    file or folder, at the end.  Programs and Emacs commands, which run at every start, the user
-    adds in the Startup panel.
+    file or folder, at the end.  Programs, services (run in the sandbox) and Emacs commands,
+    which run at every start, the user adds in the Startup panel.
   - ~update-check-automatically~ (~true~ or ~false~), ~update-schedule~ (~daily~ or ~weekly~),
     ~update-install-automatically~ (~true~ installs LispM's updates by themselves, as it quits;
     ~false~ asks first) and ~store-update-automatically~ (whether the App Store's applications
