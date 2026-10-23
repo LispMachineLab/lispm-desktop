@@ -134,6 +134,7 @@
 (require 'lispm-desktop-agent-list)
 (require 'lispm-desktop-shells)
 (require 'lispm-desktop-lispm)
+(require 'lispm-desktop-bar)
 (require 'lispm-agents-claude)
 (require 'lispm-agents-codex)
 (require 'lispm-desktop-kernel)

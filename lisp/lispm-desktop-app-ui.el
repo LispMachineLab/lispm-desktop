@@ -138,7 +138,9 @@ shown; a function may return them translated already:
           (LABEL COMMAND), instead, as an application with nothing
           to show yet; TEXT and BUTTONS may be functions returning
           them.
-:setup    a function called in its buffer once it has the interface."
+:setup    a function called in its buffer once it has the interface.
+:installed a function called once what it needs and lacked is
+          installed, as to read anew what it showed missing."
   (setf (alist-get key lispm-desktop-app-ui-skins) properties)
   key)
 
@@ -1010,7 +1012,20 @@ returning them, as the App Store's are, read from its catalog."
 standing in for it."
   (unless (memq app lispm-desktop-app-ui--told)
     (push app lispm-desktop-app-ui--told)
-    (lispm-desktop-needs-ensure (lispm-desktop-app-ui-needs app) (lispm-desktop-app-ui-name app))))
+    (lispm-desktop-app-ui-install-needs app t)))
+
+(defun lispm-desktop-app-ui-install-needs (app &optional missing)
+  "Offer to install what APP needs and lacks, those with a stand-in too
+unless MISSING; once they are installed, call its skin's :installed."
+  (interactive (list (lispm-desktop-app-ui--buffer-app)))
+  (let ((installed (plist-get (lispm-desktop-app-ui--app-skin app) :installed))
+        (needs (lispm-desktop-needs-missing (lispm-desktop-app-ui-needs app) (not missing))))
+    (when needs
+      (lispm-desktop-needs-ask needs (lispm-desktop-app-ui-name app)
+                               (and installed
+                                    (lambda (present)
+                                      (when present
+                                        (lispm-desktop-app-ui--safely installed))))))))
 
 ;;;; Opening an application
 

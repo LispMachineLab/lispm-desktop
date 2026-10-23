@@ -35,6 +35,10 @@
 ;;   Elfeed      its entries in the list face, the line point is on
 ;;               highlighted; a page saying how to begin while it has
 ;;               no feeds
+;;   Rotom       buttons starting and stopping its daemon, signing in and
+;;               choosing LispM's model; the daemon, the accounts and
+;;               LispM's model at the bottom; a page while Rotom's
+;;               program is missing, which installs it
 ;;
 ;; EMMS has a file of its own, lispm-desktop-app-emms.el.
 ;;
@@ -83,6 +87,15 @@
 (declare-function calendar-scroll-left "cal-move" (&optional arg event))
 (declare-function calendar-scroll-right "cal-move" (&optional arg event))
 (declare-function calendar-check-holidays "holidays" (date))
+(defvar lispm-rotom-state)
+(defvar lispm-rotom-accounts)
+(defvar lispm-rotom-busy)
+(defvar lispm-rotom-signing-in)
+(defvar lispm-rotom-daemon)
+(declare-function lispm-rotom-installed-p "lispm-rotom" ())
+(declare-function lispm-rotom-running-p "lispm-rotom" ())
+(declare-function lispm-rotom-lispm "lispm-rotom" ())
+(declare-function lispm-rotom-read "lispm-rotom" (&optional callback))
 (declare-function elfeed-db-last-update "elfeed-db" ())
 (declare-function elfeed-tagged-p "elfeed-db" (tag entry))
 
@@ -456,6 +469,56 @@ broken where they are to break."
              (,(lispm-desktop-tr-noop "Previous") elfeed-show-prev)
              (,(lispm-desktop-tr-noop "Next") elfeed-show-next)
              (,(lispm-desktop-tr-noop "Open in Browser") elfeed-show-visit)))
+
+;;;; Rotom
+
+(defun lispm-desktop-app-skins--rotom-status ()
+  "Return what Rotom's window says at its bottom: its daemon, the accounts
+signed in, and the model LispM's agents use through it."
+  (when (memq lispm-rotom-state '(ready no-account))
+    (delq nil
+          (list (if (lispm-rotom-running-p)
+                    (lispm-desktop-tr "Running at %s" (plist-get lispm-rotom-daemon :url))
+                  (lispm-desktop-tr "Daemon stopped"))
+                (lispm-desktop-tr-n "%d account" "%d accounts" (length lispm-rotom-accounts))
+                (when-let* ((lispm (lispm-rotom-lispm))
+                            ((plist-get lispm :rotom)))
+                  (lispm-desktop-tr "LispM uses %s" (plist-get lispm :model)))))))
+
+(defun lispm-desktop-app-skins-rotom-install ()
+  "Install Rotom's program, which its window lacks."
+  (interactive)
+  (lispm-desktop-app-ui-install-needs 'rotom))
+
+(lispm-desktop-app-ui-define 'lispm-rotom-mode
+  :app 'rotom
+  :list t
+  :status #'lispm-desktop-app-skins--rotom-status
+  :buttons `((,(lambda () (if (lispm-rotom-running-p) (lispm-desktop-tr "Stop") (lispm-desktop-tr "Start")))
+              lispm-rotom-start-or-stop
+              ,(lambda () (and (lispm-rotom-installed-p) (not lispm-rotom-busy))))
+             (,(lispm-desktop-tr-noop "Restart") lispm-rotom-restart
+              ,(lambda () (and (lispm-rotom-running-p) (not lispm-rotom-busy))))
+             (,(lispm-desktop-tr-noop "Sign In…") lispm-rotom-sign-in-here
+              ,(lambda () (and (lispm-rotom-installed-p) (not lispm-rotom-signing-in))))
+             (,(lispm-desktop-tr-noop "Refresh Tokens") lispm-rotom-refresh-tokens
+              ,(lambda () (and lispm-rotom-accounts (not lispm-rotom-busy))))
+             (,(lispm-desktop-tr-noop "Use for LispM…") lispm-rotom-use-here
+              ,(lambda () (featurep 'lispm-core))))
+  :empty `(,(lambda () (eq lispm-rotom-state 'missing))
+           ,(lispm-desktop-tr-noop "Rotom is not installed yet.\nCargo, Rust's package manager, builds it\nin some minutes, in the Installer.")
+           ((,(lispm-desktop-tr-noop "Install Rotom") lispm-desktop-app-skins-rotom-install)))
+  :installed (lambda () (lispm-rotom-read))
+  :keys `(("Return" . ,(lispm-desktop-tr-noop "Sign in, use the model, or start the daemon"))
+          ("s" . ,(lispm-desktop-tr-noop "Start or stop the daemon")) ("r" . ,(lispm-desktop-tr-noop "Restart the daemon"))
+          ("l" . ,(lispm-desktop-tr-noop "Sign in to an account"))
+          ("P" . ,(lispm-desktop-tr-noop "Paste the address the browser shows"))
+          ("R" . ,(lispm-desktop-tr-noop "Refresh the tokens"))
+          ("u" . ,(lispm-desktop-tr-noop "Have LispM's agents use the model"))
+          ("x" . ,(lispm-desktop-tr-noop "Have LispM's agents stop using Rotom"))
+          ("w" . ,(lispm-desktop-tr-noop "Copy the model or the address"))
+          ("v" . ,(lispm-desktop-tr-noop "View the daemon's log")) ("U" . ,(lispm-desktop-tr-noop "Update Rotom"))
+          ("g" . ,(lispm-desktop-tr-noop "Read Rotom again"))))
 
 (provide 'lispm-desktop-app-skins)
 ;;; lispm-desktop-app-skins.el ends here

@@ -4574,6 +4574,49 @@ Strip."
   (let ((global-mode-string nil) (display-time-mode nil))
     (should-not (lispm-desktop-platinum-menu-status))))
 
+;;;; The LispM bar
+
+(ert-deftest lispm-desktop-test-menu-status-functions ()
+  "Titles of `lispm-desktop-platinum-status-functions' come after the clock,
+in the hook's order, as Spotlight's came after Mac OS X's."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+                                                                                 "#777777" "#6363CE"))
+        (global-mode-string nil)
+        (display-time-mode t)
+        (display-time-format "%H:%M")
+        (lispm-desktop-platinum-status-functions nil))
+    (add-hook 'lispm-desktop-platinum-status-functions
+              (lambda () (list (lispm-desktop-platinum-status-title 'two nil "Two" #'ignore "Second"))))
+    (add-hook 'lispm-desktop-platinum-status-functions
+              (lambda () (list (lispm-desktop-platinum-status-title 'one nil "One" #'ignore "First"))))
+    (should (equal (mapcar #'car (lispm-desktop-platinum-menu-status)) '(lispm-desktop-time one two)))))
+
+(ert-deftest lispm-desktop-test-bar-finds-applications ()
+  "The LispM bar finds the desktop's applications and its Control Panels,
+each of which Return opens."
+  (skip-unless (require 'lispm-bar nil t))
+  (let* ((lispm-bar-source-functions (list #'lispm-desktop-bar-applications))
+         (things (lispm-desktop-bar-applications))
+         (named (lambda (name) (seq-find (lambda (thing) (equal (plist-get thing :name) name)) things))))
+    (should (funcall named "Emacs"))
+    (should (funcall named "Control Panels"))
+    ;; The desktop is no application to open; its Control Panel is.
+    (should (eq (plist-get (funcall named "Desktop") :kind) 'control-panel))
+    (should (eq (plist-get (funcall named "Network") :kind) 'control-panel))
+    (should (equal (plist-get (funcall named "Network") :label) "Control Panel"))
+    (should (seq-every-p (lambda (thing) (functionp (plist-get thing :open))) things))
+    (should (equal (plist-get (car (lispm-bar-find "netw")) :name) "Network"))
+    (let ((shown nil))
+      (cl-letf (((symbol-function 'lispm-desktop-settings-show) (lambda (&optional panel) (setq shown panel))))
+        (funcall (plist-get (funcall named "Network") :open)))
+      (should (eq shown 'network)))))
+
+(ert-deftest lispm-desktop-test-bar-activity ()
+  "The bar says what LispM does with the desktop's tools in its words."
+  (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "settings"))) "Opening Control Panels…"))
+  (should (equal (lispm-desktop-bar-activity "desktop_open" '((app . "Stickies"))) "Opening Stickies…"))
+  (should-not (lispm-desktop-bar-activity "read_file" '((path . "x")))))
+
 (ert-deftest lispm-desktop-test-row-shades-sorted-column ()
   "A row's right-hand column carries the sorted column's face to the edge."
   (cl-letf (((symbol-function 'lispm-desktop-sidebar--column-pixels) (lambda () 100)))
@@ -5127,10 +5170,9 @@ srt makes the status `installing'.  Custom's rules may not have the key
          (chosen nil))
      (cl-letf (((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
                ((symbol-function 'lispm-sandbox-level-name) (lambda (level) (capitalize (symbol-name level))))
-               ;; As LispM Agent 0.3.0 says it; another test may have
-               ;; loaded a later one.
-               ((symbol-function 'lispm-sandbox-level-description)
-                (lambda (&optional level) (alist-get (or level lispm-sandbox-level) lispm-sandbox-levels)))
+               ;; LispM Agent 0.3.0 had none, even when a test before
+               ;; loaded the agent of this checkout.
+               ((symbol-function 'lispm-sandbox-level-description) nil)
                ((symbol-function 'lispm-sandbox-srt-status) (lambda () status))
                ((symbol-function 'lispm-sandbox-install) (lambda () (setq status 'installing)))
                ((symbol-function 'lispm-sandbox-set-level)
@@ -8788,6 +8830,31 @@ it."
                                '("settings_get" "settings_show" "settings_set" "settings_lower_sandbox"))
                        '(read read write write)))))))
 
+(ert-deftest lispm-desktop-test-system-skill-app-store-choosing ()
+  "store_search finds an item by words of what the user wants done, not
+only of its name: by its description, the skill it brings, what it
+needs, its introduction; a word begun counts, and not every word must
+match.  What matches only by chance is left out."
+  (lispm-desktop-test--load-system-skill "app-store")
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--skill-catalog
+     '((gateway :kind app :name "Gateway" :command ignore :subtitle "Your models, one address"
+                :description "A gateway to the models of the accounts you have, for programs speaking OpenAI's API."
+                :needs ((program "lispm-test-gateway" :for "reaching the models of your accounts"
+                                 :cargo "lispm-test-gateway")))
+       (feeds :kind app :name "Feeds" :command ignore :category news :about "feeds"
+              :description "Web feeds read in Emacs.")
+       (gateway-help :kind skill :name "Use the gateway" :description "Lets agents switch the model they use."
+                     :file "skills/calc-help.org" :requires (gateway)))
+     '(("about/feeds.md" . "Reads RSS and Atom, blogs and podcasts.\n")))
+    (should (string-prefix-p "gateway:" (lispm-desktop-test--call "store_search" "use my accounts for models")))
+    (should (string-prefix-p "gateway:" (lispm-desktop-test--call "store_search" "switch the agents' model")))
+    (should (string-prefix-p "feeds:" (lispm-desktop-test--call "store_search" "read rss podcasts")))
+    (should-not (string-search "calculator:" (lispm-desktop-test--call "store_search" "read rss podcasts")))
+    (should (string-prefix-p "calculator:" (lispm-desktop-test--call "store_search" "Calculat")))
+    (should (string-prefix-p "feeds:" (lispm-desktop-test--call "store_search" "feeds" "news")))
+    (should (equal (lispm-desktop-test--call "store_search" "feeds" "games") "Nothing matches."))))
+
 (ert-deftest lispm-desktop-test-system-skill-app-store ()
   "The App Store's skill's tools search the items and read one, show the
 App Store, check the catalogs, and install, update and uninstall an
@@ -8796,7 +8863,7 @@ approved: those three always ask, and show first what they do."
   (lispm-desktop-test--load-system-skill "app-store")
   (lispm-desktop-test--with-store
     (lispm-desktop-test--skill-catalog)
-    (should (string-search "calculator: Calculator, an application in Utilities: A test item; not installed; skills for agents: calc-help (Calculate)"
+    (should (string-search "calculator: Calculator (A test item), an application in Utilities; not installed; skills for agents: calc-help (Calculate)\n  An item of the tests."
                            (lispm-desktop-test--call "store_search")))
     (should (string-search "calculator:" (lispm-desktop-test--call "store_search" "calc" "utilities")))
     (should (equal (lispm-desktop-test--call "store_search" "zzz") "Nothing matches."))
@@ -11692,7 +11759,7 @@ found out of it is not enough, each board's functions defined."
                  mpuz-mode bubbles-mode life-mode hanoi dun-mode doctor-mode calc-mode calendar-mode
                  elfeed-search-mode emms-browser-mode erc-mode slack-mode slack-buffer-mode
                  telega-root-mode telega-chat-mode lispm-desktop-app-erc-list-mode
-                 lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode))
+                 lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode lispm-rotom-mode))
     (let ((skin (alist-get key lispm-desktop-app-ui-skins)))
       (should skin)
       (when-let* ((board (plist-get skin :board)))
@@ -11726,6 +11793,9 @@ not taken."
   (should-not (lispm-desktop-needs-valid-p '(program "mpv" :for "playing" :commands ("play"))))
   (should (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head t)))
   (should-not (lispm-desktop-needs-valid-p '(library "TDLib" :for "Telegram" :brew "tdlib" :head "yes")))
+  (should (lispm-desktop-needs-valid-p '(program "rotom" :for "models" :cargo "rotom")))
+  (should-not (lispm-desktop-needs-valid-p '(program "rotom" :for "models" :cargo "rotom; rm -rf ~")))
+  (should-not (lispm-desktop-needs-valid-p '(library "libgw" :for "models" :cargo "gw")))
   (should-not (lispm-desktop-store--item-valid-p
                '(emms :kind app :name "EMMS" :command emms :needs (("mpv"))))))
 
@@ -11805,6 +11875,59 @@ nothing standing in is offered as it opens, once a session."
       (lispm-desktop-app-ui--offer-missing 'emms)
       (lispm-desktop-app-ui--offer-missing 'emms)
       (should (equal asked '("EMMS needs lispm-test-tagger.  Install it?"))))))
+
+(ert-deftest lispm-desktop-test-app-needs-then-installed ()
+  "Once what an app lacked is installed, its skin's :installed is called,
+as Rotom's reads Rotom again; nothing is asked nor called when nothing
+is missing."
+  (let ((lispm-desktop-apps (list (list 'emms :name "EMMS" :needs (lambda () lispm-desktop-test--needs))))
+        (lispm-desktop-app-ui-skins nil)
+        (called 0)
+        (asked 0))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :app 'emms :installed (lambda () (cl-incf called)))
+    (cl-letf (((symbol-function 'lispm-desktop-needs-ask)
+               (lambda (_needs _who then) (cl-incf asked) (when then (funcall then t)))))
+      (cl-letf (((symbol-function 'executable-find) #'ignore))
+        (lispm-desktop-app-ui-install-needs 'emms)
+        (should (= asked 1))
+        (should (= called 1)))
+      (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) "/bin/true")))
+        (lispm-desktop-app-ui-install-needs 'emms)
+        (should (= asked 1))
+        (should (= called 1))))))
+
+(defvar lispm-rotom-state)
+(defvar lispm-rotom-accounts)
+(defvar lispm-rotom-daemon)
+(defvar lispm-rotom-busy)
+
+(ert-deftest lispm-desktop-test-app-skin-rotom ()
+  "Rotom's window says where its daemon runs, the accounts and LispM's
+model at its bottom, and starts or stops the daemon as it runs or not;
+while Rotom is missing, its page installs it."
+  (let ((skin (alist-get 'lispm-rotom-mode lispm-desktop-app-ui-skins))
+        (lispm-rotom-state 'ready)
+        (lispm-rotom-accounts '((:provider codex) (:provider grok)))
+        (lispm-rotom-daemon '(:running t :url "http://127.0.0.1:14550"))
+        (lispm-rotom-busy nil)
+        (running t))
+    (should (eq (plist-get skin :app) 'rotom))
+    (cl-letf (((symbol-function 'lispm-rotom-running-p) (lambda () running))
+              ((symbol-function 'lispm-rotom-installed-p) (lambda () "/usr/local/bin/rotom"))
+              ((symbol-function 'lispm-rotom-lispm) (lambda () '(:rotom t :model "gpt-6.1-sol"))))
+      (should (equal (lispm-desktop-app-skins--rotom-status)
+                     '("Running at http://127.0.0.1:14550" "2 accounts" "LispM uses gpt-6.1-sol")))
+      (pcase-let ((`(,label ,command ,enabled) (car (plist-get skin :buttons))))
+        (should (equal (funcall label) "Stop"))
+        (should (eq command 'lispm-rotom-start-or-stop))
+        (should (funcall enabled))
+        (setq running nil)
+        (should (equal (funcall label) "Start")))
+      (should (equal (car (lispm-desktop-app-skins--rotom-status)) "Daemon stopped"))
+      (should-not (funcall (car (plist-get skin :empty))))
+      (setq lispm-rotom-state 'missing)
+      (should (funcall (car (plist-get skin :empty))))
+      (should-not (lispm-desktop-app-skins--rotom-status)))))
 
 (ert-deftest lispm-desktop-test-needs-guard ()
   "A guarded command run while its need is missing offers to install it,
@@ -11928,6 +12051,74 @@ printf '#!/bin/sh\\n' > $BIN/$3; chmod +x $BIN/$3\n"
       (lispm-desktop-needs-retry)
       (lispm-desktop-test--wait (lambda () (not (lispm-desktop-needs-running-p))))
       (should (eq (lispm-desktop-needs--job-state (car lispm-desktop-needs--jobs)) 'installed)))))
+
+(ert-deftest lispm-desktop-test-needs-cargo-first ()
+  "A program Homebrew lacks Cargo builds, from its crate, as the command
+copied says; Cargo comes first, from Homebrew's rust, while it is missing."
+  (let ((gateway '(program "lispm-test-gateway" :for "models" :cargo "lispm-test-gateway"))
+        (player (car lispm-desktop-test--needs)))
+    (should (equal (lispm-desktop-needs-provider gateway) '(cargo "lispm-test-gateway")))
+    (should (equal (lispm-desktop-needs-install-command gateway) "cargo install --locked lispm-test-gateway"))
+    (should (lispm-desktop-needs-installable-p gateway))
+    (should (equal (lispm-desktop-needs-provider (lispm-desktop-needs-cargo)) '(brew "rust")))
+    (cl-letf (((symbol-function 'lispm-desktop-needs-present-p) #'ignore))
+      (should (equal (mapcar #'lispm-desktop-needs-name (lispm-desktop-needs--with-cargo (list player gateway)))
+                     '("lispm-test-player" "cargo" "lispm-test-gateway")))
+      (should (equal (mapcar #'lispm-desktop-needs-name (lispm-desktop-needs--with-cargo (list player)))
+                     '("lispm-test-player"))))
+    (cl-letf (((symbol-function 'lispm-desktop-needs-present-p)
+               (lambda (need) (equal (lispm-desktop-needs-name need) "cargo"))))
+      (should (equal (mapcar #'lispm-desktop-needs-name (lispm-desktop-needs--with-cargo (list gateway)))
+                     '("lispm-test-gateway"))))
+    (should (string-match-p "Cargo, Rust's package manager, builds" (lispm-desktop-needs-detail (list gateway))))))
+
+(defun lispm-desktop-test--fake-cargo (bin script)
+  "Write a cargo of SCRIPT, a shell script, into BIN."
+  (with-temp-file (expand-file-name "cargo" bin)
+    (insert "#!/bin/sh\n" script))
+  (set-file-modes (expand-file-name "cargo" bin) #o755))
+
+(ert-deftest lispm-desktop-test-needs-cargo-install ()
+  "Cargo builds a program into its own directory, off PATH: found there,
+the directory goes on PATH, and the program is installed; Cargo failing
+says its error."
+  (lispm-desktop-test--with-brew ""
+    (let* ((home (make-temp-file "lispm-test-cargo" t))
+           (process-environment (cons (concat "CARGO_HOME=" home) process-environment))
+           (need '(program "lispm-test-gateway" :for "models" :cargo "lispm-test-gateway"))
+           answer)
+      (unwind-protect
+          (progn
+            (lispm-desktop-test--fake-cargo
+             bin "echo \"$*\" > \"$CARGO_HOME/args\"
+echo '   Compiling lispm-test-gateway v1.0.0'
+mkdir -p \"$CARGO_HOME/bin\"
+printf '#!/bin/sh\\n' > \"$CARGO_HOME/bin/$3\"
+chmod +x \"$CARGO_HOME/bin/$3\"\n")
+            (should-not (lispm-desktop-needs-present-p need))
+            (lispm-desktop-needs-install (list need) "Gateway" (lambda (present) (setq answer (list present))))
+            (lispm-desktop-test--wait (lambda () answer))
+            (should (equal answer '(t)))
+            (should (equal (with-temp-buffer (insert-file-contents (expand-file-name "args" home)) (buffer-string))
+                           "install --locked lispm-test-gateway\n"))
+            (should (equal (lispm-desktop-needs--status) "Installed lispm-test-gateway."))
+            (should (equal (executable-find "lispm-test-gateway")
+                           (expand-file-name "bin/lispm-test-gateway" home)))
+            (should (string-search (expand-file-name "bin" home) (getenv "PATH")))
+            ;; What Cargo built stays when its application goes.
+            (should-not (lispm-desktop-needs-brewed-p need))
+            (delete-file (expand-file-name "bin/lispm-test-gateway" home))
+            (lispm-desktop-test--fake-cargo
+             bin "echo '    Updating crates.io index'
+echo 'error: could not find `lispm-test-gateway` in registry `crates-io` with version `*`' >&2
+exit 101\n")
+            (setq answer nil)
+            (lispm-desktop-needs-install (list need) "Gateway" (lambda (present) (setq answer (list present))))
+            (lispm-desktop-test--wait (lambda () answer))
+            (should (equal answer '(nil)))
+            (should (equal (lispm-desktop-needs--job-error (car lispm-desktop-needs--jobs))
+                           "error: could not find `lispm-test-gateway` in registry `crates-io` with version `*`")))
+        (delete-directory home t)))))
 
 (ert-deftest lispm-desktop-test-needs-lisp-install ()
   "What LispM gets itself installs with a function of its own: the
