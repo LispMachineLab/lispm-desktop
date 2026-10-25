@@ -51,6 +51,22 @@
 ;;     (palette height &context (lispm-desktop-look (eql win3)))
 ;;     ...)
 ;;
+;; Looks drawn alike make a family, which draws them in methods of its
+;; own, specialized on `lispm-desktop-look-family':
+;;
+;;   pc         win3 and os2, lispm-desktop-pc.el
+;;   glow       phosphor and neon, lispm-desktop-glow.el
+;;
+;;   (cl-defmethod lispm-desktop-platinum-draw-placard
+;;     (palette width height &context (lispm-desktop-look (lispm-desktop-look-family pc))
+;;      &key label font)
+;;     ...)
+;;
+;; A family's methods draw each of its looks by the look's metrics, see
+;; `lispm-desktop-look-metric'.  A look's own method, `(eql win3)', comes
+;; before its family's, whichever was defined first, and reaches it with
+;; `cl-call-next-method'.
+;;
 ;; Every drawing still takes its colours from the palette, so any colour
 ;; theme draws any look.  Each look names the theme in its system's own
 ;; colours, which choosing it switches to while the theme in use is the
@@ -105,9 +121,13 @@ PROPERTIES is a plist:
   :picture          the look's own desktop picture, a file under the
                     package's directory, which `lispm-desktop-picture'
                     replaces
+  :family           the family of looks drawn alike it belongs to, whose
+                    methods draw it, see lispm-desktop-look.el's Commentary
+  :metrics          a plist of the measures and forms its family's methods
+                    draw it by, see `lispm-desktop-look-metric'
 
-A look may hold properties of its own too, as the glowing looks'
-:title-style, see lispm-desktop-glow.el.
+A look may hold properties of its own too, as the PC looks' words, see
+lispm-desktop-pc.el.
 
 Return NAME."
   (if-let* ((look (assq name lispm-desktop-looks)))
@@ -123,6 +143,30 @@ Return NAME."
   "Return the name of LOOK, by default of `lispm-desktop-look'."
   (or (lispm-desktop-look-get :title look)
       (capitalize (symbol-name (or look lispm-desktop-look)))))
+
+(defun lispm-desktop-look-family (&optional look)
+  "Return the family LOOK belongs to, by default `lispm-desktop-look''s,
+or nil for a look drawn alike no other."
+  (lispm-desktop-look-get :family look))
+
+(defun lispm-desktop-look-metric (key &optional look)
+  "Return the metric KEY of LOOK, by default of `lispm-desktop-look': a
+measure or form its family's methods draw it by, see
+`lispm-desktop-look-define'."
+  (plist-get (lispm-desktop-look-get :metrics look) key))
+
+;; A method specialized on (lispm-desktop-look-family FAMILY) draws every
+;; look of FAMILY.  The family is told by the look itself, so a look's own
+;; `eql' method, of the higher priority, comes first: specializing on the
+;; family through an `&context' expression of its own would put whichever
+;; expression a generic function saw first before the other.
+(cl-generic-define-generalizer lispm-desktop-look--family-generalizer
+  50 (lambda (look &rest _) `(lispm-desktop-look-family ,look))
+  (lambda (family &rest _) (and family `((lispm-desktop-look-family ,family)))))
+
+(cl-defmethod cl-generic-generalizers ((_specializer (head lispm-desktop-look-family)))
+  "Support for (lispm-desktop-look-family FAMILY) specializers, a look of FAMILY."
+  (list lispm-desktop-look--family-generalizer))
 
 (defun lispm-desktop-look-families (property default)
   "Return the font families PROPERTY of the look, or DEFAULT where the
@@ -196,6 +240,12 @@ draw the chrome again in a new language as it is chosen."
 
 (defvar lispm-desktop-platinum-box-margin)
 (declare-function lispm-desktop-platinum-content-width "lispm-desktop-platinum-draw" (content face))
+(declare-function lispm-desktop-platinum-image "lispm-desktop-platinum-draw" (key draw))
+
+(defun lispm-desktop-look-image (key draw)
+  "Return the image of KEY drawn by DRAW, kept apart for the look in use,
+see `lispm-desktop-platinum-image'."
+  (lispm-desktop-platinum-image (cons lispm-desktop-look key) draw))
 
 (defun lispm-desktop-look-box-margin (margin)
   "Return how far in from its end a title bar stands its buttons, given

@@ -14492,6 +14492,80 @@ centred along its bottom, under a caption."
       (should (equal (dom-attr alert 'height) (plist-get layout :height)))
       (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-desktop-popup-alert-width))))))
 
+;;;; Families of looks
+
+(ert-deftest lispm-desktop-test-look-families ()
+  "Windows 3.2 and OS/2 2.0 are the PC family, phosphor and neon the
+glowing one, Platinum of none; each family draws its looks by their
+metrics."
+  (should (eq (lispm-desktop-look-family 'win3) 'pc))
+  (should (eq (lispm-desktop-look-family 'os2) 'pc))
+  (should (eq (lispm-desktop-look-family 'phosphor) 'glow))
+  (should (eq (lispm-desktop-look-family 'neon) 'glow))
+  (should-not (lispm-desktop-look-family 'platinum))
+  (should (= (lispm-desktop-look-metric :box-width 'win3) (1+ lispm-desktop-win3-button-width)))
+  (should (= (lispm-desktop-look-metric :box-width 'os2) lispm-desktop-os2-button-width))
+  (should (eq (lispm-desktop-look-metric :title-style 'neon) 'gradient))
+  (should-not (lispm-desktop-look-metric :box-width 'platinum))
+  (let ((lispm-desktop-look 'os2))
+    (should (eq (lispm-desktop-look-family) 'pc))
+    (should (= (lispm-desktop-look-metric :alert-gap) 8))))
+
+(ert-deftest lispm-desktop-test-look-own-method-before-family ()
+  "A look's own method comes before its family's, whichever was defined
+first, and reaches it, then the default, with `cl-call-next-method'; a
+look of no family gets the default."
+  (let ((lispm-desktop-looks (append '((test-a :family test) (test-b :family test) (test-c))
+                                     lispm-desktop-looks)))
+    (dolist (family-first '(t nil))
+      (let* ((name (make-symbol "lispm-desktop-test--drawn"))
+             (family `(cl-defmethod ,name (&context (lispm-desktop-look (lispm-desktop-look-family test)))
+                        (cons 'family (cl-call-next-method))))
+             (own `(cl-defmethod ,name (&context (lispm-desktop-look (eql test-a)))
+                     (cons 'test-a (cl-call-next-method)))))
+        (eval `(cl-defgeneric ,name () '(default)) t)
+        (mapc (lambda (form) (eval form t)) (if family-first (list family own) (list own family)))
+        (let ((lispm-desktop-look 'test-a))
+          (should (equal (funcall name) '(test-a family default))))
+        (let ((lispm-desktop-look 'test-b))
+          (should (equal (funcall name) '(family default))))
+        (let ((lispm-desktop-look 'test-c))
+          (should (equal (funcall name) '(default))))))))
+
+(ert-deftest lispm-desktop-test-look-family-draws-by-metrics ()
+  "The PC family lays a message box's buttons out by each look's metrics:
+Windows 3.2's ten pixels apart, OS/2 2.0's eight."
+  (let ((buttons '(("Cancel" cancel cancel) ("Save" save default))))
+    (dolist (look '(win3 os2))
+      (pcase-let* ((lispm-desktop-look look)
+                   (`(,save ,cancel) (seq-sort-by (lambda (b) (nth 3 b)) #'<
+                                                  (plist-get (lispm-desktop-popup--alert-layout "Save?" nil buttons)
+                                                             :buttons))))
+        (should (= (- (nth 3 cancel) (+ (nth 3 save) (nth 5 save)))
+                   (lispm-desktop-look-metric :alert-gap)))))))
+
+(ert-deftest lispm-desktop-test-browser-buttons-follow-the-look ()
+  "The browser's buttons are the look's bevel buttons, its images kept
+apart look by look; on Mac OS 9 they are Netscape's own, lighter than
+Platinum's."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette 'win3))
+        (bevels nil))
+    (dolist (look '(platinum win3 os2 neon))
+      (let ((lispm-desktop-look look))
+        (push (lispm-desktop-browser--bevel 40 30 nil) bevels)
+        (unless (eq look 'platinum)
+          (let ((svg (svg-create 40 30)))
+            (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-desktop-platinum-current-palette 40 30)
+            (should (equal (car bevels) (with-temp-buffer (svg-print svg) (buffer-string))))))))
+    (should (= (length (delete-dups bevels)) 4))
+    (should (string-prefix-p "<rect width='40' height='30'" (car (last bevels))))
+    (cl-flet ((image (look)
+                (let ((lispm-desktop-look look))
+                  (lispm-desktop-browser--image
+                   '(test) (lambda () (lispm-desktop-browser--svg 4 4 (lispm-desktop-browser--bevel 4 4 nil)))))))
+      (should-not (equal (image 'win3) (image 'os2)))
+      (should (eq (image 'win3) (image 'win3))))))
+
 ;;;; The glowing looks
 
 (ert-deftest lispm-desktop-test-glow-looks ()

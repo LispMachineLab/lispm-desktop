@@ -47,9 +47,11 @@
 (defconst lispm-desktop-platinum-header-strip-height 22
   "Height in pixels of a window's header strip, as the Finder window's.")
 
-(defun lispm-desktop-platinum--draw-header-ground (svg width palette)
+(cl-defgeneric lispm-desktop-platinum--draw-header-ground (svg width palette)
   "Draw on SVG the ground of a header strip WIDTH pixels wide, in PALETTE:
-lit along its top, platinum, shaded along its bottom over a black line."
+lit along its top, platinum, shaded along its bottom over a black line.
+The strip's opening, `lispm-desktop-platinum-draw-header-button', stands
+on it too."
   (let ((h lispm-desktop-platinum-header-strip-height)
         (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
     (lispm-desktop-platinum-svg-fill svg 0 0 width h (funcall grey #xDD))
