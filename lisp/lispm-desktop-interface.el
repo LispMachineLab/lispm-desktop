@@ -345,7 +345,9 @@ terminal, the fonts, and neither splash screen nor bell."
   (lispm-desktop-setup-plain-interface)
   ;; A window moved on a text terminal leaves no copy where it was.
   (when (featurep 'tty-child-frames)
-    (add-function :before pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames))
+    (add-hook 'after-make-frame-functions #'lispm-desktop--tty-frame-made)
+    (add-hook 'delete-frame-functions #'lispm-desktop--tty-frame-gone)
+    (mapc #'lispm-desktop--tty-frame-made (frame-list)))
   ;; Icons as images where the terminal shows them.
   (lispm-desktop-tty-images-setup)
   (when (lispm-desktop-macos-p)

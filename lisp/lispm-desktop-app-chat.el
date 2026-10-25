@@ -175,11 +175,13 @@ list is left alone."
           (set-window-point window (point)))))))
 
 (defun lispm-desktop-app-chat-refresh-all ()
-  "Draw again the lists of conversations shown, where they changed."
+  "Draw again the lists of conversations shown, where they changed.
+A list on a frame out of sight, as with the desktop hidden, waits until
+it shows again."
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (when (and (derived-mode-p 'lispm-desktop-app-chat-list-mode)
-                 (get-buffer-window buffer t))
+                 (get-buffer-window buffer 'visible))
         (lispm-desktop-app-chat-refresh)))))
 
 (defvar lispm-desktop-app-chat--timer nil

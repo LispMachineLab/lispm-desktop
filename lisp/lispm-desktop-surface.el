@@ -190,8 +190,9 @@ APFS a folder's link count is two more than its entries, and the one
 hidden entry an emptied Trash keeps, Finder's .DS_Store, can be looked
 for by name."
   (let ((directory (lispm-desktop--trash-directory)))
+    ;; Two names are enough: only one of them can be Finder's .DS_Store.
     (if-let* ((names (ignore-errors
-                       (directory-files directory nil directory-files-no-dot-files-regexp t))))
+                       (directory-files directory nil directory-files-no-dot-files-regexp t 2))))
         (and (seq-remove (lambda (name) (equal name ".DS_Store")) names) t)
       (when-let* ((attributes (file-attributes directory)))
         (> (- (file-attribute-link-number attributes) 2
@@ -213,6 +214,12 @@ changed, as Mac OS 9's Trash bulged once something was thrown away."
 
 (defvar lispm-desktop--trash-timer nil
   "Timer looking at the Trash every few seconds.")
+
+(defun lispm-desktop--trash-tick ()
+  "Look at the Trash while the desktop is shown: hidden, as in Focus Mode
+or with an application out on its own, its icon is nowhere to be seen."
+  (when (get-buffer-window lispm-desktop-buffer-name 'visible)
+    (lispm-desktop-check-trash)))
 
 ;;;; Settings
 
@@ -1738,7 +1745,7 @@ the Trash is looked at every few seconds."
     (add-variable-watcher setting #'lispm-desktop--setting-changed))
   (lispm-desktop-check-trash)
   (unless lispm-desktop--trash-timer
-    (setq lispm-desktop--trash-timer (run-with-timer 5 5 #'lispm-desktop-check-trash)))
+    (setq lispm-desktop--trash-timer (run-with-timer 5 5 #'lispm-desktop--trash-tick)))
   (add-hook 'tab-bar-tab-post-open-functions #'lispm-desktop--on-new-workspace)
   ;; Windows' outlines are drawn over the desktop's colour, and closing
   ;; the main area's last window uncovers the desktop.

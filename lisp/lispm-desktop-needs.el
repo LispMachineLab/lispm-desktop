@@ -1137,7 +1137,7 @@ installing now filled as far as it says it is, else striped and moving."
         (insert "\n\n  " (lispm-desktop-needs--status) "\n")
         (goto-char (point-min))
         ;; The buttons' states and the bottom's placard follow the run.
-        (force-mode-line-update t)))))
+        (force-mode-line-update)))))
 
 (defun lispm-desktop-needs-show ()
   "Open the Installer's window, or bring it in front."
