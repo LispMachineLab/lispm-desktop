@@ -39,6 +39,17 @@
 ;;               choosing LispM's model; the daemon, the accounts and
 ;;               LispM's model at the bottom; a page while Rotom's
 ;;               program is missing, which installs it
+;;   1Password   buttons for its main commands, the vault and kind shown
+;;               after them, the items counted at the bottom; a page
+;;               while op is missing or 1Password is locked
+;;   Security    buttons scanning, looking up, trusting and setting aside,
+;;               the findings counted at the bottom
+;;   MYCIN       buttons for what a consultation takes besides answers
+;;   SHRDLU      a button saying a sentence over the dialogue, the
+;;               drawing of the blocks world without buttons under it
+;;
+;; Each says what it shows with functions of its own, as Rotom's
+;; `lispm-rotom-running-p'; none of them knows the desktop.
 ;;
 ;; EMMS has a file of its own, lispm-desktop-app-emms.el.
 ;;
@@ -96,6 +107,21 @@
 (declare-function lispm-rotom-running-p "lispm-rotom" ())
 (declare-function lispm-rotom-lispm "lispm-rotom" ())
 (declare-function lispm-rotom-read "lispm-rotom" (&optional callback))
+(declare-function lispm-1password-ready-p "lispm-1password-ui" ())
+(declare-function lispm-1password-item-p "lispm-1password-ui" ())
+(declare-function lispm-1password-whole-p "lispm-1password-ui" (test))
+(declare-function lispm-1password-revealed-p "lispm-1password-ui" ())
+(declare-function lispm-1password-username-field "lispm-1password" (item))
+(declare-function lispm-1password-password-field "lispm-1password" (item))
+(declare-function lispm-1password-code-field "lispm-1password" (item))
+(declare-function lispm-1password-filter-label "lispm-1password-ui" ())
+(declare-function lispm-1password-status "lispm-1password-ui" ())
+(declare-function lispm-1password-item-status "lispm-1password-ui" ())
+(declare-function lispm-security-status "lispm-security-ui" ())
+(declare-function lispm-security-inventory-p "lispm-security-ui" ())
+(declare-function lispm-security-shown "lispm-security-ui" ())
+(declare-function lispm-mycin-status "lispm-mycin" ())
+(declare-function lispm-shrdlu-status "lispm-shrdlu" ())
 (declare-function elfeed-db-last-update "elfeed-db" ())
 (declare-function elfeed-tagged-p "elfeed-db" (tag entry))
 
@@ -449,6 +475,7 @@ broken where they are to break."
      "No feeds yet.\nAdd the address of a blog's or a site's feed,\nor import a list of feeds from another reader.")))
 
 (lispm-desktop-app-ui-define 'elfeed-search-mode
+  :app 'elfeed
   :list t
   :status #'lispm-desktop-app-skins--elfeed-status
   :label (lambda () (and (boundp 'elfeed-search-filter) elfeed-search-filter))
@@ -464,6 +491,7 @@ broken where they are to break."
                            (,(lispm-desktop-tr "Import OPML…") elfeed-load-opml))))))
 
 (lispm-desktop-app-ui-define 'elfeed-show-mode
+  :app 'elfeed
   :prose t
   :buttons `((,(lispm-desktop-tr-noop "Back") elfeed-kill-buffer)
              (,(lispm-desktop-tr-noop "Previous") elfeed-show-prev)
@@ -519,6 +547,89 @@ signed in, and the model LispM's agents use through it."
           ("w" . ,(lispm-desktop-tr-noop "Copy the model or the address"))
           ("v" . ,(lispm-desktop-tr-noop "View the daemon's log")) ("U" . ,(lispm-desktop-tr-noop "Update Rotom"))
           ("g" . ,(lispm-desktop-tr-noop "Read Rotom again"))))
+
+;;;; 1Password
+
+(lispm-desktop-app-ui-define 'lispm-1password-mode
+  :title "1Password"
+  :list t
+  :buttons '(("New…" lispm-1password-new lispm-1password-ready-p)
+             ("Open" lispm-1password-open-item lispm-1password-item-p)
+             ("Copy Password" lispm-1password-copy-password lispm-1password-item-p)
+             ("Copy Code" lispm-1password-copy-code lispm-1password-item-p)
+             ("Search…" lispm-1password-search lispm-1password-ready-p)
+             ("Show All" lispm-1password-show-all lispm-1password-filtered-p))
+  :label #'lispm-1password-filter-label
+  :status #'lispm-1password-status
+  :empty '(lispm-1password-page-p lispm-1password-page-text lispm-1password-page-buttons))
+
+(lispm-desktop-app-ui-define 'lispm-1password-item-mode
+  :title "1Password"
+  :prose t
+  :buttons `(("Back" lispm-1password-back)
+             ("Copy Username" lispm-1password-copy-username
+              ,(lambda () (lispm-1password-whole-p #'lispm-1password-username-field)))
+             ("Copy Password" lispm-1password-copy-password
+              ,(lambda () (lispm-1password-whole-p #'lispm-1password-password-field)))
+             ("Copy Code" lispm-1password-copy-code
+              ,(lambda () (lispm-1password-whole-p #'lispm-1password-code-field)))
+             (,(lambda () (if (lispm-1password-revealed-p) "Conceal" "Reveal")) lispm-1password-reveal
+              ,(lambda () (lispm-1password-whole-p #'lispm-1password-password-field)))
+             ("Website" lispm-1password-open-website
+              ,(lambda () (plist-get (lispm-1password-item-p) :urls))))
+  :status #'lispm-1password-item-status)
+
+;;;; Security
+
+(lispm-desktop-app-ui-define 'lispm-security-mode
+  :title "Security"
+  :list t
+  :buttons `(("Scan" lispm-security-rescan)
+             ("Look Up" lispm-security-look-up-and-show)
+             ("Trust" lispm-security-trust-at-point lispm-security-trust-enabled-p)
+             ("Set Aside" lispm-security-set-aside ,(lambda () (not (lispm-security-inventory-p))))
+             (,(lambda () (if (lispm-security-inventory-p) "Findings" "Inventory"))
+              lispm-security-toggle-inventory))
+  :status #'lispm-security-status)
+
+(lispm-desktop-app-ui-define 'lispm-security-finding-mode
+  :title "Security"
+  :prose t
+  :bottom nil
+  :buttons '(("Trust" lispm-security-trust-at-point lispm-security-trust-enabled-p)
+             ("Set Aside" lispm-security-set-aside lispm-security-shown)
+             ("Visit" lispm-security-visit lispm-security-visitable-p)))
+
+;;;; MYCIN
+
+(lispm-desktop-app-ui-define 'lispm-mycin-mode
+  :title "MYCIN"
+  :prose t
+  :buttons '(("New Consultation" lispm-mycin-new)
+             ("Why?" lispm-mycin-why lispm-mycin-asking-p)
+             ("Rule" lispm-mycin-rule lispm-mycin-asking-p)
+             ("Answers" lispm-mycin-choices lispm-mycin-asking-p)
+             ("Unknown" lispm-mycin-unknown lispm-mycin-asking-p))
+  :label (lambda () "Type an answer, then Return")
+  :status #'lispm-mycin-status)
+
+;;;; SHRDLU
+
+(lispm-desktop-app-ui-define 'lispm-shrdlu-mode
+  :app 'shrdlu
+  :title "SHRDLU"
+  :prose t
+  :buttons '(("New Dialogue" lispm-shrdlu-new)
+             ("Say…" lispm-shrdlu-say lispm-shrdlu-running-p))
+  :label (lambda () "Type a sentence, then Return")
+  :bottom nil)
+
+(lispm-desktop-app-ui-define 'lispm-shrdlu-world-mode
+  :app 'shrdlu
+  :title "SHRDLU"
+  :buttons nil
+  :cursor nil
+  :status #'lispm-shrdlu-status)
 
 (provide 'lispm-desktop-app-skins)
 ;;; lispm-desktop-app-skins.el ends here

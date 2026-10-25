@@ -372,14 +372,23 @@ Strip and the pointer watch need a graphical display.
 An application of the App Store is an Emacs package and one item of a catalog; it becomes the
 desktop's in one way, the App Store's, at its install and at every start.
 
-1. *The package* opens it with an autoloaded command showing its buffer, which the App Store runs in
-   the application's window.  Only an application running windows of its own, as [[https://github.com/LispMachineLab/lispm-stickies][Stickies]] does,
-   gives a ~:feature~ instead: a library that, loaded, says what it does with
-   ~(lispm-desktop-define-app 'ID :activate ... :menus ... :running ...)~, ID being its catalog item's,
-   and undoes its hooks in ~FEATURE-unload-function~.
-2. *Its interface* is worked out from its mode; say the rest (buttons, status, pages) with
-   ~lispm-desktop-app-ui-define~ inside ~(with-eval-after-load 'lispm-desktop-app-ui ...)~, so the package
-   still runs in any Emacs.
+1. *The package* runs in any Emacs and knows nothing of the desktop: it names no ~lispm-desktop-~
+   symbol, no Platinum and no look, for people use it without the desktop.  It opens with an
+   autoloaded command showing its buffer, which the App Store runs in the application's window, and
+   says what that window shows with public functions of its own: the predicates its commands are
+   enabled by, what its status is, the text and buttons of a page while it has nothing to show, as
+   [[https://github.com/LispMachineLab/lispm-rotom][Rotom]] gives ~lispm-rotom-installed-p~, ~lispm-rotom-running-p~ and its commands.  The byte-compiler
+   never finds a name of the desktop's in a package, so a test of its own greps its files for
+   ~lispm-desktop~ and ~platinum~, as lispm-store's ~make test~ does for every package it installs.
+2. *Its interface on the desktop* is the desktop's.  It is worked out from the package's mode, and
+   the rest (buttons, status, pages) is said with ~lispm-desktop-app-ui-define~ in
+   =lisp/lispm-desktop-app-skins.el=, made of those public functions, as Rotom's skin there is.  An
+   application running windows of its own, as [[https://github.com/LispMachineLab/lispm-stickies][Stickies]] does, gives a ~:feature~ instead of a command:
+   its library offers the variables and hooks a frontend sets, as Stickies'
+   ~lispm-stickies-show-note-function~, and a file of the desktop's, as
+   =lisp/lispm-desktop-app-stickies.el=, sets them once the library is loaded and makes it the desktop's
+   with ~(lispm-desktop-define-app 'ID :activate ... :menus ... :running ...)~, ID being its catalog
+   item's.  Uninstalling the application unloads the library and takes the application away.
 3. *Its catalog item* in [[https://github.com/LispMachineLab/lispm-store][lispm-store]] is the only place saying what it is called, its subtitle, icon,
    category, description and needs; the App Store takes them from there, never from the package.
    It gives its whole listing, or the App Store does not list it: its banner, its introduction in

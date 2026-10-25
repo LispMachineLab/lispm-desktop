@@ -4,6 +4,10 @@ EMACS ?= emacs
 LISPM_BROWSER ?= ../lispm-browser/lisp
 # lisp/ of lispm-agent, whose editor's agents the desktop draws.
 LISPM_AGENT ?= ../lispm-agent/lisp
+# lispm-stickies, whose notes the desktop shows: with a checkout beside this
+# one, the tests of Stickies on the desktop run too.
+LISPM_STICKIES ?= ../lispm-stickies
+STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICKIES))
 
 .PHONY: test compile i18n native native-test pin
 
@@ -13,7 +17,7 @@ LISPM_AGENT ?= ../lispm-agent/lisp
 test:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
+	  -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code
 # no longer gives; the tests fail on either.

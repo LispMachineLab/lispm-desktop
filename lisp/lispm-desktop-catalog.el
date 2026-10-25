@@ -68,8 +68,9 @@
 ;; :shell-command anywhere.  An application opens with :command, a
 ;; command its package autoloads, which the App Store runs in the
 ;; application's window; or, running windows of its own, as Stickies,
-;; with :feature, a library that, loaded, says what the application does
-;; with `lispm-desktop-define-app' under the item's ID.  An extension's
+;; with :feature, a library that, once loaded, is made the application
+;; under the item's ID with `lispm-desktop-define-app', by a file of the
+;; desktop's for it, as lispm-desktop-app-stickies.el.  An extension's
 ;; :feature, loaded, makes it take part in the editor; its :program is
 ;; what it needs on PATH, :install how to install that by hand; its
 ;; :category, when it names one, files it there, as AI Harness one
