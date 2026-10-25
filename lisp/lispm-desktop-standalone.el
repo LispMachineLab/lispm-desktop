@@ -61,7 +61,8 @@
 ;;
 ;; LispM.app's applications start LispM.app.  An Emacs that loads LispM
 ;; from an init of its own makes applications that start that Emacs, its
-;; init directory named.
+;; init directory named.  iconutil and codesign finish them in the
+;; background, in lispm-kernel when it runs (`lispm-exec').
 
 ;;; Code:
 
@@ -73,6 +74,7 @@
 (require 'lispm-desktop-coherence)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-display)
+(require 'lispm-exec)
 
 (declare-function lispm-browser-available-p "lispm-browser" ())
 (defvar lispm-desktop-first-start)
@@ -463,25 +465,31 @@ return \"ok\""
            (lispm-desktop-standalone--string source)
            (lispm-desktop-standalone--string (expand-file-name iconset)))))
 
-(defun lispm-desktop-standalone--write (app emacs executable stamp bundle)
+(defun lispm-desktop-standalone--write (app emacs executable stamp bundle then)
   "Make the computer's application for APP at BUNDLE, a directory not there
-yet: EXECUTABLE its own, starting EMACS; stamped STAMP."
-  (let ((contents (expand-file-name "Contents" bundle)))
+yet: EXECUTABLE its own, starting EMACS; stamped STAMP.  Then call THEN,
+iconutil having made its icon and codesign sealed it, in the background."
+  (let* ((contents (expand-file-name "Contents" bundle))
+         (iconset (expand-file-name "AppIcon.iconset" contents)))
     (make-directory (expand-file-name "MacOS" contents) t)
     (make-directory (expand-file-name "Resources" contents) t)
     (let ((coding-system-for-write 'utf-8-unix))
       (write-region (lispm-desktop-standalone--info-plist app emacs stamp) nil
                     (expand-file-name "Info.plist" contents) nil 'silent))
     (copy-file executable (expand-file-name (concat "MacOS/" (lispm-desktop-standalone--file-name app)) contents))
-    (when-let* ((source (lispm-desktop-standalone--source-icon app)))
-      (let ((iconset (expand-file-name "AppIcon.iconset" contents)))
-        (make-directory iconset t)
-        (when (equal (lispm-desktop-standalone--draw-icon source iconset) "ok")
-          (call-process "iconutil" nil nil nil "-c" "icns" iconset
-                        "-o" (expand-file-name "Resources/AppIcon.icns" contents)))
-        (delete-directory iconset t)))
-    ;; Sealed as a whole, its executable's own signature with it.
-    (call-process "codesign" nil nil nil "--force" "--sign" "-" bundle)))
+    (cl-flet ((seal (&rest _)
+                (when (file-directory-p iconset)
+                  (delete-directory iconset t))
+                ;; Sealed as a whole, its executable's own signature with it.
+                (lispm-exec "codesign" (list "--force" "--sign" "-" bundle)
+                            (lambda (&rest _) (funcall then)))))
+      (if-let* ((source (lispm-desktop-standalone--source-icon app))
+                ((progn (make-directory iconset t)
+                        (equal (lispm-desktop-standalone--draw-icon source iconset) "ok"))))
+          (lispm-exec "iconutil" (list "-c" "icns" iconset
+                                       "-o" (expand-file-name "Resources/AppIcon.icns" contents))
+                      #'seal)
+        (seal)))))
 
 (defun lispm-desktop-standalone--made-stamp (bundle)
   "Return the stamp of BUNDLE, a computer's application made for one of
@@ -498,23 +506,41 @@ LispM's, or nil when it is none."
   "Launch Services' program, which tells the Finder and the Dock of an
 application made or changed at once.")
 
-(defun lispm-desktop-standalone--ensure (app emacs executable)
+(defun lispm-desktop-standalone--ensure (app emacs executable then)
   "Make the computer's application for APP, EXECUTABLE its own, starting
-EMACS, unless it is made as it should be; return its directory."
+EMACS, unless it is made as it should be; then call THEN with its
+directory, or nil when it could not be made, saying why."
   (let* ((bundle (lispm-desktop-standalone-bundle app))
          (stamp (lispm-desktop-standalone--stamp app emacs executable)))
-    (unless (equal (lispm-desktop-standalone--made-stamp bundle) stamp)
+    (if (equal (lispm-desktop-standalone--made-stamp bundle) stamp)
+        (funcall then bundle)
       (let ((new (concat (directory-file-name bundle) ".new")))
         (when (file-directory-p new)
           (delete-directory new t))
-        (lispm-desktop-standalone--write app emacs executable stamp new)
-        (when (file-directory-p bundle)
-          (delete-directory bundle t))
-        (rename-file new bundle)
-        (when (file-executable-p lispm-desktop-standalone--register-program)
-          (start-process "lispm-lsregister" nil lispm-desktop-standalone--register-program
-                         "-f" bundle))))
-    bundle))
+        (lispm-desktop-standalone--write
+         app emacs executable stamp new
+         (lambda ()
+           (funcall then
+                    (condition-case err
+                        (progn
+                          (when (file-directory-p bundle)
+                            (delete-directory bundle t))
+                          (rename-file new bundle)
+                          (when (file-executable-p lispm-desktop-standalone--register-program)
+                            (start-process "lispm-lsregister" nil lispm-desktop-standalone--register-program
+                                           "-f" bundle))
+                          bundle)
+                      (error (lispm-desktop-standalone--not-made app err)
+                             nil)))))))))
+
+(defun lispm-desktop-standalone--not-made (app error)
+  "Say that the computer's application for APP could not be made, ERROR why."
+  (message (lispm-desktop-tr "LispM could not make an application for %s: %s")
+           app (error-message-string error)))
+
+(defvar lispm-desktop-standalone--syncing nil
+  "Nil, or while the computer's applications are being made, t, or
+`again' when they are to be made again once done.")
 
 (defun lispm-desktop-standalone-sync ()
   "Make the computer's applications for LispM's as they should be: one for
@@ -530,25 +556,44 @@ from changed, and none for another, see `lispm-desktop-standalone-launchers'."
                                ;; Made once it is built.
                                (progn (lispm-desktop-display-build #'lispm-desktop-standalone--schedule-sync)
                                       nil))))
-          (directory (file-name-as-directory (expand-file-name lispm-desktop-standalone-directory)))
-          (made nil))
-      (when (and emacs executable)
-        (make-directory directory t)
-        (dolist (app (lispm-desktop-standalone-apps))
-          (condition-case err
-              (push (file-name-as-directory (lispm-desktop-standalone--ensure app emacs executable)) made)
-            (error (message (lispm-desktop-tr "LispM could not make an application for %s: %s")
-                            app (error-message-string err))))))
-      ;; What cannot be built now leaves those made before alone.
-      (when (and (file-directory-p directory) (or executable (not lispm-desktop-standalone-launchers)))
-        (dolist (bundle (directory-files directory t "\\.app\\'"))
-          (when (and (lispm-desktop-standalone--made-stamp bundle)
-                     (not (member (file-name-as-directory bundle) made)))
-            (delete-directory bundle t))))
-      ;; The tile wears an icon made just now.
-      (when (lispm-desktop-standalone--screen)
-        (setq lispm-desktop-standalone--dock 'stale)
-        (lispm-desktop-standalone--dock-update)))))
+          (directory (file-name-as-directory (expand-file-name lispm-desktop-standalone-directory))))
+      (if lispm-desktop-standalone--syncing
+          (setq lispm-desktop-standalone--syncing 'again)
+        (setq lispm-desktop-standalone--syncing t)
+        (let* ((apps (and emacs executable (lispm-desktop-standalone-apps)))
+               (left (length apps))
+               (made nil))
+          (cl-flet ((finish ()
+                      (unwind-protect
+                          (progn
+                            ;; What cannot be built now leaves those made before alone.
+                            (when (and (file-directory-p directory)
+                                       (or executable (not lispm-desktop-standalone-launchers)))
+                              (dolist (bundle (directory-files directory t "\\.app\\'"))
+                                (when (and (lispm-desktop-standalone--made-stamp bundle)
+                                           (not (member (file-name-as-directory bundle) made)))
+                                  (delete-directory bundle t))))
+                            ;; The tile wears an icon made just now.
+                            (when (lispm-desktop-standalone--screen)
+                              (setq lispm-desktop-standalone--dock 'stale)
+                              (lispm-desktop-standalone--dock-update)))
+                        (let ((again (eq lispm-desktop-standalone--syncing 'again)))
+                          (setq lispm-desktop-standalone--syncing nil)
+                          (when again
+                            (run-at-time 0 nil #'lispm-desktop-standalone-sync))))))
+            (if (zerop left)
+                (finish)
+              (make-directory directory t)
+              (dolist (app apps)
+                (cl-flet ((made (bundle)
+                            (when bundle
+                              (push (file-name-as-directory bundle) made))
+                            (when (zerop (setq left (1- left)))
+                              (finish))))
+                  (condition-case err
+                      (lispm-desktop-standalone--ensure app emacs executable #'made)
+                    (error (lispm-desktop-standalone--not-made app err)
+                           (made nil))))))))))))
 
 (defvar lispm-desktop-standalone--sync-timer nil
   "Timer making the computer's applications once Emacs is idle.")

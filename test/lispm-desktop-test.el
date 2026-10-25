@@ -973,7 +973,7 @@ what to update."
                (lambda (file &rest _)
                  (pcase file
                    ("lispm.el" main)
-                   ("lispm-agents" (and agents "/elpa/lispm/lisp/lispm-agents.el")))))
+                   ("lispm-exec" (and agents "/elpa/lispm/lisp/lispm-exec.el")))))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release) (lambda (_) "0400"))
               ((symbol-function 'lispm-desktop-deps--git) (lambda (_directory &rest _) "0300"))
@@ -987,7 +987,7 @@ what to update."
       (should (= (length jobs) 1))
       ;; A checkout lacking it.
       (setq agents nil main "/src/lispm-agent/lisp/lispm.el")
-      (should (string-match-p "lispm-agent/lisp/ lacks lispm-agents"
+      (should (string-match-p "lispm-agent/lisp/ lacks lispm-exec"
                               (cadr (should-error (lispm-desktop-deps-ensure 'lispm)))))
       (should (= (length jobs) 1)))))
 
@@ -1027,6 +1027,7 @@ newest tag, or what package-vc takes for it before the first."
 
 (defvar lispm-kernel-desktop-mode)
 (defvar lispm-kernel-package-mode)
+(defvar lispm-kernel-exec-mode)
 
 (ert-deftest lispm-desktop-test-kernel ()
   "lispm-kernel is on by default, and not even loaded while
@@ -1043,8 +1044,10 @@ it was."
   (let ((lispm-desktop-kernel nil)
         (lispm-kernel-desktop-mode nil)
         (lispm-kernel-package-mode nil)
+        (lispm-kernel-exec-mode nil)
         (provided (featurep 'lispm-kernel-desktop))
         (provided-package (featurep 'lispm-kernel-package))
+        (provided-exec (featurep 'lispm-kernel-exec))
         (saved (get 'lispm-desktop-kernel 'saved-value))
         (customized (get 'lispm-desktop-kernel 'customized-value))
         (noninteractive nil)
@@ -1058,6 +1061,7 @@ it was."
     ;; The kernel's Lisp, as `require' finds it once it is got.
     (provide 'lispm-kernel-desktop)
     (provide 'lispm-kernel-package)
+    (provide 'lispm-kernel-exec)
     (put 'lispm-desktop-kernel 'saved-value nil)
     (put 'lispm-desktop-kernel 'customized-value nil)
     (unwind-protect
@@ -1077,6 +1081,9 @@ it was."
                   ((symbol-function 'lispm-kernel-package-mode)
                    (lambda (&optional arg)
                      (setq lispm-kernel-package-mode (> (prefix-numeric-value arg) 0))))
+                  ((symbol-function 'lispm-kernel-exec-mode)
+                   (lambda (&optional arg)
+                     (setq lispm-kernel-exec-mode (> (prefix-numeric-value arg) 0))))
                   ;; Each message, and whether it stays out of the echo area.
                   ((symbol-function 'message)
                    (lambda (format &rest args)
@@ -1088,9 +1095,11 @@ it was."
           (should (= ensured 1))
           (should lispm-kernel-desktop-mode)
           (should lispm-kernel-package-mode)
+          (should lispm-kernel-exec-mode)
           (setq lispm-desktop-kernel nil)
           (should-not lispm-kernel-desktop-mode)
           (should-not lispm-kernel-package-mode)
+          (should-not lispm-kernel-exec-mode)
           (let ((noninteractive t))
             (lispm-desktop-kernel-apply t))
           (should (= ensured 2))
@@ -1170,7 +1179,9 @@ it was."
         (setq features (delq 'lispm-kernel-desktop features)))
       (if provided-package
           (provide 'lispm-kernel-package)
-        (setq features (delq 'lispm-kernel-package features))))))
+        (setq features (delq 'lispm-kernel-package features)))
+      (unless provided-exec
+        (setq features (delq 'lispm-kernel-exec features))))))
 
 (defvar lispm-kernel-program-progress-functions)
 (defvar lispm-kernel-program-obtained-functions)
@@ -2786,6 +2797,47 @@ other key closes the panel and goes on to Emacs."
         (should-not (seq-find (lambda (entry) (string-prefix-p " " (buffer-name (car entry))))
                               entries))))
     (kill-buffer)))
+
+(defmacro lispm-desktop-test--with-exec (ran &rest body)
+  "Run BODY with `lispm-exec' answering by itself: RAN lists what it was
+asked to run, newest first, each (PROGRAM ARGS ANSWER), ANSWER a function
+that calls its callback back, with EXIT, OUTPUT and ERRORS."
+  (declare (indent 1))
+  `(let* ((,ran nil)
+          (lispm-exec-function
+           (lambda (program args callback &rest _)
+             (push (list program args (lambda (&rest answer) (apply callback answer))) ,ran))))
+     ,@body))
+
+(ert-deftest lispm-desktop-test-buffer-manager-lists-processes-in-the-background ()
+  "ps lists the processes in the background, one listing at a time, the
+manager drawn from the last; only the first table is waited for."
+  (lispm-desktop-test--with-exec ran
+    (let ((lispm-desktop-buffer-manager--processes nil)
+          (lispm-desktop-buffer-manager--listing nil)
+          (refreshed 0))
+      (cl-letf (((symbol-function 'process-lines)
+                 (lambda (program &rest args)
+                   (should (equal (cons program args) '("ps" "-axo" "pid=,ppid=,pcpu=,rss=")))
+                   '("  1     0   0.5   100" "  7     1  12.0  2048"))))
+        (should (equal (gethash 7 (lispm-desktop-buffer-manager--processes)) '(1 12.0 2048))))
+      (lispm-desktop-buffer-manager--list-processes (lambda () (cl-incf refreshed)))
+      (lispm-desktop-buffer-manager--list-processes (lambda () (cl-incf refreshed 10)))
+      (should (= (length ran) 1))
+      (pcase-let ((`(,program ,args ,answer) (car ran)))
+        (should (equal program "ps"))
+        (should (equal args '("-axo" "pid=,ppid=,pcpu=,rss=")))
+        ;; Until ps answers, the last table.
+        (should (gethash 7 (lispm-desktop-buffer-manager--processes)))
+        (funcall answer 0 "  1     0   0.5   100\n  9     1   3.0   512\n" ""))
+      (should (= refreshed 1))
+      (should-not (gethash 7 (lispm-desktop-buffer-manager--processes)))
+      (should (equal (gethash 9 (lispm-desktop-buffer-manager--processes)) '(1 3.0 512)))
+      ;; A listing that fails keeps the table.
+      (lispm-desktop-buffer-manager--list-processes (lambda () (cl-incf refreshed)))
+      (funcall (nth 2 (car ran)) "ps: no such program" "" "")
+      (should (= refreshed 2))
+      (should (gethash 9 (lispm-desktop-buffer-manager--processes))))))
 
 (ert-deftest lispm-desktop-test-palette-takes-named-colours ()
   "Colours a theme names replace the derived ones; the rest stay derived."
@@ -4793,6 +4845,48 @@ sixteen pixels square and draw at any level."
     (lispm-desktop-platinum--note-battery '((?p . "87")))
     (should (equal (alist-get ?p lispm-desktop-platinum--battery) "87"))))
 
+(require 'battery)
+
+(ert-deftest lispm-desktop-test-battery-pmset-in-the-background ()
+  "Emacs reads the battery from what pmset answered last, asked again in
+the background, its battery updated once pmset answers; the first time it
+waits for pmset."
+  (lispm-desktop-test--with-exec ran
+    (let ((lispm-desktop-platinum--pmset nil)
+          (lispm-desktop-platinum--pmset-asked nil)
+          (lispm-desktop-platinum--pmset-answered nil)
+          (display-battery-mode t)
+          (waited 0)
+          (updated nil)
+          (answer (lambda (percent)
+                    (format "Now drawing from 'Battery Power'
+ -InternalBattery-0 (id=1)\t%d%%; discharging; 4:12 remaining present: true
+" percent))))
+      (cl-letf (((symbol-function 'call-process)
+                 (lambda (program &rest _)
+                   (should (equal program "pmset"))
+                   (cl-incf waited)
+                   (insert (funcall answer 90))
+                   0))
+                ((symbol-function 'battery-update)
+                 (lambda () (push (lispm-desktop-platinum--battery-pmset #'battery-pmset) updated))))
+        (should (equal (alist-get ?p (lispm-desktop-platinum--battery-pmset #'battery-pmset)) "90"))
+        (should (= waited 1))
+        (should (equal (car (car ran)) "pmset"))
+        (should (equal (cadr (car ran)) '("-g" "ps")))
+        ;; pmset answers: Emacs's battery is updated with it, pmset not asked again.
+        (funcall (nth 2 (car ran)) 0 (funcall answer 80) "")
+        (should (equal (alist-get ?p (car updated)) "80"))
+        (should (equal (alist-get ?t (car updated)) "4:12"))
+        (should (= (length ran) 1))
+        ;; The next minute: what it answered, and asked again, not waited for.
+        (should (equal (alist-get ?p (lispm-desktop-platinum--battery-pmset #'battery-pmset)) "80"))
+        (should (= (length ran) 2))
+        (should (= waited 1))
+        ;; Asked meanwhile, pmset not answering yet: asked once.
+        (lispm-desktop-platinum--battery-pmset #'battery-pmset)
+        (should (= (length ran) 2))))))
+
 (ert-deftest lispm-desktop-test-menu-bar-lines ()
   "The menu bar is drawn: a lit top line, platinum, a shaded line and a black
 line, the screen's corners rounded over its ends, an open menu's title
@@ -6293,6 +6387,52 @@ and written as XML."
                 (insert plist))
               (should (equal (lispm-desktop-standalone--made-stamp bundle) "STAMP")))
           (delete-directory bundle t))))))
+
+(ert-deftest lispm-desktop-test-standalone-made-in-the-background ()
+  "A computer's application is made, then iconutil makes its icon and
+codesign seals it in the background, one after the other; the old one is
+replaced only once it is sealed."
+  (lispm-desktop-test--with-exec ran
+    (let* ((root (make-temp-file "lispm-desktop-test-standalone" t))
+           (lispm-desktop-apps '((rock :name "Rock" :store t)))
+           (lispm-desktop-standalone-directory root)
+           (lispm-desktop-standalone--register-program "/nonexistent/lsregister")
+           (executable (expand-file-name "launcher" root))
+           (bundle (lispm-desktop-standalone-bundle 'rock))
+           (made 'pending))
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-standalone--source-icon) (lambda (_app) "icon.png"))
+                    ((symbol-function 'lispm-desktop-standalone--draw-icon)
+                     (lambda (_source iconset)
+                       (write-region "" nil (expand-file-name "icon_16x16.png" iconset))
+                       "ok")))
+            (write-region "#!/bin/sh\n" nil executable)
+            (make-directory bundle t)
+            (lispm-desktop-standalone--ensure 'rock '("/Applications/LispM.app") executable
+                                              (lambda (directory) (setq made directory)))
+            (should (eq made 'pending))
+            (pcase-let ((`(,program ,args ,answer) (car ran)))
+              (should (equal program "iconutil"))
+              (should (equal (last args 2) (list "-o" (expand-file-name "Contents/Resources/AppIcon.icns"
+                                                                        (concat bundle ".new")))))
+              (funcall answer 0 "" ""))
+            (pcase-let ((`(,program ,args ,answer) (car ran)))
+              (should (equal program "codesign"))
+              (should (equal args (list "--force" "--sign" "-" (concat bundle ".new"))))
+              (should-not (file-directory-p (expand-file-name "Contents/AppIcon.iconset" (concat bundle ".new"))))
+              ;; Not sealed yet: the old one stays.
+              (should-not (lispm-desktop-standalone--made-stamp bundle))
+              (funcall answer 0 "" ""))
+            (should (equal made bundle))
+            (should (lispm-desktop-standalone--made-stamp bundle))
+            (should-not (file-exists-p (concat bundle ".new")))
+            ;; Made as it should be: nothing runs.
+            (setq made 'pending)
+            (lispm-desktop-standalone--ensure 'rock '("/Applications/LispM.app") executable
+                                              (lambda (directory) (setq made directory)))
+            (should (equal made bundle))
+            (should (= (length ran) 2)))
+        (delete-directory root t)))))
 
 (ert-deftest lispm-desktop-test-standalone-emacs ()
   "LispM's applications start the Emacs LispM runs in, out of sight:
@@ -8057,6 +8197,23 @@ in the background take them."
                     "/a/gcc/lib/:/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/:/opt/lib" xcode)
                    (concat "/a/gcc/lib/:" xcode ":/opt/lib")))
     (should (equal (lispm-desktop-native-comp--library-path "/a/gcc/lib" xcode) "/a/gcc/lib"))))
+
+(ert-deftest lispm-desktop-test-native-comp-asks-xcrun-at-start ()
+  "The SDK xcrun was asked for as Emacs started is the one comp.el's
+loading takes, the rest of what it says waited for."
+  (require 'lispm-desktop-native-comp)
+  (let* ((sdk (make-temp-file "lispm-desktop-test-sdk" t))
+         (lispm-desktop-native-comp--xcrun
+          (make-process :name "lispm-desktop-test-xcrun" :buffer (generate-new-buffer " *test xcrun*" t)
+                        :command (list "/bin/sh" "-c" (format "sleep 0.2; echo %s" (shell-quote-argument sdk)))
+                        :connection-type 'pipe :noquery t :sentinel #'ignore)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "usr/lib" sdk) t)
+          (cl-letf (((symbol-function 'process-lines) (lambda (&rest _) (error "Waited for xcrun"))))
+            (should (equal (lispm-desktop-native-comp--sdk-lib) (expand-file-name "usr/lib" sdk))))
+          (should-not lispm-desktop-native-comp--xcrun))
+      (delete-directory sdk t))))
 
 ;;;; Applications and the App Store
 
@@ -11091,6 +11248,8 @@ logged, its file a temporary one, installing as LispM quits."
           (lispm-desktop-update--requested nil)
           (lispm-desktop-update--reopen nil)
           (lispm-desktop-update--installed nil)
+          (lispm-desktop-update--installed-generation 0)
+          (lispm-desktop-update--working-out nil)
           (lispm-desktop-update-check-automatically t)
           (lispm-desktop-update-schedule 'daily)
           (lispm-desktop-update-install-automatically t)
@@ -11283,7 +11442,9 @@ every repository is kept for the next start."
     (pcase-let ((`(,root ,checkout ,_work) (lispm-desktop-test--update-repositories)))
       (unwind-protect
           (cl-letf (((symbol-function 'lispm-desktop-update-checkouts)
-                     (lambda () (list (cons "Test" checkout)))))
+                     (lambda (&optional callback)
+                       (let ((checkouts (list (cons "Test" checkout))))
+                         (if callback (funcall callback checkouts) checkouts)))))
             (cl-flet ((check ()
                         (let ((done 'pending) (changes 0))
                           (add-hook 'lispm-desktop-update-changed-hook (lambda () (cl-incf changes)))
@@ -11461,8 +11622,56 @@ from the archives, in no checkout, is left out."
                                    (cons "Package" (file-name-as-directory
                                                     (file-truename (concat root "elpa/three")))))))
               (should-not (lispm-desktop-update--package (cdar checkouts)))
-              (should (eq (lispm-desktop-update--package (cdadr checkouts)) 'three)))))
+              (should (eq (lispm-desktop-update--package (cdadr checkouts)) 'three))
+              ;; The same, git running in the background.
+              (let ((later 'pending))
+                (should-not (lispm-desktop-update-checkouts (lambda (found) (setq later found))))
+                (with-timeout (10 (error "Software Update found no checkouts"))
+                  (while (eq later 'pending)
+                    (accept-process-output nil 0.02)))
+                (should (equal later checkouts))))))
       (delete-directory root t))))
+
+(ert-deftest lispm-desktop-test-update-installed-in-the-background ()
+  "What the checkouts hold is worked out in the background, git describing
+each at once: nil until then, the change hook run once it is known; a
+check or an install forgets it, and what was being worked out then is
+not kept."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,checkout ,_work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let ((changes 0)
+                (lispm-desktop-update-changed-hook nil))
+            (add-hook 'lispm-desktop-update-changed-hook (lambda () (cl-incf changes)))
+            (cl-letf (((symbol-function 'lispm-desktop-update-checkouts)
+                       (lambda (&optional callback)
+                         (let ((checkouts (list (cons "Test" checkout))))
+                           (if callback (funcall callback checkouts) checkouts)))))
+              (should-not (lispm-desktop-update-installed))
+              (should-not (lispm-desktop-update-installed))
+              (with-timeout (10 (error "Software Update worked out nothing"))
+                (while (zerop changes)
+                  (accept-process-output nil 0.02)))
+              (should (= changes 1))
+              (should (equal (lispm-desktop-update-installed)
+                             (list (list "Test" checkout (lispm-desktop-update-version checkout)))))
+              (should (string-match-p "\\`[0-9a-f]+, [0-9-]+\\'" (nth 2 (car (lispm-desktop-update-installed)))))
+              ;; Forgotten meanwhile: what was worked out is not kept.
+              (lispm-desktop-update--forget-installed)
+              (should-not (lispm-desktop-update-installed))
+              (lispm-desktop-update--forget-installed)
+              (with-timeout (10 (error "Software Update worked out nothing"))
+                (while (= changes 1)
+                  (accept-process-output nil 0.02)))
+              (should-not lispm-desktop-update--installed)
+              (should-not (lispm-desktop-update-installed))
+              (with-timeout (10 (error "Software Update worked out nothing"))
+                (while (= changes 2)
+                  (accept-process-output nil 0.02)))
+              (should (lispm-desktop-update-installed)))
+            (should (= changes 3)))
+        (delete-directory root t)))))
 
 (defun lispm-desktop-test--update-package (root tag)
   "Return the package foo of ROOT's origin, made as package-vc makes one
@@ -13322,7 +13531,8 @@ it is checking already."
     (let ((checked 0)
           (lispm-desktop-update-check-hook (list #'lispm-desktop-store--check-along))
           (lispm-desktop-store--checking nil))
-      (cl-letf (((symbol-function 'lispm-desktop-update-checkouts) #'ignore)
+      (cl-letf (((symbol-function 'lispm-desktop-update-checkouts)
+                 (lambda (&optional callback) (when callback (funcall callback nil))))
                 ((symbol-function 'lispm-desktop-store-check-for-updates)
                  (lambda (&rest _) (setq checked (1+ checked)))))
         (lispm-desktop-update-check)
