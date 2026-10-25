@@ -49,7 +49,12 @@
 ;;
 ;; All of it is found out from the application itself, from its mode's
 ;; keymap, menus and variables, so an application nobody described gets
-;; it all the same.  What cannot be found out is said with
+;; it all the same.  An application declaring its commands with
+;; lispm-kit (https://github.com/LispMachineLab/lispm-kit) says which
+;; are its main commands and what its keys do: its buttons and keys
+;; window are made of that, read from its mode's `lispm-kit-commands'
+;; property, plain data the desktop reads without lispm-kit.  What
+;; cannot be found out is said with
 ;; `lispm-desktop-app-ui-define': the buttons and status an application
 ;; would rather have, its board drawn as an image
 ;; (lispm-desktop-app-board.el), a page shown while it has nothing to
@@ -70,6 +75,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'tabulated-list)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-apps)
@@ -110,8 +116,10 @@ shown; a function may return them translated already:
 :buttons  the push buttons under the title bar: a list of (LABEL
           COMMAND ENABLED), LABEL a string or a function returning one,
           ENABLED a function, or left out; or a function returning such
-          a list; by default its commands starting, pausing, undoing or
-          updating, see `lispm-desktop-app-ui-button-commands'.
+          a list; by default the main commands its mode declares, see
+          `lispm-desktop-app-ui-declared', or else its commands
+          starting, pausing, undoing or updating, see
+          `lispm-desktop-app-ui-button-commands'.
 :label    a function returning what the strip of buttons says after
           them, or nil.
 :menu     (TITLE . ITEMS) its menu when its mode has none in the menu
@@ -121,7 +129,8 @@ shown; a function may return them translated already:
           ...), ITEMS a function returning items, as a Library menu
           of things to add.
 :keys     the keys its keys window lists, ((KEYS . WHAT) ...), as
-          strings; by default its commands' keys.
+          strings; by default those of the commands its mode declares,
+          or else of the commands its keymap binds.
 :board    its buffer drawn as an image, see
           `lispm-desktop-app-board-enable'.
 :fit      non-nil when the window takes the size of what it shows, as a
@@ -340,6 +349,30 @@ them: `start-game' as Start Game, `browse-url' as Browse URL."
 application's prefix, `tetris-start-game' as Start Game."
   (lispm-desktop-app-ui-label (or (lispm-desktop-app-ui--bare-name command) (symbol-name command))))
 
+;;;; Commands declared
+
+(defun lispm-desktop-app-ui-declared ()
+  "Return the commands the current buffer's mode declares with lispm-kit,
+and those the modes it derives from declare, the mode's own first: the
+`lispm-kit-commands' property of each, a list of property lists, one a
+command.  Of each the desktop reads :command; :key, non-nil for a
+command with keys, and :help, what its keys window says of them; and
+:button, the words of its push button, a string or a function
+returning one, with :enabled, a function returning non-nil while the
+button is enabled.  It needs not lispm-kit for that, which the
+application requires."
+  (seq-uniq (mapcan (lambda (mode) (copy-sequence (get mode 'lispm-kit-commands)))
+                    (derived-mode-all-parents major-mode))
+            (lambda (one other) (eq (plist-get one :command) (plist-get other :command)))))
+
+(defun lispm-desktop-app-ui--declared-buttons ()
+  "Return the push buttons of the main commands the current buffer's mode
+declares, as :buttons says them, or nil."
+  (mapcan (lambda (command)
+            (when-let* ((label (plist-get command :button)))
+              (list (list label (plist-get command :command) (plist-get command :enabled)))))
+          (lispm-desktop-app-ui-declared)))
+
 (defconst lispm-desktop-app-ui-button-commands
   `((,(lispm-desktop-tr-noop "New Game") . "\\`\\(?:start\\|new\\|restart\\)\\(?:-game\\)?\\'")
     (,(lispm-desktop-tr-noop "Pause") . "\\`\\(?:pause\\|toggle-pause\\)\\(?:-game\\)?\\'")
@@ -375,7 +408,8 @@ ENABLED non-nil or nil."
                       "…")
                     command
                     (or (null enabled) (and (lispm-desktop-app-ui--safely enabled) t))))
-            (cond ((eq buttons 'found) (lispm-desktop-app-ui--found-buttons))
+            (cond ((eq buttons 'found) (or (lispm-desktop-app-ui--declared-buttons)
+                                           (lispm-desktop-app-ui--found-buttons)))
                   ((functionp buttons) (lispm-desktop-app-ui--safely buttons))
                   (t buttons)))))
 
@@ -646,19 +680,44 @@ This is the :menus of an application the App Store installed."
              (split-string (if (stringp keys) keys (key-description keys)) " ")
              " "))
 
+(defun lispm-desktop-app-ui--key-caps (keys)
+  "Return KEYS, the key sequences of one command, as its row of the keys
+window reads them: the first typed on the keyboard alone, and one that
+is not, as an arrow."
+  (let ((others (seq-remove #'lispm-desktop-popup-keyboard-p keys)))
+    (mapconcat #'lispm-desktop-app-ui-key-name
+               (seq-take (seq-uniq (cons (car (or (seq-filter #'lispm-desktop-popup-keyboard-p keys) others))
+                                         others))
+                         2)
+               "  ")))
+
+(defun lispm-desktop-app-ui--declared-keys ()
+  "Return the keys of the commands the current buffer's mode declares, as
+`lispm-desktop-app-ui-key-list' gives them, or nil: each command declared
+with keys, as its keymap binds them, saying its :help, translated, or
+else the words of its name."
+  (let ((map (current-local-map)))
+    (mapcan (lambda (command)
+              (when-let* (((plist-get command :key))
+                          (name (plist-get command :command))
+                          (keys (seq-filter (lambda (keys) (seq-every-p #'lispm-desktop-app-ui--key-event-p keys))
+                                            (where-is-internal name (and map (list map))))))
+                (list (cons (lispm-desktop-app-ui--key-caps keys)
+                            (if-let* ((help (plist-get command :help)))
+                                (lispm-desktop-tr help)
+                              (lispm-desktop-app-ui-command-label name))))))
+            (lispm-desktop-app-ui-declared))))
+
 (defun lispm-desktop-app-ui-key-list ()
   "Return the keys of the current buffer's application: a list of (KEYS
 . WHAT), KEYS as its key caps read, from :keys, both translated (KEYS
-may say a word, as \"any key\"), or its commands."
+may say a word, as \"any key\"), or those of the commands its mode
+declares, or those of its keymap's commands."
   (or (mapcar (pcase-lambda (`(,keys . ,what)) (cons (lispm-desktop-tr keys) (lispm-desktop-tr what)))
               (lispm-desktop-app-ui-get :keys))
+      (lispm-desktop-app-ui--declared-keys)
       (mapcar (pcase-lambda (`(,command . ,keys))
-                (cons (mapconcat #'lispm-desktop-app-ui-key-name
-                                 (seq-take (seq-uniq (cons (car keys)
-                                                           (seq-remove #'lispm-desktop-popup-keyboard-p keys)))
-                                           2)
-                                 "  ")
-                      (lispm-desktop-app-ui-command-label command)))
+                (cons (lispm-desktop-app-ui--key-caps keys) (lispm-desktop-app-ui-command-label command)))
               (lispm-desktop-app-ui-commands))))
 
 (define-derived-mode lispm-desktop-app-ui-keys-mode lispm-desktop-app-window-mode "Keys"
@@ -894,6 +953,25 @@ installed application's window shows."
   (when lispm-desktop-app-ui-mode
     (lispm-desktop-app-ui--set-up-buffer)))
 
+(defun lispm-desktop-app-ui--list-header ()
+  "Name a tabulated list's columns in its buffer, as Emacs does where it
+has no header line: the window's strip of buttons takes the header line
+that would name them.  A list printed already gets them over it, the
+windows on its first line left there; one printed later prints them."
+  (when (and (derived-mode-p 'tabulated-list-mode)
+             tabulated-list-use-header-line
+             (> (length tabulated-list-format) 0)
+             (lispm-desktop-app-ui--strip-p))
+    (setq-local tabulated-list-use-header-line nil)
+    (tabulated-list-init-header)
+    (when (text-property-not-all (point-min) (point-max) 'tabulated-list-id nil)
+      (let ((first (save-excursion (tabulated-list-print-fake-header) (point))))
+        (when (= (point) (point-min))
+          (goto-char first))
+        (dolist (window (get-buffer-window-list nil nil t))
+          (when (= (window-point window) (point-min))
+            (set-window-point window first)))))))
+
 (defun lispm-desktop-app-ui--set-up-buffer ()
   "Give the current buffer its application's interface."
   (when (bound-and-true-p display-line-numbers-mode)
@@ -924,6 +1002,7 @@ installed application's window shows."
     (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
     (setq-local line-spacing 4)
     (hl-line-mode 1))
+  (lispm-desktop-app-ui--list-header)
   (unless (lispm-desktop-app-ui-get :cursor t)
     (setq-local cursor-type nil
                 evil-emacs-state-cursor '(nil)
@@ -1114,6 +1193,42 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
                (or lispm-desktop-app-board (lispm-desktop-app-ui-fit-p)))
       'no)))
 
+;;;; Where an application's buffers show
+;;
+;; A buffer of an installed application shown from outside its window, as
+;; an agent's skill shows SHRDLU's dialogue with `display-buffer', shows
+;; in the application's window, opened or brought in front first: the
+;; skill knows nothing of the desktop.  Switching to it in place, as
+;; `switch-to-buffer' does, keeps it where it is asked for.
+
+(defun lispm-desktop-app-ui--home (buffer)
+  "Return the installed application whose window BUFFER belongs in, or nil:
+the one whose window gave it its interface, or the :app its mode's skin
+names, installed from the App Store."
+  (when-let* ((app (or (buffer-local-value 'lispm-desktop-app-ui--app buffer)
+                       (car (ensure-list (plist-get (lispm-desktop-app-ui-skin buffer) :app)))))
+              ((plist-get (alist-get app lispm-desktop-apps) :store)))
+    app))
+
+(defun lispm-desktop-app-ui--elsewhere-p (buffer-or-name action)
+  "Return non-nil when an installed application's buffer is about to show
+outside its window, ACTION not asking for the selected window.
+This is the `display-buffer-alist' condition sending it there."
+  (when-let* ((buffer (get-buffer buffer-or-name))
+              (app (lispm-desktop-app-ui--home buffer)))
+    (and (not (eq (lispm-desktop-app-ui-app) app))
+         (not (memq 'display-buffer-same-window (ensure-list (car-safe action))))
+         (not (active-minibuffer-window)))))
+
+(defun lispm-desktop-app-ui-display-home (buffer alist)
+  "Display BUFFER in its application's window, opened or brought in front
+first, per ALIST; return the window, or nil when it could not open.
+This is a `display-buffer' action function."
+  (let ((app (lispm-desktop-app-ui--home buffer)))
+    (lispm-desktop-apps-activate app)
+    (when-let* ((frame (lispm-desktop-app-window-of-app app)))
+      (window--display-buffer buffer (frame-selected-window frame) 'reuse alist))))
+
 ;;;; Set up
 
 (defun lispm-desktop-setup-app-ui ()
@@ -1125,6 +1240,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   (add-hook 'lispm-desktop-app-board-resized-functions #'lispm-desktop-app-ui--fit-board)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-app-ui--scroll-bar)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-ui--refresh-pages)
+  (add-to-list 'display-buffer-alist '(lispm-desktop-app-ui--elsewhere-p lispm-desktop-app-ui-display-home))
   (advice-add 'y-or-n-p :around #'lispm-desktop-app-ui--asking)
   (advice-add 'yes-or-no-p :around #'lispm-desktop-app-ui--asking))
 

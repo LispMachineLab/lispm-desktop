@@ -133,6 +133,7 @@
 (require 'lispm-desktop-app-yeetube)
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
+(require 'lispm-desktop-app-stickies)
 (require 'lispm-desktop-app-emms)
 (require 'lispm-desktop-app-erc)
 (require 'lispm-desktop-app-slack)

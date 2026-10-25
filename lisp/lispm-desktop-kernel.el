@@ -28,14 +28,16 @@
 ;; executable, that Emacs runs as a process.  The two talk in
 ;; S-expressions; it does the work on threads of its own and Emacs takes
 ;; the results in a little at a time, on the desktop's frame clock
-;; (lispm-desktop-frame.el).  It reads the agents' sessions for the
-;; sidebar, through the desktop's session readers, makes the downloads
-;; package.el makes in the background, as the App Store's refresh of the
-;; package archives, which url.el would make on Emacs's thread, and runs
-;; the programs LispM runs without waiting for them, through `lispm-exec',
-;; as ps for the Buffer Manager and git for Software Update, which Emacs
-;; would fork itself to run; see lispm-kernel-desktop.el,
-;; lispm-kernel-package.el and lispm-kernel-exec.el in its repository.
+;; (lispm-desktop-frame.el), which this file sets as the kernel's
+;; `lispm-kernel-scheduler': elsewhere timers take them in.  It reads the
+;; agents' sessions for the sidebar, through lispm-agent's session
+;; readers, makes the downloads package.el makes in the background, as
+;; the App Store's refresh of the package archives, which url.el would
+;; make on Emacs's thread, and runs the programs LispM runs without
+;; waiting for them, through `lispm-exec', as ps for the Buffer Manager
+;; and git for Software Update, which Emacs would fork itself to run; see
+;; lispm-kernel-desktop.el, lispm-kernel-package.el and
+;; lispm-kernel-exec.el in its repository.
 ;;
 ;; It is on unless `lispm-desktop-kernel' is nil: Use LispM Kernel in
 ;; Control Panels' Kernel panel, `setopt', or Custom, where toggling it
@@ -51,20 +53,24 @@
 ;; far it is (lispm-desktop-needs.el); on by default, it is got quietly.
 ;; Until the program is there, and wherever it cannot be, the sidebar
 ;; reads sessions as it does without the kernel, url.el downloads for
-;; package.el, Emacs runs the programs, and the kernel says why: in *Messages* alone, unless it
-;; was asked for, and in the Kernel panel.
+;; package.el, Emacs runs the programs, and the kernel says why: in
+;; *Messages* alone, unless it was asked for, and in the Kernel panel.
 
 ;;; Code:
 
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-deps)
+(require 'lispm-desktop-frame)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-needs)
 
+(defvar lispm-kernel-sessions-mode)
 (defvar lispm-kernel-desktop-mode)
 (defvar lispm-kernel-package-mode)
 (defvar lispm-kernel-exec-mode)
+(defvar lispm-kernel-scheduler)
+(defvar lispm-kernel-slice-seconds)
 (defvar lispm-kernel-desktop-program)
 (defvar lispm-kernel-desktop-last-error)
 (defvar lispm-kernel-program-problem)
@@ -72,7 +78,7 @@
 (defvar lispm-kernel-program-source)
 (defvar lispm-kernel-program-obtained-functions)
 (defvar lispm-kernel-program-progress-functions)
-(declare-function lispm-kernel-desktop-mode "ext:lispm-kernel-desktop" (&optional arg))
+(declare-function lispm-kernel-dispatch "ext:lispm-kernel" (runtime))
 (declare-function lispm-kernel-package-mode "ext:lispm-kernel-package" (&optional arg))
 (declare-function lispm-kernel-exec-mode "ext:lispm-kernel-exec" (&optional arg))
 (declare-function lispm-kernel-desktop-status "ext:lispm-kernel-desktop" ())
@@ -80,7 +86,7 @@
 (declare-function lispm-kernel-program-file "ext:lispm-kernel-program" ())
 (declare-function lispm-kernel-program-obtain "ext:lispm-kernel-program" ())
 (declare-function lispm-kernel-program-stop "ext:lispm-kernel-program" ())
-(declare-function lispm-kernel-program--busy-p "ext:lispm-kernel-program" ())
+(declare-function lispm-kernel-program-busy-p "ext:lispm-kernel-program" ())
 (declare-function custom-variable-save "cus-edit" (widget))
 (declare-function lm-version "lisp-mnt" (&optional file))
 (declare-function widget-default-notify "wid-edit" (widget child &optional event))
@@ -141,7 +147,9 @@ found, nothing installed for it, and its program is there."
 
 (defun lispm-desktop-kernel--getting-p ()
   "Return non-nil while lispm-kernel's program is downloaded or built."
-  (and (fboundp 'lispm-kernel-program--busy-p) (lispm-kernel-program--busy-p)))
+  (cond ((fboundp 'lispm-kernel-program-busy-p) (lispm-kernel-program-busy-p))
+        ;; lispm-kernel before 0.4.0 has it under a private name.
+        ((fboundp 'lispm-kernel-program--busy-p) (funcall 'lispm-kernel-program--busy-p))))
 
 (defun lispm-desktop-kernel--problem ()
   "Return why lispm-kernel's program could not be had, a sentence."
@@ -220,15 +228,79 @@ Installer's window opens over the desktop."
         (when (and present lispm-desktop-kernel)
           (lispm-desktop-kernel-apply t t)))))))
 
+;;;; On the frame clock
+;;
+;; The kernel's messages are taken in on the desktop's frame clock rather
+;; than by timers, after the terminals: `lispm-kernel-scheduler' asks the
+;; clock for a frame, and the clock's client `lispm-kernel' takes them in
+;; within what is left of it.  A kernel's Lisp of before 0.4.0 does so
+;; itself (lispm-kernel-broker.el), and is left to.
+
+(defconst lispm-desktop-kernel-clock-depth 10
+  "The kernel's depth on the frame clock: after the terminals, at 0.")
+
+(defvar lispm-desktop-kernel--waiting nil
+  "The kernels whose messages the frame clock takes in next, in the order
+they asked.")
+
+(defun lispm-desktop-kernel--schedule (runtime)
+  "Have the frame clock take in RUNTIME's messages; return non-nil, as it
+takes them.  This is `lispm-kernel-scheduler' while the kernel is on."
+  (unless (memq runtime lispm-desktop-kernel--waiting)
+    (setq lispm-desktop-kernel--waiting (append lispm-desktop-kernel--waiting (list runtime))))
+  (lispm-desktop-frame-request 'lispm-kernel)
+  t)
+
+(defun lispm-desktop-kernel--frame (deadline)
+  "Take in the waiting kernels' messages until DEADLINE, a `float-time', at
+least one each; return non-nil while some wait still, for the clock to
+come back.  This is the frame clock's client `lispm-kernel'."
+  (let ((runtimes lispm-desktop-kernel--waiting))
+    (setq lispm-desktop-kernel--waiting nil)
+    (dolist (runtime runtimes)
+      ;; What is left over asks again, see `lispm-desktop-kernel--schedule'.
+      (let ((lispm-kernel-slice-seconds (max 0 (- deadline (float-time)))))
+        (lispm-kernel-dispatch runtime)))
+    (and lispm-desktop-kernel--waiting t)))
+
+(defun lispm-desktop-kernel--clock-on ()
+  "Take the kernel's messages in on the frame clock, unless its Lisp does
+so itself."
+  (unless (featurep 'lispm-kernel-broker)
+    (lispm-desktop-frame-add-client 'lispm-kernel #'lispm-desktop-kernel--frame
+                                    lispm-desktop-kernel-clock-depth)
+    (setq lispm-kernel-scheduler #'lispm-desktop-kernel--schedule)))
+
+(defun lispm-desktop-kernel--clock-off ()
+  "Leave the kernel's messages to timers again, those waiting taken in now."
+  (when (eq (bound-and-true-p lispm-kernel-scheduler) #'lispm-desktop-kernel--schedule)
+    (setq lispm-kernel-scheduler nil)
+    (lispm-desktop-frame-remove-client 'lispm-kernel)
+    (let ((runtimes lispm-desktop-kernel--waiting))
+      (setq lispm-desktop-kernel--waiting nil)
+      (mapc #'lispm-kernel-dispatch runtimes))))
+
 ;;;; On and off
 
+(defun lispm-desktop-kernel--mode ()
+  "Return the kernel's mode reading the agents' sessions:
+`lispm-kernel-sessions-mode', or its name before lispm-kernel 0.4.0."
+  (if (fboundp 'lispm-kernel-sessions-mode) 'lispm-kernel-sessions-mode 'lispm-kernel-desktop-mode))
+
+(defun lispm-desktop-kernel--on-p ()
+  "Return non-nil while the kernel's mode reading the agents' sessions is on."
+  (or (bound-and-true-p lispm-kernel-sessions-mode)
+      (bound-and-true-p lispm-kernel-desktop-mode)))
+
 (defun lispm-desktop-kernel--turn-on ()
-  "Turn on `lispm-kernel-desktop-mode', which gets the kernel's program in
-the background, then `lispm-kernel-package-mode' and
-`lispm-kernel-exec-mode', where the kernel's Lisp has them."
+  "Turn on the kernel's mode reading the agents' sessions, which gets the
+kernel's program in the background, its messages on the frame clock,
+then `lispm-kernel-package-mode' and `lispm-kernel-exec-mode', where the
+kernel's Lisp has them."
   (lispm-desktop-kernel--load)
-  (unless lispm-kernel-desktop-mode
-    (lispm-kernel-desktop-mode 1))
+  (lispm-desktop-kernel--clock-on)
+  (unless (lispm-desktop-kernel--on-p)
+    (funcall (lispm-desktop-kernel--mode) 1))
   (when (and (require 'lispm-kernel-package nil t) (not lispm-kernel-package-mode))
     (lispm-kernel-package-mode 1))
   (when (and (require 'lispm-kernel-exec nil t) (not lispm-kernel-exec-mode))
@@ -265,20 +337,21 @@ modes off."
       (lispm-kernel-exec-mode -1))
     (when (bound-and-true-p lispm-kernel-package-mode)
       (lispm-kernel-package-mode -1))
-    (when (bound-and-true-p lispm-kernel-desktop-mode)
-      (lispm-kernel-desktop-mode -1))))
+    (when (lispm-desktop-kernel--on-p)
+      (funcall (lispm-desktop-kernel--mode) -1))
+    (lispm-desktop-kernel--clock-off)))
 
 (defun lispm-desktop-kernel-restart ()
   "Start lispm-kernel again at once, or try again to turn it on."
   (interactive)
   (cond ((not lispm-desktop-kernel)
          (user-error (lispm-desktop-tr "lispm-kernel is off")))
-        ((not (bound-and-true-p lispm-kernel-desktop-mode))
+        ((not (lispm-desktop-kernel--on-p))
          (lispm-desktop-kernel-apply t t))
         ((fboundp 'lispm-kernel-desktop-restart)
          (lispm-kernel-desktop-restart))
-        (t (lispm-kernel-desktop-mode -1)
-           (lispm-kernel-desktop-mode 1))))
+        (t (funcall (lispm-desktop-kernel--mode) -1)
+           (funcall (lispm-desktop-kernel--mode) 1))))
 
 (defun lispm-desktop-kernel--why (error)
   "Return ERROR, a sentence, an error or a summary, as a sentence."
@@ -300,7 +373,7 @@ modes off."
   (let ((job (lispm-desktop-needs-job-state (lispm-desktop-kernel-need))))
     (cond ((not lispm-desktop-kernel) '(off))
           ((memq (car job) '(waiting installing)) (list 'installing (nth 1 job)))
-          ((not (bound-and-true-p lispm-kernel-desktop-mode))
+          ((not (lispm-desktop-kernel--on-p))
            (list 'stopped (or (nth 2 job)
                               (bound-and-true-p lispm-kernel-program-problem)
                               (lispm-desktop-kernel--why (bound-and-true-p lispm-kernel-desktop-last-error)))))

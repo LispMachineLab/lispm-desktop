@@ -1054,9 +1054,11 @@ newest tag, or what package-vc takes for it before the first."
                  (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
         (should (lispm-desktop-deps-present-p 'lispm-kernel))))))
 
-(defvar lispm-kernel-desktop-mode)
+(defvar lispm-kernel-sessions-mode)
 (defvar lispm-kernel-package-mode)
 (defvar lispm-kernel-exec-mode)
+(defvar lispm-kernel-scheduler)
+(defvar lispm-kernel-slice-seconds)
 
 (ert-deftest lispm-desktop-test-kernel ()
   "lispm-kernel is on by default, and not even loaded while
@@ -1071,7 +1073,7 @@ echo area only when the kernel was asked for, and leaves the desktop as
 it was."
   (should (eq (eval (car (get 'lispm-desktop-kernel 'standard-value)) t) t))
   (let ((lispm-desktop-kernel nil)
-        (lispm-kernel-desktop-mode nil)
+        (lispm-kernel-sessions-mode nil)
         (lispm-kernel-package-mode nil)
         (lispm-kernel-exec-mode nil)
         (provided (featurep 'lispm-kernel-desktop))
@@ -1104,9 +1106,9 @@ it was."
                   ((symbol-function 'lispm-desktop-kernel--getting-p) (lambda () getting))
                   ((symbol-function 'lispm-desktop-needs-install)
                    (lambda (needs who then) (push (list needs who then) installs)))
-                  ((symbol-function 'lispm-kernel-desktop-mode)
+                  ((symbol-function 'lispm-kernel-sessions-mode)
                    (lambda (&optional arg)
-                     (setq lispm-kernel-desktop-mode (> (prefix-numeric-value arg) 0))))
+                     (setq lispm-kernel-sessions-mode (> (prefix-numeric-value arg) 0))))
                   ((symbol-function 'lispm-kernel-package-mode)
                    (lambda (&optional arg)
                      (setq lispm-kernel-package-mode (> (prefix-numeric-value arg) 0))))
@@ -1119,20 +1121,20 @@ it was."
                      (push (cons (apply #'format format args) inhibit-message) messages))))
           (lispm-desktop-setup-kernel)
           (should (= ensured 0))
-          (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-sessions-mode)
           (setq lispm-desktop-kernel t)
           (should (= ensured 1))
-          (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-sessions-mode)
           (should lispm-kernel-package-mode)
           (should lispm-kernel-exec-mode)
           (setq lispm-desktop-kernel nil)
-          (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-sessions-mode)
           (should-not lispm-kernel-package-mode)
           (should-not lispm-kernel-exec-mode)
           (let ((noninteractive t))
             (lispm-desktop-kernel-apply t))
           (should (= ensured 2))
-          (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-sessions-mode)
           (should-not lispm-kernel-package-mode)
           ;; Offline, at the start that would install it: on by default,
           ;; it says so in *Messages* alone; asked for, in the echo area too.
@@ -1140,7 +1142,7 @@ it was."
           (lispm-desktop-kernel-apply t)
           (should (string-match-p "offline" (caar messages)))
           (should (cdar messages))
-          (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-sessions-mode)
           (put 'lispm-desktop-kernel 'customized-value '(t))
           (lispm-desktop-kernel-apply t)
           (should (string-match-p "offline" (caar messages)))
@@ -1151,14 +1153,14 @@ it was."
           (let ((lispm-desktop-kernel t))
             (lispm-desktop-setup-kernel)
             (should (= ensured 3))
-            (should lispm-kernel-desktop-mode)
+            (should lispm-kernel-sessions-mode)
             (should lispm-kernel-package-mode))
           ;; A kernel's Lisp from before package.el's downloads.
           (lispm-desktop-kernel-apply nil)
           (setq features (delq 'lispm-kernel-package features))
           (let ((load-path nil))
             (lispm-desktop-kernel-apply t))
-          (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-sessions-mode)
           (should-not lispm-kernel-package-mode)
           (provide 'lispm-kernel-package)
           (lispm-desktop-kernel-apply nil)
@@ -1167,7 +1169,7 @@ it was."
           (put 'lispm-desktop-kernel 'customized-value '(t))
           (setq lispm-desktop-kernel nil present nil)
           (setq lispm-desktop-kernel t)
-          (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-sessions-mode)
           (pcase-let ((`((,need) ,who ,then) (car installs)))
             (should (equal (lispm-desktop-needs-name need) "lispm-kernel"))
             (should (eq (lispm-desktop-needs-get need :install) #'lispm-desktop-kernel--install))
@@ -1175,7 +1177,7 @@ it was."
             (should (equal who "LispM"))
             (setq present t)
             (funcall then t)
-            (should lispm-kernel-desktop-mode)
+            (should lispm-kernel-sessions-mode)
             (should lispm-kernel-package-mode))
           ;; Turned off while the Installer got it, it stays off.
           (setq lispm-desktop-kernel nil present nil)
@@ -1183,22 +1185,22 @@ it was."
           (setq lispm-desktop-kernel nil)
           (setq present t)
           (funcall (nth 2 (car installs)) t)
-          (should-not lispm-kernel-desktop-mode)
+          (should-not lispm-kernel-sessions-mode)
           (should (= (length installs) 2))
           ;; Its program downloading, it is on, and the Installer shows how
           ;; far the download is.
           (setq getting t)
           (setq lispm-desktop-kernel t)
-          (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-sessions-mode)
           (should (= (length installs) 3))
           ;; On by default, all that is got quietly.
           (put 'lispm-desktop-kernel 'customized-value nil)
           (setq lispm-desktop-kernel nil)
           (setq lispm-desktop-kernel t)
-          (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-sessions-mode)
           (setq getting nil present nil lispm-desktop-kernel nil)
           (setq lispm-desktop-kernel t)
-          (should lispm-kernel-desktop-mode)
+          (should lispm-kernel-sessions-mode)
           (should (= (length installs) 3))
           (setq lispm-desktop-kernel nil))
       (remove-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed)
@@ -1281,7 +1283,7 @@ stops the download when stopped."
 (ert-deftest lispm-desktop-test-kernel-status ()
   "How lispm-kernel stands: off, being got, running, exited or stopped."
   (let ((lispm-desktop-kernel nil)
-        (lispm-kernel-desktop-mode nil)
+        (lispm-kernel-sessions-mode nil)
         (lispm-kernel-program-problem nil)
         (lispm-desktop-needs--jobs nil)
         (status nil))
@@ -1296,7 +1298,7 @@ stops the download when stopped."
                                                  :state 'installing :fraction 0.5)))
       (should (equal (lispm-desktop-kernel-status) '(installing 0.5)))
       (setq lispm-desktop-needs--jobs nil
-            lispm-kernel-desktop-mode t)
+            lispm-kernel-sessions-mode t)
       (let ((process (make-process :name "lispm-test-kernel" :command '("sleep" "5") :noquery t)))
         (unwind-protect
             (progn
@@ -1307,6 +1309,65 @@ stops the download when stopped."
       (should (equal (lispm-desktop-kernel-status) '(exited "the kernel exited" 200.0)))
       (setq status '(getting nil))
       (should (equal (lispm-desktop-kernel-status) '(installing nil))))))
+
+(ert-deftest lispm-desktop-test-kernel-mode-of-older-kernels ()
+  "The kernel's mode reading the agents' sessions is the one its Lisp has:
+`lispm-kernel-sessions-mode', or before lispm-kernel 0.4.0
+`lispm-kernel-desktop-mode'."
+  (cl-letf (((symbol-function 'lispm-kernel-sessions-mode) #'ignore))
+    (should (eq (lispm-desktop-kernel--mode) 'lispm-kernel-sessions-mode)))
+  (cl-letf (((symbol-function 'lispm-kernel-sessions-mode) nil))
+    (should (eq (lispm-desktop-kernel--mode) 'lispm-kernel-desktop-mode))))
+
+(ert-deftest lispm-desktop-test-kernel-frame-clock ()
+  "On, the kernel's messages are taken in on the frame clock, after the
+terminals: a kernel asks the clock for a frame, and is given what is left
+of it, again while messages are left; off, they go to timers again.  A
+kernel's Lisp that does so itself is left to."
+  (let ((lispm-kernel-scheduler nil)
+        (lispm-kernel-slice-seconds 0.003)
+        (lispm-desktop-kernel--waiting nil)
+        (lispm-desktop-frame--clients nil)
+        (lispm-desktop-frame--due nil)
+        (lispm-desktop-frame--timer nil)
+        (dispatched nil)
+        (left 1))
+    (cl-letf (((symbol-function 'lispm-kernel-dispatch)
+               (lambda (runtime)
+                 (push (cons runtime lispm-kernel-slice-seconds) dispatched)
+                 (when (> left 0)
+                   (setq left (1- left))
+                   (funcall lispm-kernel-scheduler runtime)))))
+      (unwind-protect
+          (progn
+            (lispm-desktop-kernel--clock-on)
+            (should (eq lispm-kernel-scheduler #'lispm-desktop-kernel--schedule))
+            (should (equal (assq 'lispm-kernel lispm-desktop-frame--clients)
+                           (list 'lispm-kernel #'lispm-desktop-kernel--frame
+                                 lispm-desktop-kernel-clock-depth)))
+            ;; A kernel with messages asks for a frame; no timer of its own.
+            (should (funcall lispm-kernel-scheduler 'kernel))
+            (should (memq 'lispm-kernel lispm-desktop-frame--due))
+            ;; Given what is left of a frame; messages left ask again.
+            (should (lispm-desktop-kernel--frame (+ (float-time) 0.005)))
+            (should (< 0.004 (cdar dispatched) 0.0051))
+            (should-not (lispm-desktop-kernel--frame (+ (float-time) 0.005)))
+            (should (equal (mapcar #'car dispatched) '(kernel kernel)))
+            ;; Off: those waiting are taken in, and timers take the rest.
+            (funcall lispm-kernel-scheduler 'kernel)
+            (lispm-desktop-kernel--clock-off)
+            (should-not lispm-kernel-scheduler)
+            (should-not (assq 'lispm-kernel lispm-desktop-frame--clients))
+            (should (= (length dispatched) 3))
+            (should-not lispm-desktop-kernel--waiting)
+            ;; A kernel's Lisp of before 0.4.0 takes them in itself.
+            (provide 'lispm-kernel-broker)
+            (lispm-desktop-kernel--clock-on)
+            (should-not lispm-kernel-scheduler)
+            (should-not (assq 'lispm-kernel lispm-desktop-frame--clients)))
+        (setq features (delq 'lispm-kernel-broker features))
+        (when lispm-desktop-frame--timer
+          (cancel-timer lispm-desktop-frame--timer))))))
 
 (declare-function custom-variable-save "cus-edit" (widget))
 
@@ -12159,6 +12220,45 @@ before its game is set up, says nothing rather than signalling."
       (lispm-desktop-test-app-mode)
       (should-not (lispm-desktop-app-ui-status)))))
 
+(ert-deftest lispm-desktop-test-app-ui-declared-commands ()
+  "A mode declaring its commands with lispm-kit, plain data on its symbol
+read without lispm-kit, gets its main commands as buttons and its keys
+in its keys window, its own before those of the mode it derives from; a
+skin's :buttons and :keys still win."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (paused nil))
+    (unwind-protect
+        (progn
+          (put 'lispm-desktop-test-app-mode 'lispm-kit-commands
+               '((:command lispm-desktop-test-app-start-game :key ("n") :help "Start a game"
+                  :label "New Game" :button "New")
+                 (:command lispm-desktop-test-app-undo :key ("u") :label "Undo")
+                 (:command lispm-desktop-test-app-click :label "Click")))
+          (put 'lispm-desktop-test-app-derived-mode 'lispm-kit-commands
+               `((:command lispm-desktop-test-app-pause-game :key ("p") :help "Pause or resume"
+                  :button ,(lambda () (if paused "Resume" "Pause")) :enabled ,(lambda () paused))
+                 (:command lispm-desktop-test-app-undo :key ("u") :help "Take back a move")))
+          (with-temp-buffer
+            (lispm-desktop-test-app-derived-mode)
+            (should (equal (lispm-desktop-app-ui-buttons)
+                           '(("Pause" lispm-desktop-test-app-pause-game nil)
+                             ("New" lispm-desktop-test-app-start-game t))))
+            (setq paused t)
+            (should (equal (car (lispm-desktop-app-ui-buttons)) '("Resume" lispm-desktop-test-app-pause-game t)))
+            ;; Undo once, as the derived mode says it; Click has no key.
+            (should (equal (lispm-desktop-app-ui-key-list)
+                           '(("p" . "Pause or resume") ("u" . "Take back a move") ("n" . "Start a game")))))
+          (with-temp-buffer
+            (lispm-desktop-test-app-mode)
+            (should (equal (lispm-desktop-app-ui-key-list) '(("n" . "Start a game") ("u" . "Undo")))))
+          (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :buttons '(("Go" ignore)) :keys '(("x" . "Ex")))
+          (with-temp-buffer
+            (lispm-desktop-test-app-derived-mode)
+            (should (equal (lispm-desktop-app-ui-buttons) '(("Go" ignore t))))
+            (should (equal (lispm-desktop-app-ui-key-list) '(("x" . "Ex"))))))
+      (put 'lispm-desktop-test-app-mode 'lispm-kit-commands nil)
+      (put 'lispm-desktop-test-app-derived-mode 'lispm-kit-commands nil))))
+
 (ert-deftest lispm-desktop-test-app-ui-skin-of-an-application ()
   "An application whose buffer has no mode of its own is described by its
 key, and :run, said by a skin naming it with :app, opens it."
@@ -12667,6 +12767,181 @@ most, the sign changed in front, the last digit taken back."
     (lispm-desktop-app-skins-calc-press 'clear)
     (should (equal lispm-desktop-app-skins--calc-entry ""))))
 
+;;;; Stickies
+
+(defconst lispm-desktop-test--stickies-yellow '("#FFFF99" "#FFCC00" "#FF9900")
+  "Stickies' yellow: paper, edge and ink.")
+
+(ert-deftest lispm-desktop-test-app-stickies-title-bar ()
+  "The front note's title bar is Mac OS 9.0.4's Stickies', pixel for pixel:
+pinstripes of every other pixel in the edge colour, the close box five
+pixels in from the left edge and the zoom box from the right, two pixels
+down; another note's is plain paper, lit along its top."
+  (let* ((width 102)
+         (svg (lispm-desktop-app-stickies-draw-title-bar lispm-desktop-test--stickies-yellow width 10 t))
+         (inactive (lispm-desktop-app-stickies-draw-title-bar lispm-desktop-test--stickies-yellow width 10 nil)))
+    (cl-flet ((at (x y) (lispm-desktop-test--pixel svg x y)))
+      (should (equal (list (at 0 0) (at 50 0) (at 0 5) (at (1- width) 5)) (make-list 4 "#FFCC00")))
+      ;; The pinstripes.
+      (should (equal (list (at 1 1) (at 2 1) (at 1 2) (at 2 2) (at 50 9) (at 51 9))
+                     '("#FFCC00" "#FFFF99" "#FFFF99" "#FFCC00" "#FFFF99" "#FFCC00")))
+      ;; The close box, from column 5 to 11, rows 2 to 8.
+      (should (equal (mapcar (lambda (x) (at x 2)) '(5 6 10 11 12))
+                     '("#FFFF99" "#FFFF99" "#FFFF99" "#FF9900" "#FFCC00")))
+      (should (equal (mapcar (lambda (x) (at x 3)) '(5 6 9 10 11))
+                     '("#FFFF99" "#FF9900" "#FF9900" "#FFFF99" "#FF9900")))
+      (should (equal (mapcar (lambda (y) (at 6 y)) '(4 6 7)) '("#FF9900" "#FF9900" "#FFFF99")))
+      (should (equal (mapcar (lambda (x) (at x 8)) '(4 5 11)) '("#FFCC00" "#FF9900" "#FF9900")))
+      ;; The zoom box, its diagonal and its right and bottom lines.
+      (let ((right (- width 6)))
+        (should (equal (mapcar (lambda (y) (at right y)) '(2 5 8)) (make-list 3 "#FF9900")))
+        (should (equal (list (at (- width 8) 3) (at (- width 9) 4) (at (- width 10) 5) (at (- width 11) 6))
+                       (make-list 4 "#FF9900")))
+        (should (equal (list (at (- width 12) 8) (at (- width 12) 7) (at (- width 7) 3))
+                       '("#FF9900" "#FFFF99" "#FFFF99")))))
+    (cl-flet ((at (x y) (lispm-desktop-test--pixel inactive x y)))
+      (should (equal (list (at 1 0) (at 50 0) (at 8 3) (at 50 5) (at (1- width) 5) (at 0 5))
+                     '("#FFFFFF" "#FFFFFF" "#FFFF99" "#FFFF99" "#FFCC00" "#FFCC00"))))))
+
+(ert-deftest lispm-desktop-test-app-stickies-boxes-clear-of-resize-corners ()
+  "On macOS, which resizes an undecorated frame from a square at each
+corner, a note's boxes stand past the squares whose rows they cross, so a
+press reaches them: the top ones, and on a note rolled up the bottom ones
+too; elsewhere they stand where Stickies drew them."
+  (let ((width 160)
+        (height 160))
+    (cl-letf (((symbol-function 'framep) (lambda (_) 'ns))
+              ((symbol-function 'frame-parameter) (lambda (_ parameter) (eq parameter 'undecorated)))
+              ((symbol-function 'frame-pixel-height) (lambda (_) height)))
+      (should (equal (lispm-desktop-app-stickies--box-insets 'note 10) '(12 . 12)))
+      (setq height 17)
+      (should (equal (lispm-desktop-app-stickies--box-insets 'note 17) '(12 . 15))))
+    (cl-letf (((symbol-function 'framep) (lambda (_) 'x))
+              ((symbol-function 'frame-pixel-height) (lambda (_) 17)))
+      (should (equal (lispm-desktop-app-stickies--box-insets 'note 17) '(5 . 5))))
+    (let ((svg (lispm-desktop-app-stickies-draw-title-bar lispm-desktop-test--stickies-yellow width 10 t
+                                                          nil nil '(12 . 12))))
+      (cl-flet ((at (x y) (lispm-desktop-test--pixel svg x y)))
+        ;; The close box from column 12, the zoom box to column width - 13.
+        (should (equal (list (at 13 3) (at 18 2) (at 12 8) (at 11 7))
+                       '("#FF9900" "#FF9900" "#FF9900" "#FFCC00")))
+        (should (equal (list (at (- width 13) 2) (at (- width 19) 8) (at (- width 12) 8))
+                       '("#FF9900" "#FF9900" "#FFCC00")))))))
+
+(ert-deftest lispm-desktop-test-app-stickies-rolled-note-made-taller ()
+  "A note rolled up that the window system makes taller, as macOS does when
+its edge is dragged, is rolled down; its own sizes, rolled up or down,
+reported late, are not taken so."
+  (let ((rolled-down 0)
+        (height nil))
+    (cl-letf (((symbol-function 'window-frame) (lambda (_) 'note))
+              ((symbol-function 'lispm-desktop-app-window-rolled-p) #'always)
+              ((symbol-function 'lispm-desktop-platinum-rolled-up-height) (lambda (_) 144))
+              ((symbol-function 'lispm-desktop-app-stickies--rolled-height) (lambda (_) 17))
+              ((symbol-function 'frame-text-height) (lambda (_) height))
+              ((symbol-function 'lispm-desktop-app-window-roll-down) (lambda (_) (cl-incf rolled-down)))
+              ((symbol-function 'lispm-desktop-app-stickies--remember) #'ignore))
+      (dolist (h '(17 144))
+        (setq height h)
+        (lispm-desktop-app-stickies--resized 'window))
+      (should (= rolled-down 0))
+      (setq height 119)
+      (lispm-desktop-app-stickies--resized 'window)
+      (should (= rolled-down 1)))))
+
+(ert-deftest lispm-desktop-test-app-stickies-bottom ()
+  "The front note's bottom shows Stickies' grow box over the corner, its
+edges in ink; another note's is paper over the edge."
+  (let* ((gray '("#EEEEEE" "#BBBBBB" "#777777"))
+         (svg (lispm-desktop-app-stickies-draw-bottom gray 100 t))
+         (inactive (lispm-desktop-app-stickies-draw-bottom gray 100 nil)))
+    (cl-flet ((at (x y) (lispm-desktop-test--pixel svg x y)))
+      (should (equal (list (at 0 3) (at 50 3) (at 50 7)) '("#BBBBBB" "#EEEEEE" "#BBBBBB")))
+      (should (equal (mapcar (lambda (x) (at x 0)) '(95 96 99)) '("#EEEEEE" "#777777" "#777777")))
+      (should (equal (mapcar (lambda (x) (at x 4)) '(92 96 97 99)) '("#777777" "#777777" "#EEEEEE" "#777777")))
+      (should (equal (mapcar (lambda (x) (at x 7)) '(91 92 99)) '("#BBBBBB" "#777777" "#777777"))))
+    (cl-flet ((at (x y) (lispm-desktop-test--pixel inactive x y)))
+      (should (equal (list (at 96 0) (at 99 3) (at 95 7)) '("#EEEEEE" "#BBBBBB" "#BBBBBB"))))))
+
+(ert-deftest lispm-desktop-test-app-stickies-rolled-up-title-bar ()
+  "A note rolled up has a taller title bar, edged at its bottom, its boxes
+in the middle."
+  (let ((svg (lispm-desktop-app-stickies-draw-title-bar '("#CCFFCC" "#66FF66" "#00EE00") 120 17 t)))
+    (cl-flet ((at (x y) (lispm-desktop-test--pixel svg x y)))
+      (should (equal (at 60 16) "#66FF66"))
+      ;; The close box is rows 5 to 11: its top inner line on row 6.
+      (should (equal (list (at 6 6) (at 6 4) (at 11 11)) '("#00EE00" "#66FF66" "#00EE00"))))))
+
+(defun lispm-desktop-test--stickies-p ()
+  "Return non-nil when a lispm-stickies the desktop shows notes of is on
+the load path: one with a frontend's variables, of after 2026-10-25."
+  (when-let* ((file (locate-library "lispm-stickies.el" t)))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (search-forward "lispm-stickies-show-note-function" nil t))))
+
+(defvar lispm-stickies-file)
+(defvar lispm-stickies--notes)
+(defvar lispm-stickies--loaded)
+(defvar lispm-stickies--quitting)
+
+(ert-deftest lispm-desktop-test-app-stickies-loaded ()
+  "Once lispm-stickies is loaded, Stickies is one of the desktop's
+applications, with its icon and the menus of Mac OS 9's Stickies, and
+the desktop shows its notes: a note's buffer gets a title bar and a
+bottom drawn for it, of its colour, and no scroll bar; throwing a note
+away asks in an alert.  Unloaded, Stickies leaves the desktop's hooks
+idle."
+  (skip-unless (lispm-desktop-test--stickies-p))
+  (let ((apps lispm-desktop-apps))
+    (unwind-protect
+        (progn
+          (require 'lispm-stickies)
+          (let ((props (alist-get 'stickies lispm-desktop-apps))
+                (dir (make-temp-file "lispm-desktop-stickies" t)))
+            (should (equal (plist-get props :name) "Stickies"))
+            (should (file-readable-p (plist-get props :icon)))
+            (should (eq (plist-get props :activate) #'lispm-desktop-app-stickies-open))
+            (should (equal (mapcar #'cadr (funcall (plist-get props :menus)))
+                           '("File" "Edit" "Note" "Color")))
+            (should-not (funcall (plist-get props :running)))
+            (should (eq lispm-stickies-show-note-function #'lispm-desktop-app-stickies--show))
+            (should (eq (keymap-lookup lispm-stickies-note-mode-map "C-c C-r") #'lispm-desktop-app-stickies-roll))
+            (should (memq #'lispm-desktop-app-stickies--moved lispm-desktop-platinum-frame-moved-functions))
+            (let ((lispm-stickies-file (expand-file-name "stickies.org" dir))
+                  (lispm-stickies--notes nil)
+                  (lispm-stickies--loaded nil))
+              (unwind-protect
+                  (cl-letf (((symbol-function 'lispm-desktop-app-stickies--open)
+                             (lambda (buffer) (lispm-desktop-app-stickies--dress buffer) 'frame)))
+                    (let ((note (lispm-stickies-new-note "Hello" 'blue)))
+                      (with-current-buffer note
+                        (should (equal tab-line-format '(:eval (lispm-desktop-app-stickies--title-bar))))
+                        (should (equal mode-line-format '(:eval (lispm-desktop-app-stickies--bottom))))
+                        (should (= left-fringe-width 1))
+                        (should-not lispm-desktop-platinum-listed)
+                        (should (equal (plist-get (cadr (assq 'tab-line face-remapping-alist)) :background)
+                                       "#99FFFF"))
+                        (lispm-stickies-set-color 'pink)
+                        (should (equal (plist-get (cadr (assq 'tab-line face-remapping-alist)) :background)
+                                       "#FFCCCC")))
+                      (should (eq (lispm-desktop-app-stickies--scroll-bar note) 'no))
+                      (should-not (lispm-desktop-app-stickies--scroll-bar (get-buffer-create " *other*")))
+                      (let ((asked nil))
+                        (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+                                   (lambda (&rest args) (push args asked) 'keep)))
+                          (lispm-stickies-close-note note))
+                        (should (buffer-live-p note))
+                        (should (equal (nth 1 (car asked)) "Throw this note away?")))))
+                (let ((lispm-stickies--quitting t))
+                  (mapc #'kill-buffer (seq-filter #'buffer-live-p lispm-stickies--notes)))
+                (delete-directory dir t)))))
+      (when (featurep 'lispm-stickies)
+        (unload-feature 'lispm-stickies t))
+      (should-not (lispm-desktop-app-stickies--scroll-bar (current-buffer)))
+      (should-not (lispm-desktop-app-stickies--running-p))
+      (setq lispm-desktop-apps apps))))
+
 ;;;; The chat applications
 
 (ert-deftest lispm-desktop-test-app-chat-count ()
@@ -12884,7 +13159,9 @@ found out of it is not enough, each board's functions defined."
                  mpuz-mode bubbles-mode life-mode hanoi dun-mode doctor-mode calc-mode calendar-mode
                  elfeed-search-mode emms-browser-mode erc-mode slack-mode slack-buffer-mode
                  telega-root-mode telega-chat-mode lispm-desktop-app-erc-list-mode
-                 lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode lispm-rotom-mode))
+                 lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode lispm-rotom-mode
+                 lispm-1password-mode lispm-1password-item-mode lispm-security-mode
+                 lispm-security-finding-mode lispm-mycin-mode lispm-shrdlu-mode lispm-shrdlu-world-mode))
     (let ((skin (alist-get key lispm-desktop-app-ui-skins)))
       (should skin)
       (when-let* ((board (plist-get skin :board)))
@@ -13028,8 +13305,7 @@ is missing."
 
 (ert-deftest lispm-desktop-test-app-skin-rotom ()
   "Rotom's window says where its daemon runs, the accounts and LispM's
-model at its bottom, and starts or stops the daemon as it runs or not;
-while Rotom is missing, its page installs it."
+model at its bottom; while Rotom is missing, its page installs it."
   (let ((skin (alist-get 'lispm-rotom-mode lispm-desktop-app-ui-skins))
         (lispm-rotom-state 'ready)
         (lispm-rotom-accounts '((:provider codex) (:provider grok)))
@@ -13042,17 +13318,98 @@ while Rotom is missing, its page installs it."
               ((symbol-function 'lispm-rotom-lispm) (lambda () '(:rotom t :model "gpt-6.1-sol"))))
       (should (equal (lispm-desktop-app-skins--rotom-status)
                      '("Running at http://127.0.0.1:14550" "2 accounts" "LispM uses gpt-6.1-sol")))
-      (pcase-let ((`(,label ,command ,enabled) (car (plist-get skin :buttons))))
-        (should (equal (funcall label) "Stop"))
-        (should (eq command 'lispm-rotom-start-or-stop))
-        (should (funcall enabled))
-        (setq running nil)
-        (should (equal (funcall label) "Start")))
+      ;; Its buttons and keys are Rotom's own, declared with lispm-kit.
+      (should-not (plist-member skin :buttons))
+      (should-not (plist-member skin :keys))
+      (setq running nil)
       (should (equal (car (lispm-desktop-app-skins--rotom-status)) "Daemon stopped"))
       (should-not (funcall (car (plist-get skin :empty))))
       (setq lispm-rotom-state 'missing)
       (should (funcall (car (plist-get skin :empty))))
       (should-not (lispm-desktop-app-skins--rotom-status)))))
+
+(ert-deftest lispm-desktop-test-app-skins-of-packages-standing-alone ()
+  "The skins of 1Password, Security, MYCIN and SHRDLU are the desktop's,
+made of what the packages say of themselves with public functions: their
+buttons run commands and are enabled by functions, their status and
+page are functions too, none of them private."
+  (dolist (mode '(lispm-1password-mode lispm-1password-item-mode lispm-security-mode
+                  lispm-security-finding-mode lispm-mycin-mode lispm-shrdlu-mode lispm-shrdlu-world-mode))
+    (let ((skin (alist-get mode lispm-desktop-app-ui-skins)))
+      (dolist (button (plist-get skin :buttons))
+        (should (symbolp (nth 1 button)))
+        (dolist (part (list (nth 0 button) (nth 1 button) (nth 2 button)))
+          (when (symbolp part)
+            (should-not (and part (string-search "--" (symbol-name part)))))))
+      (dolist (property '(:status :label))
+        (let ((function (plist-get skin property)))
+          (when (symbolp function)
+            (should-not (and function (string-search "--" (symbol-name function)))))))
+      (dolist (function (plist-get skin :empty))
+        (should-not (string-search "--" (symbol-name function))))))
+  (should (equal (plist-get (alist-get 'lispm-1password-mode lispm-desktop-app-ui-skins) :empty)
+                 '(lispm-1password-page-p lispm-1password-page-text lispm-1password-page-buttons)))
+  (should (eq (plist-get (alist-get 'lispm-mycin-mode lispm-desktop-app-ui-skins) :status) #'lispm-mycin-status))
+  (should (eq (plist-get (alist-get 'lispm-shrdlu-world-mode lispm-desktop-app-ui-skins) :status)
+              #'lispm-shrdlu-status)))
+
+(ert-deftest lispm-desktop-test-app-ui-display-home ()
+  "A buffer of an installed application shown from outside its window, as
+a skill shows SHRDLU's dialogue with `display-buffer', goes to the
+application's window, opened first; switched to in place, it stays where
+it is asked for; an application not installed is no matter."
+  (let ((lispm-desktop-apps (cons '(shrdlu :name "SHRDLU" :store t) lispm-desktop-apps))
+        (activated nil)
+        (buffer (get-buffer-create " *lispm-desktop-test-shrdlu*")))
+    (unwind-protect
+        (save-window-excursion
+          (with-current-buffer buffer
+            (setq major-mode 'lispm-shrdlu-mode))
+          (should (eq (lispm-desktop-app-ui--home buffer) 'shrdlu))
+          (should (lispm-desktop-app-ui--elsewhere-p buffer '(nil (inhibit-same-window . t))))
+          (should-not (lispm-desktop-app-ui--elsewhere-p buffer '(display-buffer-same-window)))
+          (cl-letf (((symbol-function 'lispm-desktop-apps-activate) (lambda (app) (push app activated)))
+                    ((symbol-function 'lispm-desktop-app-window-of-app) (lambda (_) (selected-frame))))
+            (let ((window (lispm-desktop-app-ui-display-home buffer nil)))
+              (should (equal activated '(shrdlu)))
+              (should (eq (window-buffer window) buffer))))
+          ;; Shown from its own window, it is no matter.
+          (cl-letf (((symbol-function 'lispm-desktop-app-ui-app) (lambda (&optional _) 'shrdlu)))
+            (should-not (lispm-desktop-app-ui--elsewhere-p buffer nil)))
+          (let ((lispm-desktop-apps (cdr lispm-desktop-apps)))
+            (should-not (lispm-desktop-app-ui--home buffer))))
+      (kill-buffer buffer))))
+
+(define-derived-mode lispm-desktop-test-list-mode tabulated-list-mode "Test List"
+  "A tabulated list, as an application's."
+  (setq tabulated-list-format [("Name" 10 t) ("Size" 6 t)]
+        tabulated-list-entries '((a ["alpha" "1"]) (b ["beta" "2"])))
+  (tabulated-list-init-header))
+
+(ert-deftest lispm-desktop-test-app-ui-list-header ()
+  "A tabulated list in an application's window names its columns in its
+buffer, where the strip of buttons takes the header line: over a list
+printed already, the first entry kept under point, and in each list
+printed after.  Without a strip, its header line is left as it is."
+  (with-temp-buffer
+    (lispm-desktop-test-list-mode)
+    (tabulated-list-print)
+    (goto-char (point-min))
+    (cl-letf (((symbol-function 'lispm-desktop-app-ui--strip-p) #'always))
+      (lispm-desktop-app-ui--list-header))
+    (should-not tabulated-list-use-header-line)
+    (should (string-match-p "\\`.*Name.*Size.*\n.*alpha" (buffer-string)))
+    (should (eq (tabulated-list-get-id) 'a))
+    (tabulated-list-print t)
+    (should (= (how-many "Name" (point-min) (point-max)) 1))
+    (should (string-match-p "Name" (buffer-substring (point-min) (line-end-position 0)))))
+  (with-temp-buffer
+    (lispm-desktop-test-list-mode)
+    (tabulated-list-print)
+    (cl-letf (((symbol-function 'lispm-desktop-app-ui--strip-p) #'ignore))
+      (lispm-desktop-app-ui--list-header))
+    (should tabulated-list-use-header-line)
+    (should-not (string-search "Name" (buffer-string)))))
 
 (ert-deftest lispm-desktop-test-needs-guard ()
   "A guarded command run while its need is missing offers to install it,
