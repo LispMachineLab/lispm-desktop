@@ -48,9 +48,10 @@
 ;; needs (`lispm-desktop-store-app-metadata'); how it opens is the App
 ;; Store's for one with a :command, run in the application's window, or
 ;; its library's for one with a :feature, running windows of its own as
-;; Stickies does: loaded first, the library says what the application
-;; does with `lispm-desktop-define-app' under the item's ID, and is
-;; unloaded (`unload-feature') when the application is uninstalled.  An
+;; Stickies does: loaded first, the library is made the application under
+;; the item's ID with `lispm-desktop-define-app', by a file of the
+;; desktop's for it (lispm-desktop-app-stickies.el), and is unloaded
+;; (`unload-feature') when the application is uninstalled.  An
 ;; extension's :feature, loaded, makes it take part in the editor;
 ;; unloaded, it takes part no more.  An extension needing a :program can
 ;; be installed only while that program is on PATH; :install says how to
@@ -2032,10 +2033,11 @@ looks, where the App Store files it, what it says of itself and needs.")
 of `lispm-desktop-apps' other than `lispm-desktop-store-app-metadata'.
 One opened by its :command opens in its window, from the App Store,
 with the menus its window works out; one of a :feature, running windows
-of its own, does what its library says with `lispm-desktop-define-app'
-under ID, the library loaded first, the window's menus where it names
-none.  A library that defines no application ID, or none that it
-activates, is an error."
+of its own, does what `lispm-desktop-define-app' says under ID once the
+library is loaded, as the desktop's file for it says, see
+lispm-desktop-app-stickies.el, the window's menus where it names none.
+A library that is made no application ID, or none that activates, is an
+error."
   (if-let* ((feature (plist-get props :feature)))
       (progn
         (require feature)

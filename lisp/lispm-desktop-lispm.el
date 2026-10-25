@@ -73,7 +73,7 @@
 (declare-function lispm-agent-id "lispm-core" (agent))
 (declare-function lispm-agent-name "lispm-core" (agent))
 (declare-function lispm-agent-view "lispm-core" (agent))
-(declare-function lispm--read-role "lispm" (prompt))
+(declare-function lispm-read-role "lispm" (prompt))
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
 (declare-function lispm-desktop-store-skill-sources "lispm-desktop-store" ())
 (defvar lispm-skill-sources)
@@ -169,7 +169,10 @@ lispm-desktop-ai reads them."
 (defun lispm-desktop-agent-lispm-new (&optional role)
   "Start a new LispM agent at the current project root.
 With a prefix argument, choose its ROLE."
-  (interactive (list (and current-prefix-arg (lispm--read-role (lispm-desktop-tr "Role")))))
+  (interactive (list (and current-prefix-arg
+                          ;; lispm-agent before 0.8.0 reads it under a private name.
+                          (funcall (if (fboundp 'lispm-read-role) #'lispm-read-role 'lispm--read-role)
+                                   (lispm-desktop-tr "Role")))))
   (if role
       (lispm-agents-show (lispm-desktop-lispm-new (lispm-agents-default-directory) role))
     (lispm-agents-new 'lispm)))

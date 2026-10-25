@@ -70,6 +70,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'tabulated-list)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-apps)
@@ -894,6 +895,25 @@ installed application's window shows."
   (when lispm-desktop-app-ui-mode
     (lispm-desktop-app-ui--set-up-buffer)))
 
+(defun lispm-desktop-app-ui--list-header ()
+  "Name a tabulated list's columns in its buffer, as Emacs does where it
+has no header line: the window's strip of buttons takes the header line
+that would name them.  A list printed already gets them over it, the
+windows on its first line left there; one printed later prints them."
+  (when (and (derived-mode-p 'tabulated-list-mode)
+             tabulated-list-use-header-line
+             (> (length tabulated-list-format) 0)
+             (lispm-desktop-app-ui--strip-p))
+    (setq-local tabulated-list-use-header-line nil)
+    (tabulated-list-init-header)
+    (when (text-property-not-all (point-min) (point-max) 'tabulated-list-id nil)
+      (let ((first (save-excursion (tabulated-list-print-fake-header) (point))))
+        (when (= (point) (point-min))
+          (goto-char first))
+        (dolist (window (get-buffer-window-list nil nil t))
+          (when (= (window-point window) (point-min))
+            (set-window-point window first)))))))
+
 (defun lispm-desktop-app-ui--set-up-buffer ()
   "Give the current buffer its application's interface."
   (when (bound-and-true-p display-line-numbers-mode)
@@ -924,6 +944,7 @@ installed application's window shows."
     (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
     (setq-local line-spacing 4)
     (hl-line-mode 1))
+  (lispm-desktop-app-ui--list-header)
   (unless (lispm-desktop-app-ui-get :cursor t)
     (setq-local cursor-type nil
                 evil-emacs-state-cursor '(nil)
@@ -1114,6 +1135,42 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
                (or lispm-desktop-app-board (lispm-desktop-app-ui-fit-p)))
       'no)))
 
+;;;; Where an application's buffers show
+;;
+;; A buffer of an installed application shown from outside its window, as
+;; an agent's skill shows SHRDLU's dialogue with `display-buffer', shows
+;; in the application's window, opened or brought in front first: the
+;; skill knows nothing of the desktop.  Switching to it in place, as
+;; `switch-to-buffer' does, keeps it where it is asked for.
+
+(defun lispm-desktop-app-ui--home (buffer)
+  "Return the installed application whose window BUFFER belongs in, or nil:
+the one whose window gave it its interface, or the :app its mode's skin
+names, installed from the App Store."
+  (when-let* ((app (or (buffer-local-value 'lispm-desktop-app-ui--app buffer)
+                       (car (ensure-list (plist-get (lispm-desktop-app-ui-skin buffer) :app)))))
+              ((plist-get (alist-get app lispm-desktop-apps) :store)))
+    app))
+
+(defun lispm-desktop-app-ui--elsewhere-p (buffer-or-name action)
+  "Return non-nil when an installed application's buffer is about to show
+outside its window, ACTION not asking for the selected window.
+This is the `display-buffer-alist' condition sending it there."
+  (when-let* ((buffer (get-buffer buffer-or-name))
+              (app (lispm-desktop-app-ui--home buffer)))
+    (and (not (eq (lispm-desktop-app-ui-app) app))
+         (not (memq 'display-buffer-same-window (ensure-list (car-safe action))))
+         (not (active-minibuffer-window)))))
+
+(defun lispm-desktop-app-ui-display-home (buffer alist)
+  "Display BUFFER in its application's window, opened or brought in front
+first, per ALIST; return the window, or nil when it could not open.
+This is a `display-buffer' action function."
+  (let ((app (lispm-desktop-app-ui--home buffer)))
+    (lispm-desktop-apps-activate app)
+    (when-let* ((frame (lispm-desktop-app-window-of-app app)))
+      (window--display-buffer buffer (frame-selected-window frame) 'reuse alist))))
+
 ;;;; Set up
 
 (defun lispm-desktop-setup-app-ui ()
@@ -1125,6 +1182,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   (add-hook 'lispm-desktop-app-board-resized-functions #'lispm-desktop-app-ui--fit-board)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-app-ui--scroll-bar)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-ui--refresh-pages)
+  (add-to-list 'display-buffer-alist '(lispm-desktop-app-ui--elsewhere-p lispm-desktop-app-ui-display-home))
   (advice-add 'y-or-n-p :around #'lispm-desktop-app-ui--asking)
   (advice-add 'yes-or-no-p :around #'lispm-desktop-app-ui--asking))
 
