@@ -31,10 +31,12 @@
 ;; Terminal emulation (Eat) and language servers allocate heavily while
 ;; streaming output; at the default 800KB threshold a full-screen agent
 ;; redraw triggers a collection every fraction of a second.  Collect rarely
-;; while busy and catch up when idle instead.
+;; while busy and catch up when idle instead, but only once a quarter of
+;; the threshold was allocated: a full collection of a large heap takes
+;; about 0.1 s, which a key pressed meanwhile would wait for.
 (setq gc-cons-threshold (* 64 1024 1024)
       read-process-output-max (* 1024 1024))
-(run-with-idle-timer 5 t #'garbage-collect)
+(run-with-idle-timer 5 t #'garbage-collect-maybe 4)
 
 (setq frame-title-format nil
       icon-title-format nil

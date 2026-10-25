@@ -44,6 +44,16 @@
 
 ;;;; Menu bar
 
+(defun lispm-desktop-platinum-redraw-menu-bar ()
+  "Draw the menu bar again at the next redisplay, and nothing else.
+A frame's menu bar is worked out again once the buffer of its selected
+window is marked, while `(force-mode-line-update t)' would redraw every
+window's title bar and bottom too."
+  (dolist (frame (frame-list))
+    (unless (frame-parent frame)
+      (with-current-buffer (window-buffer (frame-selected-window frame))
+        (force-mode-line-update)))))
+
 (defvar lispm-desktop-platinum--open-menu nil
   "The menu bar item whose menu is popped up, drawn highlighted meanwhile.")
 
@@ -58,10 +68,10 @@ the window that had the keyboard gets it back once the walk is over.")
   "Run BODY, which pops up a menu, with menu bar item KEY highlighted."
   (declare (indent 1))
   `(let ((lispm-desktop-platinum--open-menu ,key))
-     (force-mode-line-update t)
+     (lispm-desktop-platinum-redraw-menu-bar)
      (redisplay t)
      (unwind-protect (progn ,@body)
-       (force-mode-line-update t)
+       (lispm-desktop-platinum-redraw-menu-bar)
        (unless lispm-desktop-platinum--menu-bar-walk
          (run-hooks 'lispm-desktop-platinum-menu-closed-hook)))))
 

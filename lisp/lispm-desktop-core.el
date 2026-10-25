@@ -251,6 +251,22 @@ advice before `pre-redisplay-function', run once a redisplay."
       (dolist (window (window-list root t))
         (force-window-update window)))))
 
+(defun lispm-desktop--tty-frame-made (frame)
+  "Advise `pre-redisplay-function' with `lispm-desktop--tty-redraw-moved-frames'
+once FRAME, one just made, is on a text terminal.  A graphical display
+needs no such redraw, and the advice would walk every frame at each
+redisplay for nothing.  This is on `after-make-frame-functions'."
+  (when (lispm-desktop-tty-p frame)
+    (add-function :before pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames)))
+
+(defun lispm-desktop--tty-frame-gone (frame)
+  "Take the advice of `lispm-desktop--tty-frame-made' away once no frame but
+FRAME, one about to be deleted, is on a text terminal.  This is on
+`delete-frame-functions'."
+  (unless (seq-some (lambda (other) (and (not (eq other frame)) (lispm-desktop-tty-p other)))
+                    (frame-list))
+    (remove-function pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames)))
+
 (defun lispm-desktop-setup-meta-key-issue ()
   "Map macOS command key to Meta."
   (when (lispm-desktop-macos-p)

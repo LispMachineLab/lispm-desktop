@@ -1007,7 +1007,8 @@ buffer, whose name WebKit prefixes."
 (defun lispm-desktop-browser--redraw-tabs ()
   "Redraw the browser window's title bar and tabs, leaving the address alone."
   (lispm-desktop-browser--retitle)
-  (force-mode-line-update t))
+  (when-let* ((window (or (lispm-desktop-browser--address-window) (lispm-desktop-browser--window))))
+    (lispm-desktop-platinum-redraw-title-bars (window-frame window))))
 
 ;;;;; Tabs
 
@@ -1162,7 +1163,15 @@ The address window is fitted to its lines, see
     (lispm-desktop-browser--fit-address)
     (run-at-time 0 nil #'lispm-desktop-browser--fit-address)
     (unless lispm-desktop-browser--sync-timer
-      (setq lispm-desktop-browser--sync-timer (run-with-timer 0.7 0.7 #'lispm-desktop-browser--sync)))))
+      (setq lispm-desktop-browser--sync-timer (run-with-timer 0.7 0.7 #'lispm-desktop-browser--sync-tick)))))
+
+(defun lispm-desktop-browser--sync-tick ()
+  "Sync the address window, see `lispm-desktop-browser--sync', unless its
+frame is out of sight: the page is synced again when it shows, and the
+tick stops once no address window is left."
+  (let ((address (lispm-desktop-browser--address-window)))
+    (unless (and address (not (eq (frame-visible-p (window-frame address)) t)))
+      (lispm-desktop-browser--sync))))
 
 (defun lispm-desktop-browser-show ()
   "Show the browser, full screen or floating as it was last, with the most
@@ -1343,7 +1352,10 @@ its own nor WebKit's title line.  This is on `lispm-browser-tab-hook'."
               lispm-desktop-platinum-info #'lispm-desktop-browser--status)
   ;; The title bar above lights and dims with the page.
   (add-hook 'window-selection-change-functions
-            (lambda (_) (force-mode-line-update t)) nil t)
+            (lambda (window)
+              (when (window-live-p window)
+                (lispm-desktop-platinum-redraw-title-bars (window-frame window))))
+            nil t)
   ;; The unified copy and paste keys act on the page's selection and its
   ;; focused field, not on the buffer, which holds only the view.
   (setq-local lispm-desktop-copy-function #'xwidget-webkit-copy-selection-as-kill

@@ -2245,6 +2245,22 @@ where it can be read, measured by its link count where it cannot."
                 ((symbol-function 'file-exists-p) (lambda (_) ds-store)))
         (should (eq (and (lispm-desktop-trash-full-p) t) full))))))
 
+(ert-deftest lispm-desktop-test-trash-looked-at-while-shown ()
+  "The Trash is looked at every few seconds only while the desktop shows,
+and then reads two names at most, however much it holds."
+  (let ((looked 0) (shown nil) (count nil))
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) shown))
+              ((symbol-function 'lispm-desktop-check-trash) (lambda () (cl-incf looked))))
+      (lispm-desktop--trash-tick)
+      (should (= looked 0))
+      (setq shown 'window)
+      (lispm-desktop--trash-tick)
+      (should (= looked 1)))
+    (cl-letf (((symbol-function 'directory-files)
+               (lambda (&rest arguments) (setq count (nth 4 arguments)) '("old.txt"))))
+      (should (lispm-desktop-trash-full-p))
+      (should (eql count 2)))))
+
 (ert-deftest lispm-desktop-test-closing-the-last-window-shows-the-desktop ()
   "The close box takes a window away while others remain in the main area;
 the last one uncovers the desktop, as the desktop's setup has it."
@@ -15061,6 +15077,68 @@ display, has none redisplayed."
         (should-not (redisplayed))
         (setf (alist-get 'picture places) '(9 . 9))
         (should-not (redisplayed))))))
+
+(ert-deftest lispm-desktop-test-tty-redraw-only-with-terminals ()
+  "Moved child frames are looked for at each redisplay only while a frame
+is on a text terminal: not for a graphical frame made, and no more once
+the last text terminal frame is deleted."
+  (let ((pre-redisplay-function #'ignore)
+        (advised (lambda () (advice-function-member-p #'lispm-desktop--tty-redraw-moved-frames
+                                                      pre-redisplay-function))))
+    (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&optional frame) (eq frame 'tty)))
+              ((symbol-function 'frame-list) (lambda () '(gui tty))))
+      (lispm-desktop--tty-frame-made 'gui)
+      (should-not (funcall advised))
+      (lispm-desktop--tty-frame-made 'tty)
+      (should (funcall advised))
+      (lispm-desktop--tty-frame-gone 'gui)
+      (should (funcall advised))
+      (lispm-desktop--tty-frame-gone 'tty)
+      (should-not (funcall advised)))))
+
+(ert-deftest lispm-desktop-test-frames-sync-one-frame ()
+  "A window hook passing a frame brings only that floating window's frame
+up to date, or that of the window whose frame it draws; a theme enabled,
+or a frame deleted, brings every one up to date."
+  (let ((updated nil)
+        (parameters '((a (lispm-desktop-window . t))
+                      (b (lispm-desktop-window . t))
+                      (b-frame (lispm-desktop-platinum-frames . b))
+                      (popup))))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car parameters)))
+              ((symbol-function 'framep) (lambda (object) (and (assq object parameters) t)))
+              ((symbol-function 'frame-live-p) (lambda (object) (and (assq object parameters) t)))
+              ((symbol-function 'frame-parameter)
+               (lambda (frame parameter) (alist-get parameter (alist-get frame parameters))))
+              ((symbol-function 'lispm-desktop-platinum-frame-update) (lambda (frame) (push frame updated))))
+      (lispm-desktop-platinum-frames-sync 'a)
+      (should (equal updated '(a)))
+      (setq updated nil)
+      (lispm-desktop-platinum-frames-sync 'b-frame)
+      (should (equal updated '(b)))
+      (setq updated nil)
+      (lispm-desktop-platinum-frames-sync 'popup)
+      (should-not updated)
+      (lispm-desktop-platinum-frames-sync 'platinum)
+      (should (equal (reverse updated) '(a b))))))
+
+(ert-deftest lispm-desktop-test-menu-bar-redrawn-alone ()
+  "A menu dropped from the menu bar redraws the menu bar, through the buffer
+of each screen's selected window, not every window's title bar."
+  (let ((marked nil)
+        (screen-buffer (generate-new-buffer " lispm-desktop-test-screen")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-list) (lambda () '(screen child)))
+                  ((symbol-function 'frame-parent) (lambda (&optional frame) (and (eq frame 'child) 'screen)))
+                  ((symbol-function 'frame-selected-window) (lambda (&optional _) 'window))
+                  ((symbol-function 'window-buffer) (lambda (&optional _) screen-buffer))
+                  ((symbol-function 'redisplay) #'ignore)
+                  ((symbol-function 'force-mode-line-update)
+                   (lambda (&optional all) (push (list (current-buffer) all) marked))))
+          (lispm-desktop-platinum-with-open-menu 'lispm-desktop-test-menu
+            (should (eq lispm-desktop-platinum--open-menu 'lispm-desktop-test-menu)))
+          (should (equal marked (list (list screen-buffer nil) (list screen-buffer nil)))))
+      (kill-buffer screen-buffer))))
 
 (ert-deftest lispm-desktop-test-tty-meta-brackets ()
   "Meta-[ and Meta-] are bound but on a text terminal, which sends them as

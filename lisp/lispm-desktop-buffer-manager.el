@@ -207,15 +207,17 @@ speaks, or else its mode's name."
 
 (defun lispm-desktop-buffer-manager-refresh (&rest _)
   "Refresh the buffer manager's rows and bottom line, keeping the row at point.
-The refresh timer stops once the list is no longer shown."
+The refresh timer stops once the list is no longer shown, and passes
+while it is out of sight, as with the desktop hidden."
   (interactive)
   (if-let* ((buffer (get-buffer lispm-desktop-buffer-manager-buffer-name))
             ((get-buffer-window buffer t)))
-      (with-current-buffer buffer
-        (setq tabulated-list-entries (lispm-desktop-buffer-manager--entries)
-              lispm-desktop-platinum-info (lispm-desktop-buffer-manager--summary))
-        (tabulated-list-print t t)
-        (force-mode-line-update))
+      (when (get-buffer-window buffer 'visible)
+        (with-current-buffer buffer
+          (setq tabulated-list-entries (lispm-desktop-buffer-manager--entries)
+                lispm-desktop-platinum-info (lispm-desktop-buffer-manager--summary))
+          (tabulated-list-print t t)
+          (force-mode-line-update)))
     (when lispm-desktop-buffer-manager--timer
       (cancel-timer lispm-desktop-buffer-manager--timer)
       (setq lispm-desktop-buffer-manager--timer nil))))
