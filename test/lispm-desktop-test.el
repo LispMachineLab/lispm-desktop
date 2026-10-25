@@ -11976,6 +11976,45 @@ before its game is set up, says nothing rather than signalling."
       (lispm-desktop-test-app-mode)
       (should-not (lispm-desktop-app-ui-status)))))
 
+(ert-deftest lispm-desktop-test-app-ui-declared-commands ()
+  "A mode declaring its commands with lispm-kit, plain data on its symbol
+read without lispm-kit, gets its main commands as buttons and its keys
+in its keys window, its own before those of the mode it derives from; a
+skin's :buttons and :keys still win."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (paused nil))
+    (unwind-protect
+        (progn
+          (put 'lispm-desktop-test-app-mode 'lispm-kit-commands
+               '((:command lispm-desktop-test-app-start-game :key ("n") :help "Start a game"
+                  :label "New Game" :button "New")
+                 (:command lispm-desktop-test-app-undo :key ("u") :label "Undo")
+                 (:command lispm-desktop-test-app-click :label "Click")))
+          (put 'lispm-desktop-test-app-derived-mode 'lispm-kit-commands
+               `((:command lispm-desktop-test-app-pause-game :key ("p") :help "Pause or resume"
+                  :button ,(lambda () (if paused "Resume" "Pause")) :enabled ,(lambda () paused))
+                 (:command lispm-desktop-test-app-undo :key ("u") :help "Take back a move")))
+          (with-temp-buffer
+            (lispm-desktop-test-app-derived-mode)
+            (should (equal (lispm-desktop-app-ui-buttons)
+                           '(("Pause" lispm-desktop-test-app-pause-game nil)
+                             ("New" lispm-desktop-test-app-start-game t))))
+            (setq paused t)
+            (should (equal (car (lispm-desktop-app-ui-buttons)) '("Resume" lispm-desktop-test-app-pause-game t)))
+            ;; Undo once, as the derived mode says it; Click has no key.
+            (should (equal (lispm-desktop-app-ui-key-list)
+                           '(("p" . "Pause or resume") ("u" . "Take back a move") ("n" . "Start a game")))))
+          (with-temp-buffer
+            (lispm-desktop-test-app-mode)
+            (should (equal (lispm-desktop-app-ui-key-list) '(("n" . "Start a game") ("u" . "Undo")))))
+          (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :buttons '(("Go" ignore)) :keys '(("x" . "Ex")))
+          (with-temp-buffer
+            (lispm-desktop-test-app-derived-mode)
+            (should (equal (lispm-desktop-app-ui-buttons) '(("Go" ignore t))))
+            (should (equal (lispm-desktop-app-ui-key-list) '(("x" . "Ex"))))))
+      (put 'lispm-desktop-test-app-mode 'lispm-kit-commands nil)
+      (put 'lispm-desktop-test-app-derived-mode 'lispm-kit-commands nil))))
+
 (ert-deftest lispm-desktop-test-app-ui-skin-of-an-application ()
   "An application whose buffer has no mode of its own is described by its
 key, and :run, said by a skin naming it with :app, opens it."
@@ -13022,8 +13061,7 @@ is missing."
 
 (ert-deftest lispm-desktop-test-app-skin-rotom ()
   "Rotom's window says where its daemon runs, the accounts and LispM's
-model at its bottom, and starts or stops the daemon as it runs or not;
-while Rotom is missing, its page installs it."
+model at its bottom; while Rotom is missing, its page installs it."
   (let ((skin (alist-get 'lispm-rotom-mode lispm-desktop-app-ui-skins))
         (lispm-rotom-state 'ready)
         (lispm-rotom-accounts '((:provider codex) (:provider grok)))
@@ -13036,12 +13074,10 @@ while Rotom is missing, its page installs it."
               ((symbol-function 'lispm-rotom-lispm) (lambda () '(:rotom t :model "gpt-6.1-sol"))))
       (should (equal (lispm-desktop-app-skins--rotom-status)
                      '("Running at http://127.0.0.1:14550" "2 accounts" "LispM uses gpt-6.1-sol")))
-      (pcase-let ((`(,label ,command ,enabled) (car (plist-get skin :buttons))))
-        (should (equal (funcall label) "Stop"))
-        (should (eq command 'lispm-rotom-start-or-stop))
-        (should (funcall enabled))
-        (setq running nil)
-        (should (equal (funcall label) "Start")))
+      ;; Its buttons and keys are Rotom's own, declared with lispm-kit.
+      (should-not (plist-member skin :buttons))
+      (should-not (plist-member skin :keys))
+      (setq running nil)
       (should (equal (car (lispm-desktop-app-skins--rotom-status)) "Daemon stopped"))
       (should-not (funcall (car (plist-get skin :empty))))
       (setq lispm-rotom-state 'missing)

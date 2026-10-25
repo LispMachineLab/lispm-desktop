@@ -375,14 +375,19 @@ desktop's in one way, the App Store's, at its install and at every start.
 1. *The package* runs in any Emacs and knows nothing of the desktop: it names no ~lispm-desktop-~
    symbol, no Platinum and no look, for people use it without the desktop.  It opens with an
    autoloaded command showing its buffer, which the App Store runs in the application's window, and
-   says what that window shows with public functions of its own: the predicates its commands are
-   enabled by, what its status is, the text and buttons of a page while it has nothing to show, as
-   [[https://github.com/LispMachineLab/lispm-rotom][Rotom]] gives ~lispm-rotom-installed-p~, ~lispm-rotom-running-p~ and its commands.  The byte-compiler
+   says what that window shows with public functions of its own: what its status is, the text and
+   buttons of a page while it has nothing to show, as [[https://github.com/LispMachineLab/lispm-rotom][Rotom]] gives ~lispm-rotom-installed-p~ and
+   ~lispm-rotom-running-p~.  It declares each of its commands once with [[https://github.com/LispMachineLab/lispm-kit][LispM Kit]]'s
+   ~lispm-kit-define-commands~: its keys, its menu item, what it does, when it is enabled and, for
+   the main ones, the words of a button.  Emacs shows the keys and menus as any mode's; the desktop
+   reads the rest from the mode's ~lispm-kit-commands~ property, plain data, for the window's
+   buttons and its keys window, and needs not LispM Kit for it.  The byte-compiler
    never finds a name of the desktop's in a package, so a test of its own greps its files for
    ~lispm-desktop~ and ~platinum~, as lispm-store's ~make test~ does for every package it installs.
 2. *Its interface on the desktop* is the desktop's.  It is worked out from the package's mode, and
-   the rest (buttons, status, pages) is said with ~lispm-desktop-app-ui-define~ in
-   =lisp/lispm-desktop-app-skins.el=, made of those public functions, as Rotom's skin there is.  An
+   the rest (status, pages) is said with ~lispm-desktop-app-ui-define~ in
+   =lisp/lispm-desktop-app-skins.el=, made of those public functions, as Rotom's skin there is; a
+   skin's own ~:buttons~ and ~:keys~ still come before what the package declares.  An
    application running windows of its own, as [[https://github.com/LispMachineLab/lispm-stickies][Stickies]] does, gives a ~:feature~ instead of a command:
    its library offers the variables and hooks a frontend sets, as Stickies'
    ~lispm-stickies-show-note-function~, and a file of the desktop's, as
