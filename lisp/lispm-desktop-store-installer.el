@@ -50,6 +50,10 @@
 ;;
 ;; Everything else it says, on its standard error, is the job's log.
 ;;
+;; A package may require one of LispM's libraries that no package archive
+;; holds, as lispm-gl requires lispm-prebuilt: it is installed first, from
+;; git at its latest release, see `lispm-desktop-store-installer-libraries'.
+;;
 ;; `lispm-desktop-store-installer-program' makes JOB's program in the
 ;; Emacs asking, and `lispm-desktop-store-installer-call' runs it there
 ;; and waits, as LispM Desktop does to keep a LispM project installed as
@@ -73,6 +77,19 @@
 inherited GIT_DIR would name, and no prompt for a password."
   (append '("GIT_DIR" "GIT_WORK_TREE" "GIT_INDEX_FILE" "GIT_TERMINAL_PROMPT=0")
           process-environment))
+
+(defun lispm-desktop-store--release-tag (url)
+  "Return the tag of the latest release of the repository at URL, as
+\"v0.2.0\", or nil when it has none or cannot be reached."
+  (with-temp-buffer
+    (let ((process-environment (lispm-desktop-store--git-environment)))
+      (when (eql 0 (ignore-errors
+                     (call-process "git" nil '(t nil) nil "ls-remote" "--tags" "--refs" url "v*")))
+        (car (sort (seq-keep (lambda (line)
+                               (and (string-match "refs/tags/\\(v[0-9]+\\.[0-9]+\\.[0-9]+\\)\\'" line)
+                                    (match-string 1 line)))
+                             (split-string (buffer-string) "\n" t))
+                   (lambda (a b) (version< (substring b 1) (substring a 1)))))))))
 
 (defun lispm-desktop-store--git (directory &rest args)
   "Run git with ARGS in DIRECTORY; return what it printed, or signal it."
@@ -331,6 +348,25 @@ each, those it leaves uncompiled too."
   "Refuse to answer PROMPT: nobody is there to; the job fails, saying it."
   (user-error "%s" (string-trim-right (substring-no-properties prompt) "[ ?:]+")))
 
+(defconst lispm-desktop-store-installer-libraries
+  '((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt"))
+  "LispM's libraries a package may require that no package archive holds,
+\(NAME :url URL) each.  A package requiring one, in its Package-Requires,
+has it installed first, from git at its latest release.")
+
+(defun lispm-desktop-store-installer--libraries (install deps)
+  "Install DEPS with INSTALL, `package-vc-install-dependencies', then those
+of them it could not that are LispM's libraries, from git at their latest
+release; return those still missing.
+This is around `package-vc-install-dependencies' in the App Store's Emacs."
+  (seq-remove
+   (pcase-lambda (`(,name ,version))
+     (when-let* ((spec (alist-get name lispm-desktop-store-installer-libraries)))
+       (package-vc-install (cons name spec)
+                           (or (lispm-desktop-store--release-tag (plist-get spec :url)) :last-release))
+       (package-installed-p name version)))
+   (funcall install deps)))
+
 (defun lispm-desktop-store-installer--prepare ()
   "Make this Emacs install for the App Store: say how far it is, ask
 nothing, and keep no customization, which the App Store's Emacs keeps."
@@ -357,6 +393,7 @@ nothing, and keep no customization, which the App Store's Emacs keeps."
                   (lispm-desktop-store-installer--stage 'download))))
   (advice-add 'package-vc-install-dependencies :before
               (lambda (&rest _) (lispm-desktop-store-installer--stage 'dependencies)))
+  (advice-add 'package-vc-install-dependencies :around #'lispm-desktop-store-installer--libraries)
   (advice-add 'package--compile :around #'lispm-desktop-store-installer--compile)
   (advice-add 'byte-compile-file :after #'lispm-desktop-store-installer--compiled))
 
