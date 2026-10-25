@@ -112,15 +112,7 @@ branch.  Return nil when there is none, or the fetch failed."
 (defun lispm-desktop-deps--release-tag (url)
   "Return the tag of the latest release of the repository at URL, as
 \"v0.2.0\", or nil when it has none or cannot be reached."
-  (with-temp-buffer
-    (let ((process-environment (lispm-desktop-store--git-environment)))
-      (when (eql 0 (ignore-errors
-                     (call-process "git" nil '(t nil) nil "ls-remote" "--tags" "--refs" url "v*")))
-        (car (sort (seq-keep (lambda (line)
-                               (and (string-match "refs/tags/\\(v[0-9]+\\.[0-9]+\\.[0-9]+\\)\\'" line)
-                                    (match-string 1 line)))
-                             (split-string (buffer-string) "\n" t))
-                   (lambda (a b) (version< (substring b 1) (substring a 1)))))))))
+  (lispm-desktop-store--release-tag url))
 
 (defun lispm-desktop-deps-present-p (feature)
   "Return non-nil when FEATURE, a project of `lispm-desktop-deps', is here

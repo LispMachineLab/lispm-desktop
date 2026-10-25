@@ -873,6 +873,35 @@ an error loading it is signalled once the redisplay is done."
   (cl-letf (((symbol-function 'call-process) (lambda (&rest _) 128)))
     (should-not (lispm-desktop-deps--release-tag "https://example.org/repo"))))
 
+(ert-deftest lispm-desktop-test-store-installer-installs-lispm-libraries ()
+  "A package requiring one of LispM's libraries that no archive holds has
+it installed first, from git at its latest release, or the commit that
+last changed its version before one; what is still missing is left for
+package-vc to say."
+  (let ((installed nil)
+        (release "v0.1.0"))
+    (cl-letf (((symbol-function 'package-vc-install)
+               (lambda (package rev) (push (list package rev) installed)))
+              ((symbol-function 'package-installed-p)
+               (lambda (name &rest _) (seq-find (lambda (done) (eq (car (car done)) name)) installed)))
+              ((symbol-function 'lispm-desktop-store--release-tag) (lambda (_url) release)))
+      (should (equal (lispm-desktop-store-installer--libraries
+                      (lambda (deps)
+                        (should (equal deps '((lispm-prebuilt (0 1 0)) (nowhere (1)))))
+                        deps)
+                      '((lispm-prebuilt (0 1 0)) (nowhere (1))))
+                     '((nowhere (1)))))
+      (should (equal installed
+                     '(((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt") "v0.1.0"))))
+      (setq installed nil release nil)
+      (should-not (lispm-desktop-store-installer--libraries (lambda (_deps) '((lispm-prebuilt (0 1 0))))
+                                                            '((lispm-prebuilt (0 1 0)))))
+      (should (equal (cadr (car installed)) :last-release))
+      ;; Nothing missing: nothing more installed.
+      (setq installed nil)
+      (should-not (lispm-desktop-store-installer--libraries #'ignore '((seq (2 24)))))
+      (should-not installed))))
+
 (ert-deftest lispm-desktop-test-deps-requirements ()
   "Of a package's requirements, those not installed are returned; Emacs never."
   (let ((file (make-temp-file "lispm-desktop-test-" nil ".el"
@@ -2256,6 +2285,22 @@ where it can be read, measured by its link count where it cannot."
                 ((symbol-function 'file-exists-p) (lambda (_) ds-store)))
         (should (eq (and (lispm-desktop-trash-full-p) t) full))))))
 
+(ert-deftest lispm-desktop-test-trash-looked-at-while-shown ()
+  "The Trash is looked at every few seconds only while the desktop shows,
+and then reads two names at most, however much it holds."
+  (let ((looked 0) (shown nil) (count nil))
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) shown))
+              ((symbol-function 'lispm-desktop-check-trash) (lambda () (cl-incf looked))))
+      (lispm-desktop--trash-tick)
+      (should (= looked 0))
+      (setq shown 'window)
+      (lispm-desktop--trash-tick)
+      (should (= looked 1)))
+    (cl-letf (((symbol-function 'directory-files)
+               (lambda (&rest arguments) (setq count (nth 4 arguments)) '("old.txt"))))
+      (should (lispm-desktop-trash-full-p))
+      (should (eql count 2)))))
+
 (ert-deftest lispm-desktop-test-closing-the-last-window-shows-the-desktop ()
   "The close box takes a window away while others remain in the main area;
 the last one uncovers the desktop, as the desktop's setup has it."
@@ -2808,6 +2853,41 @@ that calls its callback back, with EXIT, OUTPUT and ERRORS."
            (lambda (program args callback &rest _)
              (push (list program args (lambda (&rest answer) (apply callback answer))) ,ran))))
      ,@body))
+
+(ert-deftest lispm-desktop-test-buffer-manager-rests-out-of-sight ()
+  "Shown on a frame out of sight, as with the desktop hidden, the buffer
+manager neither asks ps nor draws its rows, and keeps its timer for when
+it is seen again; shown nowhere, its timer stops."
+  (lispm-desktop-test--with-exec ran
+    (let* ((buffer (get-buffer-create lispm-desktop-buffer-manager-buffer-name))
+           (timer (run-at-time 3600 nil #'ignore))
+           (lispm-desktop-buffer-manager--timer timer)
+           (lispm-desktop-buffer-manager--listing nil)
+           (drawn 0)
+           (seen nil)
+           (shown t))
+      (unwind-protect
+          (cl-letf (((symbol-function 'get-buffer-window)
+                     (lambda (_buffer &optional frames)
+                       (and shown (or (not (eq frames 'visible)) seen) (selected-window))))
+                    ((symbol-function 'lispm-desktop-buffer-manager--entries)
+                     (lambda () (cl-incf drawn) nil))
+                    ((symbol-function 'tabulated-list-print) #'ignore))
+            (lispm-desktop-buffer-manager--tick)
+            (lispm-desktop-buffer-manager-refresh)
+            (should-not ran)
+            (should (= drawn 0))
+            (should (eq lispm-desktop-buffer-manager--timer timer))
+            (setq seen t)
+            (lispm-desktop-buffer-manager--tick)
+            (should (equal (car (car ran)) "ps"))
+            (funcall (nth 2 (car ran)) 0 "" "")
+            (should (= drawn 1))
+            (setq shown nil)
+            (lispm-desktop-buffer-manager--tick)
+            (should-not lispm-desktop-buffer-manager--timer))
+        (cancel-timer timer)
+        (kill-buffer buffer)))))
 
 (ert-deftest lispm-desktop-test-buffer-manager-lists-processes-in-the-background ()
   "ps lists the processes in the background, one listing at a time, the
@@ -14702,6 +14782,80 @@ centred along its bottom, under a caption."
       (should (equal (dom-attr alert 'height) (plist-get layout :height)))
       (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-desktop-popup-alert-width))))))
 
+;;;; Families of looks
+
+(ert-deftest lispm-desktop-test-look-families ()
+  "Windows 3.2 and OS/2 2.0 are the PC family, phosphor and neon the
+glowing one, Platinum of none; each family draws its looks by their
+metrics."
+  (should (eq (lispm-desktop-look-family 'win3) 'pc))
+  (should (eq (lispm-desktop-look-family 'os2) 'pc))
+  (should (eq (lispm-desktop-look-family 'phosphor) 'glow))
+  (should (eq (lispm-desktop-look-family 'neon) 'glow))
+  (should-not (lispm-desktop-look-family 'platinum))
+  (should (= (lispm-desktop-look-metric :box-width 'win3) (1+ lispm-desktop-win3-button-width)))
+  (should (= (lispm-desktop-look-metric :box-width 'os2) lispm-desktop-os2-button-width))
+  (should (eq (lispm-desktop-look-metric :title-style 'neon) 'gradient))
+  (should-not (lispm-desktop-look-metric :box-width 'platinum))
+  (let ((lispm-desktop-look 'os2))
+    (should (eq (lispm-desktop-look-family) 'pc))
+    (should (= (lispm-desktop-look-metric :alert-gap) 8))))
+
+(ert-deftest lispm-desktop-test-look-own-method-before-family ()
+  "A look's own method comes before its family's, whichever was defined
+first, and reaches it, then the default, with `cl-call-next-method'; a
+look of no family gets the default."
+  (let ((lispm-desktop-looks (append '((test-a :family test) (test-b :family test) (test-c))
+                                     lispm-desktop-looks)))
+    (dolist (family-first '(t nil))
+      (let* ((name (make-symbol "lispm-desktop-test--drawn"))
+             (family `(cl-defmethod ,name (&context (lispm-desktop-look (lispm-desktop-look-family test)))
+                        (cons 'family (cl-call-next-method))))
+             (own `(cl-defmethod ,name (&context (lispm-desktop-look (eql test-a)))
+                     (cons 'test-a (cl-call-next-method)))))
+        (eval `(cl-defgeneric ,name () '(default)) t)
+        (mapc (lambda (form) (eval form t)) (if family-first (list family own) (list own family)))
+        (let ((lispm-desktop-look 'test-a))
+          (should (equal (funcall name) '(test-a family default))))
+        (let ((lispm-desktop-look 'test-b))
+          (should (equal (funcall name) '(family default))))
+        (let ((lispm-desktop-look 'test-c))
+          (should (equal (funcall name) '(default))))))))
+
+(ert-deftest lispm-desktop-test-look-family-draws-by-metrics ()
+  "The PC family lays a message box's buttons out by each look's metrics:
+Windows 3.2's ten pixels apart, OS/2 2.0's eight."
+  (let ((buttons '(("Cancel" cancel cancel) ("Save" save default))))
+    (dolist (look '(win3 os2))
+      (pcase-let* ((lispm-desktop-look look)
+                   (`(,save ,cancel) (seq-sort-by (lambda (b) (nth 3 b)) #'<
+                                                  (plist-get (lispm-desktop-popup--alert-layout "Save?" nil buttons)
+                                                             :buttons))))
+        (should (= (- (nth 3 cancel) (+ (nth 3 save) (nth 5 save)))
+                   (lispm-desktop-look-metric :alert-gap)))))))
+
+(ert-deftest lispm-desktop-test-browser-buttons-follow-the-look ()
+  "The browser's buttons are the look's bevel buttons, its images kept
+apart look by look; on Mac OS 9 they are Netscape's own, lighter than
+Platinum's."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette 'win3))
+        (bevels nil))
+    (dolist (look '(platinum win3 os2 neon))
+      (let ((lispm-desktop-look look))
+        (push (lispm-desktop-browser--bevel 40 30 nil) bevels)
+        (unless (eq look 'platinum)
+          (let ((svg (svg-create 40 30)))
+            (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-desktop-platinum-current-palette 40 30)
+            (should (equal (car bevels) (with-temp-buffer (svg-print svg) (buffer-string))))))))
+    (should (= (length (delete-dups bevels)) 4))
+    (should (string-prefix-p "<rect width='40' height='30'" (car (last bevels))))
+    (cl-flet ((image (look)
+                (let ((lispm-desktop-look look))
+                  (lispm-desktop-browser--image
+                   '(test) (lambda () (lispm-desktop-browser--svg 4 4 (lispm-desktop-browser--bevel 4 4 nil)))))))
+      (should-not (equal (image 'win3) (image 'os2)))
+      (should (eq (image 'win3) (image 'win3))))))
+
 ;;;; The glowing looks
 
 (ert-deftest lispm-desktop-test-glow-looks ()
@@ -15271,6 +15425,68 @@ display, has none redisplayed."
         (should-not (redisplayed))
         (setf (alist-get 'picture places) '(9 . 9))
         (should-not (redisplayed))))))
+
+(ert-deftest lispm-desktop-test-tty-redraw-only-with-terminals ()
+  "Moved child frames are looked for at each redisplay only while a frame
+is on a text terminal: not for a graphical frame made, and no more once
+the last text terminal frame is deleted."
+  (let ((pre-redisplay-function #'ignore)
+        (advised (lambda () (advice-function-member-p #'lispm-desktop--tty-redraw-moved-frames
+                                                      pre-redisplay-function))))
+    (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&optional frame) (eq frame 'tty)))
+              ((symbol-function 'frame-list) (lambda () '(gui tty))))
+      (lispm-desktop--tty-frame-made 'gui)
+      (should-not (funcall advised))
+      (lispm-desktop--tty-frame-made 'tty)
+      (should (funcall advised))
+      (lispm-desktop--tty-frame-gone 'gui)
+      (should (funcall advised))
+      (lispm-desktop--tty-frame-gone 'tty)
+      (should-not (funcall advised)))))
+
+(ert-deftest lispm-desktop-test-frames-sync-one-frame ()
+  "A window hook passing a frame brings only that floating window's frame
+up to date, or that of the window whose frame it draws; a theme enabled,
+or a frame deleted, brings every one up to date."
+  (let ((updated nil)
+        (parameters '((a (lispm-desktop-window . t))
+                      (b (lispm-desktop-window . t))
+                      (b-frame (lispm-desktop-platinum-frames . b))
+                      (popup))))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car parameters)))
+              ((symbol-function 'framep) (lambda (object) (and (assq object parameters) t)))
+              ((symbol-function 'frame-live-p) (lambda (object) (and (assq object parameters) t)))
+              ((symbol-function 'frame-parameter)
+               (lambda (frame parameter) (alist-get parameter (alist-get frame parameters))))
+              ((symbol-function 'lispm-desktop-platinum-frame-update) (lambda (frame) (push frame updated))))
+      (lispm-desktop-platinum-frames-sync 'a)
+      (should (equal updated '(a)))
+      (setq updated nil)
+      (lispm-desktop-platinum-frames-sync 'b-frame)
+      (should (equal updated '(b)))
+      (setq updated nil)
+      (lispm-desktop-platinum-frames-sync 'popup)
+      (should-not updated)
+      (lispm-desktop-platinum-frames-sync 'platinum)
+      (should (equal (reverse updated) '(a b))))))
+
+(ert-deftest lispm-desktop-test-menu-bar-redrawn-alone ()
+  "A menu dropped from the menu bar redraws the menu bar, through the buffer
+of each screen's selected window, not every window's title bar."
+  (let ((marked nil)
+        (screen-buffer (generate-new-buffer " lispm-desktop-test-screen")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-list) (lambda () '(screen child)))
+                  ((symbol-function 'frame-parent) (lambda (&optional frame) (and (eq frame 'child) 'screen)))
+                  ((symbol-function 'frame-selected-window) (lambda (&optional _) 'window))
+                  ((symbol-function 'window-buffer) (lambda (&optional _) screen-buffer))
+                  ((symbol-function 'redisplay) #'ignore)
+                  ((symbol-function 'force-mode-line-update)
+                   (lambda (&optional all) (push (list (current-buffer) all) marked))))
+          (lispm-desktop-platinum-with-open-menu 'lispm-desktop-test-menu
+            (should (eq lispm-desktop-platinum--open-menu 'lispm-desktop-test-menu)))
+          (should (equal marked (list (list screen-buffer nil) (list screen-buffer nil)))))
+      (kill-buffer screen-buffer))))
 
 (ert-deftest lispm-desktop-test-tty-meta-brackets ()
   "Meta-[ and Meta-] are bound but on a text terminal, which sends them as

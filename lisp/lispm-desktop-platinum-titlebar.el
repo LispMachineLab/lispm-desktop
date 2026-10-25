@@ -112,6 +112,15 @@ frames, as the editor's title strip does while the editor is in front.")
 BOX is :close, :zoom or :collapse; see `lispm-desktop-platinum-box-functions'."
   (plist-get (buffer-local-value 'lispm-desktop-platinum-box-functions (window-buffer window)) box))
 
+(defun lispm-desktop-platinum-redraw-title-bars (&optional frame)
+  "Draw the title bars and bottoms of FRAME's windows again at the next
+redisplay, FRAME being the selected one by default.  The other frames'
+windows and the menu bar are left as they are, which
+`(force-mode-line-update t)' would redraw too."
+  (dolist (window (window-list frame 'no-mini))
+    (with-current-buffer (window-buffer window)
+      (force-mode-line-update))))
+
 (defun lispm-desktop-platinum-no-title-bar ()
   "Give the current buffer's windows no title bar, as for transient popups."
   (setq-local tab-line-format nil))
@@ -143,11 +152,11 @@ cancels."
   (let ((window (posn-window position))
         (target (lispm-desktop-platinum--press-target position)))
     (set-window-parameter window 'lispm-desktop-platinum-pressed target)
-    (force-mode-line-update t)
+    (with-current-buffer (window-buffer window) (force-mode-line-update))
     (redisplay t)
     (let ((release (let ((echo-keystrokes 0)) (lispm-desktop-modal-read-event))))
       (set-window-parameter window 'lispm-desktop-platinum-pressed nil)
-      (force-mode-line-update t)
+      (with-current-buffer (window-buffer window) (force-mode-line-update))
       (when (and (consp release)
                  (eq (event-basic-type release) 'mouse-1)
                  (funcall pressed-p (event-end release)))

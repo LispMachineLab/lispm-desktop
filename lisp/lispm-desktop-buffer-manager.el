@@ -251,13 +251,20 @@ speaks, or else its mode's name."
                (setq lispm-desktop-buffer-manager--timer nil))
              nil)))
 
+(defun lispm-desktop-buffer-manager--seen-p ()
+  "Return non-nil while the buffer manager is in sight, not only shown on
+a frame out of sight, as with the desktop hidden."
+  (when-let* ((buffer (get-buffer lispm-desktop-buffer-manager-buffer-name)))
+    (get-buffer-window buffer 'visible)))
+
 (defun lispm-desktop-buffer-manager-refresh (&rest _)
   "Refresh the buffer manager's rows and bottom line, keeping the row at point.
 The processes are as ps last listed them; asked for, it is listed anew,
 the rows then refreshed again.  The refresh timer stops once the list is
-no longer shown."
+no longer shown, and passes while it is out of sight, as with the
+desktop hidden."
   (interactive)
-  (when (lispm-desktop-buffer-manager--shown-p)
+  (when (and (lispm-desktop-buffer-manager--shown-p) (lispm-desktop-buffer-manager--seen-p))
     (with-current-buffer lispm-desktop-buffer-manager-buffer-name
       (setq tabulated-list-entries (lispm-desktop-buffer-manager--entries)
             lispm-desktop-platinum-info (lispm-desktop-buffer-manager--summary))
@@ -268,8 +275,8 @@ no longer shown."
 
 (defun lispm-desktop-buffer-manager--tick ()
   "Have ps list the processes anew, then refresh the buffer manager, while
-it is shown."
-  (when (lispm-desktop-buffer-manager--shown-p)
+it is in sight; while it is out of sight, ps is not asked."
+  (when (and (lispm-desktop-buffer-manager--shown-p) (lispm-desktop-buffer-manager--seen-p))
     (lispm-desktop-buffer-manager--list-processes #'lispm-desktop-buffer-manager-refresh)))
 
 (defun lispm-desktop-buffer-manager-show-buffer ()

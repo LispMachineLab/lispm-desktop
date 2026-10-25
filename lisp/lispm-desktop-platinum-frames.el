@@ -643,21 +643,30 @@ active while FRAME is selected."
                        width height))))
           (set-window-start root 1))))))
 
-(defun lispm-desktop-platinum-frames-sync (&rest _)
-  "Bring every floating window's frame up to date, and take away the frames
-of windows gone.  A window's frame is its parent and goes with it, so
+(defun lispm-desktop-platinum-frames-sync (&optional frame &rest _)
+  "Bring floating windows' frames up to date, and take away the frames of
+windows gone.  A window's frame is its parent and goes with it, so
 only its size and whether it is drawn active are left to follow, and the
 two put together again after the window system resized either from its
 edges: this runs as windows change size, as the selection changes and as
-a theme is enabled."
-  (dolist (frame (frame-list))
-    (cond ((frame-parameter frame 'lispm-desktop-platinum-frames)
-           (unless (frame-live-p (frame-parameter frame 'lispm-desktop-platinum-frames))
-             (let ((buffer (window-buffer (frame-root-window frame))))
-               (delete-frame frame t)
-               (kill-buffer buffer))))
-          ((frame-parameter frame 'lispm-desktop-window)
-           (lispm-desktop-platinum-frame-update frame)))))
+a theme is enabled.  Given a live FRAME, as the window hooks pass the
+frame whose windows changed, only that window, or the window FRAME
+frames, is brought up to date: the selection hooks pass both the frame
+selected before and the one selected now.  Otherwise, as a theme is
+enabled or a frame was deleted, every floating window is."
+  (if (and (framep frame) (frame-live-p frame))
+      (when-let* ((window (if (frame-parameter frame 'lispm-desktop-window)
+                              frame
+                            (lispm-desktop-platinum-window-frame-p frame))))
+        (lispm-desktop-platinum-frame-update window))
+    (dolist (frame (frame-list))
+      (cond ((frame-parameter frame 'lispm-desktop-platinum-frames)
+             (unless (frame-live-p (frame-parameter frame 'lispm-desktop-platinum-frames))
+               (let ((buffer (window-buffer (frame-root-window frame))))
+                 (delete-frame frame t)
+                 (kill-buffer buffer))))
+            ((frame-parameter frame 'lispm-desktop-window)
+             (lispm-desktop-platinum-frame-update frame))))))
 
 (defun lispm-desktop-platinum--frame-moved (frame)
   "Bring the frame of a floating window up to date when FRAME, the window or

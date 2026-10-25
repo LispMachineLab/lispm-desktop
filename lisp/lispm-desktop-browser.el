@@ -35,6 +35,7 @@
 (require 'cl-lib)
 (require 'delsel)
 (require 'format-spec)
+(require 'svg)
 (require 'url-parse)
 (require 'lispm-browser)
 (require 'lispm-browser-places)
@@ -43,6 +44,7 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-look)
 
 ;;;; Browser
 ;;
@@ -238,22 +240,21 @@ Extensions is among them where pages can run Chrome extensions."
 
 ;;;;; Drawing Netscape's chrome
 ;;
-;; Each part is an SVG drawn once per palette and state, then kept.
+;; Each part is an SVG drawn once per palette, look and state, then kept.
+;; Its buttons are the look's bevel buttons, as Netscape drew them in each
+;; system's own forms, and its progress bar the look's; on Mac OS 9,
+;; Netscape's own.
 
-(defvar lispm-desktop-platinum-generation)
-
-(defvar lispm-desktop-browser--images (make-hash-table :test #'equal)
-  "Drawn chrome images, by palette generation and key.")
+(declare-function lispm-desktop-platinum--draw-bevel-button "lispm-desktop-platinum-controls"
+                  (svg x y palette width height &rest options))
+(declare-function lispm-desktop-platinum-draw-progress-bar "lispm-desktop-platinum-controls"
+                  (palette width fraction))
+(defvar lispm-desktop-platinum-current-palette)
 
 (defun lispm-desktop-browser--image (key draw)
-  "Return the image of KEY, calling DRAW for its SVG text the first time."
-  (let ((key (cons lispm-desktop-platinum-generation key)))
-    (or (gethash key lispm-desktop-browser--images)
-        (progn
-          (when (> (hash-table-count lispm-desktop-browser--images) 256)
-            (clrhash lispm-desktop-browser--images))
-          (puthash key (create-image (funcall draw) 'svg t :ascent 'center :scale 1)
-                   lispm-desktop-browser--images)))))
+  "Return the image of KEY, calling DRAW for its SVG text the first time,
+see `lispm-desktop-look-image'."
+  (lispm-desktop-look-image (cons 'browser key) draw))
 
 (defun lispm-desktop-browser--svg (width height &rest parts)
   "Return an SVG document WIDTH by HEIGHT pixels holding PARTS."
@@ -329,8 +330,17 @@ V20.5 H4.5 Z' fill='%f' stroke='%i' stroke-linejoin='round'/>"))
 (defconst lispm-desktop-browser-tool-height 46
   "Height in pixels of a navigation toolbar button.")
 
-(defun lispm-desktop-browser--bevel (width height pressed)
-  "Return SVG of a WIDTH by HEIGHT bevel, pushed in when PRESSED."
+(cl-defgeneric lispm-desktop-browser--bevel (width height pressed)
+  "Return SVG of a WIDTH by HEIGHT bevel, pushed in when PRESSED: the
+look's bevel button, see `lispm-desktop-platinum--draw-bevel-button'."
+  (let ((svg (svg-create width height)))
+    (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-desktop-platinum-current-palette width height
+                                               :state (and pressed 'pressed))
+    (with-temp-buffer (svg-print svg) (buffer-string))))
+
+(cl-defmethod lispm-desktop-browser--bevel (width height pressed &context (lispm-desktop-look (eql platinum)))
+  "Return SVG of Netscape's own WIDTH by HEIGHT bevel on Mac OS 9, lighter
+than Platinum's bevel buttons, pushed in when PRESSED."
   (let ((light (lispm-desktop-platinum-color :light))
         (shade (lispm-desktop-platinum-color :shade))
         (chrome (lispm-desktop-platinum-color :chrome)))
@@ -422,8 +432,15 @@ when SECURE, open and grey when not."
              ink)
      (format "<rect x='1.5' y='6.5' width='9' height='7' fill='%s' stroke='%s'/>" fill ink))))
 
-(defun lispm-desktop-browser--draw-progress (fraction)
-  "Return SVG of the status bar's progress bar, FRACTION full."
+(cl-defgeneric lispm-desktop-browser--draw-progress (fraction)
+  "Return SVG of the status bar's progress bar, FRACTION full: the look's,
+see `lispm-desktop-platinum-draw-progress-bar'."
+  (with-temp-buffer
+    (svg-print (lispm-desktop-platinum-draw-progress-bar lispm-desktop-platinum-current-palette 80 fraction))
+    (buffer-string)))
+
+(cl-defmethod lispm-desktop-browser--draw-progress (fraction &context (lispm-desktop-look (eql platinum)))
+  "Return SVG of Netscape's own progress bar on Mac OS 9, FRACTION full."
   (let ((filled (round (* (min 1 (max 0 fraction)) 78))))
     (lispm-desktop-browser--svg
      80 10
@@ -1007,7 +1024,8 @@ buffer, whose name WebKit prefixes."
 (defun lispm-desktop-browser--redraw-tabs ()
   "Redraw the browser window's title bar and tabs, leaving the address alone."
   (lispm-desktop-browser--retitle)
-  (force-mode-line-update t))
+  (when-let* ((window (or (lispm-desktop-browser--address-window) (lispm-desktop-browser--window))))
+    (lispm-desktop-platinum-redraw-title-bars (window-frame window))))
 
 ;;;;; Tabs
 
@@ -1162,7 +1180,15 @@ The address window is fitted to its lines, see
     (lispm-desktop-browser--fit-address)
     (run-at-time 0 nil #'lispm-desktop-browser--fit-address)
     (unless lispm-desktop-browser--sync-timer
-      (setq lispm-desktop-browser--sync-timer (run-with-timer 0.7 0.7 #'lispm-desktop-browser--sync)))))
+      (setq lispm-desktop-browser--sync-timer (run-with-timer 0.7 0.7 #'lispm-desktop-browser--sync-tick)))))
+
+(defun lispm-desktop-browser--sync-tick ()
+  "Sync the address window, see `lispm-desktop-browser--sync', unless its
+frame is out of sight: the page is synced again when it shows, and the
+tick stops once no address window is left."
+  (let ((address (lispm-desktop-browser--address-window)))
+    (unless (and address (not (eq (frame-visible-p (window-frame address)) t)))
+      (lispm-desktop-browser--sync))))
 
 (defun lispm-desktop-browser-show ()
   "Show the browser, full screen or floating as it was last, with the most
@@ -1343,7 +1369,10 @@ its own nor WebKit's title line.  This is on `lispm-browser-tab-hook'."
               lispm-desktop-platinum-info #'lispm-desktop-browser--status)
   ;; The title bar above lights and dims with the page.
   (add-hook 'window-selection-change-functions
-            (lambda (_) (force-mode-line-update t)) nil t)
+            (lambda (window)
+              (when (window-live-p window)
+                (lispm-desktop-platinum-redraw-title-bars (window-frame window))))
+            nil t)
   ;; The unified copy and paste keys act on the page's selection and its
   ;; focused field, not on the buffer, which holds only the view.
   (setq-local lispm-desktop-copy-function #'xwidget-webkit-copy-selection-as-kill

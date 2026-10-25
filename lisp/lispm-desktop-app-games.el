@@ -695,7 +695,7 @@ as does Life's window closing."
       (when-let* ((window (get-buffer-window nil t)))
         (set-window-start window start))
       (lispm-desktop-app-board-refresh)
-      (force-mode-line-update t))))
+      (force-mode-line-update))))
 
 (defun lispm-desktop-app-games-life-go ()
   "Let Life run, a generation every `lispm-desktop-app-games-life-period'."
