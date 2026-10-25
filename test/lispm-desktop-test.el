@@ -873,6 +873,35 @@ an error loading it is signalled once the redisplay is done."
   (cl-letf (((symbol-function 'call-process) (lambda (&rest _) 128)))
     (should-not (lispm-desktop-deps--release-tag "https://example.org/repo"))))
 
+(ert-deftest lispm-desktop-test-store-installer-installs-lispm-libraries ()
+  "A package requiring one of LispM's libraries that no archive holds has
+it installed first, from git at its latest release, or the commit that
+last changed its version before one; what is still missing is left for
+package-vc to say."
+  (let ((installed nil)
+        (release "v0.1.0"))
+    (cl-letf (((symbol-function 'package-vc-install)
+               (lambda (package rev) (push (list package rev) installed)))
+              ((symbol-function 'package-installed-p)
+               (lambda (name &rest _) (seq-find (lambda (done) (eq (car (car done)) name)) installed)))
+              ((symbol-function 'lispm-desktop-store--release-tag) (lambda (_url) release)))
+      (should (equal (lispm-desktop-store-installer--libraries
+                      (lambda (deps)
+                        (should (equal deps '((lispm-prebuilt (0 1 0)) (nowhere (1)))))
+                        deps)
+                      '((lispm-prebuilt (0 1 0)) (nowhere (1))))
+                     '((nowhere (1)))))
+      (should (equal installed
+                     '(((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt") "v0.1.0"))))
+      (setq installed nil release nil)
+      (should-not (lispm-desktop-store-installer--libraries (lambda (_deps) '((lispm-prebuilt (0 1 0))))
+                                                            '((lispm-prebuilt (0 1 0)))))
+      (should (equal (cadr (car installed)) :last-release))
+      ;; Nothing missing: nothing more installed.
+      (setq installed nil)
+      (should-not (lispm-desktop-store-installer--libraries #'ignore '((seq (2 24)))))
+      (should-not installed))))
+
 (ert-deftest lispm-desktop-test-deps-requirements ()
   "Of a package's requirements, those not installed are returned; Emacs never."
   (let ((file (make-temp-file "lispm-desktop-test-" nil ".el"
