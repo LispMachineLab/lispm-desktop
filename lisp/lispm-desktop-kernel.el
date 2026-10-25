@@ -31,10 +31,13 @@
 ;; (lispm-desktop-frame.el), which this file sets as the kernel's
 ;; `lispm-kernel-scheduler': elsewhere timers take them in.  It reads the
 ;; agents' sessions for the sidebar, through lispm-agent's session
-;; readers, and makes the downloads package.el makes in the background, as
+;; readers, makes the downloads package.el makes in the background, as
 ;; the App Store's refresh of the package archives, which url.el would
-;; make on Emacs's thread; see lispm-kernel-desktop.el and
-;; lispm-kernel-package.el in its repository.
+;; make on Emacs's thread, and runs the programs LispM runs without
+;; waiting for them, through `lispm-exec', as ps for the Buffer Manager
+;; and git for Software Update, which Emacs would fork itself to run; see
+;; lispm-kernel-desktop.el, lispm-kernel-package.el and
+;; lispm-kernel-exec.el in its repository.
 ;;
 ;; It is on unless `lispm-desktop-kernel' is nil: Use LispM Kernel in
 ;; Control Panels' Kernel panel, `setopt', or Custom, where toggling it
@@ -50,8 +53,8 @@
 ;; far it is (lispm-desktop-needs.el); on by default, it is got quietly.
 ;; Until the program is there, and wherever it cannot be, the sidebar
 ;; reads sessions as it does without the kernel, url.el downloads for
-;; package.el, and the kernel says why: in *Messages* alone, unless it
-;; was asked for, and in the Kernel panel.
+;; package.el, Emacs runs the programs, and the kernel says why: in
+;; *Messages* alone, unless it was asked for, and in the Kernel panel.
 
 ;;; Code:
 
@@ -65,6 +68,7 @@
 (defvar lispm-kernel-sessions-mode)
 (defvar lispm-kernel-desktop-mode)
 (defvar lispm-kernel-package-mode)
+(defvar lispm-kernel-exec-mode)
 (defvar lispm-kernel-scheduler)
 (defvar lispm-kernel-slice-seconds)
 (defvar lispm-kernel-desktop-program)
@@ -76,6 +80,7 @@
 (defvar lispm-kernel-program-progress-functions)
 (declare-function lispm-kernel-dispatch "ext:lispm-kernel" (runtime))
 (declare-function lispm-kernel-package-mode "ext:lispm-kernel-package" (&optional arg))
+(declare-function lispm-kernel-exec-mode "ext:lispm-kernel-exec" (&optional arg))
 (declare-function lispm-kernel-desktop-status "ext:lispm-kernel-desktop" ())
 (declare-function lispm-kernel-desktop-restart "ext:lispm-kernel-desktop" ())
 (declare-function lispm-kernel-program-file "ext:lispm-kernel-program" ())
@@ -88,13 +93,14 @@
 
 (defcustom lispm-desktop-kernel t
   "Non-nil reads the agents' sessions in the background with lispm-kernel,
-and has it make package.el's downloads in the background.
+and has it make package.el's downloads and run LispM's programs in the
+background.
 It takes effect at once, set from Control Panels' Kernel panel, with
 `setopt', or in Custom, where toggling it applies and saves it.  What the
 kernel lacks, its Lisp and its program, is got: in the Installer, which
 shows how far it is, once it was asked for; quietly while it is on by
 default.  Until then, and where it cannot be, the sidebar reads the
-sessions, and url.el downloads, as with nil."
+sessions, url.el downloads and Emacs runs the programs, as with nil."
   :type '(boolean :notify lispm-desktop-kernel--toggled)
   :group 'lispm-desktop)
 
@@ -289,13 +295,16 @@ so itself."
 (defun lispm-desktop-kernel--turn-on ()
   "Turn on the kernel's mode reading the agents' sessions, which gets the
 kernel's program in the background, its messages on the frame clock,
-then `lispm-kernel-package-mode', where the kernel's Lisp has it."
+then `lispm-kernel-package-mode' and `lispm-kernel-exec-mode', where the
+kernel's Lisp has them."
   (lispm-desktop-kernel--load)
   (lispm-desktop-kernel--clock-on)
   (unless (lispm-desktop-kernel--on-p)
     (funcall (lispm-desktop-kernel--mode) 1))
   (when (and (require 'lispm-kernel-package nil t) (not lispm-kernel-package-mode))
-    (lispm-kernel-package-mode 1)))
+    (lispm-kernel-package-mode 1))
+  (when (and (require 'lispm-kernel-exec nil t) (not lispm-kernel-exec-mode))
+    (lispm-kernel-exec-mode 1)))
 
 (defun lispm-desktop-kernel-apply (on &optional asked)
   "Turn lispm-kernel on when ON is non-nil, else off, at once.
@@ -324,6 +333,8 @@ modes off."
           (error (let ((inhibit-message (or inhibit-message (not asked))))
                    (message (lispm-desktop-tr "lispm-kernel could not be turned on: %s")
                             (error-message-string err))))))
+    (when (bound-and-true-p lispm-kernel-exec-mode)
+      (lispm-kernel-exec-mode -1))
     (when (bound-and-true-p lispm-kernel-package-mode)
       (lispm-kernel-package-mode -1))
     (when (lispm-desktop-kernel--on-p)

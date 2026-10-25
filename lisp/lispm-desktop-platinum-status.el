@@ -34,9 +34,11 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-menubar)
 (require 'lispm-desktop-i18n)
+(require 'lispm-exec)
 
 (declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function battery-format "battery" (format alist))
+(declare-function battery-update "battery" ())
 (declare-function display-time-update "time" ())
 
 
@@ -57,7 +59,11 @@
 ;;             the charge, the power source and the time left
 ;;
 ;; Emacs computes everything; `display-time-hook' and
-;; `battery-update-functions' only note what it found.  Whatever else is
+;; `battery-update-functions' only note what it found.  On macOS, where
+;; Emacs asks pmset of the battery every minute and waits for it, pmset is
+;; asked in the background instead, in lispm-kernel when it runs
+;; (`lispm-exec'), and Emacs reads what it answered, see
+;; `lispm-desktop-platinum--battery-pmset'.  Whatever else is
 ;; in `global-mode-string', such as LispM's agent count, stays on the menu
 ;; bar, before the time.
 
@@ -104,6 +110,47 @@ Run from `display-time-hook', inside `display-time-update'."
 (defun lispm-desktop-platinum--note-battery (data)
   "Note the battery status DATA Emacs has just read."
   (setq lispm-desktop-platinum--battery data))
+
+(defvar lispm-desktop-platinum--pmset nil
+  "What pmset -g ps answered last, asked in the background, or nil.")
+
+(defvar lispm-desktop-platinum--pmset-asked nil
+  "Non-nil while pmset is asked of the battery in the background.")
+
+(defvar lispm-desktop-platinum--pmset-answered nil
+  "Non-nil while Emacs's battery is updated with what pmset just answered.")
+
+(defun lispm-desktop-platinum--pmset-status (pmset answer)
+  "Return the battery status PMSET, `battery-pmset', reads from ANSWER, what
+pmset -g ps printed, as it would read it from pmset itself."
+  (cl-letf (((symbol-function 'call-process) (lambda (&rest _) (insert answer) 0)))
+    (funcall pmset)))
+
+(defun lispm-desktop-platinum--ask-pmset ()
+  "Ask pmset of the battery in the background, then update Emacs's battery
+with what it answered."
+  (unless lispm-desktop-platinum--pmset-asked
+    (setq lispm-desktop-platinum--pmset-asked t)
+    (lispm-exec "pmset" '("-g" "ps")
+                (lambda (exit output _errors)
+                  (setq lispm-desktop-platinum--pmset-asked nil)
+                  (when (eql exit 0)
+                    (setq lispm-desktop-platinum--pmset output)
+                    (when (bound-and-true-p display-battery-mode)
+                      (let ((lispm-desktop-platinum--pmset-answered t))
+                        (battery-update))))))))
+
+(defun lispm-desktop-platinum--battery-pmset (pmset)
+  "Return the battery status as PMSET, `battery-pmset', reads it, without
+waiting for pmset: from what pmset answered last, asked again in the
+background, Emacs's battery updated once it answers.  The first time,
+nothing answered yet, PMSET asks pmset itself and waits.
+This is around `battery-pmset'."
+  (unless lispm-desktop-platinum--pmset-answered
+    (lispm-desktop-platinum--ask-pmset))
+  (if lispm-desktop-platinum--pmset
+      (lispm-desktop-platinum--pmset-status pmset lispm-desktop-platinum--pmset)
+    (funcall pmset)))
 
 (defun lispm-desktop-platinum-draw-battery (palette percent charging)
   "Return an SVG of a battery sixteen pixels square, filled to PERCENT in
@@ -270,6 +317,7 @@ set already."
   (require 'time)
   (add-hook 'display-time-hook #'lispm-desktop-platinum--note-time)
   (add-hook 'battery-update-functions #'lispm-desktop-platinum--note-battery)
+  (advice-add 'battery-pmset :around #'lispm-desktop-platinum--battery-pmset)
   (unless display-time-format
     (setq display-time-format (lispm-desktop-tr-noop "%-I:%M %p")))
   (display-time-mode 1)

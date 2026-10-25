@@ -64,7 +64,8 @@
 
 (defconst lispm-desktop-deps
   '((lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
-           :needs "lispm-agents")
+           ;; Newer than lispm-agents, which the desktop needs too.
+           :needs "lispm-exec")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"))
   "The LispM projects the desktop runs: (FEATURE :url URL :checkout NAME

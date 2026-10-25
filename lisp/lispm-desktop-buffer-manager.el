@@ -28,7 +28,9 @@
 ;; task manager lists processes: its kind, the size of its text, and for a
 ;; buffer running a process (a terminal, an agent's CLI) the CPU and the
 ;; memory of that process and every process it started, so an agent's
-;; whole tree of tools is counted.  The list refreshes itself while shown.
+;; whole tree of tools is counted.  The list refreshes itself while shown,
+;; ps listing the processes in the background, in lispm-kernel when it
+;; runs (`lispm-exec'), as listing a thousand processes takes it a while.
 ;;
 ;;   ps --> pid: parent, CPU, memory --> each buffer's process tree --> row
 
@@ -41,6 +43,7 @@
 (require 'tabulated-list)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-i18n)
+(require 'lispm-exec)
 
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 (declare-function lispm-agents-buffer-p "lispm-agents" (buffer))
@@ -54,12 +57,20 @@
 
 ;;;; Processes
 
-(defun lispm-desktop-buffer-manager--processes ()
-  "Return the system's processes: a table of pid to (PARENT CPU MEMORY).
-CPU is a percentage of one core, MEMORY the resident size in kilobytes,
-read from ps in one go.  Where ps is missing the table is empty."
+(defconst lispm-desktop-buffer-manager--ps-arguments '("-axo" "pid=,ppid=,pcpu=,rss=")
+  "What ps is asked for: each process's pid, parent, CPU and memory.")
+
+(defvar lispm-desktop-buffer-manager--processes nil
+  "The table of `lispm-desktop-buffer-manager--processes' as ps last
+listed them, or nil before it did.")
+
+(defvar lispm-desktop-buffer-manager--listing nil
+  "Non-nil while ps lists the processes in the background.")
+
+(defun lispm-desktop-buffer-manager--table (lines)
+  "Return the table of pid to (PARENT CPU MEMORY) ps's LINES tell of."
   (let ((table (make-hash-table)))
-    (dolist (line (ignore-errors (process-lines "ps" "-axo" "pid=,ppid=,pcpu=,rss=")))
+    (dolist (line lines)
       (pcase (split-string line)
         (`(,pid ,parent ,cpu ,memory)
          (puthash (string-to-number pid)
@@ -67,6 +78,32 @@ read from ps in one go.  Where ps is missing the table is empty."
                         (string-to-number memory))
                   table))))
     table))
+
+(defun lispm-desktop-buffer-manager--processes ()
+  "Return the system's processes: a table of pid to (PARENT CPU MEMORY).
+CPU is a percentage of one core, MEMORY the resident size in kilobytes,
+read from ps in one go: as it listed them last, in the background, see
+`lispm-desktop-buffer-manager--list-processes', and the first time,
+waiting for it.  Where ps is missing the table is empty."
+  (or lispm-desktop-buffer-manager--processes
+      (setq lispm-desktop-buffer-manager--processes
+            (lispm-desktop-buffer-manager--table
+             (ignore-errors (apply #'process-lines "ps" lispm-desktop-buffer-manager--ps-arguments))))))
+
+(defun lispm-desktop-buffer-manager--list-processes (then)
+  "Have ps list the system's processes in the background, then call THEN.
+Listing them takes ps a while with a thousand processes, which Emacs does
+not wait for; lispm-kernel runs ps when it runs, see `lispm-exec'.  While
+a listing is under way, another is not started, nor THEN called."
+  (unless lispm-desktop-buffer-manager--listing
+    (setq lispm-desktop-buffer-manager--listing t)
+    (lispm-exec "ps" lispm-desktop-buffer-manager--ps-arguments
+                (lambda (exit output _errors)
+                  (setq lispm-desktop-buffer-manager--listing nil)
+                  (when (eql exit 0)
+                    (setq lispm-desktop-buffer-manager--processes
+                          (lispm-desktop-buffer-manager--table (split-string output "\n" t))))
+                  (funcall then)))))
 
 (defun lispm-desktop-buffer-manager--children (processes)
   "Return a table of pid to the pids of its children, from PROCESSES."
@@ -205,22 +242,42 @@ speaks, or else its mode's name."
 (defvar lispm-desktop-buffer-manager--timer nil
   "Repeating timer refreshing the buffer manager while it is shown.")
 
+(defun lispm-desktop-buffer-manager--shown-p ()
+  "Return non-nil while the buffer manager is shown; else stop its timer."
+  (or (when-let* ((buffer (get-buffer lispm-desktop-buffer-manager-buffer-name)))
+        (get-buffer-window buffer t))
+      (progn (when lispm-desktop-buffer-manager--timer
+               (cancel-timer lispm-desktop-buffer-manager--timer)
+               (setq lispm-desktop-buffer-manager--timer nil))
+             nil)))
+
+(defun lispm-desktop-buffer-manager--seen-p ()
+  "Return non-nil while the buffer manager is in sight, not only shown on
+a frame out of sight, as with the desktop hidden."
+  (when-let* ((buffer (get-buffer lispm-desktop-buffer-manager-buffer-name)))
+    (get-buffer-window buffer 'visible)))
+
 (defun lispm-desktop-buffer-manager-refresh (&rest _)
   "Refresh the buffer manager's rows and bottom line, keeping the row at point.
-The refresh timer stops once the list is no longer shown, and passes
-while it is out of sight, as with the desktop hidden."
+The processes are as ps last listed them; asked for, it is listed anew,
+the rows then refreshed again.  The refresh timer stops once the list is
+no longer shown, and passes while it is out of sight, as with the
+desktop hidden."
   (interactive)
-  (if-let* ((buffer (get-buffer lispm-desktop-buffer-manager-buffer-name))
-            ((get-buffer-window buffer t)))
-      (when (get-buffer-window buffer 'visible)
-        (with-current-buffer buffer
-          (setq tabulated-list-entries (lispm-desktop-buffer-manager--entries)
-                lispm-desktop-platinum-info (lispm-desktop-buffer-manager--summary))
-          (tabulated-list-print t t)
-          (force-mode-line-update)))
-    (when lispm-desktop-buffer-manager--timer
-      (cancel-timer lispm-desktop-buffer-manager--timer)
-      (setq lispm-desktop-buffer-manager--timer nil))))
+  (when (and (lispm-desktop-buffer-manager--shown-p) (lispm-desktop-buffer-manager--seen-p))
+    (with-current-buffer lispm-desktop-buffer-manager-buffer-name
+      (setq tabulated-list-entries (lispm-desktop-buffer-manager--entries)
+            lispm-desktop-platinum-info (lispm-desktop-buffer-manager--summary))
+      (tabulated-list-print t t)
+      (force-mode-line-update))
+    (when (called-interactively-p 'any)
+      (lispm-desktop-buffer-manager--tick))))
+
+(defun lispm-desktop-buffer-manager--tick ()
+  "Have ps list the processes anew, then refresh the buffer manager, while
+it is in sight; while it is out of sight, ps is not asked."
+  (when (and (lispm-desktop-buffer-manager--shown-p) (lispm-desktop-buffer-manager--seen-p))
+    (lispm-desktop-buffer-manager--list-processes #'lispm-desktop-buffer-manager-refresh)))
 
 (defun lispm-desktop-buffer-manager-show-buffer ()
   "Show the buffer of the row at point in the main area."
@@ -348,11 +405,15 @@ speaks; the columns keep their English names, which sorting goes by."
       (unless (derived-mode-p 'lispm-desktop-buffer-manager-mode)
         (lispm-desktop-buffer-manager-mode)))
     (lispm-desktop-sidebar-show-in-main buffer)
-    (lispm-desktop-buffer-manager-refresh)
+    (let ((listed lispm-desktop-buffer-manager--processes))
+      (lispm-desktop-buffer-manager-refresh)
+      ;; Shown at once as ps listed them last, which may be long ago.
+      (when listed
+        (lispm-desktop-buffer-manager--tick)))
     (unless lispm-desktop-buffer-manager--timer
       (setq lispm-desktop-buffer-manager--timer
             (run-with-timer lispm-desktop-buffer-manager-interval lispm-desktop-buffer-manager-interval
-                            #'lispm-desktop-buffer-manager-refresh)))
+                            #'lispm-desktop-buffer-manager--tick)))
     buffer))
 
 (provide 'lispm-desktop-buffer-manager)

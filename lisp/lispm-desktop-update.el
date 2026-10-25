@@ -53,6 +53,9 @@
 ;; itself (install.sh, or macos/ of lispm-desktop) is installed by
 ;; install.sh, run once LispM has quit; it opens LispM again when done.
 ;;
+;; git runs in the background, in lispm-kernel when it runs (`lispm-exec'),
+;; but for installing, which LispM waits for as it quits.
+;;
 ;; Software Update checks by itself every day or every week
 ;; (`lispm-desktop-update-check-automatically',
 ;; `lispm-desktop-update-schedule').  What it
@@ -70,6 +73,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-store-installer)
+(require 'lispm-exec)
 
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
@@ -149,6 +153,13 @@ A tag with more, as v0.3.0-rc1, is no release.")
   "The checkouts and what each holds, once worked out, see
 `lispm-desktop-update-installed'.")
 
+(defvar lispm-desktop-update--installed-generation 0
+  "Counts the times `lispm-desktop-update--installed' was forgotten, so
+that what was worked out before is not kept after.")
+
+(defvar lispm-desktop-update--working-out nil
+  "Non-nil while what the checkouts hold is worked out in the background.")
+
 (defvar lispm-desktop-update--timer nil
   "The timer of the checks Software Update makes by itself.")
 
@@ -179,25 +190,18 @@ or nil when it failed."
 
 (defun lispm-desktop-update--git-async (directory args callback)
   "Run git with ARGS in DIRECTORY in the background, then call CALLBACK with
-what it printed, trimmed, or nil when it failed, and what it said then."
-  (let* ((buffer (generate-new-buffer " *lispm-desktop-update git*"))
-         (default-directory (file-name-as-directory directory))
-         (process-environment (lispm-desktop-update--environment)))
-    (condition-case err
-        (make-process
-         :name "lispm-desktop-update-git" :buffer buffer :command (cons "git" args)
-         :connection-type 'pipe :noquery t
-         :sentinel (lambda (process _event)
-                     (unless (process-live-p process)
-                       (let ((output (with-current-buffer buffer (string-trim (buffer-string)))))
-                         (kill-buffer buffer)
-                         (if (eql (process-exit-status process) 0)
-                             (funcall callback output nil)
-                           (funcall callback nil (if (string-empty-p output)
-                                                     (lispm-desktop-tr-noop "git failed")
-                                                     output)))))))
-      (error (kill-buffer buffer)
-             (funcall callback nil (error-message-string err))))))
+what it printed, trimmed, or nil when it failed, and what it said then.
+lispm-kernel runs it when it runs, see `lispm-exec'."
+  (let ((default-directory (file-name-as-directory directory))
+        (process-environment (lispm-desktop-update--environment)))
+    (lispm-exec "git" args
+                (lambda (exit output errors)
+                  (if (eql exit 0)
+                      (funcall callback (string-trim output) nil)
+                    (let ((said (string-trim (concat errors (if (string-empty-p errors) output "")))))
+                      (funcall callback nil (cond ((stringp exit) exit)
+                                                  ((string-empty-p said) (lispm-desktop-tr-noop "git failed"))
+                                                  (t said)))))))))
 
 (defun lispm-desktop-update--git-steps (directory steps callback)
   "Run STEPS of git in DIRECTORY in the background, one after another.
@@ -219,12 +223,22 @@ when every step went on."
 
 ;;;; Checkouts
 
-(defun lispm-desktop-update--top (directory)
-  "Return the top of the git checkout holding DIRECTORY, or nil."
-  (when-let* ((top (and (file-directory-p directory)
-                        (lispm-desktop-update--git directory "rev-parse" "--show-toplevel")))
-              ((not (string-empty-p top))))
-    (file-name-as-directory (file-truename top))))
+(defun lispm-desktop-update--top-of (top)
+  "Return TOP, what git said the top of a checkout is, as a directory, or nil."
+  (and top (not (string-empty-p top))
+       (file-name-as-directory (file-truename top))))
+
+(defun lispm-desktop-update--top (directory &optional callback)
+  "Return the top of the git checkout holding DIRECTORY, or nil.
+With CALLBACK, call it with that instead, git running in the background."
+  (cond ((not (file-directory-p directory))
+         (if callback (funcall callback nil) nil))
+        (callback
+         (lispm-desktop-update--git-async directory '("rev-parse" "--show-toplevel")
+                                          (lambda (top _errors)
+                                            (funcall callback (lispm-desktop-update--top-of top)))))
+        (t (lispm-desktop-update--top-of
+            (lispm-desktop-update--git directory "rev-parse" "--show-toplevel")))))
 
 (defun lispm-desktop-update--package (directory)
   "Return the name of the package whose directory DIRECTORY is, the top of
@@ -235,22 +249,45 @@ a checkout package-vc made in `package-user-dir', or nil when it is none."
                 (file-name-as-directory (file-truename package-user-dir)))
          (intern (file-name-nondirectory directory)))))
 
-(defun lispm-desktop-update-checkouts ()
+(defun lispm-desktop-update--checkouts-of (projects tops)
+  "Return the checkouts of PROJECTS, (NAME . DIRECTORY) each, whose tops
+of their checkouts TOPS are, each or nil, a checkout once."
+  (let ((seen nil) (checkouts nil))
+    (cl-mapc (lambda (project top)
+               (when (and top (not (member top seen)))
+                 (push top seen)
+                 (push (cons (car project) top) checkouts)))
+             projects tops)
+    (nreverse checkouts)))
+
+(defun lispm-desktop-update-checkouts (&optional callback)
   "Return the checkouts of the LispM projects this Emacs runs, (NAME .
 DIRECTORY) each, DIRECTORY the top of the checkout: a project's own, or
 the package package-vc installed it as, see
 `lispm-desktop-update--package'.  A project not in a git checkout, as a
 package from the archives, is left out; so is a project in the checkout
-of one before it, as when the projects were one."
-  (let ((seen nil) (checkouts nil))
-    (pcase-dolist (`(,name . ,file) lispm-desktop-update-projects)
-      (when-let* ((library (locate-library file t))
-                  (directory (file-truename (file-name-directory library)))
-                  (top (lispm-desktop-update--top directory))
-                  ((not (member top seen))))
-        (push top seen)
-        (push (cons name top) checkouts)))
-    (nreverse checkouts)))
+of one before it, as when the projects were one.  With CALLBACK, call it
+with them instead, git running in the background, and return nil."
+  (let* ((projects (seq-keep (pcase-lambda (`(,name . ,file))
+                               (when-let* ((library (locate-library file t)))
+                                 (cons name (file-truename (file-name-directory library)))))
+                             lispm-desktop-update-projects))
+         (left (length projects))
+         (tops (make-vector left nil)))
+    (cond ((not callback)
+           (lispm-desktop-update--checkouts-of
+            projects (mapcar (lambda (project) (lispm-desktop-update--top (cdr project))) projects)))
+          ((zerop left) (funcall callback nil))
+          (t (seq-do-indexed
+              (lambda (project index)
+                (lispm-desktop-update--top
+                 (cdr project)
+                 (lambda (top)
+                   (aset tops index top)
+                   (when (zerop (setq left (1- left)))
+                     (funcall callback (lispm-desktop-update--checkouts-of projects (append tops nil)))))))
+              projects)
+             nil))))
 
 (defun lispm-desktop-update--release-version (tag)
   "Return the version TAG releases, as \"0.2.0\" for v0.2.0, or nil when
@@ -258,22 +295,43 @@ TAG is no release, see `lispm-desktop-update-release-regexp'."
   (and tag (string-match lispm-desktop-update-release-regexp tag)
        (match-string 1 tag)))
 
-(defun lispm-desktop-update-version (directory)
+(defconst lispm-desktop-update--describe
+  '("describe" "--tags" "--long" "--match" "v[0-9]*" "--exclude" "*-*")
+  "How git describes a checkout's commit by its latest release.")
+
+(defconst lispm-desktop-update--last-commit '("log" "-1" "--format=%h, %cs")
+  "How git tells a checkout's commit and its date.")
+
+(defun lispm-desktop-update--described (described)
+  "Return what a checkout holds, as `lispm-desktop-update-version' tells
+it, from DESCRIBED, what git describe said of it; nil when it said
+nothing of a release."
+  (when (and described
+             (string-match "\\`\\(v.+\\)-\\([0-9]+\\)-g\\([0-9a-f]+\\)\\'" described))
+    (let ((tag (match-string 1 described))
+          (since (string-to-number (match-string 2 described)))
+          (commit (match-string 3 described)))
+      (if (zerop since)
+          (lispm-desktop-update--release-version tag)
+        (format "%s+%d, %s" (lispm-desktop-update--release-version tag) since commit)))))
+
+(defun lispm-desktop-update-version (directory &optional callback)
   "Return what the checkout DIRECTORY holds, or nil: its release, as
 \"0.2.0\"; past it, the release, how many commits since and the commit,
 as \"0.2.0+3, 626d068\"; before the first release, the commit and its
-date, as \"626d068, 2026-10-20\"."
-  (let ((described (lispm-desktop-update--git directory "describe" "--tags" "--long"
-                                               "--match" "v[0-9]*" "--exclude" "*-*")))
-    (if (and described
-             (string-match "\\`\\(v.+\\)-\\([0-9]+\\)-g\\([0-9a-f]+\\)\\'" described))
-        (let ((tag (match-string 1 described))
-              (since (string-to-number (match-string 2 described)))
-              (commit (match-string 3 described)))
-          (if (zerop since)
-              (lispm-desktop-update--release-version tag)
-            (format "%s+%d, %s" (lispm-desktop-update--release-version tag) since commit)))
-      (lispm-desktop-update--git directory "log" "-1" "--format=%h, %cs"))))
+date, as \"626d068, 2026-10-20\".  With CALLBACK, call it with that
+instead, git running in the background."
+  (if (not callback)
+      (or (lispm-desktop-update--described
+           (apply #'lispm-desktop-update--git directory lispm-desktop-update--describe))
+          (apply #'lispm-desktop-update--git directory lispm-desktop-update--last-commit))
+    (lispm-desktop-update--git-async
+     directory lispm-desktop-update--describe
+     (lambda (described _errors)
+       (if-let* ((version (lispm-desktop-update--described described)))
+           (funcall callback version)
+         (lispm-desktop-update--git-async directory lispm-desktop-update--last-commit
+                                          (lambda (commit _errors) (funcall callback commit))))))))
 
 (defun lispm-desktop-update--changes (log)
   "Return the changes LOG tells of, the newest first; LOG is what
@@ -304,15 +362,46 @@ as \"LispM Desktop 0.3.0\"."
                                (lispm-desktop-update--release-version (plist-get update :release))))
                " "))
 
+(defun lispm-desktop-update--forget-installed ()
+  "Forget what the checkouts hold, to be worked out anew."
+  (setq lispm-desktop-update--installed nil
+        lispm-desktop-update--installed-generation (1+ lispm-desktop-update--installed-generation)))
+
+(defun lispm-desktop-update--work-out-installed ()
+  "Work out what the checkouts hold in the background, git running for
+each at once; then keep it and run `lispm-desktop-update-changed-hook'."
+  (unless lispm-desktop-update--working-out
+    (setq lispm-desktop-update--working-out t)
+    (let ((generation lispm-desktop-update--installed-generation))
+      (cl-flet ((done (installed)
+                  (setq lispm-desktop-update--working-out nil)
+                  (when (= generation lispm-desktop-update--installed-generation)
+                    (setq lispm-desktop-update--installed installed))
+                  (run-hooks 'lispm-desktop-update-changed-hook)))
+        (lispm-desktop-update-checkouts
+         (lambda (checkouts)
+           (let* ((left (length checkouts))
+                  (installed (mapcar (pcase-lambda (`(,name . ,directory)) (list name directory nil))
+                                     checkouts)))
+             (if (zerop left)
+                 (done nil)
+               (dolist (entry installed)
+                 (lispm-desktop-update-version
+                  (nth 1 entry)
+                  (lambda (version)
+                    (setf (nth 2 entry) version)
+                    (when (zerop (setq left (1- left)))
+                      (done installed)))))))))))))
+
 (defun lispm-desktop-update-installed ()
   "Return the checkouts of LispM and what each holds, (NAME DIRECTORY
 VERSION) each, VERSION as `lispm-desktop-update-version' tells it.  It is
-worked out once, and again after a check or an install."
+worked out once, and again after a check or an install, in the
+background: until it is, this returns nil, and once it is,
+`lispm-desktop-update-changed-hook' runs."
   (or lispm-desktop-update--installed
-      (setq lispm-desktop-update--installed
-            (mapcar (pcase-lambda (`(,name . ,directory))
-                      (list name directory (lispm-desktop-update-version directory)))
-                    (lispm-desktop-update-checkouts)))))
+      (progn (lispm-desktop-update--work-out-installed)
+             nil)))
 
 (defun lispm-desktop-update--desktop-p (directory)
   "Return non-nil when DIRECTORY is the top of the desktop's own checkout."
@@ -425,36 +514,42 @@ a check runs already, once it ends."
   (if lispm-desktop-update--checking
       (when (called-interactively-p 'any)
         (message (lispm-desktop-tr "Software Update is checking already")))
-    (let* ((checkouts (lispm-desktop-update-checkouts))
-           (left (length checkouts))
-           (results (make-vector left nil)))
-      (setq lispm-desktop-update--checking t)
-      (run-hooks 'lispm-desktop-update-check-hook)
-      (run-hooks 'lispm-desktop-update-changed-hook)
-      (cl-flet ((finish ()
-                  (setq lispm-desktop-update--checking nil
-                        lispm-desktop-update--installed nil
-                        lispm-desktop-update--results (append results nil))
-                  (unless (seq-find (lambda (result) (eq (plist-get result :state) 'failed))
-                                    lispm-desktop-update--results)
-                    (setq lispm-desktop-update--checked (current-time))
-                    (lispm-desktop-update--save))
-                  (run-hooks 'lispm-desktop-update-changed-hook)
-                  (let ((waiting lispm-desktop-update--waiting))
-                    (setq lispm-desktop-update--waiting nil)
-                    (dolist (function waiting)
-                      (funcall function (lispm-desktop-update-updates))))))
-        (if (null checkouts)
-            (finish)
-          (seq-do-indexed
-           (pcase-lambda (`(,name . ,directory) index)
-             (lispm-desktop-update--check-checkout
-              name directory
-              (lambda (result)
-                (aset results index result)
-                (when (zerop (setq left (1- left)))
-                  (finish)))))
-           checkouts))))))
+    (setq lispm-desktop-update--checking t)
+    (run-hooks 'lispm-desktop-update-check-hook)
+    (run-hooks 'lispm-desktop-update-changed-hook)
+    (lispm-desktop-update-checkouts
+     (lambda (checkouts)
+       (lispm-desktop-update--check-checkouts checkouts)))))
+
+(defun lispm-desktop-update--check-checkouts (checkouts)
+  "Check CHECKOUTS for updates in the background, as
+`lispm-desktop-update-check' does, which found them."
+  (let* ((left (length checkouts))
+         (results (make-vector left nil)))
+    (cl-flet ((finish ()
+                (lispm-desktop-update--forget-installed)
+                (setq lispm-desktop-update--checking nil
+                      lispm-desktop-update--results (append results nil))
+                (unless (seq-find (lambda (result) (eq (plist-get result :state) 'failed))
+                                  lispm-desktop-update--results)
+                  (setq lispm-desktop-update--checked (current-time))
+                  (lispm-desktop-update--save))
+                (run-hooks 'lispm-desktop-update-changed-hook)
+                (let ((waiting lispm-desktop-update--waiting))
+                  (setq lispm-desktop-update--waiting nil)
+                  (dolist (function waiting)
+                    (funcall function (lispm-desktop-update-updates))))))
+      (if (null checkouts)
+          (finish)
+        (seq-do-indexed
+         (pcase-lambda (`(,name . ,directory) index)
+           (lispm-desktop-update--check-checkout
+            name directory
+            (lambda (result)
+              (aset results index result)
+              (when (zerop (setq left (1- left)))
+                (finish)))))
+         checkouts)))))
 
 (defun lispm-desktop-update--interval ()
   "Return the seconds between the checks Software Update makes by itself."
@@ -552,8 +647,8 @@ loads any of the files changed."
                   (plist-get update :to) (plist-get update :changes))
             lispm-desktop-update--log))
     (when installed
+      (lispm-desktop-update--forget-installed)
       (setq lispm-desktop-update--log (seq-take lispm-desktop-update--log lispm-desktop-update-log-size)
-            lispm-desktop-update--installed nil
             lispm-desktop-update--results
             (seq-remove (lambda (result) (memq result installed)) lispm-desktop-update--results))
       (lispm-desktop-update--save)
