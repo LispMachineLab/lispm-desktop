@@ -695,27 +695,34 @@ name too wide to stand whole there, see `lispm-desktop--svg'."
 style: an alias's in italics, as Mac OS 9 set an alias's name; else none."
   (if (plist-get spec :alias) " font-style=\"italic\"" ""))
 
+(defun lispm-desktop--icon-label (spec x y label-width family size ascent ground ink)
+  "Return SVG of the name of the icon SPEC, its cell's top left at X, Y, in
+INK on a GROUND rectangle, or on none when GROUND is nil.  LABEL-WIDTH,
+FAMILY, SIZE and ASCENT measure and set it, centred as
+`lispm-desktop--label-center' says, see `lispm-desktop--draw-icon'."
+  (let* ((label-center (lispm-desktop--label-center spec x))
+         (label-top (+ y lispm-desktop-icon-size 4)))
+    (concat
+     (when ground
+       (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
+               (- label-center (/ label-width 2)) label-top label-width (+ size 4) ground))
+     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\"%s>%s</text>"
+             label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size ink
+             (lispm-desktop--label-style spec) (lispm-desktop--escape (plist-get spec :label))))))
+
 (cl-defgeneric lispm-desktop--draw-icon (spec x y selected label-width family size ascent)
   "Return SVG of the icon SPEC with its name, its cell's top left at X, Y,
 darkened and its name inverted when SELECTED.  SPEC's :label is the name
 as shown, in the language LispM speaks.  LABEL-WIDTH, FAMILY, SIZE and
 ASCENT measure and set its name, centred as `lispm-desktop--label-center'
-says."
-  (let* ((text (or (lispm-desktop-platinum-color :text) "#000000"))
-         (content (or (lispm-desktop-platinum-color :content) "#FFFFFF"))
-         (center (+ x (/ lispm-desktop-column 2)))
-         (icon-left (- center (/ lispm-desktop-icon-size 2)))
-         (label-center (lispm-desktop--label-center spec x))
-         (label-left (- label-center (/ label-width 2)))
-         (label-top (+ y lispm-desktop-icon-size 4)))
+says; see `lispm-desktop--icon-label'."
+  (let ((text (or (lispm-desktop-platinum-color :text) "#000000"))
+        (content (or (lispm-desktop-platinum-color :content) "#FFFFFF")))
     (concat
-     (lispm-desktop--nest (lispm-desktop--item-icon spec) selected icon-left y)
-     (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
-             label-left label-top label-width (+ size 4) (if selected text content))
-     (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\"%s>%s</text>"
-             label-center (+ label-top 2 ascent) (lispm-desktop--escape family) size
-             (if selected content text) (lispm-desktop--label-style spec)
-             (lispm-desktop--escape (plist-get spec :label))))))
+     (lispm-desktop--nest (lispm-desktop--item-icon spec) selected
+                          (- (+ x (/ lispm-desktop-column 2)) (/ lispm-desktop-icon-size 2)) y)
+     (lispm-desktop--icon-label spec x y label-width family size ascent
+                                (if selected text content) (if selected content text)))))
 
 (defun lispm-desktop--coach-mark (width height origin)
   "Return SVG text of the coach mark, when it circles something on a

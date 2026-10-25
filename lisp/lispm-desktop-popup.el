@@ -1073,6 +1073,27 @@ buttons standing apart come too close to the others, if any."
                                                                (lambda (b value) (equal (nth 1 b) value))))
                                 #'< placed))))
 
+(defun lispm-desktop-popup-svg-alert-contents (svg layout x y palette pressed focused &optional detail-color)
+  "Draw on SVG what LAYOUT places, see `lispm-desktop-popup--alert-layout':
+the message from X, Y in the system font, the detail six pixels under it
+in the list's, in DETAIL-COLOR, by default PALETTE's text colour, and the
+buttons.  PRESSED and FOCUSED are values of buttons, held down or
+holding the keyboard."
+  (dolist (line (plist-get layout :message))
+    (lispm-desktop-platinum-svg-content svg line x y 16 (plist-get palette :text) 'lispm-desktop-platinum-title)
+    (setq y (+ y 16)))
+  (when (plist-get layout :detail)
+    (setq y (+ y 6))
+    (dolist (line (plist-get layout :detail))
+      (lispm-desktop-platinum-svg-content svg line x y 16 (or detail-color (plist-get palette :text))
+                                          'lispm-desktop-platinum-list)
+      (setq y (+ y 16))))
+  (pcase-dolist (`(,label ,value ,role ,x ,top ,width) (plist-get layout :buttons))
+    (lispm-desktop-platinum-svg-push-button svg x top palette label width
+                                            :state (and (equal pressed value) 'pressed)
+                                            :default (eq role 'default)
+                                            :focused (and focused (equal focused value)))))
+
 (cl-defgeneric lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused)
   "Return an SVG of an alert of ICON, MESSAGE, DETAIL and BUTTONS, in PALETTE.
 It is drawn as Mac OS 9 drew its alerts, inside the outline the alert's
@@ -1095,21 +1116,8 @@ keyboard is on."
     (lispm-desktop-platinum-svg-icon svg (expand-file-name (format "icons/os9/%s.svg" icon)
                                                               lispm-desktop-directory)
                                         25 15 32)
-    (dolist (line (plist-get layout :message))
-      (lispm-desktop-platinum-svg-content svg line lispm-desktop-popup-alert-text-x y 16
-                                            (plist-get palette :text) 'lispm-desktop-platinum-title)
-      (setq y (+ y 16)))
-    (when (plist-get layout :detail)
-      (setq y (+ y 6))
-      (dolist (line (plist-get layout :detail))
-        (lispm-desktop-platinum-svg-content svg line lispm-desktop-popup-alert-text-x y 16
-                                              (plist-get palette :text) 'lispm-desktop-platinum-list)
-        (setq y (+ y 16))))
-    (pcase-dolist (`(,label ,value ,role ,x ,top ,width) (plist-get layout :buttons))
-      (lispm-desktop-platinum-svg-push-button svg x top palette label width
-                                                :state (and (equal pressed value) 'pressed)
-                                                :default (eq role 'default)
-                                                :focused (and focused (equal focused value))))
+    (lispm-desktop-popup-svg-alert-contents svg layout lispm-desktop-popup-alert-text-x y palette
+                                            pressed focused)
     svg))
 
 (defconst lispm-desktop-popup-text-alert-width 64

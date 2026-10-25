@@ -56,7 +56,8 @@
   "Drawn images by key: what was drawn, its size and the palette generation.")
 
 (defun lispm-desktop-platinum-image (key draw)
-  "Return the image of KEY, calling DRAW to make its SVG the first time."
+  "Return the image of KEY, calling DRAW to make its SVG the first time,
+an SVG of svg.el's or SVG text."
   (let ((key (cons lispm-desktop-platinum-generation key)))
     (or (gethash key lispm-desktop-platinum--images)
         (progn
@@ -66,13 +67,15 @@
                    lispm-desktop-platinum--images)))))
 
 (defun lispm-desktop-platinum--svg-image (svg)
-  "Return the image of SVG, centred on its line and never scaled.
-An Emacs built without SVG gets the image all the same, which it cannot
-show: the text under it shows instead, where `svg-image' would signal."
-  (if (image-type-available-p 'svg)
-      (svg-image svg :ascent 'center :scale 1)
-    (list 'image :type 'svg :data (with-temp-buffer (svg-print svg) (buffer-string))
-          :ascent 'center :scale 1)))
+  "Return the image of SVG, svg.el's or SVG text, centred on its line and
+never scaled.  An Emacs built without SVG gets the image all the same,
+which it cannot show: the text under it shows instead, where
+`svg-image' would signal."
+  (cond ((not (image-type-available-p 'svg))
+         (list 'image :type 'svg :data (if (stringp svg) svg (with-temp-buffer (svg-print svg) (buffer-string)))
+               :ascent 'center :scale 1))
+        ((stringp svg) (create-image svg 'svg t :ascent 'center :scale 1))
+        (t (svg-image svg :ascent 'center :scale 1))))
 
 (defun lispm-desktop-platinum-svg-fill (svg x y width height color)
   "Fill the rectangle of WIDTH by HEIGHT at X, Y of SVG with COLOR.
