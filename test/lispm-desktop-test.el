@@ -14014,8 +14014,11 @@ running alone, and its stop is noted with its exit code."
           (lispm-desktop-startup-open-item item)
           (should (eq (lispm-desktop-startup-program-process item) process))
           (process-send-string process "go\n")
-          (while (process-live-p process)
-            (accept-process-output process 1))
+          ;; Until its sentinel has noted the stop: Emacs may see a
+          ;; process gone before it runs its sentinel.
+          (with-timeout (10 (error "The program's stop was never noted"))
+            (while (not (equal (lispm-desktop-startup-program-status item) '(exited . 3)))
+              (accept-process-output nil 0.05)))
           (with-current-buffer (lispm-desktop-startup-program-buffer-name item)
             (should (string-search (directory-file-name (file-truename directory))
                                    (file-truename (buffer-string))))
