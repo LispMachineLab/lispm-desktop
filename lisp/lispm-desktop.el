@@ -146,6 +146,8 @@
 (require 'lispm-desktop-agent-list)
 (require 'lispm-desktop-shells)
 (require 'lispm-desktop-lispm)
+(require 'lispm-desktop-form)
+(require 'lispm-desktop-characters)
 (require 'lispm-desktop-bar)
 (require 'lispm-agents-claude)
 (require 'lispm-agents-codex)
@@ -265,7 +267,9 @@ boxes.  A download that fails, as offline, is only reported."
   ;; others are set up even when it cannot be, as offline at a
   ;; first start that would install it.
   (condition-case err
-      (lispm-desktop-setup-lispm)
+      (progn (lispm-desktop-setup-lispm)
+             (lispm-desktop-form-setup)
+             (lispm-desktop-setup-characters))
     (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
   (lispm-agents-setup-claude)
   (lispm-agents-setup-codex)
@@ -297,7 +301,8 @@ are set up as there; then the first frame becomes the terminal, see
   (lispm-desktop-setup-i18n)
   (lispm-desktop-setup-langs)
   (condition-case err
-      (lispm-desktop-setup-lispm)
+      (progn (lispm-desktop-setup-lispm)
+             (lispm-desktop-form-setup))
     (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
   (lispm-desktop-setup-kernel)
   (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
