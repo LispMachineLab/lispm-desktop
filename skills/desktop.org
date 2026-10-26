@@ -36,6 +36,10 @@ skill gives you tools over them, and names the functions behind them for ~eval_e
 - ~desktop_hide~: hide the desktop in the Dock, its windows out on the computer's screen; with
   SHOW, bring it back.  Not every system lets it hide; the tool then says why.
 
+Focus Mode, LispM's terminal entered from the desktop, covers the desktop: asked there for the
+desktop back, call ~desktop_hide~ with SHOW, which leaves Focus Mode.  Opening an application or
+a folder leaves it too, so that what opens shows.
+
 Opening, raising and rolling windows change no file and no setting, so these tools are of the
 permission class ~read~.  Still, bring things in front only when the user asked to see them or
 the task needs it: the screen is theirs.
@@ -72,10 +76,19 @@ Alias on Desktop does from its menu, and ~(lispm-desktop-remove-alias KEY)~ take
 
 (defvar lispm-current-agent)
 (declare-function lispm-agent-root "lispm-core" (agent))
+(declare-function lispm-desktop-lispm-terminal-leave-soon "lispm-desktop-lispm" ())
 
 (defconst lispm-desktop-skill-folders
   '(("applications" . applications) ("control-panels" . control-panels))
   "The folders desktop_folder names that are no directory on disk.")
+
+(defun lispm-desktop-skill-leave-focus-mode ()
+  "Leave Focus Mode, once the tool call is over, when it covers the desktop;
+return what to add to the tool's answer, or the empty string."
+  (if (and (fboundp 'lispm-desktop-lispm-terminal-leave-soon)
+           (lispm-desktop-lispm-terminal-leave-soon))
+      " Focus Mode closes, the desktop shows."
+    ""))
 
 (defun lispm-desktop-skill-apps ()
   "The applications that can be opened here, as (KEY . PROPERTIES): Control
@@ -134,13 +147,15 @@ if there is no such application."
   "Bring an application in front, opening its window."
   (let ((key (lispm-desktop-skill-app app)))
     (lispm-desktop-apps-activate key)
-    (format "%s is in front." (or (plist-get (alist-get key lispm-desktop-apps) :name) key))))
+    (concat (format "%s is in front." (or (plist-get (alist-get key lispm-desktop-apps) :name) key))
+            (lispm-desktop-skill-leave-focus-mode))))
 
 (lispm-deftool desktop_folder
     ((folder string "A directory, or applications, control-panels, home or trash."))
   "Show a folder in the Finder window over the desktop."
   (let ((name (string-trim folder)))
-    (pcase name
+    (concat
+     (pcase name
       ("trash" (lispm-desktop-open-trash) "The Trash is open.")
       ("home" (lispm-desktop-finder-open-directory "~") "The home folder shows in the Finder window.")
       (_ (if-let* ((key (cdr (assoc name lispm-desktop-skill-folders)))
@@ -151,7 +166,8 @@ if there is no such application."
              (unless (file-directory-p directory)
                (error "No folder %s" directory))
              (lispm-desktop-finder-open-directory directory)
-             (format "%s shows in the Finder window." (abbreviate-file-name directory))))))))
+             (format "%s shows in the Finder window." (abbreviate-file-name directory))))))
+     (lispm-desktop-skill-leave-focus-mode))))
 
 (lispm-deftool desktop_windows ()
   "List the windows floating over the desktop, the one in front first, and say whether the desktop is hidden in the Dock."
@@ -186,11 +202,15 @@ if there is no such application."
 
 (lispm-deftool desktop_hide
     ((show boolean "Bring the hidden desktop back instead (default false)." :optional t))
-  "Hide the desktop in the Dock, its windows out on the computer's screen; or bring it back."
-  (cond ((and show (lispm-desktop-apps-hidden-p))
-         (lispm-desktop-show-desktop)
-         "The desktop is back.")
-        (show "The desktop is not hidden.")
+  "Hide the desktop in the Dock, its windows out on the computer's screen; or bring it back, from the Dock or from under Focus Mode."
+  (cond (show
+         (let ((hidden (lispm-desktop-apps-hidden-p))
+               (left (lispm-desktop-skill-leave-focus-mode)))
+           (when hidden
+             (lispm-desktop-show-desktop))
+           (cond (hidden (concat "The desktop is back." left))
+                 ((string-empty-p left) "The desktop is not hidden.")
+                 (t (concat "The desktop is back:" left)))))
         ((lispm-desktop-apps-hidden-p) "The desktop is hidden already.")
         (t (lispm-desktop-hide-desktop)
            "The desktop is hidden in the Dock.")))

@@ -9763,6 +9763,21 @@ skills define a tool or a function of the same name."
                     store_search store_item store_show store_check store_install store_update store_uninstall))
       (should (memq tool tools)))))
 
+;; Asked in Focus Mode to bring the desktop back, LispM's agent opened the
+;; desktop under it and said it was in front.
+(ert-deftest lispm-desktop-test-lispm-terminal-leave-soon ()
+  "Focus Mode entered from the desktop leaves once the tool call is over,
+as C-c C-q leaves it; with none open, nothing is done."
+  (let ((soon nil)
+        (lispm-desktop-lispm-terminal--frame nil))
+    (cl-letf (((symbol-function 'lispm-terminal-soon) (lambda (function) (push function soon)))
+              ((symbol-function 'frame-live-p) (lambda (frame) (eq frame 'focus))))
+      (should-not (lispm-desktop-lispm-terminal-leave-soon))
+      (should-not soon)
+      (setq lispm-desktop-lispm-terminal--frame 'focus)
+      (should (lispm-desktop-lispm-terminal-leave-soon))
+      (should (equal soon '(lispm-terminal-quit))))))
+
 (ert-deftest lispm-desktop-test-system-skill-desktop ()
   "The desktop's skill's tools list the applications and open one, show a
 folder, list the windows and raise one, hide and show the desktop, and
@@ -9782,9 +9797,11 @@ move a file to the Trash, which alone writes."
          (lispm-desktop-app-window--frames nil)
          (lispm-desktop-finder-folders '((applications :title "Applications")))
          (hidden nil)
+         (focus nil)
          (done nil))
     (unwind-protect
         (cl-letf (((symbol-function 'lispm-desktop-apps-activate) (lambda (app) (push (list 'activate app) done)))
+                  ((symbol-function 'lispm-desktop-lispm-terminal-leave-soon) (lambda () focus))
                   ((symbol-function 'lispm-desktop-finder-open-directory) (lambda (dir) (push (list 'folder dir) done)))
                   ((symbol-function 'lispm-desktop-open-trash) (lambda () (push '(trash) done)))
                   ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&rest _) hidden))
@@ -9814,6 +9831,16 @@ move a file to the Trash, which alone writes."
           (lispm-desktop-test--call "desktop_window" "finder" "raise")
           (should (equal (lispm-desktop-test--call "desktop_hide") "The desktop is hidden in the Dock."))
           (should (equal (lispm-desktop-test--call "desktop_hide" t) "The desktop is back."))
+          (should (equal (lispm-desktop-test--call "desktop_hide" t) "The desktop is not hidden."))
+          ;; Under Focus Mode, the desktop comes back as it leaves.
+          (setq focus t)
+          (should (equal (lispm-desktop-test--call "desktop_hide" t)
+                         "The desktop is back: Focus Mode closes, the desktop shows."))
+          (should (string-suffix-p "Focus Mode closes, the desktop shows."
+                                   (lispm-desktop-test--call "desktop_open" "editor")))
+          (should (string-suffix-p "Focus Mode closes, the desktop shows."
+                                   (lispm-desktop-test--call "desktop_folder" "home")))
+          (setq focus nil done (cddr done))
           (with-temp-file (expand-file-name "old.txt" directory) (insert "old"))
           (should (string-search "old.txt" (lispm-desktop-test--call "desktop_trash" ["old.txt"])))
           (should-error (lispm-desktop-test--call "desktop_trash" ["no-such-file"]))

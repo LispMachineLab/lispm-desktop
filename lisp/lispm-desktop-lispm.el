@@ -80,6 +80,7 @@
 (declare-function lispm-desktop-setup-bar "lispm-desktop-bar" ())
 (declare-function lispm-terminal "lispm-terminal" (&optional agent))
 (declare-function lispm-terminal-soon "lispm-terminal" (function))
+(declare-function lispm-terminal-quit "lispm-terminal" ())
 (defvar lispm-terminal-mode)
 (defvar lispm-terminal-keys-mode)
 (defvar lispm-terminal-enter-function)
@@ -244,6 +245,14 @@ the terminal comes in front."
       ;; The listener has no title bar, as the windows beside it have
       ;; none: the desktop gives every window one.
       (set-window-parameter (frame-selected-window frame) 'tab-line-format 'none))))
+
+(defun lispm-desktop-lispm-terminal-leave-soon ()
+  "Leave Focus Mode, entered from the desktop, as \`C-c C-q' does, once
+the command or the tool call under way is over, as an agent asked in it
+to bring the desktop back does; return non-nil when it was open."
+  (when (lispm-desktop-lispm-terminal-open-p)
+    (lispm-terminal-soon #'lispm-terminal-quit)
+    t))
 
 (defun lispm-desktop-lispm-terminal-enter (agent)
   "Enter LispM's terminal for AGENT, asked by the tool terminal_enter, in a
