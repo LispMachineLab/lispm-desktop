@@ -118,6 +118,14 @@ Optional, used when present:
   its introduction in Markdown, who made it and under what licence.  Their windows get title
   bars, buttons, placards, menus and alerts worked out from their keymaps
   (~lispm-desktop-app-ui-define~ describes the rest).
+- *Characters*: someone, not a session (LispM Agent's characters), made in the Characters
+  application: a name, a picture, a soul, the model it thinks with.  Each is then an application
+  of its own, its picture its icon, which opens its own conversation; you and every agent, Claude
+  Code and Codex among them, reach it by name, as =@Ada=.  An application of the App Store with a
+  skill is a character too, its skill its soul.
+- *Forms in the look*: LispM Agent's forms, written as data, are drawn as Mac OS 9 drew its
+  dialogs, their buttons, check boxes, radio buttons and pop-up menus the desktop's own controls,
+  which any window may hold (=lispm-desktop-platinum-insert-radio-button= and the others).
 - *Skills for agents*: LispM's agents find the desktop's manuals in =skills/=, with tools to open
   applications, folders and windows, change settings and install from the App Store; and an
   application's skill comes and goes with it from the App Store.
@@ -126,7 +134,7 @@ Optional, used when present:
 - *Windows out on the screen*, on macOS: a floating window dropped past the desktop's edge joins
   the Mac's own windows, as in Parallels' Coherence; =C-c h= hides the desktop in the Dock.
 - *Applications on their own*, on macOS: every application of the App Store, and the App Store,
-  Control Panels and the browser, is also one of the Mac's own, in =~/Applications/LispM Apps=,
+  Control Panels, the browser, Characters and each character, is also one of the Mac's own, in =~/Applications/LispM Apps=,
   for Launchpad, Spotlight and the Dock.  Opened from there it is a process of its own, with its
   own tile in the Dock, its own menu bar and its own place in =⌘-Tab=, while LispM, started for
   it with its desktop out of sight and out of the Dock, draws its window, as an X server draws

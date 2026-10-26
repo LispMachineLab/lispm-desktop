@@ -24,9 +24,12 @@
 ;;; Commentary:
 
 ;; Mac OS 9's controls, drawn in the theme's colours: push, bevel and
-;; header buttons, tabs, placards, radio buttons and check boxes, group
-;; boxes, window frames and the Control Strip's segments; and the same
-;; controls as text, and as buttons in buffers.
+;; header buttons, pop-up menus, tabs, placards, radio buttons and check
+;; boxes, group boxes, window frames and the Control Strip's segments;
+;; and the same controls as text, and as buttons in buffers, which any
+;; window of the desktop's may hold: push buttons, radio buttons, check
+;; boxes, bevel buttons holding an icon and pop-up menus (see "Controls in
+;; buffers" below).
 
 ;;; Code:
 
@@ -35,10 +38,13 @@
 (require 'subr-x)
 (require 'svg)
 (require 'lispm-desktop-platinum-draw)
+(require 'lispm-desktop-platinum-icons)
 (require 'lispm-desktop-modal)
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-platinum-fit "lispm-desktop-platinum-titlebar" (string width))
+(declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
+(declare-function lispm-desktop-popup-choose "lispm-desktop-popup" (items &optional x y align))
 
 
 ;;;; Header strips, header buttons and group boxes
@@ -442,6 +448,60 @@ Its rings, when DEFAULT or FOCUSED, are drawn about it; see
     (lispm-desktop-platinum--label svg label (+ x (/ width 2.0)) (+ y 14)
                                    (plist-get colors :label)
                                    (or font (lispm-desktop-platinum-svg-font)))))
+
+;;;;; Pop-up menus
+
+(defun lispm-desktop-platinum-popup-button-width (label)
+  "Return the width of a pop-up menu showing LABEL: room for it and its
+arrows, at least 80.  LABEL is measured in the titles' face."
+  (max 80 (+ 40 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-title)))))
+
+(cl-defgeneric lispm-desktop-platinum-svg-popup-arrows (svg x y palette color)
+  "Draw on SVG the arrows of a pop-up menu in the 12 by 20 pixel box at X, Y,
+in COLOR, PALETTE's: a triangle up over a triangle down, as Mac OS 9 drew
+them, for a menu that opens about its current item."
+  (ignore palette)
+  (svg-polygon svg (list (cons (+ x 2) (+ y 8)) (cons (+ x 10) (+ y 8)) (cons (+ x 6) (+ y 4)))
+               :fill color)
+  (svg-polygon svg (list (cons (+ x 2) (+ y 11)) (cons (+ x 10) (+ y 11)) (cons (+ x 6) (+ y 15)))
+               :fill color))
+
+(cl-defun lispm-desktop-platinum-draw-popup-button (palette label width &key state focused (pad 0))
+  "Return an SVG of a pop-up menu WIDTH pixels wide showing LABEL, in PALETTE.
+It is a push button, as the look draws one, with LABEL on its left and
+the menu's arrows on its right, past a line.  STATE is nil, `pressed' or
+`disabled'; FOCUSED rings it in the focus colour; PAD is the room left
+about it, raised to what the ring needs."
+  (let* ((pad (max pad (if focused 2 0)))
+         (h lispm-desktop-platinum-button-height)
+         (svg (svg-create (+ width (* 2 pad)) (+ h (* 2 pad))))
+         (colors (lispm-desktop-platinum--push-button-colors palette state)))
+    (lispm-desktop-platinum-svg-push-button svg pad pad palette "" width :state state :focused focused)
+    (lispm-desktop-platinum--label svg label (+ pad 10) (+ pad 14) (plist-get colors :label)
+                                   (lispm-desktop-platinum-svg-font) "start")
+    (svg-line svg (+ pad width -21.5) (+ pad 4) (+ pad width -21.5) (+ pad h -4)
+              :stroke (plist-get colors :shade))
+    (lispm-desktop-platinum-svg-popup-arrows svg (+ pad width -17) pad palette (plist-get colors :label))
+    svg))
+
+(cl-defun lispm-desktop-platinum-popup-button (label &key state focused pad)
+  "Return a pop-up menu showing LABEL, as a string displaying it.
+STATE, FOCUSED and PAD are as `lispm-desktop-platinum-draw-popup-button'
+takes them; PAD defaults to two pixels, room for the focus ring.  On a
+text terminal it is LABEL and an arrow, between brackets."
+  (if (lispm-desktop-tty-p)
+      (propertize " " 'display (lispm-desktop-platinum-text-control
+                                (lispm-desktop-platinum-text-button (concat " " label " \u25be ") state)
+                                focused state))
+    (let ((width (lispm-desktop-platinum-popup-button-width label))
+          (pad (or pad 2)))
+      (propertize " " 'display
+                  (lispm-desktop-platinum-image
+                   (list 'popup label width state focused pad)
+                   (lambda ()
+                     (lispm-desktop-platinum-draw-popup-button lispm-desktop-platinum-current-palette
+                                                               label width :state state
+                                                               :focused focused :pad pad)))))))
 
 ;;;;; Bevel buttons
 
@@ -1409,6 +1469,124 @@ is drawn dimmed and does nothing; Tab passes it by."
                                         (lispm-desktop-platinum-push-button label :state 'disabled))
                           'lispm-desktop-platinum-label label 'face nil 'help-echo (or help label)))
     (lispm-desktop-platinum--insert-push-button label action help default)))
+
+(defun lispm-desktop-platinum--insert-control (images label action help &optional keymap)
+  "Insert a control showing IMAGES, as a button calling ACTION with no arguments.
+IMAGES is a function of FOCUSED and STATE returning the control's image,
+or its text on a text terminal.  LABEL follows it, if non-nil; HELP
+describes it.  KEYMAP, by default button.el's, is the control's."
+  (insert-text-button
+   (concat (propertize " " 'display (funcall images nil nil)
+                       'lispm-desktop-platinum-plain (funcall images nil nil)
+                       'lispm-desktop-platinum-focused (funcall images t nil)
+                       'lispm-desktop-platinum-pressed (funcall images nil 'pressed))
+           (if label (concat " " label) ""))
+   'action (lambda (_) (funcall action))
+   'face 'default 'follow-link t 'help-echo help
+   'keymap (or keymap button-map)))
+
+(cl-defun lispm-desktop-platinum-insert-radio-button (label on action &key help)
+  "Insert a radio button named LABEL, ON or off, which calls ACTION with no
+arguments when pressed; HELP describes it.  Drawn focused while point is
+on it, see `lispm-desktop-platinum-show-focus'."
+  (lispm-desktop-platinum--insert-control
+   (lambda (focused state)
+     (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio on state focused)))
+   label action (or help label)))
+
+(cl-defun lispm-desktop-platinum-insert-check-box (label on action &key help)
+  "Insert a check box named LABEL, checked when ON, which calls ACTION with no
+arguments when pressed; HELP describes it.  Drawn focused while point is
+on it, see `lispm-desktop-platinum-show-focus'."
+  (lispm-desktop-platinum--insert-control
+   (lambda (focused state)
+     (lispm-desktop-platinum-image-of (lispm-desktop-platinum-check-box on state focused 2)))
+   label action (or help label)))
+
+(cl-defun lispm-desktop-platinum-insert-popup-button (label choices action &key help current)
+  "Insert a pop-up menu showing LABEL, offering CHOICES, a list of (VALUE .
+TEXT); pressed, its menu opens at it, CURRENT's item checked, and the
+VALUE of the item chosen is given to ACTION.  HELP describes it.  Return,
+Space and the mouse open it, as they press a push button."
+  (lispm-desktop-platinum--insert-control
+   (lambda (focused state) (lispm-desktop-platinum-image-of
+                            (lispm-desktop-platinum-popup-button label :state state :focused focused)))
+   nil
+   (lambda ()
+     (when-let* ((choice (lispm-desktop-platinum-choose choices current nil (or help label))))
+       (funcall action (car choice))))
+   (or help label)
+   lispm-desktop-platinum-push-button-map))
+
+(defun lispm-desktop-platinum-choose (choices &optional current position label)
+  "Open a menu of CHOICES, a list of (VALUE . TEXT), at POSITION, by default
+point, CURRENT's item checked; return (VALUE) of the item chosen, or nil.
+Where no menu can be drawn, the choices are read in the minibuffer, after
+LABEL."
+  (if (not (lispm-desktop-popup-available-p))
+      (let ((text (completing-read (format-prompt (or label "") (cdr (assoc current choices)))
+                                   (mapcar #'cdr choices) nil t nil nil
+                                   (cdr (assoc current choices)))))
+        (when-let* ((choice (rassoc text choices)))
+          (list (car choice))))
+    (let* ((position (or position (point)))
+           (xy (and (pos-visible-in-window-p position nil t)
+                    (posn-x-y (posn-at-point position))))
+           (item (lispm-desktop-popup-choose
+                  (mapcar (pcase-lambda (`(,value . ,text))
+                            (list :label text :value value :checked (equal value current)))
+                          choices)
+                  (and xy (+ (car xy) (car (window-inside-pixel-edges))))
+                  (and xy (+ (cdr xy) (cadr (window-inside-pixel-edges))
+                             lispm-desktop-platinum-button-height)))))
+      (and item (list (plist-get item :value))))))
+
+(cl-defun lispm-desktop-platinum-insert-icon-button (icon label action &key help)
+  "Insert a bevel button holding ICON, a 32-pixel icon's name, which calls
+ACTION with no arguments when pressed; HELP describes it.  LABEL is its
+name, for those who read it, as the icon is all it shows.  Return,
+Space and the mouse press it as a push button."
+  (insert-text-button " "
+                      'display (lispm-desktop-platinum-icon-button icon nil nil)
+                      'lispm-desktop-platinum-plain (lispm-desktop-platinum-icon-button icon nil nil)
+                      'lispm-desktop-platinum-focused (lispm-desktop-platinum-icon-button icon nil t)
+                      'lispm-desktop-platinum-pressed (lispm-desktop-platinum-icon-button icon 'pressed nil)
+                      'action (lambda (_) (funcall action))
+                      'lispm-desktop-platinum-label label
+                      'face nil 'keymap lispm-desktop-platinum-push-button-map
+                      'help-echo (or help label)))
+
+(defconst lispm-desktop-platinum-icon-button-size '(52 . 50)
+  "Width and height in pixels of a bevel button holding a large icon, as
+Software Update's Update Now button.")
+
+(defun lispm-desktop-platinum-icon-button (icon state focused)
+  "Return the image of a bevel button holding ICON, a 32-pixel icon's name,
+in STATE, nil or `pressed', ringed when FOCUSED.  The ring's room is
+always left, so the button keeps its place.  On a text terminal the
+button is text, the icon a character in it."
+  (if (lispm-desktop-tty-p)
+      (lispm-desktop-platinum-text-control
+       (lispm-desktop-platinum-text-button (concat " " (substring-no-properties
+                                                         (lispm-desktop-platinum-icon icon))
+                                                   " ")
+                                           state)
+       focused)
+    (lispm-desktop-platinum-image
+     (list 'icon-button icon state focused)
+     (lambda ()
+       (pcase-let* ((`(,w . ,h) lispm-desktop-platinum-icon-button-size)
+                    (palette lispm-desktop-platinum-current-palette)
+                    (pad 3)
+                    (svg (svg-create (+ w (* 2 pad)) (+ h (* 2 pad)))))
+         (when focused
+           (lispm-desktop-platinum-svg-focus-ring svg pad pad w h 1 palette))
+         (lispm-desktop-platinum-svg-embed
+          svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) pad pad w h)
+         (lispm-desktop-platinum-svg-emacs-image
+          svg (create-image (lispm-desktop-platinum-icon-file icon))
+          (+ pad (/ (- w 32) 2)) (+ pad (/ (- h 32) 2)) 32 32)
+         svg)))))
 
 (defun lispm-desktop-platinum--insert-push-button (label action help default)
   "Insert an enabled push button, see `lispm-desktop-platinum-insert-push-button'."

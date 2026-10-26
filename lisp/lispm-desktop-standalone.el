@@ -166,14 +166,15 @@ This is a `window-setup-hook' function."
 
 (defun lispm-desktop-standalone-apps ()
   "Return the applications that open on their own: keys of
-`lispm-desktop-apps', those installed from the App Store and those of
-`lispm-desktop-standalone-built-in' that run here."
+`lispm-desktop-apps', those installed from the App Store, those of
+`lispm-desktop-standalone-built-in' that run here, and those defined
+with :standalone, as a character's application."
   (seq-keep (pcase-lambda (`(,key . ,props))
               (and (functionp (plist-get props :activate))
                    (if-let* ((built-in (assq key lispm-desktop-standalone-built-in)))
                        (or (null (cdr built-in))
                            (and (fboundp (cdr built-in)) (funcall (cdr built-in))))
-                     (plist-get props :store))
+                     (or (plist-get props :store) (plist-get props :standalone)))
                    key))
             lispm-desktop-apps))
 

@@ -14730,14 +14730,15 @@ once the turn that asked is over and saved: then only, and once."
     lispm-desktop-setup-strip lispm-desktop-setup-guide lispm-desktop-setup-look
     lispm-desktop-setup-glass lispm-desktop-setup-ai lispm-desktop-setup-agent-list
     lispm-desktop-setup-shells lispm-agents-setup-claude lispm-agents-setup-codex
-    lispm-desktop--install-missing-fonts)
+    lispm-desktop-setup-characters lispm-desktop--install-missing-fonts)
   "What the desktop sets up, and LispM's terminal does not.")
 
 (defconst lispm-desktop-test--terminal-setup
   '(lispm-desktop-setup-proxy lispm-desktop-setup-common-packages lispm-desktop-setup-clipboard
     lispm-desktop-setup-keymapping lispm-desktop-setup-plain-interface lispm-desktop-setup-update
     lispm-desktop-setup-emacs lispm-desktop-setup-startup lispm-desktop-setup-i18n
-    lispm-desktop-setup-langs lispm-desktop-setup-lispm lispm-desktop-setup-kernel)
+    lispm-desktop-setup-langs lispm-desktop-setup-lispm lispm-desktop-form-setup
+    lispm-desktop-setup-kernel)
   "What LispM's terminal sets up, in its order.")
 
 (defun lispm-desktop-test--setup-as (as)
@@ -16000,6 +16001,174 @@ across and 16 down."
   "Cutting a word to a width no character fits, as on a narrow window,
 ends at single characters."
   (should (equal (lispm-desktop-store--pieces "abc" -5 'default) '("a" "b" "c"))))
+
+;;;; Controls in buffers, forms and characters
+
+(ert-deftest lispm-desktop-test-controls-in-buffers ()
+  "Radio buttons, check boxes and pop-up menus inserted in a buffer are
+buttons that carry their images plain and focused, as push buttons do; a
+pop-up menu gives the value chosen in its menu to its action."
+  (with-temp-buffer
+    (let (pressed)
+      (lispm-desktop-platinum-insert-radio-button "Red" t (lambda () (push 'radio pressed)))
+      (insert "\n")
+      (lispm-desktop-platinum-insert-check-box "Bold" nil (lambda () (push 'check pressed)))
+      (insert "\n")
+      (lispm-desktop-platinum-insert-popup-button "Medium" '((small . "Small") (medium . "Medium"))
+                                                  (lambda (value) (push value pressed))
+                                                  :current 'medium :help "Size")
+      (dolist (position (list (point-min) (save-excursion (goto-char (point-min)) (forward-line 1) (point))))
+        (should (button-at position))
+        (should (get-text-property position 'lispm-desktop-platinum-focused)))
+      (should (string-match-p "Red" (buffer-string)))
+      (push-button (point-min))
+      (push-button (save-excursion (goto-char (point-min)) (forward-line 1) (point)))
+      (let ((asked nil))
+        (cl-letf (((symbol-function 'lispm-desktop-platinum-choose)
+                   (lambda (choices current _position label) (setq asked (list choices current label)) '(small))))
+          (push-button (save-excursion (goto-char (point-min)) (forward-line 2) (point))))
+        (should (equal asked '(((small . "Small") (medium . "Medium")) medium "Size"))))
+      (should (equal pressed '(small check radio))))))
+
+(ert-deftest lispm-desktop-test-choose-without-menus ()
+  "Where no menu can be drawn, a pop-up menu's choices are read in the
+minibuffer."
+  (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'ignore)
+            ((symbol-function 'completing-read) (lambda (&rest _) "Big")))
+    (should (equal (lispm-desktop-platinum-choose '((small . "Small") (big . "Big")) 'small) '(big)))))
+
+(ert-deftest lispm-desktop-test-popup-button-image ()
+  "A pop-up menu is drawn as a push button with its label on the left and
+its arrows on the right, wide enough for both; ringed when focused."
+  (skip-unless (image-type-available-p 'svg))
+  (let ((svg (lispm-desktop-platinum-draw-popup-button lispm-desktop-platinum-current-palette
+                                                       "Medium" 100 :focused t)))
+    (should (equal (dom-attr svg 'width) 104))
+    (should (dom-by-tag svg 'polygon))
+    (should (string-match-p "Medium" (with-temp-buffer (svg-print svg) (buffer-string)))))
+  (should (>= (lispm-desktop-platinum-popup-button-width "A") 80)))
+
+(ert-deftest lispm-desktop-test-form-dressed ()
+  "LispM's forms are dressed in the desktop's look: their controls are the
+desktop's, the one point is on drawn focused, plain again once it leaves;
+the text field point is in is framed in the focus colour."
+  (skip-unless (and (require 'lispm-form nil t) (image-type-available-p 'svg)))
+  (let ((lispm-form-glyph-function #'lispm-desktop-form-glyph)
+        (lispm-form-choose-function #'lispm-desktop-form-choose)
+        (lispm-form-drawn-hook (list #'lispm-desktop-form--dress))
+        (buffer nil))
+    ;; A batch Emacs shows no images, which widgets then leave out.
+    (cl-letf (((symbol-function 'widget-image-find)
+               (lambda (image) (and (eq (car-safe image) 'image) image))))
+      (unwind-protect
+          (with-current-buffer (setq buffer (lispm-form "Pet" '((name :type text :label "Name")
+                                                                (barks :type check :text "Barks"))
+                                                        :submit "Adopt"))
+            (should (equal (lispm-desktop-form-glyph 'button 'default "Adopt")
+                           (lispm-desktop-form--image 'button 'default "Adopt")))
+            ;; Point starts in the first field, framed.
+            (lispm-desktop-form--follow)
+            (should (eq (car lispm-desktop-form--focus) 'field))
+            (should (eq (overlay-get (cdr lispm-desktop-form--focus) 'face)
+                        'lispm-desktop-platinum-field-focused))
+            ;; On the default button, it is drawn focused.
+            (let ((overlay (cdr lispm-desktop-form--focus)))
+              (goto-char (point-max))
+              (search-backward "Adopt")
+              (let ((start (point)))
+                (lispm-desktop-form--follow)
+                (should (equal (get-text-property start 'display)
+                               (lispm-desktop-form--image 'button 'default "Adopt" t)))
+                (should (eq (overlay-get overlay 'face) 'widget-field))
+                ;; Back in the field, the button is plain again.
+                (goto-char (point-min))
+                (search-forward "Name")
+                (forward-line 1)
+                (end-of-line)
+                (lispm-desktop-form--follow)
+                (should (equal (get-text-property start 'display)
+                               (lispm-desktop-form--image 'button 'default "Adopt"))))))
+        (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(defmacro lispm-desktop-test--with-characters (&rest body)
+  "Run BODY with LispM's characters in a scratch directory, their applications
+followed, and the applications and icons of the test's own."
+  (declare (indent 0))
+  `(let* ((home (make-temp-file "lispm-desktop-test-characters" t))
+          (lispm-directory (expand-file-name "lispm/" home))
+          (lispm-git nil)
+          (lispm--characters nil)
+          (lispm--agents nil)
+          (lispm-characters--apps nil)
+          (lispm-desktop-characters--apps nil)
+          (lispm-desktop-characters-icon-directory (expand-file-name "icons/" home))
+          (lispm-desktop-apps (copy-sequence lispm-desktop-apps))
+          (lispm-desktop-aliases nil)
+          (lispm-character-change-functions (list #'lispm-desktop-characters--changed))
+          (lispm-desktop-apps-changed-hook nil)
+          (inhibit-message t))
+     (unwind-protect
+         (progn ,@body)
+       (when-let* ((buffer (get-buffer lispm-desktop-characters-buffer-name)))
+         (kill-buffer buffer))
+       (delete-directory home t))))
+
+(ert-deftest lispm-desktop-test-characters-apps ()
+  "Each character the user makes is an application of its own, its picture
+its icon, an SVG holding it its large icon, in the Applications folder;
+the Characters application lists them; deleted, its application goes."
+  (skip-unless (lispm-desktop-characters-available-p))
+  (lispm-desktop-test--with-characters
+    (let ((picture (expand-file-name "ada.png" home)))
+      (let ((coding-system-for-write 'binary))
+        (with-temp-file picture
+          (set-buffer-multibyte nil)
+          (insert (base64-decode-string
+                   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))))
+      (lispm-create-character "Ada" :description "Reviews changes." :avatar picture)
+      (let ((app (alist-get 'character-ada lispm-desktop-apps)))
+        (should app)
+        (should (equal (plist-get app :name) "Ada"))
+        (should (string-match-p "/characters/ada/avatar-" (plist-get app :icon)))
+        (let ((large (plist-get app :folder)))
+          (should (string-suffix-p "-32.svg" large))
+          (should (string-match-p "data:image/png;base64," (with-temp-buffer
+                                                             (insert-file-contents large)
+                                                             (buffer-string)))))
+        (should (plist-get app :standalone))
+        (should (memq 'character-ada (lispm-desktop-standalone-apps))))
+      ;; The Characters application lists it.
+      (with-current-buffer (lispm-desktop-characters--buffer)
+        (should (string-match-p "Ada   Reviews changes\\." (buffer-string)))
+        (should (eq (lispm-character-name (lispm-desktop-characters--at-point)) 'ada)))
+      ;; Its name changed, its application is called so.
+      (lispm-save-character 'ada :title "Ada L.")
+      (should (equal (plist-get (alist-get 'character-ada lispm-desktop-apps) :name) "Ada L."))
+      (lispm-delete-character "ada")
+      (should-not (alist-get 'character-ada lispm-desktop-apps))
+      (with-current-buffer (lispm-desktop-characters--buffer)
+        (should (equal (buffer-string) ""))))))
+
+(ert-deftest lispm-desktop-test-store-apps-are-characters ()
+  "An application installed from the App Store with a skill is a character
+of its kind, its skill its soul, with no application of its own besides;
+uninstalled, it is a character no more."
+  (skip-unless (lispm-desktop-characters-available-p))
+  (lispm-desktop-test--with-characters
+    (cl-letf (((symbol-function 'lispm-desktop-store--installed-skills)
+               (lambda (id) (and (eq id 'notes) '((notes-skill :kind skill :requires (notes)))))))
+      (setq lispm-desktop-apps (append lispm-desktop-apps
+                                       (list (list 'notes :name "Notes" :icon "lispm" :store t
+                                                   :description "Keeps notes." :activate #'ignore))))
+      (lispm-desktop-characters--sync-apps)
+      (let ((notes (lispm-get-character "notes")))
+        (should (equal (lispm-character-skill notes) "notes-skill"))
+        (should (equal (lispm-character-title* notes) "Notes"))
+        (should (lispm-character-avatar notes)))
+      (should-not (alist-get 'character-notes lispm-desktop-apps))
+      (setq lispm-desktop-apps (assq-delete-all 'notes (copy-sequence lispm-desktop-apps)))
+      (lispm-desktop-characters--sync-apps)
+      (should-not (lispm-get-character "notes" t)))))
 
 ;;;; The language LispM speaks
 

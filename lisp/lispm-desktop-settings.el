@@ -313,15 +313,8 @@ control, 16 or 18 pixels wide with the room for its ring."
 (defun lispm-desktop-settings--radio-button (label on action help)
   "Insert a radio button named LABEL, ON or off, calling ACTION when pressed.
 HELP describes it."
-  (let ((radio (lambda (focused)
-                 (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio on nil focused)))))
-    (insert-text-button
-     (concat (propertize " " 'display (funcall radio nil)
-                         'lispm-desktop-platinum-plain (funcall radio nil)
-                         'lispm-desktop-platinum-focused (funcall radio t))
-             " " label)
-     'action (lambda (_) (funcall action) (lispm-desktop-settings--render))
-     'face 'default 'follow-link t 'help-echo help)))
+  (lispm-desktop-platinum-insert-radio-button
+   label on (lambda () (funcall action) (lispm-desktop-settings--render)) :help help))
 
 (defun lispm-desktop-settings--radio (label on action &optional note)
   "Insert a radio button named LABEL, ON or off, running ACTION when pressed,
@@ -335,70 +328,24 @@ NOTE after it in the dimmed text."
 (defun lispm-desktop-settings--check-box (label on action &optional note)
   "Insert a check box named LABEL, checked when ON, running ACTION when
 pressed, NOTE after it in the dimmed text."
-  (let ((box (lambda (focused)
-               (lispm-desktop-platinum-image-of (lispm-desktop-platinum-check-box on nil focused 2)))))
-    (insert (lispm-desktop-settings--indent))
-    (insert-text-button
-     (concat (propertize " " 'display (funcall box nil)
-                         'lispm-desktop-platinum-plain (funcall box nil)
-                         'lispm-desktop-platinum-focused (funcall box t))
-             " " label)
-     'action (lambda (_) (funcall action) (lispm-desktop-settings--render))
-     'face 'default 'follow-link t
-     'help-echo (if on (lispm-desktop-tr "Turn off: %s" label) (lispm-desktop-tr "Turn on: %s" label)))
-    (when note
-      (insert "  " (propertize note 'face 'shadow)))
-    (insert "\n")))
-
-(defconst lispm-desktop-settings--icon-button-size '(52 . 50)
-  "Width and height in pixels of a bevel button holding a large icon, as
-Software Update's Update Now button.")
-
-(defun lispm-desktop-settings--icon-button-image (icon state focused)
-  "Return the image of a bevel button holding ICON, a 32-pixel icon's name,
-in STATE, nil or `pressed', ringed when FOCUSED.  The ring's room is
-always left, so the button keeps its place.  On a text terminal the
-button is text, the icon a character in it."
-  (if (lispm-desktop-tty-p)
-      (lispm-desktop-platinum-text-control
-       (lispm-desktop-platinum-text-button (concat " " (substring-no-properties
-                                                         (lispm-desktop-platinum-icon icon))
-                                                   " ")
-                                           state)
-       focused)
-   (lispm-desktop-platinum-image
-   (list 'settings-icon-button icon state focused)
-   (lambda ()
-     (pcase-let* ((`(,w . ,h) lispm-desktop-settings--icon-button-size)
-                  (palette lispm-desktop-platinum-current-palette)
-                  (pad 3)
-                  (svg (svg-create (+ w (* 2 pad)) (+ h (* 2 pad)))))
-       (when focused
-         (lispm-desktop-platinum-svg-focus-ring svg pad pad w h 1 palette))
-       (lispm-desktop-platinum-svg-embed
-        svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) pad pad w h)
-       (lispm-desktop-platinum-svg-emacs-image
-        svg (create-image (lispm-desktop-platinum-icon-file icon))
-        (+ pad (/ (- w 32) 2)) (+ pad (/ (- h 32) 2)) 32 32)
-       svg)))))
+  (insert (lispm-desktop-settings--indent))
+  (lispm-desktop-platinum-insert-check-box
+   label on (lambda () (funcall action) (lispm-desktop-settings--render))
+   :help (if on (lispm-desktop-tr "Turn off: %s" label) (lispm-desktop-tr "Turn on: %s" label)))
+  (when note
+    (insert "  " (propertize note 'face 'shadow)))
+  (insert "\n"))
 
 (defun lispm-desktop-settings--icon-button (icon label action help)
   "Insert, centred, a bevel button holding ICON, a 32-pixel icon's name,
 LABEL under it, running ACTION when pressed; HELP describes it.
 Return, Space and the mouse press it as a push button."
   (let ((half (if (lispm-desktop-tty-p)
-                  (/ (string-width (lispm-desktop-settings--icon-button-image icon nil nil)) 2)
-                (/ (+ (car lispm-desktop-settings--icon-button-size) 6) 2))))
+                  (/ (string-width (lispm-desktop-platinum-icon-button icon nil nil)) 2)
+                (/ (+ (car lispm-desktop-platinum-icon-button-size) 6) 2))))
     (insert (propertize " " 'display `(space :align-to (- center (,half)))))
-    (insert-text-button " "
-                        'display (lispm-desktop-settings--icon-button-image icon nil nil)
-                        'lispm-desktop-platinum-plain (lispm-desktop-settings--icon-button-image icon nil nil)
-                        'lispm-desktop-platinum-focused (lispm-desktop-settings--icon-button-image icon nil t)
-                        'lispm-desktop-platinum-pressed (lispm-desktop-settings--icon-button-image icon 'pressed nil)
-                        'action (lambda (_) (funcall action) (lispm-desktop-settings--render))
-                        'lispm-desktop-platinum-label label
-                        'face nil 'keymap lispm-desktop-platinum-push-button-map
-                        'help-echo help)
+    (lispm-desktop-platinum-insert-icon-button
+     icon label (lambda () (funcall action) (lispm-desktop-settings--render)) :help help)
     (insert "\n")
     (let ((label (propertize label 'face 'bold)))
       (insert (propertize " " 'display `(space :align-to (- center (,(/ (string-pixel-width label) 2)))))
