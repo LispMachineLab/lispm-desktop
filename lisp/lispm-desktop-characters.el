@@ -50,6 +50,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'image)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-apps)
