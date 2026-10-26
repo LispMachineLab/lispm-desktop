@@ -333,6 +333,20 @@ its screen is hidden goes out there at once."
       (lispm-desktop-apps--put frame (lispm-desktop-apps--geometry frame))
       (set-frame-parameter frame 'lispm-desktop-window-place (lispm-desktop-apps--geometry frame)))))
 
+(defun lispm-desktop-apps-show-window (frame)
+  "Show floating FRAME and keep it on the desktop, see
+`lispm-desktop-apps-keep-on-desktop'.  While its screen is hidden, in the
+Dock or out of sight, the window goes out on the computer's screen before
+it shows, and is framed there: shown first as a child of the hidden
+screen, macOS would bring the screen back on the screen with it, while
+Emacs took it for hidden still."
+  (when-let* ((screen (lispm-desktop-platinum-window-parent frame))
+              ((lispm-desktop-apps-hidden-p screen))
+              ((fboundp 'lispm-desktop-coherence-take-out)))
+    (lispm-desktop-coherence-take-out frame))
+  (lispm-desktop-platinum-show-window frame)
+  (lispm-desktop-apps-keep-on-desktop frame))
+
 (defun lispm-desktop-apps--place-windows (screen &optional again)
   "Put the floating windows of SCREEN back in their places, each kept on the
 desktop and given back its own size where there is room.  AGAIN forces

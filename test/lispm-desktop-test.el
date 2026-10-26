@@ -6461,6 +6461,38 @@ so of itself once hidden so."
   (cl-letf (((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&rest _) '(:left 0))))
     (should-not (lispm-desktop-coherence-out-of-sight-p 'screen))))
 
+;; Opened with the desktop out of sight, Tetris or the App Store showed the
+;; whole desktop again: its window was shown as a child of the hidden screen,
+;; which macOS orders in with it, before it went out.
+(ert-deftest lispm-desktop-test-apps-show-window-hidden-screen ()
+  "A window shown while its screen is hidden goes out before it shows; one
+over a screen shown is shown and kept on it."
+  (let ((done nil) (hidden nil))
+    (cl-letf (((symbol-function 'lispm-desktop-platinum-window-parent) (lambda (_) 'screen))
+              ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&rest _) hidden))
+              ((symbol-function 'lispm-desktop-coherence-take-out) (lambda (frame) (push (list 'out frame) done)))
+              ((symbol-function 'lispm-desktop-platinum-show-window) (lambda (frame) (push (list 'show frame) done)))
+              ((symbol-function 'lispm-desktop-apps-keep-on-desktop) (lambda (frame) (push (list 'keep frame) done))))
+      (lispm-desktop-apps-show-window 'window)
+      (should (equal (reverse done) '((show window) (keep window))))
+      (setq done nil hidden '(:left 0 :out-of-sight out-of-sight))
+      (lispm-desktop-apps-show-window 'window)
+      (should (equal (reverse done) '((out window) (show window) (keep window)))))))
+
+(ert-deftest lispm-desktop-test-app-window-present-shows-out ()
+  "An application's window is shown the way that takes it out first while
+the desktop is hidden, then raised, with the keyboard, its application in
+front."
+  (let ((done nil))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-frame) (lambda (_) 'window))
+              ((symbol-function 'lispm-desktop-app-window--app) (lambda (id) id))
+              ((symbol-function 'lispm-desktop-apps-show-window) (lambda (frame) (push (list 'show frame) done)))
+              ((symbol-function 'lispm-desktop-platinum-raise-window) (lambda (frame) (push (list 'raise frame) done)))
+              ((symbol-function 'select-frame-set-input-focus) (lambda (frame &rest _) (push (list 'focus frame) done)))
+              ((symbol-function 'lispm-desktop-apps-set-frontmost) (lambda (app) (push (list 'front app) done))))
+      (should (eq (lispm-desktop-app-window-present 'tetris) 'window))
+      (should (equal (reverse done) '((show window) (raise window) (focus window) (front tetris)))))))
+
 (ert-deftest lispm-desktop-test-apps-changed-hook ()
   "Defining an application, or removing one, runs the hook the computer's
 applications are made by."
