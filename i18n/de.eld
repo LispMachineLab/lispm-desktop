@@ -1059,6 +1059,7 @@
   ("%s is being updated already" . "%s wird bereits aktualisiert")
   ("Update “%s”?" . "„%s“ aktualisieren?")
   ("What changes is shown under the window." . "Was sich ändert, steht unter dem Fenster.")
+  ("It needs %s now, which is installed first." "Es braucht jetzt %s, das zuerst installiert wird." "Es braucht jetzt %s, die zuerst installiert werden.")
   ("Updating %s…" . "%s wird aktualisiert …")
   ("App Store: %s can be updated, in its Updates" "App Store: %s kann unter „Updates“ aktualisiert werden" "App Store: %s können unter „Updates“ aktualisiert werden")
   ("The App Store lists %s already" . "Der App Store führt %s bereits")
