@@ -10757,6 +10757,38 @@ their newest."
         (lispm-desktop-store--queue (list '(emms :kind app :name "EMMS" :command emms :package emms)) 'update))
       (should (equal (nreverse tasks) '((update elfeed "new" "old") (upgrade emms)))))))
 
+(ert-deftest lispm-desktop-test-store-update-requires-first ()
+  "Updating an item its catalog now says requires one not installed
+installs that one first, the alert saying so; another update requiring
+it too leaves it to the first."
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--store-catalog
+     "https://example.org/store"
+     '((kit :kind app :name "Kit" :command kit :package (kit :url "k" :rev "1"))
+       (one :kind app :name "One" :command one :requires (kit) :package (one :url "o" :rev "new"))
+       (two :kind app :name "Two" :command two :requires (kit) :package (two :url "t" :rev "new"))))
+    (setq lispm-desktop-store-installed
+          '((one :kind app :name "One" :command one :package (one :url "o" :rev "old")
+                 :catalog "https://example.org/store" :installed "old" :owned t)
+            (two :kind app :name "Two" :command two :package (two :url "t" :rev "old")
+                 :catalog "https://example.org/store" :installed "old" :owned t)))
+    (lispm-desktop-store--register-installed)
+    (let ((lispm-desktop-store-install-in-background t)
+          (asked nil)
+          (tasks nil))
+      (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
+                 (lambda (_question detail preview _action) (push (cons detail preview) asked) t))
+                ((symbol-function 'lispm-desktop-store--spawn) (lambda (_job task) (push task tasks))))
+        (lispm-desktop-store-update 'one)
+        (should (string-search "It needs “Kit” now, which is installed first." (car (car asked))))
+        (should (string-search "Kit, application" (cdr (car asked))))
+        (lispm-desktop-store-update 'two)
+        (should-not (string-search "installed first" (car (car asked))))
+        (should (equal (mapcar (lambda (job) (list (lispm-desktop-store-job-id job) (lispm-desktop-store-job-action job)))
+                               lispm-desktop-store--jobs)
+                       '((kit install) (one update) (two update))))
+        (should (equal tasks '((install (kit :url "k" :rev "1")))))))))
+
 (ert-deftest lispm-desktop-test-store-stoppable ()
   "A job waiting can be stopped, an install in the background all along,
 an update only until it builds; one in this Emacs cannot."

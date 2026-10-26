@@ -1059,6 +1059,7 @@
   ("%s is being updated already" . "%s 已在更新中")
   ("Update “%s”?" . "要更新“%s”吗？")
   ("What changes is shown under the window." . "更改内容显示在窗口下方。")
+  ("It needs %s now, which is installed first." "它现在需要 %s，会先安装。")
   ("Updating %s…" . "正在更新 %s…")
   ("App Store: %s can be updated, in its Updates" "App Store：%s 可以更新，见其“更新”")
   ("The App Store lists %s already" . "App Store 已列出 %s")

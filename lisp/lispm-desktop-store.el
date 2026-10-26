@@ -942,9 +942,10 @@ are only made applications: nothing asks."
                     "\n")
          (lispm-desktop-tr "Install")))))
 
-(defun lispm-desktop-store--to-install (id)
+(defun lispm-desktop-store--to-install (id &optional from)
   "Return the items installing the item ID brings, those it requires first
-and those installed, or being installed, left out."
+and those installed, or being installed, left out.  FROM, the ID of an
+item requiring ID, leaves ID out too while it is being installed."
   (let ((items (lispm-desktop-store-items))
         (order nil)
         (visiting nil))
@@ -960,8 +961,16 @@ and those installed, or being installed, left out."
                       (dolist (required (plist-get (cdr item) :requires))
                         (visit required id))
                       (push item order)))))
-      (visit id nil))
+      (visit id from))
     (nreverse order)))
+
+(defun lispm-desktop-store--update-requires (id props)
+  "Return the items updating the item ID to PROPS installs first: those
+its catalog says it requires now, and what they require, those
+installed, or being installed, left out."
+  (seq-uniq (mapcan (lambda (required) (lispm-desktop-store--to-install required id))
+                    (plist-get props :requires))
+            (lambda (item other) (eq (car item) (car other)))))
 
 (defun lispm-desktop-store--check-program (props)
   "Signal a `user-error' when the item of PROPS needs a newer Emacs, or a
@@ -1154,18 +1163,20 @@ while it runs in the background, an update until it builds, as Mac OS
                    (or (eq (lispm-desktop-store-job-action job) 'install)
                        (memq (lispm-desktop-store-job-stage job) '(preparing archives download)))))))
 
-(defun lispm-desktop-store--queue (items action &optional then)
+(defun lispm-desktop-store--queue (items action &optional then before)
   "Install or update, as ACTION says, ITEMS, (ID . PROPERTIES), one after
-another; an earlier attempt that failed is forgotten.  THEN, when given,
-is called once the last is done, unless one fails."
+another, the items BEFORE installed first; an earlier attempt that failed
+is forgotten.  THEN, when given, is called once the last is done, unless
+one fails."
   (let ((group (list action)))
-    (dolist (item items)
+    (pcase-dolist (`(,item . ,doing) (append (mapcar (lambda (item) (cons item 'install)) before)
+                                             (mapcar (lambda (item) (cons item action)) items)))
       (when-let* ((old (lispm-desktop-store--job (car item))))
         (lispm-desktop-store--forget-job old))
       (setq lispm-desktop-store--jobs
             (append lispm-desktop-store--jobs
                     (list (lispm-desktop-store--make-job :id (car item) :item item
-                                                         :action action :group group
+                                                         :action doing :group group
                                                          :then (and (eq item (car (last items))) then)))))))
   (lispm-desktop-store--render)
   (lispm-desktop-store--next))
@@ -1730,8 +1741,10 @@ package to the commit the catalog pins, or to the package archives'
 newest.  It is updated in the background, as it is installed, see
 `lispm-desktop-store-install'; an extension is loaded again, so the new
 code takes part at once.  The skills that came with it are copied anew
-from its catalog; when only they changed, nothing else is done.
-QUIETLY, as when updates install by themselves, asks nothing."
+from its catalog; when only they changed, nothing else is done.  The
+items its catalog says it requires now, and are not installed, are
+installed first.  QUIETLY, as when updates install by themselves, asks
+nothing."
   (interactive (list (lispm-desktop-store--read-item (lispm-desktop-tr "Update: ")
                                                      #'lispm-desktop-store-update-available-p)))
   (let* ((installed (or (lispm-desktop-store--installed id)
@@ -1741,18 +1754,32 @@ QUIETLY, as when updates install by themselves, asks nothing."
       (user-error (lispm-desktop-tr "%s is up to date") (plist-get installed :name)))
     (when (lispm-desktop-store--busy-p id)
       (user-error (lispm-desktop-tr "%s is being updated already") (plist-get installed :name)))
-    (when (or quietly
-              (lispm-desktop-store--confirm (lispm-desktop-tr "Update “%s”?" (plist-get props :name))
-                                            (lispm-desktop-tr "What changes is shown under the window.")
-                                            (lispm-desktop-store--changes installed props id)
-                                            (lispm-desktop-tr "Update")))
-      (if (lispm-desktop-store--package-update-p id)
-          (lispm-desktop-store--queue (list (cons id props)) 'update)
-        ;; Only skills that came with it changed: copied anew, nothing to
-        ;; build or load.
-        (lispm-desktop-store--sync-skills (list id))
-        (lispm-desktop-store--render)
-        (run-hooks 'lispm-desktop-update-changed-hook)))))
+    (let ((requires (lispm-desktop-store--update-requires id props)))
+      ;; Nothing is asked about what could not run here.
+      (dolist (item requires)
+        (lispm-desktop-store--check-program (cdr item)))
+      (when (or quietly
+                (lispm-desktop-store--confirm
+                 (lispm-desktop-tr "Update “%s”?" (plist-get props :name))
+                 (concat (lispm-desktop-tr "What changes is shown under the window.")
+                         (when requires
+                           (concat "  " (lispm-desktop-tr-n "It needs %s now, which is installed first."
+                                                            "It needs %s now, which are installed first."
+                                                            (length requires)
+                                                            (lispm-desktop-store--names requires)))))
+                 (concat (lispm-desktop-store--changes installed props id)
+                         (mapconcat (lambda (item) (concat "\n" (lispm-desktop-store--preview item)))
+                                    requires ""))
+                 (lispm-desktop-tr "Update")))
+        (if (lispm-desktop-store--package-update-p id)
+            (lispm-desktop-store--queue (list (cons id props)) 'update nil requires)
+          ;; Only skills that came with it changed: copied anew, nothing to
+          ;; build or load.
+          (lispm-desktop-store--sync-skills (list id))
+          (when requires
+            (lispm-desktop-store--queue requires 'install))
+          (lispm-desktop-store--render)
+          (run-hooks 'lispm-desktop-update-changed-hook))))))
 
 (defun lispm-desktop-store--update-here (job)
   "Do JOB, an update, in this Emacs, which waits meanwhile, the pointer a

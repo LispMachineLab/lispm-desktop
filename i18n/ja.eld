@@ -1059,6 +1059,7 @@
   ("%s is being updated already" . "%sはすでにアップデート中です")
   ("Update “%s”?" . "「%s」をアップデートしますか？")
   ("What changes is shown under the window." . "変更内容はウインドウの下部に表示されています。")
+  ("It needs %s now, which is installed first." "これからは%sが必要なため、先にインストールされます。")
   ("Updating %s…" . "%sをアップデート中…")
   ("App Store: %s can be updated, in its Updates" "App Store：%sをアップデートできます（「アップデート」で確認できます）")
   ("The App Store lists %s already" . "App Storeにはすでに%sが載っています")
