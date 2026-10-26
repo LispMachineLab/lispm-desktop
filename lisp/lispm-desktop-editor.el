@@ -568,8 +568,7 @@ full screen."
               (tab-bar-rename-tab (or (bound-and-true-p tabspaces-default-tab) "Home"))
             (tab-bar-select-tab (+ 2 (or (seq-position names workspace) 0)))
             (tab-bar-tabs-set (cdr (funcall tab-bar-tabs-function frame)) frame))))
-      (lispm-desktop-platinum-show-window frame)
-      (lispm-desktop-apps-keep-on-desktop frame)
+      (lispm-desktop-apps-show-window frame)
       (select-frame-set-input-focus frame)
       (let ((lispm-desktop-editor--moving nil))
         (with-selected-frame frame
