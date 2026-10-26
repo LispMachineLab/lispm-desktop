@@ -1212,13 +1212,18 @@ names, installed from the App Store."
 
 (defun lispm-desktop-app-ui--elsewhere-p (buffer-or-name action)
   "Return non-nil when an installed application's buffer is about to show
-outside its window, ACTION not asking for the selected window.
+outside its window, ACTION not asking for the selected window.  Not while
+the user reads in a minibuffer, but for the LispM bar's field: there
+LispM itself shows what it opens, the bar kept in front.
 This is the `display-buffer-alist' condition sending it there."
   (when-let* ((buffer (get-buffer buffer-or-name))
               (app (lispm-desktop-app-ui--home buffer)))
     (and (not (eq (lispm-desktop-app-ui-app) app))
          (not (memq 'display-buffer-same-window (ensure-list (car-safe action))))
-         (not (active-minibuffer-window)))))
+         (let ((minibuffer (active-minibuffer-window)))
+           (or (not minibuffer)
+               (and (fboundp 'lispm-desktop-bar-field-p)
+                    (lispm-desktop-bar-field-p (window-frame minibuffer))))))))
 
 (defun lispm-desktop-app-ui-display-home (buffer alist)
   "Display BUFFER in its application's window, opened or brought in front

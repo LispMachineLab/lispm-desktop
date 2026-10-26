@@ -161,6 +161,10 @@ tools, for the bar's activity line, as \"Opening Stickies…\"; or nil."
 (defvar lispm-desktop-bar--field nil
   "The LispM bar's field: a child frame of the screen, of its own minibuffer only.")
 
+(defun lispm-desktop-bar-field-p (frame)
+  "Return non-nil when FRAME is the LispM bar's field."
+  (and frame (eq frame lispm-desktop-bar--field)))
+
 (defvar lispm-desktop-bar--panel nil
   "The LispM bar's panel under its field: a child frame showing the bar's lines.")
 
