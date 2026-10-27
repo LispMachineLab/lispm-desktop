@@ -16283,6 +16283,29 @@ the text field point is in is framed in the focus colour."
                                (lispm-desktop-form--image 'button 'default "Adopt"))))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
+(ert-deftest lispm-desktop-test-form-dressed-not-lispm ()
+  "A form not LispM's, drawn with Emacs's widgets as LispM Mail's settings
+are, is put in the desktop's look once drawn, its text areas white
+panels; LispM's own forms take their faces before they are drawn."
+  (require 'wid-edit)
+  (with-temp-buffer
+    (let ((area (widget-create 'text :value "Yours,\nAda\n")))
+      (widget-setup)
+      (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
+        (lispm-desktop-form-dress))
+      (should (eq (overlay-get (widget-get area :field-overlay) 'face) 'lispm-desktop-form-text-area))
+      (should (equal (overlay-get (widget-get area :field-overlay) 'line-prefix) "  "))
+      (should (assq 'widget-field face-remapping-alist))
+      (should (memq #'lispm-desktop-form--follow post-command-hook))))
+  (when (require 'lispm-form nil t)
+    (with-temp-buffer
+      (lispm-form-mode)
+      (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
+        (lispm-desktop-form--faces)
+        (setq face-remapping-alist nil)
+        (lispm-desktop-form-dress))
+      (should-not face-remapping-alist))))
+
 (defmacro lispm-desktop-test--with-characters (&rest body)
   "Run BODY with LispM's characters in a scratch directory, their applications
 followed, and the applications and icons of the test's own."
@@ -16332,7 +16355,9 @@ the Characters application lists them; deleted, its application goes."
         (should (memq 'character-ada (lispm-desktop-standalone-apps))))
       ;; The Characters application lists it.
       (with-current-buffer (lispm-desktop-characters--buffer)
-        (should (string-match-p "Ada   Reviews changes\\." (buffer-string)))
+        (should (string-match-p "^   Ada Reviews changes\\.$" (buffer-string)))
+        ;; Below the list, who the one point is on is.
+        (should (eq lispm-desktop-characters--selected 'ada))
         (should (eq (lispm-character-name (lispm-desktop-characters--at-point)) 'ada)))
       ;; Its name changed, its application is called so.
       (lispm-save-character 'ada :title "Ada L.")
@@ -16358,6 +16383,29 @@ lines are cut off."
       (lispm-desktop-app-ui-mode)
       (should-not truncate-lines)
       (should visual-line-mode))))
+
+(ert-deftest lispm-desktop-test-characters-pane-lines ()
+  "The list of characters says of a conversation where it is and how it
+is, and of a line of a diary when it was and who asked what."
+  (should (equal (substring-no-properties
+                  (lispm-desktop-characters--conversation-line '(:home t :live nil :time nil)))
+                 "At home · "))
+  (should (equal (substring-no-properties
+                  (lispm-desktop-characters--conversation-line
+                   `(:root "/tmp/p/" :live ,(list 'agent) :state requesting)))
+                 "In /tmp/p/ · working now"))
+  (let ((today (format-time-string "%Y-%m-%d")))
+    (should (equal (substring-no-properties
+                    (lispm-desktop-characters--day-line
+                     `(:day ,today :title "14:02 ada@p" :text "In ~/p, the user asked: look\nYou replied: ok")
+                     1000))
+                   "14:02  You: look"))
+    (should (equal (substring-no-properties
+                    (lispm-desktop-characters--day-line
+                     '(:day "2026-10-01" :title "09:00 ada" :text "In your own conversation, codex asked: hi")
+                     1000))
+                   "2026-10-01 09:00  codex: hi"))
+    (should (string-suffix-p "…" (lispm-desktop-characters--fit (make-string 200 ?x) 50)))))
 
 (ert-deftest lispm-desktop-test-store-apps-are-characters ()
   "An application installed from the App Store with a skill is a character
