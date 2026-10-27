@@ -24,12 +24,12 @@
 ;;; Commentary:
 
 ;; LispM Desktop runs other LispM projects, each a repository of its own:
-;; lispm-kit, the engine its words are translated with, lispm-agent,
-;; LispM's agents, lispm-browser, its browser, and, unless
-;; `lispm-desktop-kernel' is nil, lispm-kernel, its runtime for
-;; background work.  Each is found where it already is, else in a checkout
-;; beside the desktop's, else its latest release is installed from its
-;; repository with package-vc:
+;; lispm-kit, the engine its words are translated with, lispm-ui, the
+;; library it draws forms and asks with, lispm-agent, LispM's agents,
+;; lispm-browser, its browser, and, unless `lispm-desktop-kernel' is nil,
+;; lispm-kernel, its runtime for background work.  Each is found where
+;; it already is, else in a checkout beside the desktop's, else its
+;; latest release is installed from its repository with package-vc:
 ;;
 ;;   on `load-path'        a copy the user's own init file put there
 ;;   ../lispm-agent/lisp   a checkout beside this one, as a developer
@@ -86,6 +86,8 @@ while LispM Kit, which translates them, is being installed."
   '((lispm-kit :url "https://github.com/LispMachineLab/lispm-kit" :checkout "lispm-kit"
                ;; Newer than 0.1.0, whose engine translates nothing.
                :needs "lispm-kit-i18n")
+    (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
+              :version "0.1.0")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Newer than lispm-agents, which the desktop needs too.

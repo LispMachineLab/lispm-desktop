@@ -349,7 +349,9 @@ each, those it leaves uncompiled too."
   (user-error "%s" (string-trim-right (substring-no-properties prompt) "[ ?:]+")))
 
 (defconst lispm-desktop-store-installer-libraries
-  '((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt"))
+  '((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt")
+    (lispm-kit :url "https://github.com/LispMachineLab/lispm-kit")
+    (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui"))
   "LispM's libraries a package may require that no package archive holds,
 \(NAME :url URL) each.  A package requiring one, in its Package-Requires,
 has it installed first, from git at its latest release.")

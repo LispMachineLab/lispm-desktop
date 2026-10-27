@@ -519,7 +519,7 @@ An error if there is none."
   (pcase-let* ((`(,width . ,height) (lispm-desktop-characters--form-size form))
                (frame (lispm-desktop-app-window-show
                        'character-form
-                       :name (buffer-local-value 'lispm-ui-form--title form)
+                       :name (lispm-ui-form-title form)
                        :buffer form
                        :size (cons width height))))
     ;; The window opens where the last form's was, but each form is a size
@@ -533,7 +533,7 @@ An error if there is none."
 (defun lispm-desktop-characters--form-size (form)
   "The size of the window of FORM, a form's buffer: as wide as its group
 boxes, as tall as all of it, as far as the screen allows."
-  (let* ((outer (or (plist-get (buffer-local-value 'lispm-ui-form--geometry form) :outer) 480))
+  (let* ((outer (or (plist-get (lispm-ui-form-geometry form) :outer) 480))
          (height (cdr (buffer-text-pixel-size form)))
          (screen (lispm-desktop-apps-screen)))
     (cons (+ outer (lispm-desktop-px 40))
@@ -600,8 +600,8 @@ chat does, where a character's window shows it."
   (setq-local truncate-lines nil)
   (visual-line-mode 1))
 
-(defvar lispm-ui-form--title)
-(defvar lispm-ui-form--geometry)
+(declare-function lispm-ui-form-title "lispm-ui-form" (&optional buffer))
+(declare-function lispm-ui-form-geometry "lispm-ui-form" (&optional buffer))
 
 (defun lispm-desktop-setup-characters ()
   "Give LispM's characters their applications, if LispM has characters."

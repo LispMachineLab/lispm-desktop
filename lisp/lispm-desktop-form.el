@@ -19,9 +19,10 @@
 
 ;;; Commentary:
 
-;; LispM Agent writes forms as data and draws them with Emacs's widgets
-;; (lispm-ui-form.el), laid out as a dialog, knowing nothing of the desktop.
-;; The desktop dresses them in its look, as it draws its own windows:
+;; LispM UI draws forms written as data with Emacs's widgets
+;; (lispm-ui-form.el), laid out as a dialog, knowing nothing of the
+;; desktop, as LispM's agents and applications write them.  The desktop
+;; dresses them in its look, as it draws its own windows:
 ;;
 ;;   - in the system face on the platinum ground, the faces remapped
 ;;     before the form is drawn, so that it is measured in them;
@@ -43,6 +44,10 @@
 ;; A form is drawn again when the look, the theme or the language
 ;; changes.  Shown in an application's window, it is titled with its own
 ;; title, its keys listed in its Help menu, not above its fields.
+;;
+;; What LispM UI asks a person otherwise, an alert, a choice or a file
+;; (lispm-ui-ask.el), it asks in the desktop's alerts, menus and Choose a
+;; File dialog, and it speaks the desktop's language.
 
 ;;; Code:
 
@@ -56,25 +61,9 @@
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-choose)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-form)
+(require 'lispm-ui-ask)
 
-(defvar lispm-ui-form-glyph-function)
-(defvar lispm-ui-form-group-function)
-(defvar lispm-ui-form-choose-function)
-(defvar lispm-ui-form-choose-file-function)
-(defvar lispm-ui-form-drawn-hook)
-(defvar lispm-ui-form-mode-hook)
-(defvar lispm-ui-form-show-header)
-(defvar lispm-ui-form-width)
-(defvar lispm-ui-form--geometry)
-(defvar lispm-ui-form--title)
-(defvar widget-field-list)
-(declare-function lispm-ui-form-redraw "lispm-ui-form" ())
-(declare-function lispm-ui-form-choose "lispm-ui-form" (label choices value event))
-(declare-function widget-at "wid-edit" (&optional pos))
-(declare-function widget-field-at "wid-edit" (pos))
-(declare-function widget-get "wid-edit" (widget property))
-(declare-function widget-value "wid-edit" (widget))
-(declare-function widget-type "wid-edit" (widget))
 (declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 
 (defvar-local lispm-desktop-form--focus nil
@@ -306,25 +295,31 @@ in use here too, its text areas white panels.  Run from
 
 (defun lispm-desktop-form--title ()
   "The title of the form in this buffer, for its window."
-  lispm-ui-form--title)
+  (lispm-ui-form-title))
 
 (defun lispm-desktop-form-setup ()
-  "Dress LispM's forms in the desktop's look, if LispM has forms."
-  (when (require 'lispm-ui-form nil t)
-    (setq lispm-ui-form-glyph-function #'lispm-desktop-form-glyph
-          lispm-ui-form-group-function #'lispm-desktop-form-group
-          lispm-ui-form-choose-function #'lispm-desktop-form-choose
-          lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
-    (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--faces)
-    (add-hook 'lispm-ui-form-drawn-hook #'lispm-desktop-form-dress)
-    (add-hook 'enable-theme-functions #'lispm-desktop-form-redraw-all)
-    (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-form-redraw-all)
-    (with-eval-after-load 'lispm-desktop-app-ui
-      (lispm-desktop-app-ui-define 'lispm-ui-form-mode
-                                   :title #'lispm-desktop-form--title
-                                   :buttons nil
-                                   :bottom nil
-                                   :setup #'lispm-desktop-form--wrap))))
+  "Dress LispM UI's forms in the desktop's look, and have LispM UI ask what
+it asks in the desktop's alerts, menus and dialog, in its language."
+  (setq lispm-ui-form-glyph-function #'lispm-desktop-form-glyph
+        lispm-ui-form-group-function #'lispm-desktop-form-group
+        lispm-ui-form-choose-function #'lispm-desktop-form-choose
+        lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
+  (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--faces)
+  (add-hook 'lispm-ui-form-drawn-hook #'lispm-desktop-form-dress)
+  (add-hook 'enable-theme-functions #'lispm-desktop-form-redraw-all)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-form-redraw-all)
+  (setq lispm-ui-alert-function #'lispm-desktop-popup-alert
+        lispm-ui-choose-function #'lispm-desktop-platinum-choose
+        lispm-ui-choose-file-function #'lispm-desktop-choose-file)
+  ;; Before LispM's agent's, which follows the desktop's too.
+  (add-hook 'lispm-ui-language-functions #'lispm-desktop-current-language -50)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-ui-language-changed)
+  (with-eval-after-load 'lispm-desktop-app-ui
+    (lispm-desktop-app-ui-define 'lispm-ui-form-mode
+                                 :title #'lispm-desktop-form--title
+                                 :buttons nil
+                                 :bottom nil
+                                 :setup #'lispm-desktop-form--wrap)))
 
 (defun lispm-desktop-form--wrap ()
   "Wrap the lines of the form in this buffer at words, as its help is read."
