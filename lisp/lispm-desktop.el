@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.15.0
+;; Version: 0.15.1
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
