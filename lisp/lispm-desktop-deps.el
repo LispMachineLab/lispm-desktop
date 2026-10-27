@@ -32,22 +32,25 @@
 ;;
 ;;   on `load-path'        a copy the user's own init file put there
 ;;   ../lispm-agent/lisp   a checkout beside this one, as a developer
-;;   ../lispm-browser/lisp   keeps them
-;;   ../lispm-kernel/lisp
+;;   ../lispm-browser/lisp   keeps them; a project whose sources are at
+;;   ../lispm-kernel/lisp    the top of its repository, as a library's,
+;;                           is the checkout itself
 ;;   package-vc            the first start of everyone else, once
 ;;
 ;; package-vc installs a project's latest release, the newest tag vX.Y.Z,
 ;; as install.sh checks it out: package-vc's own :last-release finds none
 ;; for a main file under lisp/, and would install the main branch.  The
 ;; packages their main files require are installed as package.el would
-;; install them for the package.
+;; install them for the package, but for those found already: on
+;; `load-path', or a project of the desktop's here without installing.
 ;;
 ;; A project may have to be new enough: the desktop needs lispm-agent's
-;; editor's agents, lispm-agents.el, which releases before 0.4.0 lack.
-;; A copy installed as a package, which Software Update moved on only
-;; from 0.9.1, is then updated to its latest release before anything of
-;; it loads, in an Emacs of its own (lispm-desktop-store-installer.el);
-;; of a checkout, the desktop says what to update.
+;; editor's agents, lispm-agents.el, which releases before 0.4.0 lack,
+;; and a project may have to be of a version at least.  A copy installed
+;; as a package, which Software Update moved on only from 0.9.1, is then
+;; updated to its latest release before anything of it loads, in an Emacs
+;; of its own (lispm-desktop-store-installer.el); of a checkout, the
+;; desktop says what to update.
 ;;
 ;; A batch Emacs installing packages, as LispM.app's installer runs one,
 ;; can say each it installs, and how many there are, with
@@ -64,26 +67,42 @@
 
 (defconst lispm-desktop-deps
   '((lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
+           :lisp-dir "lisp"
            ;; Newer than lispm-agents, which the desktop needs too.
            :needs "lispm-exec")
-    (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser")
-    (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"))
+    (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
+                   :lisp-dir "lisp")
+    (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"
+                  :lisp-dir "lisp"))
   "The LispM projects the desktop runs: (FEATURE :url URL :checkout NAME
-:needs LIBRARY).  FEATURE is the project's main file, in lisp/ of its
-repository at URL; NAME is the directory of a checkout of it beside the
-desktop's; LIBRARY, when given, a library of it the desktop needs, which
-older releases lack.")
+:lisp-dir DIRECTORY :needs LIBRARY :version VERSION).  FEATURE is the
+project's main file, in DIRECTORY of its repository at URL, or at its
+top without one; NAME is the directory of a checkout of it beside the
+desktop's; LIBRARY, when given, a library of it the desktop needs, and
+VERSION the version at least its main file says, which older releases
+lack.")
 
 (defun lispm-desktop-deps--checkout (name)
-  "Return lisp/ of the checkout NAME beside the desktop's, or nil."
-  (let ((directory (expand-file-name (concat "../" name "/lisp") lispm-desktop-directory)))
+  "Return where the sources of the checkout NAME beside the desktop's are,
+its :lisp-dir in `lispm-desktop-deps', or nil when there is none."
+  (let* ((spec (cdr (seq-find (lambda (entry) (equal (plist-get (cdr entry) :checkout) name))
+                              lispm-desktop-deps)))
+         (lisp (plist-get spec :lisp-dir))
+         (directory (expand-file-name (concat "../" name (and lisp (concat "/" lisp)))
+                                      lispm-desktop-directory)))
     (and (file-directory-p directory) directory)))
 
 (defun lispm-desktop-deps--requirements (file)
-  "Return the packages FILE, a package's main file, requires and lacks."
+  "Return the packages FILE, a package's main file, requires and lacks.
+A requirement found already is no lack: on `load-path', as a checkout
+of a LispM project the user keeps, or a project of the desktop's here
+without installing, see `lispm-desktop-deps-present-p'."
   (seq-remove (lambda (dep)
                 (or (eq (car dep) 'emacs)
-                    (package-installed-p (car dep) (cadr dep))))
+                    (package-installed-p (car dep) (cadr dep))
+                    (locate-library (concat (symbol-name (car dep)) ".el") t)
+                    (and (assq (car dep) lispm-desktop-deps)
+                         (lispm-desktop-deps-present-p (car dep)))))
               (package-desc-reqs
                (with-temp-buffer
                  (insert-file-contents file)
@@ -132,26 +151,48 @@ file, or nil when it is in no such package."
                      desc)))
             package-alist))
 
-(defun lispm-desktop-deps--catch-up (main needs)
-  "Make the project whose main file is MAIN have NEEDS, a library of it
-the desktop needs: a package installed from git is updated to its
-latest release, in an Emacs of its own; anything else is an error saying
-what to update."
+(defun lispm-desktop-deps--version (main)
+  "Return the version MAIN, a project's main file, says, as a list, or nil
+when it says none."
+  (ignore-errors
+    (with-temp-buffer
+      (insert-file-contents main)
+      (package-desc-version (package-buffer-info)))))
+
+(defun lispm-desktop-deps--behind (main spec)
+  "Return what the project whose main file is MAIN lacks that the desktop
+needs of it, SPEC its plist in `lispm-desktop-deps', or nil: an error
+message saying what to update."
+  (let ((needs (plist-get spec :needs))
+        (version (plist-get spec :version))
+        (where (abbreviate-file-name (file-name-directory main))))
+    (cond ((and needs (not (locate-library needs)))
+           (format (lispm-desktop-tr "%s lacks %s, which this LispM Desktop needs; update it to its latest release")
+                   where needs))
+          ((when-let* ((version)
+                       (has (lispm-desktop-deps--version main)))
+             (version-list-< has (version-to-list version)))
+           (format (lispm-desktop-tr "%s is older than %s, which this LispM Desktop needs; update it to its latest release")
+                   where version)))))
+
+(defun lispm-desktop-deps--catch-up (main spec)
+  "Make the project whose main file is MAIN have what the desktop needs of
+it, SPEC its plist in `lispm-desktop-deps': a package installed from
+git is updated to its latest release, in an Emacs of its own; anything
+else is an error saying what to update."
   (let* ((desc (lispm-desktop-deps--package main))
          (directory (and desc (package-desc-dir desc)))
          (release (and directory (lispm-desktop-deps--release directory))))
     (unless release
-      (error (lispm-desktop-tr "%s lacks %s, which this LispM Desktop needs; update it to its latest release")
-             (abbreviate-file-name (file-name-directory main)) needs))
+      (error "%s" (lispm-desktop-deps--behind main spec)))
     (message (lispm-desktop-tr "Updating %s to its latest release, which this LispM Desktop needs…")
              (abbreviate-file-name directory))
     (lispm-desktop-store-installer-call
      `(update ,(package-desc-name desc) ,release ,(lispm-desktop-deps--git directory "rev-parse" "HEAD")))
     ;; Built again: what it autoloads now.
     (load (expand-file-name (format "%s-autoloads" (package-desc-name desc)) directory) t t)
-    (unless (locate-library needs)
-      (error (lispm-desktop-tr "%s lacks %s, which this LispM Desktop needs; update it to its latest release")
-             (abbreviate-file-name directory) needs))))
+    (when-let* ((behind (lispm-desktop-deps--behind main spec)))
+      (error "%s" behind))))
 
 (defun lispm-desktop-deps-ensure (feature)
   "Make FEATURE, a project of `lispm-desktop-deps', loadable.
@@ -161,19 +202,20 @@ release of the project is installed from its repository with package-vc,
 its newest tag vX.Y.Z, or the commit that last changed its Version header
 before it has one.  The packages its main file requires, and lacks, are
 installed.  A copy lacking the library the desktop needs of it, its
-:needs, is brought up to date, see `lispm-desktop-deps--catch-up'."
+:needs, or older than its :version, is brought up to date, see
+`lispm-desktop-deps--catch-up'."
   (pcase-let* ((spec (alist-get feature lispm-desktop-deps))
-               (`(,url ,checkout ,needs) (list (plist-get spec :url) (plist-get spec :checkout)
-                                               (plist-get spec :needs)))
+               (`(,url ,checkout ,lisp) (list (plist-get spec :url) (plist-get spec :checkout)
+                                              (plist-get spec :lisp-dir)))
                (file (concat (symbol-name feature) ".el")))
     (unless (locate-library file t)
       (if-let* ((directory (lispm-desktop-deps--checkout checkout)))
           (add-to-list 'load-path directory)
-        (package-vc-install (list feature :url url :lisp-dir "lisp")
+        (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
                             (or (lispm-desktop-deps--release-tag url) :last-release))))
     (when-let* ((main (locate-library file t)))
-      (when (and needs (not (locate-library needs)))
-        (lispm-desktop-deps--catch-up main needs))
+      (when (lispm-desktop-deps--behind main spec)
+        (lispm-desktop-deps--catch-up main spec))
       (when-let* ((missing (lispm-desktop-deps--requirements main)))
         (package-refresh-contents)
         (dolist (dep missing)

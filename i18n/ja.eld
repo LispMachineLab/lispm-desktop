@@ -1253,6 +1253,7 @@
   ("Kept: LispM.app on %s, to switch back to at once." . "保管中：%s の LispM.app。すぐに戻せます。")
   ("Software Update: %s could not be installed: %s" . "ソフトウェア・アップデート：%sをインストールできませんでした：%s")
   ("%s lacks %s, which this LispM Desktop needs; update it to its latest release" . "%sには、このLispM Desktopに必要な%sがありません。最新のリリースに更新してください")
+  ("%s is older than %s, which this LispM Desktop needs; update it to its latest release" . "%sは、このLispM Desktopに必要な%sより古いバージョンです。最新のリリースに更新してください")
   ("Updating %s to its latest release, which this LispM Desktop needs…" . "%sを、このLispM Desktopに必要な最新のリリースに更新しています…")
   ("Its program could not be had." . "プログラムを入手できませんでした。")
   ("background work, as reading the agents' sessions" . "エージェントのセッションの読み込みなどのバックグラウンド処理")
