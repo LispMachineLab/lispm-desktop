@@ -71,8 +71,12 @@ apt_install "libgccjit-$GCC-dev" \
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
-curl -fsSL --retry 5 -o "emacs-$EMACS_VERSION.tar.xz" \
-  "https://ftpmirror.gnu.org/gnu/emacs/emacs-$EMACS_VERSION.tar.xz"
+# From the first of GNU's servers that answers: the SHA-256 pinned above
+# makes any of them as good.
+for site in https://ftpmirror.gnu.org/gnu https://ftp.gnu.org/gnu https://mirrors.kernel.org/gnu; do
+  curl -fsSL --retry 2 --connect-timeout 30 -o "emacs-$EMACS_VERSION.tar.xz" \
+    "$site/emacs/emacs-$EMACS_VERSION.tar.xz" && break
+done
 echo "$EMACS_SHA256  emacs-$EMACS_VERSION.tar.xz" | sha256sum -c - >/dev/null ||
   fail "emacs-$EMACS_VERSION.tar.xz is not the one expected"
 tar xJf "emacs-$EMACS_VERSION.tar.xz"
@@ -100,9 +104,10 @@ ROOT=$WORK/root
 make install-strip DESTDIR="$ROOT" >>"$OUT/make-$SYSTEM.log" 2>&1
 
 # The package: what its programs link to, as dpkg-shlibdeps finds it in
-# the packages installed here, and what native compilation of the
-# packages LispM installs runs: libgccjit, with GCC's and the C library's
-# start files, and the assembler and linker.
+# the packages installed here; what native compilation of the packages
+# LispM installs runs: libgccjit, with GCC's and the C library's start
+# files, and the assembler and linker; and the certificates HTTPS is
+# checked against, which nothing else brings to a bare Ubuntu 22.04.
 ARCH=$(dpkg --print-architecture)
 mkdir -p "$WORK/debian"
 printf 'Source: lispm-emacs\n\nPackage: lispm-emacs\nArchitecture: any\n' >"$WORK/debian/control"
@@ -116,7 +121,7 @@ Version: $EMACS_VERSION-$REVISION~$SYSTEM
 Architecture: $ARCH
 Maintainer: LispMachineLab <https://github.com/LispMachineLab>
 Installed-Size: $(du -sk "$ROOT$PREFIX" | cut -f1)
-Depends: $depends, libgccjit-$GCC-dev, binutils, libc6-dev
+Depends: $depends, libgccjit-$GCC-dev, binutils, libc6-dev, ca-certificates
 Section: editors
 Priority: optional
 Homepage: https://lispm.ai
