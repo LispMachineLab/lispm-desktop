@@ -201,6 +201,34 @@ bars rising left to right, filled to FRACTION."
       separator
       (:label ,(lispm-desktop-tr "Processes") :action proced))))
 
+(defvar lispm-desktop-platinum-check-mail-functions nil
+  "Functions called, with no argument, as Check for Mail is chosen: an
+application reading mail asks its servers then.")
+
+(defvar lispm-desktop-platinum-open-mail-functions nil
+  "Functions called, with no argument, to read mail in an application's
+window, until one returns non-nil: it opened it.  None doing so, Emacs's
+`read-mail-command' reads it.")
+
+(defun lispm-desktop-platinum-read-mail ()
+  "Read mail: in the window of the application reading it, when it is one."
+  (interactive)
+  (unless (run-hook-with-args-until-success 'lispm-desktop-platinum-open-mail-functions)
+    (call-interactively read-mail-command)))
+
+(defun lispm-desktop-platinum-compose-mail ()
+  "Write a message, in the window of the application reading mail when it
+is one, as that application writes it."
+  (interactive)
+  (run-hook-with-args-until-success 'lispm-desktop-platinum-open-mail-functions)
+  (call-interactively #'compose-mail))
+
+(defun lispm-desktop-platinum-check-mail ()
+  "Check for mail: ask the application reading it, then show what is found."
+  (interactive)
+  (run-hooks 'lispm-desktop-platinum-check-mail-functions)
+  (display-time-update))
+
 (defun lispm-desktop-platinum-mail-items ()
   "Return the Mail menu: read, compose and check mail."
   `((:label ,(if lispm-desktop-platinum--mail
@@ -208,10 +236,10 @@ bars rising left to right, filled to FRACTION."
                 (lispm-desktop-tr "No new mail"))
             :enabled nil)
     separator
-    (:label ,(lispm-desktop-tr "Read Mail") :action ,(lambda () (call-interactively read-mail-command)))
-    (:label ,(lispm-desktop-tr "Compose Mail…") :action compose-mail)
+    (:label ,(lispm-desktop-tr "Read Mail") :action lispm-desktop-platinum-read-mail)
+    (:label ,(lispm-desktop-tr "Compose Mail…") :action lispm-desktop-platinum-compose-mail)
     separator
-    (:label ,(lispm-desktop-tr "Check for Mail") :action display-time-update)))
+    (:label ,(lispm-desktop-tr "Check for Mail") :action lispm-desktop-platinum-check-mail)))
 
 (defun lispm-desktop-platinum-battery-percent ()
   "Return the battery's charge in percent, or nil without a battery shown."

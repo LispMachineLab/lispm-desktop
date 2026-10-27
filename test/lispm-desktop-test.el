@@ -12439,6 +12439,58 @@ its command runs again."
       (lispm-desktop-app-ui-run 'test (lambda () (interactive) (setq ran t)))
       (should ran))))
 
+(ert-deftest lispm-desktop-test-app-ui-restores-its-panes ()
+  "An application whose window holds several panes is opened again by its
+:restore, which lays them out, rather than on the buffer it showed; its
+:size is the size its window first opens at."
+  (let ((lispm-desktop-app-ui-skins nil)
+        (restored nil))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :app 'test :size '(1000 . 600)
+                                 :restore (lambda () (setq restored t)))
+    (with-temp-buffer
+      (let ((lispm-desktop-app-ui--buffers (list (cons 'test (current-buffer)))))
+        (save-window-excursion
+          (lispm-desktop-app-ui-run 'test 'ignore))
+        (should restored)))
+    (should (equal (lispm-desktop-app-ui-window-size 'test) '(1000 . 600)))
+    (should-not (lispm-desktop-app-ui-window-size 'other))))
+
+(ert-deftest lispm-desktop-test-mail-application ()
+  "The Mail menu reads, writes and checks mail with the installed
+application reading it, Emacs's `read-mail-command', in its window."
+  (let ((lispm-desktop-store-installed '((notes :kind app :command notes)
+                                         (mail :kind app :command lispm-desktop-test-read-mail)))
+        (read-mail-command 'lispm-desktop-test-read-mail)
+        (lispm-desktop-platinum-open-mail-functions (list #'lispm-desktop-store--open-mail))
+        (lispm-desktop-platinum-check-mail-functions nil)
+        (opened nil)
+        (checked nil))
+    (should (eq (lispm-desktop-store-mail-application) 'mail))
+    (cl-letf (((symbol-function 'lispm-desktop-store-open) (lambda (app) (push app opened)))
+              ((symbol-function 'display-time-update) #'ignore))
+      (lispm-desktop-platinum-read-mail)
+      (should (equal opened '(mail)))
+      (add-hook 'lispm-desktop-platinum-check-mail-functions (lambda () (setq checked t)))
+      (lispm-desktop-platinum-check-mail)
+      (should checked)))
+  (let ((lispm-desktop-store-installed nil)
+        (read-mail-command 'rmail))
+    (should-not (lispm-desktop-store-mail-application))))
+
+(ert-deftest lispm-desktop-test-form-controls-of-applications ()
+  "A control an application draws as LispM's forms do, saying what it is in
+its own property, is drawn focused as theirs are."
+  (should (memq :lispm-mail-control lispm-desktop-form-control-properties))
+  (with-temp-buffer
+    (insert "Save")
+    (let* ((image '(image :type svg :data "<svg/>"))
+           (overlay (make-overlay 1 5))
+           (widget (list 'push-button :lispm-mail-control '(button default "Save") :button-overlay overlay)))
+      (put-text-property 1 5 'display image)
+      (cl-letf (((symbol-function 'widget-at) (lambda (&optional _) widget))
+                ((symbol-function 'lispm-desktop-form--image) (lambda (&rest _) image)))
+        (should (equal (seq-take (lispm-desktop-form--control-at 1) 2) '(1 5)))))))
+
 (ert-deftest lispm-desktop-test-app-ui-keys-window ()
   "An application's keys window lists each key cap and what it does, and
 has no bottom saying where point is in the list."
@@ -16196,7 +16248,7 @@ the text field point is in is framed in the focus colour."
   (skip-unless (and (require 'lispm-form nil t) (image-type-available-p 'svg)))
   (let ((lispm-form-glyph-function #'lispm-desktop-form-glyph)
         (lispm-form-choose-function #'lispm-desktop-form-choose)
-        (lispm-form-drawn-hook (list #'lispm-desktop-form--dress))
+        (lispm-form-drawn-hook (list #'lispm-desktop-form-dress))
         (buffer nil))
     ;; A batch Emacs shows no images, which widgets then leave out.
     (cl-letf (((symbol-function 'widget-image-find)
