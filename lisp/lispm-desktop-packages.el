@@ -39,11 +39,12 @@
 
   ;; A package is installed even when the `:if' of its declaration is
   ;; false, so a declaration that may not apply goes inside a `when'.
-  (when (lispm-desktop-macos-p)
-    ;; Opened from the Dock, Emacs gets none of the shell's environment:
-    ;; take its PATH, and the API keys LispM's agents use.  Installed in a
-    ;; batch Emacs too, as LispM.app's installer runs one, so that the first
-    ;; start has nothing to fetch.
+  (when (or (lispm-desktop-macos-p) (lispm-desktop-linux-p))
+    ;; Opened from the Dock, or from the applications menu of a GNU/Linux
+    ;; desktop, Emacs gets none of the shell's environment: take its PATH,
+    ;; and the API keys LispM's agents use.  Installed in a batch Emacs
+    ;; too, as the installer runs one, so that the first start has nothing
+    ;; to fetch.
     (use-package exec-path-from-shell
       :if (lispm-desktop-gui-p)
       :init

@@ -148,7 +148,7 @@ jobs:
                                     (expand-file-name "lispm-desktop" (getenv "LISPM_HOME")))
                 (error "Not the checkout: %s" user-emacs-directory))
               (package-initialize)
-              (dolist (package (quote (vertico consult magit)))
+              (dolist (package (quote (vertico consult magit exec-path-from-shell)))
                 (unless (package-installed-p package)
                   (error "Not installed: %s" package)))
               (unless (featurep (quote xwidget-internal)) (error "No xwidgets"))
