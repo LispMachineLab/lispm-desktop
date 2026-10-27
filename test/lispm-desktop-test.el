@@ -13358,16 +13358,43 @@ copies the commands installing them."
                  `(:kind app :name "EMMS" :needs ,lispm-desktop-test--needs)))))
 
 (ert-deftest lispm-desktop-test-needs-command-line-tools ()
-  "A program of Apple's command line tools is missing while they are,
-though its name on PATH is found: it is Apple's, offering the tools."
-  (cl-letf (((symbol-function 'executable-find) #'always)
-            ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
-    (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
-    (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
-  (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
-                 "xcode-select --install"))
-  (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
-                 "brew install --HEAD tdlib")))
+  "On macOS a program of Apple's command line tools is missing while they
+are, though its name on PATH is found: it is Apple's, offering the tools."
+  (let ((system-type 'darwin))
+    (cl-letf (((symbol-function 'executable-find) #'always)
+              ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
+      (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
+      (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
+    (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
+                   "xcode-select --install"))
+    (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
+                   "brew install --HEAD tdlib"))))
+
+(ert-deftest lispm-desktop-test-needs-on-gnu-linux ()
+  "On GNU/Linux a program of Apple's command line tools is a program as
+any other; casks and Apple's tools are neither installed nor offered
+there; Homebrew is found where it installs there."
+  (let ((git '(program "git" :for "keeping history" :xcode t))
+        (spotify '(application "Spotify" :for "playing Spotify" :cask "spotify")))
+    (let ((system-type 'gnu/linux))
+      (cl-letf (((symbol-function 'executable-find) #'always)
+                ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
+        (should (lispm-desktop-needs-present-p git)))
+      (dolist (need (list git spotify))
+        (should-not (lispm-desktop-needs-installable-p need))
+        (should-not (lispm-desktop-needs-install-command need)))
+      (should-not (string-search "Homebrew" (lispm-desktop-needs-detail (list spotify))))
+      (should (lispm-desktop-needs-installable-p '(program "mpv" :for "playing videos" :brew "mpv")))
+      (let ((exec-path exec-path)
+            (process-environment (copy-sequence process-environment)))
+        (cl-letf (((symbol-function 'executable-find) #'ignore)
+                  ((symbol-function 'file-executable-p)
+                   (lambda (file) (equal file "/home/linuxbrew/.linuxbrew/bin/brew"))))
+          (should (equal (lispm-desktop-needs-brew) "/home/linuxbrew/.linuxbrew/bin/brew"))
+          (should (member "/home/linuxbrew/.linuxbrew/bin/" exec-path)))))
+    (let ((system-type 'darwin))
+      (should (lispm-desktop-needs-installable-p spotify))
+      (should (equal (lispm-desktop-needs-install-command spotify) "brew install --cask spotify")))))
 
 (ert-deftest lispm-desktop-test-store-needs-from-the-catalog ()
   "An installed app needs what its catalog declares now, though it was
