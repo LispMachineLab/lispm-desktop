@@ -634,6 +634,7 @@
   ("Install Homebrew first?" . "先にHomebrewをインストールしますか？")
   ("Install Homebrew" . "Homebrewをインストール")
   ("%s comes from Homebrew, the package manager most Mac programs come from.  Its installer runs in a terminal, where it asks for your password." . "%sは、ほとんどのMac用プログラムの入手元であるパッケージマネージャHomebrewから入手します。Homebrewのインストーラはターミナルで実行され、そこでパスワードを尋ねます。")
+  ("%s comes from Homebrew, a package manager for macOS and GNU/Linux.  Its installer runs in a terminal, where it asks for your password." . "%sは、macOSとGNU/Linux用のパッケージマネージャHomebrewから入手します。Homebrewのインストーラはターミナルで実行され、そこでパスワードを尋ねます。")
   ("Homebrew's installer ended without installing it." . "Homebrewのインストーラは、インストールせずに終了しました。")
   ("Finish installing in Apple's window…" . "Appleのウインドウでインストールを完了してください…")
   ("Apple's installer did not finish." . "Appleのインストーラが完了しませんでした。")

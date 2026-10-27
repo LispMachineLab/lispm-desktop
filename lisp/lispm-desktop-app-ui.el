@@ -109,7 +109,9 @@ shown; a function may return them translated already:
 :run      a function opening the application in its window, selected,
           instead of its command: for a game that would hold Emacs
           until it ends, or that sizes its board from its window.
-:title    the window's title, by default the application's name.
+:title    the window's title, by default the application's name: a
+          string, or a function returning one, called in the
+          window's buffer as the window is drawn.
 :status   a function returning what the window's bottom says: a string,
           a list of strings each on a placard, or nil; by default the
           score, the moves and the process state it keeps.
@@ -978,7 +980,9 @@ windows on its first line left there; one printed later prints them."
     (display-line-numbers-mode -1))
   (setq-local lispm-desktop-platinum-title (let ((title (lispm-desktop-app-ui-get :title)))
                                              (lambda ()
-                                               (if title (lispm-desktop-tr title) (lispm-desktop-app-ui-name))))
+                                               (cond ((functionp title) (funcall title))
+                                                     (title (lispm-desktop-tr title))
+                                                     (t (lispm-desktop-app-ui-name)))))
               lispm-desktop-platinum-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
                                                              lispm-desktop-app-ui--app :icon)))
                                             (lispm-desktop-platinum-icon icon))

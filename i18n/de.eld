@@ -634,6 +634,7 @@
   ("Install Homebrew first?" . "Zuerst Homebrew installieren?")
   ("Install Homebrew" . "Homebrew installieren")
   ("%s comes from Homebrew, the package manager most Mac programs come from.  Its installer runs in a terminal, where it asks for your password." . "%s kommt von Homebrew, dem Paketmanager, von dem die meisten Mac-Programme kommen.  Sein Installationsprogramm läuft in einem Terminal und fragt dort nach Ihrem Passwort.")
+  ("%s comes from Homebrew, a package manager for macOS and GNU/Linux.  Its installer runs in a terminal, where it asks for your password." . "%s kommt von Homebrew, einem Paketmanager für macOS und GNU/Linux.  Sein Installationsprogramm läuft in einem Terminal und fragt dort nach Ihrem Passwort.")
   ("Homebrew's installer ended without installing it." . "Das Installationsprogramm von Homebrew wurde beendet, ohne es zu installieren.")
   ("Finish installing in Apple's window…" . "Schließen Sie die Installation in Apples Fenster ab …")
   ("Apple's installer did not finish." . "Das Installationsprogramm von Apple wurde nicht abgeschlossen.")

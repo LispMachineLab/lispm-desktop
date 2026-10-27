@@ -31,6 +31,10 @@
 
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
+;; Before the declarations below expand: Emacs 30 loads it only at the
+;; first `:ensure' it meets, savehist's, so `use-package-always-ensure'
+;; never installed the packages declared before, Magit and Vertico.
+(require 'use-package-ensure)
 
 (defun lispm-desktop-setup-common-packages ()
   "Set up common packages."
