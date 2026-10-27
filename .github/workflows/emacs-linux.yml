@@ -1,0 +1,141 @@
+name: emacs for GNU/Linux
+
+# The GNU Emacs LispM runs on GNU/Linux, with xwidgets for LispM Browser,
+# built by linux/build-emacs.sh as a .deb for each Debian and Ubuntu
+# install.sh supports, on x86_64 and on ARM, each installed in a system
+# of its own and checked there, down to drawing a web page.  Run by hand on main, the workflow
+# publishes them as the release emacs-VERSION-REVISION-linux: published
+# once, then left as it is, and never marked the latest, which stays
+# LispM's own.  install.sh keeps a download only when its SHA-256 is the
+# one it pins.  A pull request builds one of them, to check the script.
+on:
+  pull_request:
+    paths:
+      - linux/build-emacs.sh
+      - .github/workflows/emacs-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ matrix.system }}, ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.system }}
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJSON(github.event_name == 'pull_request' && '["debian:13"]' || '["debian:12", "debian:13", "ubuntu:22.04", "ubuntu:24.04"]') }}
+        runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "ubuntu-24.04-arm"]') }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: sh linux/build-emacs.sh dist
+      - name: Name the artifact
+        id: name
+        run: echo "name=$(basename dist/*.deb .deb)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: dist/*.deb
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: logs-${{ strategy.job-index }}
+          path: dist/*.log
+
+  # Installed as install.sh installs it, in a system that has none of
+  # what built it: apt brings what it needs, and it has xwidgets,
+  # tree-sitter and native compilation, which compiles to machine code,
+  # and draws web pages.
+  check:
+    name: Install on ${{ matrix.system }}, ${{ matrix.runner }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.system }}
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJSON(github.event_name == 'pull_request' && '["debian:13"]' || '["debian:12", "debian:13", "ubuntu:22.04", "ubuntu:24.04"]') }}
+        runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "ubuntu-24.04-arm"]') }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: lispm-emacs-*
+          path: dist
+          merge-multiple: true
+      - name: Install
+        run: |
+          . /etc/os-release
+          deb=$(ls "dist/lispm-emacs-"*"-$ID$VERSION_ID-$(dpkg --print-architecture).deb")
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q "./$deb"
+      - name: Check it
+        run: |
+          /opt/lispm/emacs/bin/emacs --batch --eval '
+            (progn
+              (unless (featurep (quote xwidget-internal)) (error "No xwidgets"))
+              (unless (treesit-available-p) (error "No tree-sitter"))
+              (unless (native-comp-available-p) (error "No native compilation"))
+              (unless (subrp (native-compile (quote (lambda (x) (* x 2))))) (error "Native compilation failed"))
+              (message "GNU Emacs %s: xwidgets, tree-sitter, native compilation" emacs-version))'
+
+      # It draws pages: WebKit, in an xwidget on a virtual display, loads
+      # a page of its own and one over HTTPS, and gives their titles.
+      - name: Check it draws pages
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q xvfb xauth
+          for url in 'data:text/html,<title>LispM</title>' https://lispm.ai/; do
+            RENDER_URL=$url xvfb-run -a -s '-screen 0 1280x800x24' /opt/lispm/emacs/bin/emacs -Q --eval '
+              (let ((url (getenv "RENDER_URL")) (title ""))
+                (xwidget-webkit-browse-url url t)
+                (dotimes (_ 60)
+                  (when (string-empty-p title)
+                    (sit-for 1)
+                    (setq title (or (xwidget-webkit-title (xwidget-webkit-current-session)) ""))))
+                (princ (format "%s: %S\n" url title) (function external-debugging-output))
+                (kill-emacs (if (string-search "LispM" title) 0 1)))'
+          done
+
+  release:
+    name: Release
+    needs: [build, check]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: emacs-linux-release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: lispm-emacs-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum lispm-emacs-*.deb > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^EMACS_VERSION=//p' linux/build-emacs.sh)
+          revision=$(sed -n 's/^REVISION=//p' linux/build-emacs.sh)
+          tag=emacs-$version-$revision-linux
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag is published already"
+            exit 0
+          fi
+          gh release create "$tag" dist/* \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "GNU Emacs $version for LispM on GNU/Linux ($revision)" \
+            --notes "GNU Emacs $version with xwidgets, for LispM on Debian 12 and 13 and Ubuntu 22.04 and 24.04, on x86_64 (amd64) and ARM (arm64): built from the GNU release by linux/build-emacs.sh at $GITHUB_SHA, by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID.
+
+          install.sh installs the one for its system with apt, in /opt/lispm/emacs, and keeps it only when its SHA-256 is the one it pins: nothing here needs to be fetched by hand.
+
+          GNU Emacs is free software under the GNU General Public License, version 3 or later; its source is at https://ftp.gnu.org/gnu/emacs/."
