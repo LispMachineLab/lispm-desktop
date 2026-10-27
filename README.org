@@ -2,15 +2,17 @@
 
 #+HTML: <p align="center"><a href="https://github.com/LispMachineLab/lispm-desktop/actions/workflows/test.yml"><img src="https://github.com/LispMachineLab/lispm-desktop/actions/workflows/test.yml/badge.svg" alt="test" /></a></p>
 
-LispM's Emacs distribution: Emacs laid out as Mac OS 9's desktop and set up as a workspace for
-coding agents, ready from the first start.  [[https://github.com/LispMachineLab/lispm-agent][LispM Agent]]'s agents, Claude Code and Codex
+*LispM is an AI agent harness built on GNU Emacs and the ideas of the Lisp Machine, fifty years in the making.*
+
+LispM Desktop is LispM's Emacs distribution: Emacs laid out as a classic-style desktop and set up
+as a workspace for coding agents, ready from the first start.  [[https://github.com/LispMachineLab/lispm-agent][LispM Agent]]'s agents, Claude Code and Codex
 share its sidebar, [[https://github.com/LispMachineLab/lispm-browser][LispM Browser]] is its web browser, and its App Store installs more.  In
 code, the prefix is ~lispm-desktop-~.
 
 * The LispM projects
 
 | [[https://github.com/LispMachineLab/lispm-agent][lispm-agent]]     | AI agents inside Emacs                                            |
-| *lispm-desktop* | Emacs as a Mac OS 9 desktop, set up as a workspace for agents (this repository) |
+| *lispm-desktop* | Emacs as a classic-style desktop, set up as a workspace for agents (this repository) |
 | [[https://github.com/LispMachineLab/lispm-browser][lispm-browser]]   | a WebKit browser in Emacs, with keyboard hints and Chrome extensions |
 | [[https://github.com/LispMachineLab/lispm-store][lispm-store]]     | the catalog LispM Desktop's App Store installs from               |
 
@@ -71,10 +73,10 @@ Optional, used when present:
 
 * What you get
 
-- *Looks and themes*: Mac OS 9's Platinum, Windows 3.2 or OS/2 2.0's Workplace Shell, or the
+- *Looks and themes*: the classic-style Platinum, Windows 3.2 or OS/2 2.0's Workplace Shell, or the
   glowing Phosphor and Neon, whose windows are glass on macOS; in the Dracula, Platinum,
   Windows 3.2, OS/2, Phosphor or Neon colour theme, or any theme installed.
-- *A desktop* with Mac OS 9's icons down its right edge (home disk, Emacs, browser,
+- *A desktop* with classic-style icons down its right edge (home disk, Emacs, browser,
   Applications, App Store, Control Panels, Trash), dragged with the mouse or selected with
   =C-n= =C-p= =C-f= =C-b=, over a colour or a picture of your own.  An application's alias goes
   there from its right-click menu in the Applications folder or the App Store (Make Alias on
@@ -91,7 +93,7 @@ Optional, used when present:
 - *The editor*, full screen or floating: a sidebar of Files, Agents and Shells, a workspace per
   project (=C-<tab>=, =M-`= for thumbnails), chats and terminals on the left, files on the right.
 - *Platinum windows*: title bars with close, zoom and collapse boxes, scroll bars, placards,
-  grow boxes, outline moves and resizes, Mac OS 9 menus and alerts, Balloon Help.
+  grow boxes, outline moves and resizes, classic-style menus and alerts, Balloon Help.
 - *Agents side by side*: sessions of LispM, Claude Code, Codex and App Store agents (Hermes),
   listed per project.  Claude Code and Codex see the selection, open files and diagnostics;
   programs speaking the [[https://superlogical.com/rex/docs/build/program-status][Program Status Protocol]] show working, done or waiting in their title
@@ -123,8 +125,8 @@ Optional, used when present:
   of its own, its picture its icon, which opens its own conversation; you and every agent, Claude
   Code and Codex among them, reach it by name, as =@Ada=.  An application of the App Store with a
   skill is a character too, its skill its soul.
-- *Forms in the look*: LispM Agent's forms, written as data, are drawn as Mac OS 9 drew its
-  dialogs, their buttons, check boxes, radio buttons and pop-up menus the desktop's own controls,
+- *Forms in the look*: LispM Agent's forms, written as data, are drawn as classic-style dialogs,
+  their buttons, check boxes, radio buttons and pop-up menus the desktop's own controls,
   which any window may hold (=lispm-desktop-platinum-insert-radio-button= and the others).
 - *Skills for agents*: LispM's agents find the desktop's manuals in =skills/=, with tools to open
   applications, folders and windows, change settings and install from the App Store; and an
@@ -142,7 +144,7 @@ Optional, used when present:
   and clicked there comes back to LispM.  =⌘Q= quits that application alone; Show Desktop, in
   its application menu, brings the desktop back.  Both halves (=native/lispm-desktop-display=)
   are built with the command line tools' clang the first time.
-- *A watch on the pointer* while Emacs is busy, as Mac OS 9 showed it.
+- *A watch on the pointer* while Emacs is busy, in the classic style.
 - *A modern Emacs underneath*: Vertico, Orderless, Consult, Embark, Corfu, Magit, Eglot,
   tree-sitter; Evil with =SPC= as leader if you chose Vim keys.
 - *EXWM*: on an X display with no window manager, Emacs becomes it.
