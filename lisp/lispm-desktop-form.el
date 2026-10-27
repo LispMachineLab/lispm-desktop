@@ -35,7 +35,10 @@
 ;;   - the control or the field the keyboard is on is ringed in the focus
 ;;     colour, as Mac OS 9 ringed it;
 ;;   - a pop-up menu's choices open as the desktop's menu, from the mouse
-;;     or the keyboard (`lispm-form-choose-function').
+;;     or the keyboard (`lispm-form-choose-function');
+;;   - a picture is chosen in the desktop's own dialog, the picture
+;;     selected previewed (`lispm-form-choose-file-function'), never in the
+;;     system's panel, which an application shown on its own would hide.
 ;;
 ;; A form is drawn again when the look, the theme or the language
 ;; changes.  Shown in an application's window, it is titled with its own
@@ -51,11 +54,13 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-choose)
 (require 'lispm-desktop-i18n)
 
 (defvar lispm-form-glyph-function)
 (defvar lispm-form-group-function)
 (defvar lispm-form-choose-function)
+(defvar lispm-form-choose-file-function)
 (defvar lispm-form-drawn-hook)
 (defvar lispm-form-mode-hook)
 (defvar lispm-form-show-header)
@@ -157,6 +162,18 @@ gives them.  Where no menu can be drawn, the form's own way is taken."
                                          (point))
                                      label)
     (lispm-form-choose label choices value event)))
+
+(defun lispm-desktop-form-choose-file (type label file predicate)
+  "Show the desktop's dialog choosing a file for a form's field of TYPE and
+LABEL, FILE chosen now, among the files PREDICATE takes; return the file
+chosen, or nil.  A picture's is titled so, and previews the picture
+selected.  TYPE, LABEL, FILE and PREDICATE are as
+`lispm-form-choose-file-function' gives them."
+  (ignore label)
+  (lispm-desktop-choose-file :title (if (eq type 'picture)
+                                        (lispm-desktop-tr "Choose a Picture")
+                                      (lispm-desktop-tr "Choose a File"))
+                             :file file :predicate predicate :preview (eq type 'picture)))
 
 ;;;; Focus
 
@@ -296,7 +313,8 @@ in use here too, its text areas white panels.  Run from
   (when (require 'lispm-form nil t)
     (setq lispm-form-glyph-function #'lispm-desktop-form-glyph
           lispm-form-group-function #'lispm-desktop-form-group
-          lispm-form-choose-function #'lispm-desktop-form-choose)
+          lispm-form-choose-function #'lispm-desktop-form-choose
+          lispm-form-choose-file-function #'lispm-desktop-form-choose-file)
     (add-hook 'lispm-form-mode-hook #'lispm-desktop-form--faces)
     (add-hook 'lispm-form-drawn-hook #'lispm-desktop-form-dress)
     (add-hook 'enable-theme-functions #'lispm-desktop-form-redraw-all)
