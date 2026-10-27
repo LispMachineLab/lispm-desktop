@@ -100,9 +100,10 @@ ROOT=$WORK/root
 make install-strip DESTDIR="$ROOT" >>"$OUT/make-$SYSTEM.log" 2>&1
 
 # The package: what its programs link to, as dpkg-shlibdeps finds it in
-# the packages installed here, and what native compilation of the
-# packages LispM installs runs: libgccjit, with GCC's and the C library's
-# start files, and the assembler and linker.
+# the packages installed here; what native compilation of the packages
+# LispM installs runs: libgccjit, with GCC's and the C library's start
+# files, and the assembler and linker; and the certificates HTTPS is
+# checked against, which nothing else brings to a bare Ubuntu 22.04.
 ARCH=$(dpkg --print-architecture)
 mkdir -p "$WORK/debian"
 printf 'Source: lispm-emacs\n\nPackage: lispm-emacs\nArchitecture: any\n' >"$WORK/debian/control"
@@ -116,7 +117,7 @@ Version: $EMACS_VERSION-$REVISION~$SYSTEM
 Architecture: $ARCH
 Maintainer: LispMachineLab <https://github.com/LispMachineLab>
 Installed-Size: $(du -sk "$ROOT$PREFIX" | cut -f1)
-Depends: $depends, libgccjit-$GCC-dev, binutils, libc6-dev
+Depends: $depends, libgccjit-$GCC-dev, binutils, libc6-dev, ca-certificates
 Section: editors
 Priority: optional
 Homepage: https://lispm.ai
