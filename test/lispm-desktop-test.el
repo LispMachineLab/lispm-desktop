@@ -2990,6 +2990,21 @@ manager drawn from the last; only the first table is waited for."
     ;; The derived palette itself is left untouched.
     (should (equal (plist-get derived :accent) "#bd93f9"))))
 
+(ert-deftest lispm-desktop-test-packages-all-ensured ()
+  "Every package the desktop declares is installed when missing, those
+declared first too: Emacs 30 expands `:ensure' only from the first
+declaration naming it.  In an Emacs of its own, as init.el sets it up:
+this one has met `:ensure' already."
+  (let ((body (with-temp-buffer
+                (call-process (expand-file-name invocation-name invocation-directory) nil t nil
+                              "-Q" "--batch" "-L" (expand-file-name "lisp" lispm-desktop-directory)
+                              "--eval" "(setq use-package-always-ensure t)"
+                              "-l" "lispm-desktop-packages"
+                              "--eval" "(prin1 (symbol-function 'lispm-desktop-setup-common-packages))")
+                (buffer-string))))
+    (dolist (package '(which-key magit vertico marginalia))
+      (should (string-search (format "(use-package-ensure-elpa '%s " package) body)))))
+
 (ert-deftest lispm-desktop-test-platinum-theme ()
   "The platinum theme loads, and names Platinum's greys for the chrome."
   (let ((custom-theme-load-path (cons (expand-file-name "themes/" lispm-desktop-directory)
@@ -3002,6 +3017,16 @@ manager drawn from the last; only the first table is waited for."
           (should (equal (plist-get lispm-desktop-platinum-colors :accent) "#6363CE")))
       (disable-theme 'platinum))
     (should-not (plist-get lispm-desktop-platinum-colors :chrome))))
+
+(ert-deftest lispm-desktop-test-platinum-fontset-without-family ()
+  "With no family of the look installed, as on GNU/Linux, the chrome's
+faces take the default face's fontset: `unspecified' would make
+`set-face-attribute' fail."
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+            ((symbol-function 'lispm-desktop-i18n-cjk-family) (lambda () "PingFang SC")))
+    (should (equal (lispm-desktop-platinum--fontset-attribute nil) '(:fontset reset))))
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
+    (should-not (lispm-desktop-platinum--fontset-attribute "Geneva"))))
 
 (ert-deftest lispm-desktop-test-window-bottom ()
   "A window's bottom edge counts a list's items, or shows the buffer."
@@ -13348,16 +13373,43 @@ copies the commands installing them."
                  `(:kind app :name "EMMS" :needs ,lispm-desktop-test--needs)))))
 
 (ert-deftest lispm-desktop-test-needs-command-line-tools ()
-  "A program of Apple's command line tools is missing while they are,
-though its name on PATH is found: it is Apple's, offering the tools."
-  (cl-letf (((symbol-function 'executable-find) #'always)
-            ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
-    (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
-    (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
-  (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
-                 "xcode-select --install"))
-  (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
-                 "brew install --HEAD tdlib")))
+  "On macOS a program of Apple's command line tools is missing while they
+are, though its name on PATH is found: it is Apple's, offering the tools."
+  (let ((system-type 'darwin))
+    (cl-letf (((symbol-function 'executable-find) #'always)
+              ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
+      (should-not (lispm-desktop-needs-present-p '(program "git" :for "keeping history" :xcode t)))
+      (should (lispm-desktop-needs-present-p '(program "git" :for "keeping history"))))
+    (should (equal (lispm-desktop-needs-install-command '(program "git" :for "keeping history" :xcode t))
+                   "xcode-select --install"))
+    (should (equal (lispm-desktop-needs-install-command '(library "TDLib" :for "Telegram" :brew "tdlib" :head t))
+                   "brew install --HEAD tdlib"))))
+
+(ert-deftest lispm-desktop-test-needs-on-gnu-linux ()
+  "On GNU/Linux a program of Apple's command line tools is a program as
+any other; casks and Apple's tools are neither installed nor offered
+there; Homebrew is found where it installs there."
+  (let ((git '(program "git" :for "keeping history" :xcode t))
+        (spotify '(application "Spotify" :for "playing Spotify" :cask "spotify")))
+    (let ((system-type 'gnu/linux))
+      (cl-letf (((symbol-function 'executable-find) #'always)
+                ((symbol-function 'lispm-desktop-needs-command-line-tools-p) #'ignore))
+        (should (lispm-desktop-needs-present-p git)))
+      (dolist (need (list git spotify))
+        (should-not (lispm-desktop-needs-installable-p need))
+        (should-not (lispm-desktop-needs-install-command need)))
+      (should-not (string-search "Homebrew" (lispm-desktop-needs-detail (list spotify))))
+      (should (lispm-desktop-needs-installable-p '(program "mpv" :for "playing videos" :brew "mpv")))
+      (let ((exec-path exec-path)
+            (process-environment (copy-sequence process-environment)))
+        (cl-letf (((symbol-function 'executable-find) #'ignore)
+                  ((symbol-function 'file-executable-p)
+                   (lambda (file) (equal file "/home/linuxbrew/.linuxbrew/bin/brew"))))
+          (should (equal (lispm-desktop-needs-brew) "/home/linuxbrew/.linuxbrew/bin/brew"))
+          (should (member "/home/linuxbrew/.linuxbrew/bin/" exec-path)))))
+    (let ((system-type 'darwin))
+      (should (lispm-desktop-needs-installable-p spotify))
+      (should (equal (lispm-desktop-needs-install-command spotify) "brew install --cask spotify")))))
 
 (ert-deftest lispm-desktop-test-store-needs-from-the-catalog ()
   "An installed app needs what its catalog declares now, though it was

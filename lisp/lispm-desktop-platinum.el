@@ -271,9 +271,13 @@ made or brought up to date; or nil without either."
 (defun lispm-desktop-platinum--fontset-attribute (family)
   "Return the face attributes giving FAMILY its fontset, see
 `lispm-desktop-platinum--cjk-fontset'; none on a text terminal, which
-draws with the terminal's font and has no fontsets."
+draws with the terminal's font and has no fontsets.
+Without a fontset, as where no family of the look is installed, the
+face takes the default face's: `reset' asks for it, as `unspecified'
+cannot.  Emacs keeps `unspecified' for new frames as `:ignore-defface',
+then looks that up as a fontset's name and fails."
   (when (display-graphic-p)
-    (list :fontset (or (lispm-desktop-platinum--cjk-fontset family) 'unspecified))))
+    (list :fontset (or (lispm-desktop-platinum--cjk-fontset family) 'reset))))
 
 (defun lispm-desktop-platinum-apply-faces (&rest _)
   "Derive the palette and every chrome face from the active theme.

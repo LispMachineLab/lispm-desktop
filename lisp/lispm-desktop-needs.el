@@ -36,13 +36,15 @@
 ;;                :bundle "com.spotify.client")
 ;;
 ;; :for       what it is needed for, said wherever it is missing
-;; :brew      the Homebrew formula installing it; :cask, the cask
+;; :brew      the Homebrew formula installing it; :cask, the cask, which
+;;            macOS alone has
 ;; :head      t to install the formula's HEAD, built from its latest
 ;;            sources, where its release is too old, as TDLib's is for
 ;;            Telega
 ;; :xcode     t for a program of Apple's command line tools, as git or
-;;            swift: their names on PATH are Apple's stand-ins until the
-;;            tools are installed, by Apple's own window
+;;            swift: on macOS their names on PATH are Apple's stand-ins
+;;            until the tools are installed, by Apple's own window;
+;;            elsewhere it is a program as any other
 ;; :cargo     the crate Cargo, Rust's package manager, builds a program
 ;;            from, for one Homebrew lacks, as Rotom: Cargo comes first,
 ;;            Homebrew's rust, when it is missing.  The program lands in
@@ -123,8 +125,11 @@
 (defconst lispm-desktop-needs-kinds lispm-desktop-catalog-need-kinds
   "The kinds of need, as a catalog names them.")
 
-(defconst lispm-desktop-needs-brew-places '("/opt/homebrew/bin/brew" "/usr/local/bin/brew")
-  "Where Homebrew puts brew, on Apple silicon and on Intel Macs.")
+(defconst lispm-desktop-needs-brew-places '("/opt/homebrew/bin/brew" "/usr/local/bin/brew"
+                                            "/home/linuxbrew/.linuxbrew/bin/brew" "~/.linuxbrew/bin/brew")
+  "Where Homebrew puts brew: on Apple silicon and on Intel Macs, and on
+GNU/Linux, for every user or, installed without administrator rights,
+in one's home.")
 
 (defconst lispm-desktop-needs-lock-regexp
   "already locked\\|Another active Homebrew\\|Please wait for it to finish"
@@ -188,7 +193,7 @@ in its terminal, Apple's command line tools in Apple's window.")
 Found where Homebrew puts it, its directory goes on PATH: Emacs started
 from the Dock may not have it there."
   (let ((brew (or (executable-find "brew")
-                  (seq-find #'file-executable-p lispm-desktop-needs-brew-places))))
+                  (seq-find #'file-executable-p (mapcar #'expand-file-name lispm-desktop-needs-brew-places)))))
     (when brew
       (let ((directory (file-name-directory brew)))
         (unless (member (directory-file-name directory) (mapcar #'directory-file-name exec-path))
@@ -278,6 +283,7 @@ its formula's prefix when relative, or else its formula's keg."
                        (and (lispm-desktop-needs-get need :cargo)
                             (lispm-desktop-needs--in-cargo-directory (lispm-desktop-needs-name need))))
                    (or (not (lispm-desktop-needs-get need :xcode))
+                       (not (eq system-type 'darwin))
                        (lispm-desktop-needs-command-line-tools-p))))
     ('library (lispm-desktop-needs--library-p need))
     ('application (lispm-desktop-needs--application-p need))))
@@ -324,19 +330,21 @@ stand-in does the work of."
 
 (defun lispm-desktop-needs-installable-p (need)
   "Return non-nil when the Installer can install NEED: LispM's own
-installs, Homebrew and Cargo run on macOS and Linux, Apple's command line
-tools only on macOS."
+installs, Homebrew's formulae and Cargo run on macOS and GNU/Linux,
+Homebrew's casks and Apple's command line tools only on macOS."
   (pcase (lispm-desktop-needs-provider need)
     ('nil nil)
-    ('(xcode) (eq system-type 'darwin))
+    ((or '(xcode) `(cask ,_)) (eq system-type 'darwin))
     (_ t)))
 
 (defun lispm-desktop-needs-install-command (need)
-  "Return the command installing NEED, as a shell would read it, or nil."
+  "Return the command installing NEED, as a shell would read it, or nil,
+as for a cask off macOS."
   (pcase (lispm-desktop-needs-provider need)
     (`(brew ,formula) (format "brew install %s%s" (if (lispm-desktop-needs-get need :head) "--HEAD " "") formula))
-    (`(cask ,cask) (format "brew install --cask %s" cask))
     (`(cargo ,crate) (format "cargo install --locked %s" crate))
+    ((guard (not (eq system-type 'darwin))) nil)
+    (`(cask ,cask) (format "brew install --cask %s" cask))
     ('(xcode) "xcode-select --install")))
 
 (defun lispm-desktop-needs-brewed-p (need)
@@ -387,7 +395,8 @@ besides what the caller installs."
                              (lispm-desktop-tr "%s, for %s" (lispm-desktop-needs-name need)
                                                (lispm-desktop-needs-get need :for)))
                            needs "; "))
-        (brewed (seq-some (lambda (need) (memq (car (lispm-desktop-needs-provider need)) '(brew cask)))
+        (brewed (seq-some (lambda (need) (and (memq (car (lispm-desktop-needs-provider need)) '(brew cask))
+                                              (lispm-desktop-needs-installable-p need)))
                           needs))
         (built (seq-some (lambda (need) (eq (car (lispm-desktop-needs-provider need)) 'cargo)) needs)))
     (concat (if also
@@ -792,8 +801,10 @@ says it; FAILED, by default that Homebrew failed, when it says nothing."
   (if (eq 'install (lispm-desktop-popup-alert
                     'caution (lispm-desktop-tr "Install Homebrew first?")
                     `((,(lispm-desktop-tr "Cancel") cancel cancel) (,(lispm-desktop-tr "Install Homebrew") install default))
-                    (lispm-desktop-tr "%s comes from Homebrew, the package manager most Mac programs come from.  Its installer runs in a terminal, where it asks for your password."
-                                      (lispm-desktop-needs-name (lispm-desktop-needs--job-need job)))))
+                    (let ((name (lispm-desktop-needs-name (lispm-desktop-needs--job-need job))))
+                      (if (eq system-type 'darwin)
+                          (lispm-desktop-tr "%s comes from Homebrew, the package manager most Mac programs come from.  Its installer runs in a terminal, where it asks for your password." name)
+                        (lispm-desktop-tr "%s comes from Homebrew, a package manager for macOS and GNU/Linux.  Its installer runs in a terminal, where it asks for your password." name)))))
       (let ((terminal (lispm-desktop-terminal-make "Homebrew Installer" "/bin/bash" "-c"
                                                    lispm-desktop-needs-homebrew-installer)))
         (lispm-desktop-sidebar-show-in-main terminal)
