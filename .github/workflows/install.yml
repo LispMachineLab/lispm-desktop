@@ -1,13 +1,16 @@
 name: install
 
 # install.sh, run as a newcomer runs it, on Apple silicon and on Intel:
-# LispM.app made of Emacs, and the packages installed.
+# LispM.app made of Emacs, and the packages installed; and on GNU/Linux,
+# in a fresh Debian and Ubuntu: LispM's Emacs installed with apt, the
+# packages, and the command and menu entry starting it.
 on:
   push:
     branches: [main]
     paths:
       - install.sh
       - macos/**
+      - linux/**
       - early-init.el
       - init.el
       - lisp/lispm-desktop-deps.el
@@ -19,6 +22,7 @@ on:
     paths:
       - install.sh
       - macos/**
+      - linux/**
       - early-init.el
       - init.el
       - lisp/lispm-desktop-deps.el
@@ -97,3 +101,62 @@ jobs:
           sw_vers
           xcode-select -p
           grep -n -E 'error|rror:|clang|ld:' "$LISPM_HOME/install.log" | grep -v '^[0-9]*:  ' | head -n 40 || true
+
+  linux:
+    name: LispM on ${{ matrix.system }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.system }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The newest Debian and the oldest Ubuntu install.sh supports.
+        system: ['debian:13', 'ubuntu:22.04']
+    env:
+      LISPM_HOME: ${{ github.workspace }}/../lispm
+      LISPM_OPEN: '0'
+    steps:
+      # What a newcomer has: curl, to run install.sh with; git comes with
+      # LispM's Emacs, but checking out the change takes it first.
+      - name: Install curl and git
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q curl ca-certificates git
+      - uses: actions/checkout@v7
+      - name: Check out the change as LispM's
+        run: |
+          git config --global --add safe.directory '*'
+          mkdir -p "$LISPM_HOME"
+          git clone -q "$GITHUB_WORKSPACE" "$LISPM_HOME/lispm-desktop"
+          git -C "$LISPM_HOME/lispm-desktop" checkout -q --detach "$GITHUB_SHA"
+      - name: Install
+        shell: bash
+        run: set -o pipefail && sh install.sh | tee "$RUNNER_TEMP/install.out"
+      - name: Check the packages shown
+        run: |
+          grep -E '^    [^ ]+ \([0-9]+/[0-9]+\)$' "$RUNNER_TEMP/install.out" | tee "$RUNNER_TEMP/packages"
+          awk -F '[(/)]' 'NR == 1 { n = $3 } $2 != NR || $3 != n { bad = 1; exit } END { exit bad || NR == 0 || NR != n }' \
+            "$RUNNER_TEMP/packages"
+      - name: Check LispM
+        run: |
+          grep -q '^Exec="'"$HOME"'/.local/bin/lispm" %F$' "$HOME/.local/share/applications/lispm.desktop"
+          test -s "$HOME/.local/share/icons/hicolor/512x512/apps/lispm.png"
+          # The command starts LispM's Emacs on the checkout, its packages
+          # installed, with xwidgets, and native compilation working.
+          "$HOME/.local/bin/lispm" --batch --eval '
+            (progn
+              (unless (file-equal-p user-emacs-directory
+                                    (expand-file-name "lispm-desktop" (getenv "LISPM_HOME")))
+                (error "Not the checkout: %s" user-emacs-directory))
+              (package-initialize)
+              (dolist (package (quote (vertico consult magit exec-path-from-shell)))
+                (unless (package-installed-p package)
+                  (error "Not installed: %s" package)))
+              (unless (featurep (quote xwidget-internal)) (error "No xwidgets"))
+              (require (quote comp))
+              (native-compile (quote (lambda (x) (1+ x))))
+              (princ (format "LispM runs %s on Emacs %s\n" user-emacs-directory emacs-version)))'
+      - name: Show what failed
+        if: failure()
+        run: |
+          cat /etc/os-release
+          grep -n -E 'error|rror:|ld:' "$LISPM_HOME/install.log" | grep -v '^[0-9]*:  ' | head -n 40 || true
