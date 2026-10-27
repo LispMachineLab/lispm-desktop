@@ -634,6 +634,7 @@
   ("Install Homebrew first?" . "要先安裝 Homebrew 嗎？")
   ("Install Homebrew" . "安裝 Homebrew")
   ("%s comes from Homebrew, the package manager most Mac programs come from.  Its installer runs in a terminal, where it asks for your password." . "%s 來自 Homebrew，也就是大多數 Mac 程式所來自的套件管理器。它的安裝程式會在終端機中執行，並在那裡要求輸入你的密碼。")
+  ("%s comes from Homebrew, a package manager for macOS and GNU/Linux.  Its installer runs in a terminal, where it asks for your password." . "%s 來自 Homebrew，一個用於 macOS 與 GNU/Linux 的套件管理器。它的安裝程式會在終端機中執行，並在那裡要求輸入你的密碼。")
   ("Homebrew's installer ended without installing it." . "Homebrew 的安裝程式已結束，但沒有完成安裝。")
   ("Finish installing in Apple's window…" . "請在 Apple 的視窗中完成安裝…")
   ("Apple's installer did not finish." . "Apple 的安裝程式未完成。")
