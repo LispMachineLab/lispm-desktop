@@ -516,10 +516,19 @@ An error if there is none."
     (add-hook 'kill-buffer-hook
               (lambda () (run-at-time 0 nil #'lispm-desktop-characters--form-closed))
               nil t))
-  (lispm-desktop-app-window-show 'character-form
-                                 :name (buffer-local-value 'lispm-form--title form)
-                                 :buffer form
-                                 :size (lispm-desktop-characters--form-size form)))
+  (pcase-let* ((`(,width . ,height) (lispm-desktop-characters--form-size form))
+               (frame (lispm-desktop-app-window-show
+                       'character-form
+                       :name (buffer-local-value 'lispm-form--title form)
+                       :buffer form
+                       :size (cons width height))))
+    ;; The window opens where the last form's was, but each form is a size
+    ;; of its own: an application's form is shorter than a character's.
+    (unless (and (= width (frame-text-width frame)) (= height (frame-text-height frame)))
+      (set-frame-size frame width height t)
+      (lispm-desktop-platinum-frame-update frame)
+      (lispm-desktop-apps-keep-on-desktop frame))
+    frame))
 
 (defun lispm-desktop-characters--form-size (form)
   "The size of the window of FORM, a form's buffer: as wide as its group
