@@ -1054,6 +1054,131 @@ newest tag, or what package-vc takes for it before the first."
                  (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
         (should (lispm-desktop-deps-present-p 'lispm-kernel))))))
 
+(ert-deftest lispm-desktop-test-deps-libraries ()
+  "A project whose sources are at the top of its repository, as a
+library's, is its checkout itself and installs without a :lisp-dir; a
+copy older than the :version the desktop needs is brought up to date
+when package-vc installed it, else an error says what to update."
+  (let* ((lispm-desktop-deps
+          '((lispm-desktop-test-lib :url "https://example.org/lib" :checkout "lispm-desktop-test-lib"
+                                    :version "0.2.0")))
+         (beside (expand-file-name "../lispm-desktop-test-lib" lispm-desktop-directory))
+         (installed nil)
+         (main nil)
+         (load-path '("/elsewhere")))
+    (cl-letf (((symbol-function 'file-directory-p) (lambda (dir) (equal (directory-file-name dir) beside)))
+              ((symbol-function 'locate-library) (lambda (file &rest _)
+                                                   (and (equal file "lispm-desktop-test-lib.el") main)))
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
+              ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
+      ;; Beside the desktop, the checkout itself joins `load-path'.
+      (should (equal (lispm-desktop-deps--checkout "lispm-desktop-test-lib") beside))
+      (lispm-desktop-deps-ensure 'lispm-desktop-test-lib)
+      (should (equal load-path (list beside "/elsewhere")))
+      ;; Else installed from the top of its repository.
+      (cl-letf (((symbol-function 'lispm-desktop-deps--checkout) #'ignore))
+        (lispm-desktop-deps-ensure 'lispm-desktop-test-lib))
+      (should (equal installed '(((lispm-desktop-test-lib :url "https://example.org/lib") :last-release))))
+      ;; Older than the desktop needs: a checkout is an error saying so.
+      (setq main "/src/lispm-desktop-test-lib/lispm-desktop-test-lib.el")
+      (cl-letf (((symbol-function 'lispm-desktop-deps--version) (lambda (_) '(0 1 0))))
+        (should (string-match-p "lispm-desktop-test-lib/ is older than 0\\.2\\.0"
+                                (cadr (should-error (lispm-desktop-deps-ensure 'lispm-desktop-test-lib))))))
+      (cl-letf (((symbol-function 'lispm-desktop-deps--version) (lambda (_) '(0 2 0))))
+        (lispm-desktop-deps-ensure 'lispm-desktop-test-lib))
+      ;; A main file saying no version is taken as it is.
+      (cl-letf (((symbol-function 'lispm-desktop-deps--version) #'ignore))
+        (lispm-desktop-deps-ensure 'lispm-desktop-test-lib)))))
+
+(ert-deftest lispm-desktop-test-deps-requirements-found ()
+  "A requirement found already is not installed from the package archives:
+one on `load-path', as a checkout of a LispM library, or a project of the
+desktop's here without installing."
+  (let ((file (make-temp-file "lispm-desktop-test-" nil ".el"
+                              (concat ";;; lispm-desktop-test-pkg.el --- A test  -*- lexical-binding: t; -*-\n"
+                                      ";; Version: 0.1\n"
+                                      ";; Package-Requires: ((emacs \"30.1\") (lispm-desktop-test-found \"0.1\")"
+                                      " (lispm-browser \"0.1\") (lispm-desktop-test-missing \"1.0\"))\n"
+                                      ";;; Commentary:\n;;; Code:\n"
+                                      "(provide 'lispm-desktop-test-pkg)\n;;; lispm-desktop-test-pkg.el ends here\n")))
+        (found (make-temp-file "lispm-desktop-test-found" t)))
+    (unwind-protect
+        (let ((load-path (cons found load-path)))
+          (write-region "" nil (expand-file-name "lispm-desktop-test-found.el" found) nil 'silent)
+          (cl-letf (((symbol-function 'lispm-desktop-deps-present-p) (lambda (feature) (eq feature 'lispm-browser))))
+            (should (equal (mapcar #'car (lispm-desktop-deps--requirements file))
+                           '(lispm-desktop-test-missing)))))
+      (delete-file file)
+      (delete-directory found t))))
+
+;;;; Moving to LispM UI
+
+(ert-deftest lispm-desktop-test-rename-script ()
+  "The script renaming the desktop's names as they move to LispM UI renames
+a whole symbol wherever written, or every symbol starting with a prefix,
+never a longer name a renamed one starts."
+  (load (expand-file-name "scripts/lispm-ui-rename.el" lispm-desktop-directory) nil t)
+  (with-temp-buffer
+    (insert "(lispm-desktop-modal-read) (lispm-desktop-modal-role ?a)\n"
+            ";; `lispm-desktop-modal-read' reads \"lispm-desktop-popup-alert\".\n"
+            "(lispm-desktop-popup-alert-width x-lispm-desktop-popup-alert lispm-desktop-popup-alert)\n")
+    (should (= (lispm-desktop-rename-buffer '((:prefix "lispm-desktop-modal-" . "lispm-ui-modal-")
+                                              ("lispm-desktop-popup-alert" . "lispm-ui-alert")))
+               5))
+    (should (equal (buffer-string)
+                   (concat "(lispm-ui-modal-read) (lispm-ui-modal-role ?a)\n"
+                           ";; `lispm-ui-modal-read' reads \"lispm-ui-alert\".\n"
+                           "(lispm-desktop-popup-alert-width x-lispm-desktop-popup-alert lispm-ui-alert)\n"))))
+  ;; The table reads, and has been applied: none of its old names is left.
+  (let ((renames (lispm-desktop-rename-read)))
+    (should (listp renames))
+    (dolist (file (append (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'")
+                          (directory-files (expand-file-name "test" lispm-desktop-directory) t "\\.el\\'")))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (should-not (and (> (lispm-desktop-rename-buffer renames) 0) file))))))
+
+(ert-deftest lispm-desktop-test-stubs-no-alias ()
+  "No test stubs a LispM function by a name that is an alias of another:
+code calling the name it stands for would miss the stub.  A name that
+moved to LispM UI is stubbed by its new name."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "test/lispm-desktop-test.el" lispm-desktop-directory))
+    (while (re-search-forward "(symbol-function '\\(lispm-[^ )]+\\))" nil t)
+      (let ((symbol (intern-soft (match-string 1))))
+        (should-not (and symbol (fboundp symbol) (symbolp (symbol-function symbol))
+                         (format "%s:%d stubs the alias %s" "lispm-desktop-test.el"
+                                 (line-number-at-pos) symbol)))))))
+
+(ert-deftest lispm-desktop-test-early-files-need-no-ui ()
+  "The files that load before anything else, and that install what the
+desktop needs, LispM UI included, require none of it."
+  (dolist (name '("core" "i18n" "deps" "proxy" "store-installer" "catalog" "markdown" "early"))
+    (with-temp-buffer
+      (insert-file-contents (expand-file-name (format "lisp/lispm-desktop-%s.el" name) lispm-desktop-directory))
+      (should-not (and (re-search-forward "(require 'lispm-ui" nil t) name)))))
+
+(ert-deftest lispm-desktop-test-look-methods-match-generics ()
+  "A look's method dispatches on the look variable of its generic's own:
+a generic of LispM UI's on `lispm-ui-look', one of the desktop's on
+`lispm-desktop-look', else the two orders of dispatch would mix.  No
+alias of a generic has a generic of its own."
+  (dolist (file (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'"))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (while (re-search-forward "(cl-defmethod \\(lispm-\\(ui\\|desktop\\)-[^ \n]+\\)" nil t)
+        (let ((generic (match-string 1))
+              (owner (match-string 2))
+              (end (save-excursion (goto-char (match-beginning 0)) (forward-sexp) (point))))
+          (when (re-search-forward "&context (\\(lispm-\\(ui\\|desktop\\)\\)-look" end t)
+            (should (equal (list generic (match-string 2)) (list generic owner))))))))
+  (mapatoms (lambda (symbol)
+              (when (and (string-prefix-p "lispm-" (symbol-name symbol))
+                         (get symbol 'cl--generic)
+                         (symbolp (symbol-function symbol)))
+                (should-not (list symbol 'is-an-alias-with-a-generic))))))
+
 (defvar lispm-kernel-sessions-mode)
 (defvar lispm-kernel-package-mode)
 (defvar lispm-kernel-exec-mode)

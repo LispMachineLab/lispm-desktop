@@ -1253,6 +1253,7 @@
   ("Kept: LispM.app on %s, to switch back to at once." . "已備份：基於 %s 的 LispM.app，可立即切換回去。")
   ("Software Update: %s could not be installed: %s" . "軟體更新：無法安裝 %s：%s")
   ("%s lacks %s, which this LispM Desktop needs; update it to its latest release" . "%s 缺少此 LispM Desktop 所需的 %s；請將其更新至最新版本")
+  ("%s is older than %s, which this LispM Desktop needs; update it to its latest release" . "%s 低於此 LispM Desktop 所需的 %s；請將其更新至最新版本")
   ("Updating %s to its latest release, which this LispM Desktop needs…" . "正在將 %s 更新至此 LispM Desktop 所需的最新版本…")
   ("Its program could not be had." . "無法取得它的程式。")
   ("background work, as reading the agents' sessions" . "背景工作，例如讀取代理的工作階段")

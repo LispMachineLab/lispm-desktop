@@ -1253,6 +1253,7 @@
   ("Kept: LispM.app on %s, to switch back to at once." . "Aufbewahrt: LispM.app mit %s, um sofort zurückzuwechseln.")
   ("Software Update: %s could not be installed: %s" . "Softwareaktualisierung: %s konnte nicht installiert werden: %s")
   ("%s lacks %s, which this LispM Desktop needs; update it to its latest release" . "%s fehlt %s, das dieser LispM Desktop braucht; aktualisieren Sie es auf die neueste Version")
+  ("%s is older than %s, which this LispM Desktop needs; update it to its latest release" . "%s ist älter als %s, das dieser LispM Desktop braucht; aktualisieren Sie es auf die neueste Version")
   ("Updating %s to its latest release, which this LispM Desktop needs…" . "%s wird auf die neueste Version aktualisiert, die dieser LispM Desktop braucht …")
   ("Its program could not be had." . "Sein Programm war nicht zu bekommen.")
   ("background work, as reading the agents' sessions" . "Hintergrundarbeit, etwa das Lesen der Sitzungen der Agenten")
