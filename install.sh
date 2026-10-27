@@ -462,6 +462,12 @@ make_app() {
   # them through LispM.
   plist_set "$plist" NSAppleMusicUsageDescription \
     "LispM plays the songs of your Music library in EMMS, and only reads them."
+  # macOS keeps an application off the local network until it is allowed
+  # there, and asks without a word on why unless told one; refused, LispM
+  # reaches no other machine of the network, as the server an app works
+  # with ("No route to host").
+  plist_set "$plist" NSLocalNetworkUsageDescription \
+    "LispM connects to the computers of your local network that you or its apps ask it to reach, as the server an app works with."
   i=0
   while title=$(/usr/libexec/PlistBuddy -c "Print :NSServices:$i:NSMenuItem:default" "$plist" 2>/dev/null); do
     plist_set "$plist" "NSServices:$i:NSMenuItem:default" "$(printf '%s' "$title" | sed 's|^Emacs\.app/|LispM/|')"

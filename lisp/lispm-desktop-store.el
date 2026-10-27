@@ -2037,7 +2037,26 @@ background; what goes wrong is said in an alert."
         (lispm-desktop-apps-activate id)
       (lispm-desktop-app-window-show
        id :name (plist-get props :name)
+       :size (lispm-desktop-app-ui-window-size id)
        :setup (lambda () (lispm-desktop-app-ui-run id (plist-get props :command)))))))
+
+(defun lispm-desktop-store-mail-application ()
+  "Return the installed application reading mail, Emacs's
+`read-mail-command', or nil."
+  (car (seq-find (lambda (item)
+                   (and (eq (plist-get (cdr item) :kind) 'app)
+                        (eq (plist-get (cdr item) :command) read-mail-command)))
+                 lispm-desktop-store-installed)))
+
+(defun lispm-desktop-store--open-mail ()
+  "Open the installed application reading mail in its window; return
+non-nil if there is one.  This is one of
+`lispm-desktop-platinum-open-mail-functions'."
+  (when-let* ((app (lispm-desktop-store-mail-application)))
+    (lispm-desktop-store-open app)
+    t))
+
+(add-hook 'lispm-desktop-platinum-open-mail-functions #'lispm-desktop-store--open-mail)
 
 (defun lispm-desktop-store--needs (id)
   "Return what the item ID needs beyond Emacs, as its catalog declares it

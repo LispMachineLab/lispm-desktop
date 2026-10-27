@@ -45,8 +45,15 @@
 ;;   MYCIN       what to type, after its buttons
 ;;   SHRDLU      what to type, after its buttons; the drawing of the
 ;;               blocks world without buttons under it
+;;   Mail        a larger window, its panes titled by what they show,
+;;               its folders and its table of messages in the list face,
+;;               its headers' box in a list header's platinum, its
+;;               buttons over the table alone; its panes laid out
+;;               again as it opens again; its settings and accounts'
+;;               forms drawn as the desktop's dialogs; Check for Mail of
+;;               the menu bar asking its servers
 ;;
-;; These five declare their commands with lispm-kit, so their buttons
+;; These six declare their commands with lispm-kit, so their buttons
 ;; and keys are their own, see `lispm-desktop-app-ui-declared'.  Each
 ;; says what it shows with functions of its own, as Rotom's
 ;; `lispm-rotom-running-p'; none of them knows the desktop.
@@ -65,6 +72,7 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-app-board)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-desktop-form)
 (require 'lispm-desktop-i18n)
 
 ;; The applications' own variables and functions, read once they run.
@@ -583,6 +591,93 @@ buttons and keys window show them.")
   :buttons nil
   :cursor nil
   :status #'lispm-shrdlu-status)
+
+;;;; Mail
+
+(defvar lispm-mail-settings-glyph-function)
+(defvar lispm-mail-settings-choose-function)
+(defvar lispm-mail-settings-drawn-hook)
+(defvar lispm-desktop-platinum-check-mail-functions)
+(declare-function lispm-mail "lispm-mail" ())
+(declare-function lispm-mail-check "lispm-mail-data" (&optional id))
+(declare-function lispm-mail-settings-refresh "lispm-mail-settings" ())
+(declare-function lispm-mail-list-title "lispm-mail" ())
+(declare-function lispm-mail-message-title "lispm-mail" ())
+(declare-function lispm-mail-list-status "lispm-mail" ())
+(declare-function lispm-mail-search-label "lispm-mail" ())
+(declare-function lispm-mail-compose-title "lispm-mail-compose" ())
+
+(defun lispm-desktop-app-skins--mail-choose (title choices value)
+  "Open the desktop's menu of CHOICES of a pop-up menu TITLE of Mail's
+settings, VALUE checked, as `lispm-mail-settings-choose-function' asks."
+  (lispm-desktop-form-choose title choices value nil))
+
+(defun lispm-desktop-app-skins--mail-redraw (&rest _)
+  "Draw Mail's settings again, in the look now in use."
+  (when (fboundp 'lispm-mail-settings-refresh)
+    (lispm-mail-settings-refresh)))
+
+(defun lispm-desktop-app-skins--mail-message-setup ()
+  "Give the box of a message's headers the platinum of a list's header."
+  (face-remap-add-relative 'lispm-mail-header-box
+                           `(:background ,(face-background 'lispm-desktop-platinum-header nil t) :extend t)))
+
+(lispm-desktop-app-ui-define 'lispm-mail-mailboxes-mode
+  :title (lispm-desktop-tr-noop "Folders")
+  :list t
+  :buttons nil
+  :bottom nil
+  :cursor nil)
+
+(lispm-desktop-app-ui-define 'lispm-mail-message-mode
+  :title (lambda () (lispm-mail-message-title))
+  :buttons nil
+  :bottom nil
+  :setup #'lispm-desktop-app-skins--mail-message-setup)
+
+(lispm-desktop-app-ui-define 'lispm-mail-compose-mode
+  :title (lambda () (lispm-mail-compose-title))
+  :bottom nil)
+
+(lispm-desktop-app-ui-define 'lispm-mail-settings-mode
+  :buttons nil
+  :bottom nil)
+
+(lispm-desktop-app-ui-define 'lispm-mail-account-mode
+  :buttons nil
+  :bottom nil)
+
+(lispm-desktop-app-ui-define 'lispm-mail-mode
+  :app 'mail
+  :list t
+  :title (lambda () (lispm-mail-list-title))
+  :status (lambda () (lispm-mail-list-status))
+  :label (lambda () (lispm-mail-search-label))
+  :size '(1040 . 680)
+  :restore (lambda () (lispm-mail))
+  :cursor nil)
+
+(with-eval-after-load 'lispm-mail-settings
+  (setq lispm-mail-settings-glyph-function #'lispm-desktop-form-glyph
+        lispm-mail-settings-choose-function #'lispm-desktop-app-skins--mail-choose)
+  (add-hook 'lispm-mail-settings-drawn-hook #'lispm-desktop-form-dress)
+  (add-hook 'enable-theme-functions #'lispm-desktop-app-skins--mail-redraw)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-skins--mail-redraw))
+
+(with-eval-after-load 'lispm-mail-data
+  (add-hook 'lispm-desktop-platinum-check-mail-functions #'lispm-mail-check))
+
+(defconst lispm-desktop-app-skins-mail-words
+  (list (lispm-desktop-tr-noop "Get Mail") (lispm-desktop-tr-noop "Reply")
+        (lispm-desktop-tr-noop "Reply All") (lispm-desktop-tr-noop "Delete")
+        (lispm-desktop-tr-noop "Send") (lispm-desktop-tr-noop "Attach")
+        (lispm-desktop-tr-noop "Save Draft") (lispm-desktop-tr-noop "Discard")
+        (lispm-desktop-tr-noop "Test") (lispm-desktop-tr-noop "Add Account")
+        (lispm-desktop-tr-noop "Mailbox") (lispm-desktop-tr-noop "Message")
+        (lispm-desktop-tr-noop "Account") (lispm-desktop-tr-noop "Mail"))
+  "The words of Mail's buttons and menus, which Mail declares with
+lispm-kit, in English: the desktop's catalogs translate them, where its
+buttons and menus show them.")
 
 (provide 'lispm-desktop-app-skins)
 ;;; lispm-desktop-app-skins.el ends here
