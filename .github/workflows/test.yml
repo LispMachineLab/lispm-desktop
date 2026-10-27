@@ -31,6 +31,11 @@ jobs:
         with:
           repository: LispMachineLab/lispm-agent
           path: .deps/lispm-agent
+      # LispM Kit, whose engine translates the desktop's words and the agent's.
+      - uses: actions/checkout@v7
+        with:
+          repository: LispMachineLab/lispm-kit
+          path: .deps/lispm-kit
       # Stickies, whose notes the desktop shows, from its own repository.
       - uses: actions/checkout@v7
         with:
@@ -44,6 +49,7 @@ jobs:
           make test
           LISPM_BROWSER=.deps/lispm-browser/lisp
           LISPM_AGENT=.deps/lispm-agent/lisp
+          LISPM_KIT=.deps/lispm-kit
           LISPM_STICKIES=.deps/lispm-stickies
 
   terminal-module:

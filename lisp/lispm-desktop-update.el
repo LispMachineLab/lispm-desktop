@@ -23,11 +23,11 @@
 
 ;;; Commentary:
 
-;; LispM runs from git checkouts: lispm-desktop, lispm-agent and
-;; lispm-browser, and lispm-kernel once asked for, side by side in
-;; ~/.lispm as install.sh made them, or wherever a developer keeps them;
-;; or from packages package-vc installed from git, as the desktop installs
-;; a project it finds no checkout of (lispm-desktop-deps.el).  Each
+;; LispM runs from git checkouts: lispm-desktop, lispm-agent,
+;; lispm-browser and lispm-kit, and lispm-kernel once asked for, side by
+;; side in ~/.lispm as install.sh made them, or wherever a developer keeps
+;; them; or from packages package-vc installed from git, as the desktop
+;; installs a project it finds no checkout of (lispm-desktop-deps.el).  Each
 ;; project releases its versions as tags of its main branch, v0.2.0 and
 ;; on, and Software Update keeps each at the latest release, as running
 ;; install.sh again does:
@@ -111,9 +111,11 @@ first, and installs when told to."
   '(("LispM Desktop" . "lispm-desktop-core.el")
     ("LispM Agent" . "lispm.el")
     ("LispM Browser" . "lispm-browser.el")
+    ("LispM Kit" . "lispm-kit-i18n.el")
     ("LispM Kernel" . "lispm-kernel.el"))
   "The LispM projects Software Update keeps up to date: (NAME . FILE), FILE
-a file of the project's lisp/ directory, as `locate-library' finds it.")
+a file of the project's sources, in its lisp/ directory or at its top,
+as `locate-library' finds it.")
 
 (defconst lispm-desktop-update-release-regexp
   "\\`v\\([0-9]+\\.[0-9]+\\.[0-9]+\\)\\'"

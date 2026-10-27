@@ -22,8 +22,9 @@
 #
 #   1. installs Apple's command line tools, when they are missing (git,
 #      and the compiler Emacs turns its packages into machine code with);
-#   2. checks out the latest release of lispm-desktop, lispm-agent and
-#      lispm-browser side by side in ~/.lispm, or updates them to it;
+#   2. checks out the latest release of lispm-desktop, lispm-agent,
+#      lispm-browser and lispm-kit side by side in ~/.lispm, or updates
+#      them to it;
 #   3. downloads GNU Emacs, as built, signed and notarized by
 #      https://github.com/jimeh/emacs-builds, checks it, and makes
 #      LispM.app of it in /Applications (else ~/Applications);
@@ -341,7 +342,7 @@ fetch_project() {
 
 fetch_projects() {
   say "Fetching LispM into $LISPM_HOME"
-  for project in lispm-desktop lispm-agent lispm-browser; do
+  for project in lispm-desktop lispm-agent lispm-browser lispm-kit; do
     fetch_project "$project"
   done
 }
