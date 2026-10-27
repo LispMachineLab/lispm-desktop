@@ -16228,7 +16228,9 @@ the Characters application lists them; deleted, its application goes."
         (should (memq 'character-ada (lispm-desktop-standalone-apps))))
       ;; The Characters application lists it.
       (with-current-buffer (lispm-desktop-characters--buffer)
-        (should (string-match-p "Ada   Reviews changes\\." (buffer-string)))
+        (should (string-match-p "^   Ada Reviews changes\\.$" (buffer-string)))
+        ;; Below the list, who the one point is on is.
+        (should (eq lispm-desktop-characters--selected 'ada))
         (should (eq (lispm-character-name (lispm-desktop-characters--at-point)) 'ada)))
       ;; Its name changed, its application is called so.
       (lispm-save-character 'ada :title "Ada L.")
@@ -16254,6 +16256,29 @@ lines are cut off."
       (lispm-desktop-app-ui-mode)
       (should-not truncate-lines)
       (should visual-line-mode))))
+
+(ert-deftest lispm-desktop-test-characters-pane-lines ()
+  "The list of characters says of a conversation where it is and how it
+is, and of a line of a diary when it was and who asked what."
+  (should (equal (substring-no-properties
+                  (lispm-desktop-characters--conversation-line '(:home t :live nil :time nil)))
+                 "At home · "))
+  (should (equal (substring-no-properties
+                  (lispm-desktop-characters--conversation-line
+                   `(:root "/tmp/p/" :live ,(list 'agent) :state requesting)))
+                 "In /tmp/p/ · working now"))
+  (let ((today (format-time-string "%Y-%m-%d")))
+    (should (equal (substring-no-properties
+                    (lispm-desktop-characters--day-line
+                     `(:day ,today :title "14:02 ada@p" :text "In ~/p, the user asked: look\nYou replied: ok")
+                     1000))
+                   "14:02  You: look"))
+    (should (equal (substring-no-properties
+                    (lispm-desktop-characters--day-line
+                     '(:day "2026-10-01" :title "09:00 ada" :text "In your own conversation, codex asked: hi")
+                     1000))
+                   "2026-10-01 09:00  codex: hi"))
+    (should (string-suffix-p "…" (lispm-desktop-characters--fit (make-string 200 ?x) 50)))))
 
 (ert-deftest lispm-desktop-test-store-apps-are-characters ()
   "An application installed from the App Store with a skill is a character
