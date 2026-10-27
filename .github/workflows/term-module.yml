@@ -76,10 +76,13 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
             extension: dylib
-          # The oldest glibc of the runners: its library loads with any
-          # newer one.
+          # The oldest glibc of the runners, 2.35: their libraries load
+          # with any newer one.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            extension: so
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
             extension: so
     env:
       # The macOS LispM's installer and Emacs's builds support.
@@ -165,6 +168,6 @@ jobs:
           gh release create "$tag" releases/"$tag"/* \
             --target "$GITHUB_SHA" --latest=false \
             --title "Terminal module $VERSION" \
-            --notes "The terminals' module, native/lispm-desktop-term, built from $GITHUB_SHA for macOS on Apple silicon and on Intel (11 and later) and for GNU/Linux on x86_64, by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID.
+            --notes "The terminals' module, native/lispm-desktop-term, built from $GITHUB_SHA for macOS on Apple silicon and on Intel (11 and later) and for GNU/Linux on x86_64 and on ARM (aarch64), by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID.
 
           LispM Desktop downloads the one for its computer, and keeps it only when its SHA-256 is the one its Lisp pins in lisp/lispm-desktop-term-sums.eld, which scripts/pin-term-module.py writes from this release: nothing here needs to be fetched by hand."
