@@ -109,6 +109,12 @@ shown; a function may return them translated already:
 :run      a function opening the application in its window, selected,
           instead of its command: for a game that would hold Emacs
           until it ends, or that sizes its board from its window.
+:restore  a function opening the application again in its window,
+          selected, when it was closed with its buffer kept, instead of
+          showing that buffer: for one whose window holds several, as
+          a mail program's mailboxes, list and message.
+:size     (WIDTH . HEIGHT) in pixels, the size of its window the first
+          time it opens, for one needing more room than most.
 :title    the window's title, by default the application's name: a
           string, or a function returning one, called in the
           window's buffer as the window is drawn.
@@ -198,6 +204,11 @@ naming it with :app."
   (or (alist-get app lispm-desktop-app-ui-skins)
       (cdr (seq-find (lambda (skin) (memq app (ensure-list (plist-get (cdr skin) :app))))
                      lispm-desktop-app-ui-skins))))
+
+(defun lispm-desktop-app-ui-window-size (app)
+  "Return the size APP's window opens at the first time, as its :size says,
+or nil for the size most have."
+  (plist-get (lispm-desktop-app-ui--app-skin app) :size))
 
 (defun lispm-desktop-app-ui--app-property (app property)
   "Return PROPERTY of APP as the desktop knows it, see `lispm-desktop-apps'."
@@ -980,7 +991,10 @@ windows on its first line left there; one printed later prints them."
     (display-line-numbers-mode -1))
   (setq-local lispm-desktop-platinum-title (let ((title (lispm-desktop-app-ui-get :title)))
                                              (lambda ()
-                                               (cond ((functionp title) (funcall title))
+                                               (cond ((functionp title)
+                                                      ;; One failing names the application.
+                                                      (or (lispm-desktop-app-ui--safely title)
+                                                          (lispm-desktop-app-ui-name)))
                                                      (title (lispm-desktop-tr title))
                                                      (t (lispm-desktop-app-ui-name)))))
               lispm-desktop-platinum-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
@@ -1123,7 +1137,9 @@ offered first."
   (unless noninteractive
     (lispm-desktop-app-ui--offer-missing app))
   (let ((buffer (alist-get app lispm-desktop-app-ui--buffers)))
-    (cond ((buffer-live-p buffer) (switch-to-buffer buffer))
+    (cond ((and (buffer-live-p buffer) (plist-get (lispm-desktop-app-ui--app-skin app) :restore))
+           (funcall (plist-get (lispm-desktop-app-ui--app-skin app) :restore)))
+          ((buffer-live-p buffer) (switch-to-buffer buffer))
           ((plist-get (lispm-desktop-app-ui--app-skin app) :run)
            (funcall (plist-get (lispm-desktop-app-ui--app-skin app) :run)))
           (t (call-interactively command)))))

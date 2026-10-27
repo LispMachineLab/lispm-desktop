@@ -110,11 +110,18 @@ gives them.  Where no menu can be drawn, the form's own way is taken."
 
 ;;;; Focus
 
+(defvar lispm-desktop-form-control-properties '(:lispm-form-control :lispm-mail-control)
+  "The properties of a widget saying what control of a form it is, as
+`lispm-form-glyph-function' gives them: LispM's forms', and those of
+applications drawing forms of their own the same way, as LispM Mail's
+settings.")
+
 (defun lispm-desktop-form--control-at (position)
   "The control of the form at POSITION drawn as an image, as (START END
 PLAIN FOCUSED): the text it is drawn over, and its images; or nil."
   (when-let* ((widget (widget-at position))
-              (control (widget-get widget :lispm-form-control))
+              (control (seq-some (lambda (property) (widget-get widget property))
+                                 lispm-desktop-form-control-properties))
               (overlay (widget-get widget :button-overlay))
               ((overlayp overlay))
               (start (overlay-start overlay))
@@ -164,11 +171,11 @@ Run from the buffer's `post-command-hook', and once the form is drawn."
 
 ;;;; Dressing
 
-(defun lispm-desktop-form--dress ()
+(defun lispm-desktop-form-dress ()
   "Dress the form in this buffer, just drawn, in the look and theme in use:
 in the system face on the platinum ground, its fields framed, its text
 areas white panels, what point is on drawn focused.  Run from
-`lispm-form-drawn-hook'."
+`lispm-form-drawn-hook', and from an application's like it."
   (mapc #'face-remap-remove-relative lispm-desktop-form--remaps)
   (setq lispm-desktop-form--remaps
         (unless (lispm-desktop-tty-p)
@@ -211,7 +218,7 @@ areas white panels, what point is on drawn focused.  Run from
   (when (require 'lispm-form nil t)
     (setq lispm-form-glyph-function #'lispm-desktop-form-glyph
           lispm-form-choose-function #'lispm-desktop-form-choose)
-    (add-hook 'lispm-form-drawn-hook #'lispm-desktop-form--dress)
+    (add-hook 'lispm-form-drawn-hook #'lispm-desktop-form-dress)
     (add-hook 'enable-theme-functions #'lispm-desktop-form-redraw-all)
     (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-form-redraw-all)
     (with-eval-after-load 'lispm-desktop-app-ui
