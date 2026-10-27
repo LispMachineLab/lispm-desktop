@@ -3,7 +3,7 @@ name: emacs for GNU/Linux
 # The GNU Emacs LispM runs on GNU/Linux, with xwidgets for LispM Browser,
 # built by linux/build-emacs.sh as a .deb for each Debian and Ubuntu
 # install.sh supports, on x86_64 and on ARM, each installed in a system
-# of its own and checked there.  Run by hand on main, the workflow
+# of its own and checked there, down to drawing a web page.  Run by hand on main, the workflow
 # publishes them as the release emacs-VERSION-REVISION-linux: published
 # once, then left as it is, and never marked the latest, which stays
 # LispM's own.  install.sh keeps a download only when its SHA-256 is the
@@ -48,7 +48,8 @@ jobs:
 
   # Installed as install.sh installs it, in a system that has none of
   # what built it: apt brings what it needs, and it has xwidgets,
-  # tree-sitter and native compilation, which compiles to machine code.
+  # tree-sitter and native compilation, which compiles to machine code,
+  # and draws web pages.
   check:
     name: Install on ${{ matrix.system }}, ${{ matrix.runner }}
     needs: build
@@ -80,6 +81,23 @@ jobs:
               (unless (native-comp-available-p) (error "No native compilation"))
               (unless (subrp (native-compile (quote (lambda (x) (* x 2))))) (error "Native compilation failed"))
               (message "GNU Emacs %s: xwidgets, tree-sitter, native compilation" emacs-version))'
+
+      # It draws pages: WebKit, in an xwidget on a virtual display, loads
+      # a page of its own and one over HTTPS, and gives their titles.
+      - name: Check it draws pages
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q xvfb xauth
+          for url in 'data:text/html,<title>LispM</title>' https://lispm.ai/; do
+            RENDER_URL=$url xvfb-run -a -s '-screen 0 1280x800x24' /opt/lispm/emacs/bin/emacs -Q --eval '
+              (let ((url (getenv "RENDER_URL")) (title ""))
+                (xwidget-webkit-browse-url url t)
+                (dotimes (_ 60)
+                  (when (string-empty-p title)
+                    (sit-for 1)
+                    (setq title (or (xwidget-webkit-title (xwidget-webkit-current-session)) ""))))
+                (princ (format "%s: %S\n" url title) (function external-debugging-output))
+                (kill-emacs (if (string-search "LispM" title) 0 1)))'
+          done
 
   release:
     name: Release
