@@ -34,7 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SUMS = ROOT / "lisp" / "lispm-desktop-term-sums.eld"
 URL = "https://github.com/LispMachineLab/lispm-desktop/releases/download"
 # The targets lispm-desktop-term.el downloads for, as the workflow builds them.
-TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu")
+TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu",
+           "aarch64-unknown-linux-gnu")
 ASSET = re.compile(r"liblispm_desktop_term-(.+)\.(dylib|so)")
 LINE = re.compile(r"([0-9a-f]{64}) [ *](\S+)")
 HEADER = """\
