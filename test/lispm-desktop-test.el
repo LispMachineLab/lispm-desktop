@@ -3003,6 +3003,16 @@ manager drawn from the last; only the first table is waited for."
       (disable-theme 'platinum))
     (should-not (plist-get lispm-desktop-platinum-colors :chrome))))
 
+(ert-deftest lispm-desktop-test-platinum-fontset-without-family ()
+  "With no family of the look installed, as on GNU/Linux, the chrome's
+faces take the default face's fontset: `unspecified' would make
+`set-face-attribute' fail."
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+            ((symbol-function 'lispm-desktop-i18n-cjk-family) (lambda () "PingFang SC")))
+    (should (equal (lispm-desktop-platinum--fontset-attribute nil) '(:fontset reset))))
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
+    (should-not (lispm-desktop-platinum--fontset-attribute "Geneva"))))
+
 (ert-deftest lispm-desktop-test-window-bottom ()
   "A window's bottom edge counts a list's items, or shows the buffer."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
