@@ -109,11 +109,12 @@ first, and installs when told to."
 
 (defconst lispm-desktop-update-projects
   '(("LispM Desktop" . "lispm-desktop-core.el")
+    ("LispM UI" . "lispm-ui.el")
     ("LispM Agent" . "lispm.el")
     ("LispM Browser" . "lispm-browser.el")
     ("LispM Kernel" . "lispm-kernel.el"))
   "The LispM projects Software Update keeps up to date: (NAME . FILE), FILE
-a file of the project's lisp/ directory, as `locate-library' finds it.")
+a file of the project's sources, as `locate-library' finds it.")
 
 (defconst lispm-desktop-update-release-regexp
   "\\`v\\([0-9]+\\.[0-9]+\\.[0-9]+\\)\\'"

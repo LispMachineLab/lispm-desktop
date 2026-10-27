@@ -15058,7 +15058,7 @@ once the turn that asked is over and saved: then only, and once."
   '(lispm-desktop-setup-proxy lispm-desktop-setup-common-packages lispm-desktop-setup-clipboard
     lispm-desktop-setup-keymapping lispm-desktop-setup-plain-interface lispm-desktop-setup-update
     lispm-desktop-setup-emacs lispm-desktop-setup-startup lispm-desktop-setup-i18n
-    lispm-desktop-setup-langs lispm-desktop-setup-lispm lispm-desktop-form-setup
+    lispm-desktop-setup-langs lispm-desktop-form-setup lispm-desktop-setup-lispm
     lispm-desktop-setup-kernel)
   "What LispM's terminal sets up, in its order.")
 
@@ -16621,6 +16621,34 @@ in the system's own panel, among the files the dialog would list."
         (should (equal (lispm-desktop-choose-file :directory folder :predicate picture-p)
                        (expand-file-name "ada.png" folder)))
         (should (equal asked `((,folder nil nil t))))))))
+
+(ert-deftest lispm-desktop-test-ui-asks-on-the-desktop ()
+  "What LispM UI asks a person, it asks in the desktop's alerts, menus and
+Choose a File dialog, and it speaks the desktop's language before
+LispM's agent's, which follows the desktop's too; told when it changes."
+  (let ((lispm-ui-alert-function nil)
+        (lispm-ui-choose-function nil)
+        (lispm-ui-choose-file-function nil)
+        (lispm-ui-language-functions (list (lambda () 'fr)))
+        (lispm-ui-language nil)
+        (lispm-ui-form-glyph-function nil)
+        (lispm-ui-form-group-function nil)
+        (lispm-ui-form-choose-function #'lispm-ui-form-choose)
+        (lispm-ui-form-choose-file-function nil)
+        (lispm-ui-form-mode-hook nil)
+        (lispm-ui-form-drawn-hook nil)
+        (enable-theme-functions nil)
+        (lispm-desktop-language-changed-hook nil)
+        (lispm-desktop-language 'de)
+        (changed 0))
+    (lispm-desktop-form-setup)
+    (should (eq lispm-ui-alert-function #'lispm-desktop-popup-alert))
+    (should (eq lispm-ui-choose-function #'lispm-desktop-platinum-choose))
+    (should (eq lispm-ui-choose-file-function #'lispm-desktop-choose-file))
+    (should (eq (lispm-ui-current-language) 'de))
+    (let ((lispm-ui-language-changed-hook (list (lambda () (setq changed (1+ changed))))))
+      (run-hooks 'lispm-desktop-language-changed-hook)
+      (should (= changed 1)))))
 
 (ert-deftest lispm-desktop-test-form-chooses-pictures ()
   "A form's picture is chosen in the desktop's dialog, titled so, the

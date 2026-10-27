@@ -24,7 +24,8 @@
 ;;; Commentary:
 
 ;; LispM Desktop runs other LispM projects, each a repository of its own:
-;; lispm-agent, LispM's agents, lispm-browser, its browser, and, unless
+;; lispm-ui, the library it draws forms and asks with, lispm-agent,
+;; LispM's agents, lispm-browser, its browser, and, unless
 ;; `lispm-desktop-kernel' is nil, lispm-kernel, its runtime for
 ;; background work.  Each is found where it already is, else in a checkout
 ;; beside the desktop's, else its latest release is installed from its
@@ -66,7 +67,9 @@
 (require 'lispm-desktop-store-installer)
 
 (defconst lispm-desktop-deps
-  '((lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
+  '((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
+              :version "0.1.0")
+    (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Newer than lispm-agents, which the desktop needs too.
            :needs "lispm-exec")
