@@ -10,5 +10,6 @@
 
 (:version "96cf7cdfe25df0e7"
  :modules (("aarch64-apple-darwin" . "ee5087d5247083da1c428fc25234c5ef43ada3d7ea0ed230340f6853ffe1676c")
+           ("aarch64-unknown-linux-gnu" . "9013790bad68ae837f9c1671610787f0e2288eea3ec4adb925c067819ea00f21")
            ("x86_64-apple-darwin" . "f8cbf11d2797b836e02c1740bf1a4e66a173504107d14010b5de55cdad684e00")
            ("x86_64-unknown-linux-gnu" . "7d4c21e0f89a1fd4f369237ebbbabacb0d9b7dedfe57f953f00d52227deb4905")))
