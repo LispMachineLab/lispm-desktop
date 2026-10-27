@@ -2990,6 +2990,21 @@ manager drawn from the last; only the first table is waited for."
     ;; The derived palette itself is left untouched.
     (should (equal (plist-get derived :accent) "#bd93f9"))))
 
+(ert-deftest lispm-desktop-test-packages-all-ensured ()
+  "Every package the desktop declares is installed when missing, those
+declared first too: Emacs 30 expands `:ensure' only from the first
+declaration naming it.  In an Emacs of its own, as init.el sets it up:
+this one has met `:ensure' already."
+  (let ((body (with-temp-buffer
+                (call-process (expand-file-name invocation-name invocation-directory) nil t nil
+                              "-Q" "--batch" "-L" (expand-file-name "lisp" lispm-desktop-directory)
+                              "--eval" "(setq use-package-always-ensure t)"
+                              "-l" "lispm-desktop-packages"
+                              "--eval" "(prin1 (symbol-function 'lispm-desktop-setup-common-packages))")
+                (buffer-string))))
+    (dolist (package '(which-key magit vertico marginalia))
+      (should (string-search (format "(use-package-ensure-elpa '%s " package) body)))))
+
 (ert-deftest lispm-desktop-test-platinum-theme ()
   "The platinum theme loads, and names Platinum's greys for the chrome."
   (let ((custom-theme-load-path (cons (expand-file-name "themes/" lispm-desktop-directory)
