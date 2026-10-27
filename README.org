@@ -45,6 +45,36 @@ The System control panel's Kernel tab switches between the two: it downloads the
 while LispM runs, then restarts LispM on it, keeping the LispM.app before in =~/.lispm/backup= to
 switch back to at once.
 
+** On GNU/Linux
+
+On Debian 12 or 13 or Ubuntu 22.04 or 24.04, or a system made from one of them as Linux Mint,
+on x86_64 or ARM:
+
+#+begin_src sh
+curl -fsSL https://lispm.ai/install.sh | sh
+#+end_src
+
+The Emacs of distributions has no xwidgets, which LispM Browser draws pages with, so
+[[file:install.sh][install.sh]] installs GNU Emacs 31.1 as LispM builds it with [[file:linux/build-emacs.sh][linux/build-emacs.sh]], with
+xwidgets and its Lisp compiled to machine code, in =/opt/lispm/emacs=, beside any Emacs of the
+system.  It downloads the =.deb= built for the system, checks its SHA-256 and installs it with
+apt, which asks for your password and installs the libraries it uses, WebKitGTK among them.
+Then, as on macOS, it checks out LispM in =~/.lispm= and installs its packages, and adds the
+command =lispm= and LispM to the applications menu.  To uninstall:
+
+#+begin_src sh
+sudo apt remove lispm-emacs
+rm -rf ~/.lispm ~/.local/bin/lispm ~/.local/share/applications/lispm.desktop
+#+end_src
+
+On another release of Debian or Ubuntu, build that Emacs first (it takes a while), then install
+LispM on it:
+
+#+begin_src sh
+sh linux/build-emacs.sh ~/lispm-emacs
+LISPM_EMACS_DEB=$(ls ~/lispm-emacs/lispm-emacs-*.deb) sh install.sh
+#+end_src
+
 ** In your own Emacs
 
 Emacs 30.1 or later (31 recommended) built with SVG images, git and curl, on macOS or GNU/Linux:

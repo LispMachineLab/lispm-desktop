@@ -1,10 +1,21 @@
 #!/bin/sh
-# install.sh --- install LispM on macOS, or bring it up to date
+# install.sh --- install LispM on macOS or GNU/Linux, or bring it up to date
 #
 # Copyright (C) 2026  Ryan.K
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 #   curl -fsSL https://lispm.ai/install.sh | sh
+#
+# On GNU/Linux, Debian 12 and 13 and Ubuntu 22.04 and 24.04 (and the
+# systems made from them), it installs GNU Emacs 31.1 with xwidgets, as
+# linux/build-emacs.sh builds it, in /opt/lispm/emacs with apt, checks
+# out LispM in ~/.lispm, installs its packages, and adds the command
+# lispm and LispM to the applications menu.  Uninstalling is
+#
+#   sudo apt remove lispm-emacs
+#   rm -rf ~/.lispm ~/.local/bin/lispm ~/.local/share/applications/lispm.desktop
+#
+# On macOS:
 #
 # LispM.app is GNU Emacs, under LispM's name and icon, running LispM
 # Desktop: nothing needs to be known about Emacs to use it.  This script
@@ -75,6 +86,16 @@ EMACS_32_VERSION=32.0.50
 # The Developer ID both are signed with.
 EMACS_TEAM=5HX66GF82Z
 
+# The Emacs of GNU/Linux: GNU Emacs 31.1 with xwidgets, built by
+# linux/build-emacs.sh and published by the workflow emacs-linux.yml as
+# a release of lispm-desktop, a .deb for each system and processor,
+# whose SHA-256 is pinned here.
+LINUX_EMACS_RELEASE=emacs-31.1-1-linux
+LINUX_EMACS_VERSION=31.1-1
+LINUX_EMACS_SHA256S='
+'
+LINUX_EMACS=/opt/lispm/emacs/bin/emacs
+
 REPOSITORIES=https://github.com/LispMachineLab
 APP_ID=org.lispmachinelab.lispm
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -100,8 +121,14 @@ fail() {
 
 # Settle the processor and the system, or stop.
 check_system() {
-  [ "$(uname -s)" = Darwin ] ||
-    fail "this installer is for macOS.  On GNU/Linux, see https://github.com/LispMachineLab/lispm-desktop#installation"
+  case $(uname -s) in
+    Darwin) OS=macos && check_mac ;;
+    Linux) OS=linux && check_linux ;;
+    *) fail "LispM installs on macOS and GNU/Linux, not on $(uname -s)" ;;
+  esac
+}
+
+check_mac() {
   ARCH=$(uname -m)
   # A shell run by Rosetta reports an Intel processor on Apple silicon.
   if [ "$ARCH" = x86_64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ]; then
@@ -113,6 +140,56 @@ check_system() {
   esac
   major=$(sw_vers -productVersion | cut -d. -f1)
   [ "$major" -ge 11 ] || fail "LispM needs macOS 11 Big Sur or later"
+}
+
+check_linux() {
+  { command -v dpkg && command -v apt-get; } >/dev/null 2>&1 ||
+    fail "on GNU/Linux this installer is for Debian and Ubuntu; elsewhere, see https://github.com/LispMachineLab/lispm-desktop#installation"
+  ARCH=$(dpkg --print-architecture)
+  case $ARCH in
+    amd64 | arm64) ;;
+    *) fail "LispM runs on x86_64 (amd64) and ARM (arm64) processors, not on $ARCH" ;;
+  esac
+  SYSTEM=$(linux_system)
+  case $SYSTEM in
+    debian12 | debian13 | ubuntu22.04 | ubuntu24.04) ;;
+    # Elsewhere, an Emacs built here with linux/build-emacs.sh.
+    *) [ -n "${LISPM_EMACS_DEB:-}" ] ||
+      fail "LispM's Emacs is built for Debian 12 and 13 and Ubuntu 22.04 and 24.04, not for $SYSTEM; see https://github.com/LispMachineLab/lispm-desktop#on-gnulinux" ;;
+  esac
+  case ${LISPM_EMACS:-31} in
+    31) ;;
+    *) fail "on GNU/Linux LispM runs on Emacs 31, not on $LISPM_EMACS" ;;
+  esac
+  if [ "$(id -u)" = 0 ]; then
+    SUDO=
+  elif command -v sudo >/dev/null 2>&1; then
+    SUDO=sudo
+  else
+    fail "installing GNU Emacs takes sudo, which is not installed"
+  fi
+}
+
+# Print the system as LispM's Emacs builds name it, as debian13 or
+# ubuntu24.04: one made from Ubuntu, as Linux Mint, by the Ubuntu it is
+# made from, and one made from Debian by its Debian.
+linux_system() {
+  (
+    # shellcheck source=/dev/null
+    . /etc/os-release
+    case ${UBUNTU_CODENAME:-} in
+      jammy) echo ubuntu22.04 && exit ;;
+      noble) echo ubuntu24.04 && exit ;;
+    esac
+    case $ID in
+      debian | ubuntu) echo "$ID${VERSION_ID:-}" && exit ;;
+    esac
+    case ${DEBIAN_CODENAME:-${VERSION_CODENAME:-}} in
+      bookworm) echo debian12 ;;
+      trixie) echo debian13 ;;
+      *) echo "$ID${VERSION_ID:-}" ;;
+    esac
+  )
 }
 
 # Install Apple's command line tools, when they are missing, and wait for
@@ -145,6 +222,11 @@ settle_places() {
   APP=$APP_DIR/LispM.app
   STAGED=$LISPM_HOME/staging/LispM.app
   BACKUP=$LISPM_HOME/backup/LispM.app
+  if [ "$OS" = linux ]; then
+    EMACS_PROGRAM=$LINUX_EMACS
+  else
+    EMACS_PROGRAM=$APP/Contents/MacOS/Emacs
+  fi
   # The launcher finds the checkout through the home directory of whoever
   # opens LispM, when it is in the installer's: it expands the "~/".
   # shellcheck disable=SC2088
@@ -155,12 +237,16 @@ settle_places() {
 }
 
 lispm_running() {
-  pgrep -f "$APP/Contents/MacOS/Emacs" >/dev/null 2>&1
+  if [ "$OS" = linux ]; then
+    pgrep -f -- "--init-directory=$DESKTOP" >/dev/null 2>&1
+  else
+    pgrep -f "$APP/Contents/MacOS/Emacs" >/dev/null 2>&1
+  fi
 }
 
 refuse_running() {
   if lispm_running; then
-    fail "LispM is running: quit it (Command-Q), then run this again"
+    fail "LispM is running: quit it, then run this again"
   fi
 }
 
@@ -260,7 +346,20 @@ installed_build() {
 
 # Print the size of FILE in bytes, 0 when there is none.
 file_size() {
-  stat -f %z "$1" 2>/dev/null || echo 0
+  if [ -f "$1" ]; then
+    wc -c <"$1" | tr -d ' '
+  else
+    echo 0
+  fi
+}
+
+# Print the SHA-256 of FILE.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
 }
 
 # Download URL to FILE, or the rest of it when FILE holds its start.  A
@@ -312,7 +411,7 @@ fetch_emacs() {
   fi
   download "https://github.com/jimeh/emacs-builds/releases/download/$EMACS_RELEASE/$wanted.dmg" "$part" ||
     fail "Emacs could not be downloaded; run this again to go on from where it stopped"
-  if [ "$(shasum -a 256 "$part" | cut -d' ' -f1)" != "$EMACS_SHA256" ]; then
+  if [ "$(sha256 "$part")" != "$EMACS_SHA256" ]; then
     rm -f "$part"
     fail "the Emacs downloaded is not the one expected; nothing was installed"
   fi
@@ -415,7 +514,7 @@ install_packages() {
   : >"$log"
   if ! {
     status=0
-    "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
+    "$EMACS_PROGRAM" --batch --init-directory="$DESKTOP" \
       -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
       -L "$DESKTOP/lisp" -l lispm-desktop-deps -f lispm-desktop-deps-batch-progress \
       -l "$DESKTOP/init.el" 2>>"$log" || status=$?
@@ -433,7 +532,7 @@ install_packages() {
 recompile_packages() {
   if [ -n "$EMACS_BEFORE" ] && [ "$EMACS_BEFORE" != "$EMACS" ]; then
     note "Compiling LispM's packages again for Emacs $EMACS"
-    "$APP/Contents/MacOS/Emacs" --batch --init-directory="$DESKTOP" \
+    "$EMACS_PROGRAM" --batch --init-directory="$DESKTOP" \
       -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
       --eval '(package-recompile-all)' >"$LISPM_HOME/compile.log" 2>&1
   fi
@@ -452,10 +551,91 @@ build_modules() {
     (cd "$webext" && swift build -c release --product lispm_browser_webext >"$LISPM_HOME/webext.log" 2>&1) ||
       note "It did not build (see $LISPM_HOME/webext.log); LispM tries again when you add an extension."
   fi
+  fetch_terminals
+}
+
+fetch_terminals() {
   say "Fetching LispM's terminals"
-  "$APP/Contents/MacOS/Emacs" -Q --batch -L "$DESKTOP/lisp" -l lispm-desktop-term \
+  "$EMACS_PROGRAM" -Q --batch -L "$DESKTOP/lisp" -l lispm-desktop-term \
     -f lispm-desktop-term-batch-download >"$LISPM_HOME/terminal.log" 2>&1 ||
     note "They could not be fetched (see $LISPM_HOME/terminal.log); LispM tries again at its next start."
+}
+
+# Install with apt the packages, or .deb files, named.
+linux_apt() {
+  $SUDO apt-get update -q || fail "apt could not read the packages there are"
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" ||
+    fail "apt could not install $*"
+}
+
+# Install LispM's Emacs, and git, with apt: the .deb LISPM_EMACS_DEB names,
+# as linux/build-emacs.sh builds one, else the one built for this system,
+# downloaded and checked, unless it is installed already.
+install_linux_emacs() {
+  EMACS_VERSION=${LINUX_EMACS_VERSION%-*}
+  if [ -z "${LISPM_EMACS_DEB:-}" ] &&
+    [ "$(dpkg-query -W -f '${Version}' lispm-emacs 2>/dev/null || true)" = "$LINUX_EMACS_VERSION~$SYSTEM" ]; then
+    command -v git >/dev/null 2>&1 || linux_apt git
+    return
+  fi
+  if [ -n "${LISPM_EMACS_DEB:-}" ]; then
+    [ -f "$LISPM_EMACS_DEB" ] || fail "LISPM_EMACS_DEB names no file: $LISPM_EMACS_DEB"
+    deb=$WORK/$(basename "$LISPM_EMACS_DEB")
+    cp "$LISPM_EMACS_DEB" "$deb"
+  else
+    asset=lispm-emacs-$LINUX_EMACS_VERSION-$SYSTEM-$ARCH.deb
+    sum=$(printf '%s\n' "$LINUX_EMACS_SHA256S" | sed -n "s/^$SYSTEM-$ARCH //p")
+    [ -n "$sum" ] || fail "LispM's Emacs for $SYSTEM on $ARCH is not published yet"
+    say "Downloading GNU Emacs $EMACS_VERSION for LispM"
+    # Kept until whole and checked, as on macOS: a run cut short loses
+    # none of it.
+    cache=$LISPM_HOME/.cache
+    part=$cache/$asset.part
+    mkdir -p "$cache"
+    for old in "$cache"/*.deb.part; do
+      [ "$old" = "$part" ] || rm -f "$old"
+    done
+    download "$REPOSITORIES/lispm-desktop/releases/download/$LINUX_EMACS_RELEASE/$asset" "$part" ||
+      fail "Emacs could not be downloaded; run this again to go on from where it stopped"
+    if [ "$(sha256 "$part")" != "$sum" ]; then
+      rm -f "$part"
+      fail "the Emacs downloaded is not the one expected; nothing was installed"
+    fi
+    deb=$WORK/$asset
+    mv "$part" "$deb"
+  fi
+  say "Installing GNU Emacs $EMACS_VERSION in /opt/lispm/emacs"
+  note "apt installs it with the libraries it uses, as WebKitGTK; sudo may ask for your password."
+  # apt reads it as a file only by a path with a slash.
+  linux_apt "$deb" git ca-certificates
+}
+
+# The command lispm, in ~/.local/bin, and LispM in the applications menu,
+# with its icon: both start LispM's Emacs on the checkout.
+make_launcher() {
+  data=${XDG_DATA_HOME:-$HOME/.local/share}
+  mkdir -p "$HOME/.local/bin" "$data/applications" "$data/icons/hicolor/512x512/apps"
+  LAUNCHER=$HOME/.local/bin/lispm
+  cat >"$LAUNCHER" <<EOF
+#!/bin/sh
+# LispM: GNU Emacs, as install.sh installed it, on LispM Desktop.
+exec "$LINUX_EMACS" --init-directory="$DESKTOP" "\$@"
+EOF
+  chmod 755 "$LAUNCHER"
+  cp "$DESKTOP/linux/lispm.png" "$data/icons/hicolor/512x512/apps/lispm.png"
+  cat >"$data/applications/lispm.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=LispM
+GenericName=Lisp Machine
+Comment=The LispM desktop and its agents, on GNU Emacs
+Exec="$LAUNCHER" %F
+Icon=lispm
+Terminal=false
+Categories=Development;TextEditor;
+StartupWMClass=Emacs
+EOF
+  update-desktop-database "$data/applications" >/dev/null 2>&1 || true
 }
 
 cleanup() {
@@ -516,6 +696,29 @@ switch() {
   fi
 }
 
+install_linux() {
+  settle_places
+  refuse_running
+  begin_work
+  install_linux_emacs
+  fetch_projects
+  EMACS_BEFORE=
+  install_packages
+  fetch_terminals
+  make_launcher
+  say "LispM is installed"
+  case :$PATH: in
+    *":$HOME/.local/bin:"*) ;;
+    *) note "$HOME/.local/bin is not on your PATH yet: the command lispm runs once you log in again." ;;
+  esac
+  if [ "${LISPM_OPEN:-1}" != 0 ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    note "Opening it now; next time, open it from the applications menu, or run lispm."
+    nohup "$LAUNCHER" >/dev/null 2>&1 &
+  else
+    note "Open it from the applications menu, or run lispm (lispm -nw in a terminal)."
+  fi
+}
+
 install() {
   check_tools
   settle_places
@@ -537,10 +740,12 @@ install() {
 
 main() {
   check_system
-  case ${LISPM_STEP:-} in
-    '') install ;;
-    stage) stage ;;
-    switch) switch ;;
+  case $OS.${LISPM_STEP:-} in
+    linux.) install_linux ;;
+    linux.*) fail "LISPM_STEP is for LispM.app, on macOS" ;;
+    *.) install ;;
+    *.stage) stage ;;
+    *.switch) switch ;;
     *) fail "LISPM_STEP is stage or switch, not $LISPM_STEP" ;;
   esac
 }
