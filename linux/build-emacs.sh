@@ -71,8 +71,12 @@ apt_install "libgccjit-$GCC-dev" \
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
-curl -fsSL --retry 5 -o "emacs-$EMACS_VERSION.tar.xz" \
-  "https://ftpmirror.gnu.org/gnu/emacs/emacs-$EMACS_VERSION.tar.xz"
+# From the first of GNU's servers that answers: the SHA-256 pinned above
+# makes any of them as good.
+for site in https://ftpmirror.gnu.org/gnu https://ftp.gnu.org/gnu https://mirrors.kernel.org/gnu; do
+  curl -fsSL --retry 2 --connect-timeout 30 -o "emacs-$EMACS_VERSION.tar.xz" \
+    "$site/emacs/emacs-$EMACS_VERSION.tar.xz" && break
+done
 echo "$EMACS_SHA256  emacs-$EMACS_VERSION.tar.xz" | sha256sum -c - >/dev/null ||
   fail "emacs-$EMACS_VERSION.tar.xz is not the one expected"
 tar xJf "emacs-$EMACS_VERSION.tar.xz"
