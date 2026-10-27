@@ -349,6 +349,35 @@ deletes it.
 
 ;;;; Setting up
 
+(defun lispm-desktop-characters--define-skins ()
+  "Say what the Characters window and each character's window are like."
+  (lispm-desktop-app-ui-define
+   'lispm-desktop-characters-mode
+   :title (lambda () (lispm-desktop-tr "Characters"))
+   :list t
+   :buttons `((,(lispm-desktop-tr-noop "New…") lispm-desktop-characters-new)
+              (,(lispm-desktop-tr-noop "Talk") lispm-desktop-characters-talk-here)
+              (,(lispm-desktop-tr-noop "Change…") lispm-desktop-characters-change)
+              (,(lispm-desktop-tr-noop "Delete…") lispm-desktop-characters-delete))
+   :keys `(("n" . ,(lispm-desktop-tr-noop "Make a character"))
+           ("Return" . ,(lispm-desktop-tr-noop "Talk to the character"))
+           ("e" . ,(lispm-desktop-tr-noop "Change the character"))
+           ("d" . ,(lispm-desktop-tr-noop "Delete the character"))
+           ("g" . ,(lispm-desktop-tr-noop "Draw the list again")))
+   :empty `(,(lambda () (null (lispm-desktop-characters--people)))
+            ,(lispm-desktop-tr-noop "No characters yet.  A character is someone: a name, \
+a soul, a picture, a memory and a past of its own, whom you and every agent reach by name, as @Ada.")
+            ((,(lispm-desktop-tr-noop "New Character…") lispm-desktop-characters-new))))
+  ;; A character's window shows its conversation, wrapped at words as
+  ;; LispM's chat wraps it, not cut off as an application's lines are.
+  (lispm-desktop-app-ui-define 'lispm-chat-mode :setup #'lispm-desktop-characters--wrap))
+
+(defun lispm-desktop-characters--wrap ()
+  "Wrap the lines of the conversation in this buffer at words, as LispM's
+chat does, where a character's window shows it."
+  (setq-local truncate-lines nil)
+  (visual-line-mode 1))
+
 (defvar lispm-form--title)
 
 (defun lispm-desktop-setup-characters ()
@@ -377,23 +406,7 @@ soul, a picture, a memory and a past of their own, whom you and every agent reac
                               :visible (lambda () (lispm-desktop-app-window-open-p 'characters))
                               :listed-while-open t)
     (with-eval-after-load 'lispm-desktop-app-ui
-      (lispm-desktop-app-ui-define
-       'lispm-desktop-characters-mode
-       :title (lambda () (lispm-desktop-tr "Characters"))
-       :list t
-       :buttons `((,(lispm-desktop-tr-noop "New…") lispm-desktop-characters-new)
-                  (,(lispm-desktop-tr-noop "Talk") lispm-desktop-characters-talk-here)
-                  (,(lispm-desktop-tr-noop "Change…") lispm-desktop-characters-change)
-                  (,(lispm-desktop-tr-noop "Delete…") lispm-desktop-characters-delete))
-       :keys `(("n" . ,(lispm-desktop-tr-noop "Make a character"))
-               ("Return" . ,(lispm-desktop-tr-noop "Talk to the character"))
-               ("e" . ,(lispm-desktop-tr-noop "Change the character"))
-               ("d" . ,(lispm-desktop-tr-noop "Delete the character"))
-               ("g" . ,(lispm-desktop-tr-noop "Draw the list again")))
-       :empty `(,(lambda () (null (lispm-desktop-characters--people)))
-                ,(lispm-desktop-tr-noop "No characters yet.  A character is someone: a name, \
-a soul, a picture, a memory and a past of its own, whom you and every agent reach by name, as @Ada.")
-                ((,(lispm-desktop-tr-noop "New Character…") lispm-desktop-characters-new)))))
+      (lispm-desktop-characters--define-skins))
     (add-hook 'lispm-character-change-functions #'lispm-desktop-characters--changed)
     (add-hook 'lispm-desktop-apps-changed-hook #'lispm-desktop-characters--sync-apps)
     (dolist (character (lispm-desktop-characters--people))

@@ -12367,6 +12367,36 @@ key, and :run, said by a skin naming it with :app, opens it."
     (lispm-desktop-app-ui-run 'other (lambda () (interactive) (setq ran 'command)))
     (should (eq ran 'command))))
 
+(ert-deftest lispm-desktop-test-app-ui-title ()
+  "A skin's title is a string, translated, or a function returning one,
+called in the window's buffer, as LispM's forms and the Characters
+application give theirs; with neither, the window has the application's
+name."
+  (let ((lispm-desktop-app-ui-skins nil))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :title "Pong!")
+    (with-temp-buffer
+      (lispm-desktop-test-app-mode)
+      (lispm-desktop-app-ui-mode)
+      (should (equal (lispm-desktop-platinum-title-text) "Pong!")))
+    (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :title (lambda () (buffer-name)))
+    (with-temp-buffer
+      (lispm-desktop-test-app-mode)
+      (lispm-desktop-app-ui-mode)
+      (should (equal (lispm-desktop-platinum-title-text) (buffer-name))))
+    (when (require 'lispm-form nil t)
+      (let ((lispm-form-glyph-function nil)
+            (lispm-form-choose-function #'lispm-form-choose)
+            (lispm-form-drawn-hook nil)
+            (enable-theme-functions nil)
+            (lispm-desktop-language-changed-hook nil))
+        (lispm-desktop-form-setup)
+        (let ((buffer (lispm-form "Pet" '((name :type text :label "Name")))))
+          (unwind-protect
+              (with-current-buffer buffer
+                (lispm-desktop-app-ui-mode)
+                (should (equal (lispm-desktop-platinum-title-text) "Pet")))
+            (kill-buffer buffer)))))))
+
 (ert-deftest lispm-desktop-test-app-ui-reopens-on-its-buffer ()
   "An application opened again shows the buffer its window showed when it
 closed, as a game is found where it was left; once that buffer is gone,
@@ -16207,6 +16237,23 @@ the Characters application lists them; deleted, its application goes."
       (should-not (alist-get 'character-ada lispm-desktop-apps))
       (with-current-buffer (lispm-desktop-characters--buffer)
         (should (equal (buffer-string) ""))))))
+
+(ert-deftest lispm-desktop-test-characters-windows ()
+  "The Characters window has its title, and a character's window wraps its
+conversation at words, as LispM's chat does, where an application's
+lines are cut off."
+  (skip-unless (and (lispm-desktop-characters-available-p) (require 'lispm-chat nil t)))
+  (let ((lispm-desktop-app-ui-skins nil))
+    (lispm-desktop-characters--define-skins)
+    (lispm-desktop-test--with-characters
+      (with-current-buffer (lispm-desktop-characters--buffer)
+        (lispm-desktop-app-ui-mode)
+        (should (equal (lispm-desktop-platinum-title-text) "Characters"))))
+    (with-temp-buffer
+      (lispm-chat-mode)
+      (lispm-desktop-app-ui-mode)
+      (should-not truncate-lines)
+      (should visual-line-mode))))
 
 (ert-deftest lispm-desktop-test-store-apps-are-characters ()
   "An application installed from the App Store with a skill is a character
