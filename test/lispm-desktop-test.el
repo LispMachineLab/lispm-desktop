@@ -339,7 +339,7 @@ inside it, as wide as one another, and Go Back at its bottom right."
 the question, both choices with their keys, how to choose; the last
 page, while LispM is set up, says so and what was chosen."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (lispm-desktop-platinum-current-palette palette)
+         (lispm-ui-current-palette palette)
          (questions lispm-desktop-assistant-questions)
          (page (lispm-desktop-assistant--page (nth 1 questions) 1 2))
          (svg (lispm-desktop-assistant-draw palette 1000 600 page 0 nil))
@@ -416,7 +416,7 @@ corners of what it circles, clear of them by the margin asked."
   "The menu bar title the coach mark circles is drawn with its loop, in
 red; the others are not, and the mark is part of the title's image."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (lispm-desktop-platinum-current-palette palette)
+         (lispm-ui-current-palette palette)
          (red lispm-desktop-platinum-coach-mark-color))
     (cl-flet ((red-p (svg) (seq-find (lambda (path) (equal (dom-attr path 'stroke) red))
                                      (dom-by-tag svg 'path))))
@@ -1757,7 +1757,7 @@ pixels."
 its pieces filling its width."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
   (skip-unless (image-type-available-p 'svg))
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+  (let* ((lispm-ui-current-palette (lispm-ui-derive-palette "#FFFFFF" "#000000"
                                                                                   "#777777" "#6363CE"))
          (s lispm-desktop-platinum-box-size)
          (pieces (lispm-desktop-test--bar-pieces
@@ -1769,17 +1769,17 @@ its pieces filling its width."
 
 (ert-deftest lispm-desktop-test-palette-derives-from-theme ()
   "The chrome is the content darkened; bevels lean to the text and to black."
-  (let ((palette (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
+  (let ((palette (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
     (should (equal (plist-get palette :content) "#282a36"))
     (should (equal (plist-get palette :accent) "#bd93f9"))
-    (cl-flet ((lum (color) (apply #'+ (lispm-desktop-platinum-rgb color))))
+    (cl-flet ((lum (color) (apply #'+ (lispm-ui-rgb color))))
       (should (< (lum (plist-get palette :chrome)) (lum "#282a36")))
       (should (> (lum (plist-get palette :light)) (lum (plist-get palette :chrome))))
       (should (< (lum (plist-get palette :shade)) (lum (plist-get palette :chrome)))))))
 
 (ert-deftest lispm-desktop-test-boxes-draw ()
   "Every box kind draws, plain, modified and pressed, in Dracula too."
-  (let ((palette (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
+  (let ((palette (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
     (dolist (kind '(close zoom collapse))
       (should (eq (dom-tag (lispm-desktop-platinum-draw-box palette kind)) 'svg))
       (should (eq (dom-tag (lispm-desktop-platinum-draw-box palette kind t)) 'svg))
@@ -1829,8 +1829,8 @@ glyphs; the bar is lit along its top, shaded along its bottom."
 
 (ert-deftest lispm-desktop-test-rgb-reads-hex-without-a-display ()
   "A #RRGGBB colour is read exactly, even in batch."
-  (should (equal (lispm-desktop-platinum-rgb "#ff0080") (list 1.0 0.0 (/ 128 255.0))))
-  (should (equal (lispm-desktop-platinum-blend "#000000" "#ff0080" 1.0) "#ff0080")))
+  (should (equal (lispm-ui-rgb "#ff0080") (list 1.0 0.0 (/ 128 255.0))))
+  (should (equal (lispm-ui-blend "#000000" "#ff0080" 1.0) "#ff0080")))
 
 (ert-deftest lispm-desktop-test-window-controls ()
   "A lone window zooms but cannot roll up; a side window only closes."
@@ -2429,10 +2429,10 @@ centred at the top of its cell, its name under it."
         (should-not (string-match-p (regexp-quote (lispm-desktop--color)) icon))
         (should-not (string-match-p "opacity" icon))
         (should (string-match-p (format "<rect width=\"48\" height=\"16\" fill=\"%s\"/>"
-                                        (or (lispm-desktop-platinum-color :text) "#000000"))
+                                        (or (lispm-ui-color :text) "#000000"))
                                 name))
         (should (string-match-p (format "fill=\"%s\">Home</text></svg>\\'"
-                                        (or (lispm-desktop-platinum-color :content) "#FFFFFF"))
+                                        (or (lispm-ui-color :content) "#FFFFFF"))
                                 name)))
       (should (equal (lispm-desktop--copy-place "Home" 100 50)
                      (list (cons (+ 100 40 -16) 50) (cons (+ 100 40 -24) (+ 50 32 4))))))))
@@ -3199,8 +3199,8 @@ manager drawn from the last; only the first table is waited for."
 
 (ert-deftest lispm-desktop-test-palette-takes-named-colours ()
   "Colours a theme names replace the derived ones; the rest stay derived."
-  (let* ((derived (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9"))
-         (palette (lispm-desktop-platinum--merge-palette derived '(:chrome "#DDDDDD" :accent "#6363CE"))))
+  (let* ((derived (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9"))
+         (palette (lispm-ui-merge-palette derived '(:chrome "#DDDDDD" :accent "#6363CE"))))
     (should (equal (plist-get palette :chrome) "#DDDDDD"))
     (should (equal (plist-get palette :accent) "#6363CE"))
     (should (equal (plist-get palette :shade) (plist-get derived :shade)))
@@ -3241,7 +3241,7 @@ this one has met `:ensure' already."
 faces take the default face's fontset: `unspecified' would make
 `set-face-attribute' fail."
   (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
-            ((symbol-function 'lispm-desktop-i18n-cjk-family) (lambda () "PingFang SC")))
+            ((symbol-function 'lispm-ui-text-cjk-family) (lambda () "PingFang SC")))
     (should (equal (lispm-desktop-platinum--fontset-attribute nil) '(:fontset reset))))
   (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
     (should-not (lispm-desktop-platinum--fontset-attribute "Geneva"))))
@@ -3262,7 +3262,7 @@ drawn placard's label in its place, text placards as they are."
 where no title bar does."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
   (skip-unless (image-type-available-p 'svg))
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2"
+  (let ((lispm-ui-current-palette (lispm-ui-derive-palette "#282a36" "#f8f8f2"
                                                                                  "#6272a4" "#bd93f9")))
     (with-temp-buffer
       (rename-buffer "lispm-desktop-test 100% done" t)
@@ -3359,7 +3359,7 @@ of its own by the category it names."
 (ert-deftest lispm-desktop-test-document-placards ()
   "A read-only file shows a padlock, which pressed unlocks it; the branch
 and mode placards pop their menus up as they are pressed."
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
     (with-temp-buffer
       (setq buffer-file-name "/tmp/lispm-desktop-test.el"
             buffer-file-coding-system 'utf-8-unix)
@@ -3524,7 +3524,7 @@ the arrows take the bar's bottom."
 
 (ert-deftest lispm-desktop-test-scroll-bar-draws ()
   "Scroll bars draw active, inactive, and with nothing to scroll."
-  (let ((palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000" "#777777" "#6363CE")))
+  (let ((palette (lispm-ui-derive-palette "#FFFFFF" "#000000" "#777777" "#6363CE")))
     (should (eq (dom-tag (lispm-desktop-platinum-draw-scroll-bar palette 300 '(40 . 30) t)) 'svg))
     (should (eq (dom-tag (lispm-desktop-platinum-draw-scroll-bar palette 300 nil t)) 'svg))
     (should (eq (dom-tag (lispm-desktop-platinum-draw-scroll-bar palette 300 '(40 . 30) nil)) 'svg))))
@@ -3538,14 +3538,14 @@ the arrows take the bar's bottom."
     (unwind-protect
         (progn
           (load-theme 'platinum t)
-          (lispm-desktop-platinum--merge-palette
-           (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000" "#777777" "#6363CE")
+          (lispm-ui-merge-palette
+           (lispm-ui-derive-palette "#FFFFFF" "#000000" "#777777" "#6363CE")
            lispm-desktop-platinum-colors))
       (disable-theme 'platinum))))
 
 (defun lispm-desktop-test--dracula-palette ()
   "Return the palette derived from Dracula's colours."
-  (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9"))
+  (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9"))
 
 (defun lispm-desktop-test--pixel (svg x y)
   "Return the colour SVG paints the pixel at X, Y with, upcased, or nil.
@@ -3572,7 +3572,7 @@ than an error: the text under them shows instead."
   (cl-letf* ((available (symbol-function 'image-type-available-p))
              ((symbol-function 'image-type-available-p)
               (lambda (type) (and (not (eq type 'svg)) (funcall available type)))))
-    (let ((image (lispm-desktop-platinum--svg-image (svg-create 4 4))))
+    (let ((image (lispm-ui-svg-image (svg-create 4 4))))
       (should (eq (car image) 'image))
       (should (eq (image-property image :type) 'svg))
       (should (string-prefix-p "<svg" (image-property image :data))))))
@@ -3582,9 +3582,9 @@ than an error: the text under them shows instead."
   (let ((platinum (lispm-desktop-test--platinum-palette))
         (dracula (lispm-desktop-test--dracula-palette)))
     (dolist (level '(#x00 #x22 #x77 #x88 #xAA #xCC #xDD #xEE #xFF))
-      (should (equal (upcase (lispm-desktop-platinum-grey platinum level))
+      (should (equal (upcase (lispm-ui-grey platinum level))
                      (format "#%02X%02X%02X" level level level))))
-    (cl-flet ((lum (level) (lispm-desktop-platinum--luminance (lispm-desktop-platinum-grey dracula level))))
+    (cl-flet ((lum (level) (lispm-ui-luminance (lispm-ui-grey dracula level))))
       (should (< (lum #x22) (lum #x77) (lum #xAA) (lum #xDD) (lum #xFF))))))
 
 (ert-deftest lispm-desktop-test-palette-new-keys ()
@@ -3888,7 +3888,7 @@ whenever its background is set."
   "A floating window is framed unless it draws its own frame, as an
 application's window may, Stickies' notes an edge of their colour."
   (let ((lispm-desktop-platinum-window-frames t)
-        (lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+        (lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
         (parameters '((window (lispm-desktop-window . t))
                       (note (lispm-desktop-window . t) (lispm-desktop-platinum-own-frame . t))
                       (screen))))
@@ -4479,7 +4479,7 @@ parted from the next by a black line; a pressed module is darkened."
 (ert-deftest lispm-desktop-test-tab-row ()
   "A row of tabs is as wide as asked, the pane's edge running on after the
 tabs, which carry their properties."
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
          (map (make-sparse-keymap))
          (row (lispm-desktop-platinum-tabs `(("One" t keymap ,map help-echo "First") ("Two" nil)) 400)))
     (should (= (length row) 6))
@@ -4500,7 +4500,7 @@ tabs, which carry their properties."
 is drawn whole and shown in three slices, the middle one, the cross and a
 little round it, pressed as a title bar's box, the others the tab's, with
 its properties.  The cross is drawn pressed while held down."
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
          (map (make-sparse-keymap))
          (closed nil)
          (close (lambda () (setq closed t)))
@@ -4550,8 +4550,8 @@ icon glyphs in their own family and colour, images as images."
          (image (propertize " " 'display (list 'image :type 'svg :width 16 :height 16
                                                :file (expand-file-name "icons/os9/folder.svg"
                                                                        lispm-desktop-directory)))))
-    (lispm-desktop-platinum-svg-content svg (concat icon " New" image) 0 0 20 "#000000"
-                                          'lispm-desktop-platinum-list)
+    (lispm-ui-svg-content svg (concat icon " New" image) 0 0 20 "#000000"
+                                          'lispm-ui-list)
     (let ((texts (dom-by-tag svg 'text)))
       (should (seq-find (lambda (text) (string-prefix-p "Symbols Nerd Font Mono"
                                                         (dom-attr text 'font-family)))
@@ -4569,7 +4569,7 @@ icon glyphs in their own family and colour, images as images."
 
 (ert-deftest lispm-desktop-test-focus-ring-follows-point ()
   "The control point is on is drawn focused; leaving it draws it plain again."
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
     (with-temp-buffer
       (lispm-desktop-platinum-insert-push-button "OK" #'ignore)
       (insert " ")
@@ -4587,7 +4587,7 @@ icon glyphs in their own family and colour, images as images."
 
 (ert-deftest lispm-desktop-test-push-button-pushes ()
   "Return on a push button runs its action, drawn pushed in meanwhile."
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
         (ran 0)
         (shown nil))
     (with-temp-buffer
@@ -4808,7 +4808,7 @@ anew once either is set."
 tall, separators engraved, checks marked, the item under the mouse in the
 variation colour, disabled items greyed."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (lispm-desktop-platinum-current-palette palette)
+         (lispm-ui-current-palette palette)
          (items '((:label "One" :action ignore :checked t)
                   separator
                   (:label "Two" :action ignore :enabled nil)
@@ -4857,14 +4857,14 @@ variation colour, disabled items greyed."
   "A small menu, as the Control Strip's, has items 13 pixels tall in the
 small system font, labels 15 pixels in."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (lispm-desktop-platinum-current-palette palette)
+         (lispm-ui-current-palette palette)
          (lispm-desktop-popup-small t)
          (items '((:label "One" :action ignore) (:label "Two" :action ignore)))
          (svg (lispm-desktop-popup-draw-menu palette items 100 1)))
     (should (equal (lispm-desktop-test--size svg) '(100 . 26)))
     (should (equal (lispm-desktop-test--pixel svg 50 20) "#333399"))
     (should (= (lispm-desktop-popup--menu-width items)
-               (+ 15 (lispm-desktop-platinum-content-width "Two" 'lispm-desktop-platinum-small) 11)))
+               (+ 15 (lispm-ui-text-width "Two" 'lispm-ui-small) 11)))
     (should (seq-every-p (lambda (text) (= (dom-attr text 'x) 15))
                          (seq-remove (lambda (text) (string-search "&#" (dom-text text)))
                                      (dom-by-tag svg 'text))))))
@@ -4873,7 +4873,7 @@ small system font, labels 15 pixels in."
   "A menu whose items have icons shows each before its label, as Mac OS 9's
 Apple menu did: the labels move over to make room."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (lispm-desktop-platinum-current-palette palette)
+         (lispm-ui-current-palette palette)
          (icon `(image :type png :data ,(base64-decode-string "iVBORw0KGgo=")))
          (items `((:label "Blocker" :action ignore :icon ,icon) (:label "Store" :action ignore)))
          (svg (lispm-desktop-popup-draw-menu palette items 200 nil))
@@ -4889,7 +4889,7 @@ Apple menu did: the labels move over to make room."
 (ert-deftest lispm-desktop-test-submenu-turns-at-the-edge ()
   "A submenu opens beside its item, or on the menu's left when the right
 has no room, as Mac OS 9's did at the screen's edge."
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
          (items '((:label "One" :action ignore) (:label "More" :submenu ((:label "Two" :action ignore)))))
          (submenu (lispm-desktop-popup--submenu (nth 1 items)))
          (level (list :items items :x 100 :y 20 :width 80))
@@ -5043,7 +5043,7 @@ sized back."
   "An alert shows its message, its detail and a button per choice, framed
 as Mac OS 9 framed its alerts."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (lispm-desktop-platinum-current-palette palette)
+         (lispm-ui-current-palette palette)
          (buttons '(("Don’t Save" discard nil) ("Cancel" cancel cancel) ("Save" save default)))
          (svg (lispm-desktop-popup-draw-alert palette 'caution "Save?" "Changes will be lost."
                                               buttons nil nil))
@@ -5062,7 +5062,7 @@ as Mac OS 9 framed its alerts."
   "Don't Save stands apart under the message; Cancel and the default button
 stand at the right, ten pixels apart, the default's ring twelve pixels
 from the edge."
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
          (layout (lispm-desktop-popup--alert-layout
                   "Save changes to the document before closing?" nil
                   '(("Don’t Save" discard nil) ("Cancel" cancel cancel) ("Save" save default))))
@@ -5088,7 +5088,7 @@ from the edge."
   "An alert whose buttons' words are too long for Mac OS 9's width, as in
 German, is just wide enough for the button standing apart to keep clear
 of Cancel; one whose words fit keeps the width."
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
     (cl-letf (((symbol-function 'lispm-desktop-platinum-push-button-width)
                (lambda (label) (+ 24 (* 6 (length label))))))
       (should-not (plist-get (lispm-desktop-popup--alert-layout
@@ -5331,7 +5331,7 @@ in the variation colour; the bar runs from edge to edge."
       (should (equal (at open 39 0) "#000000"))
       (should (equal (mapcar (lambda (y) (at open 20 y)) '(0 1 10 18 19))
                      '("#6666CC" "#333399" "#333399" "#000088" "#000000")))))
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
         (lispm-desktop-platinum-menus-function nil))
     (cl-letf (((symbol-function 'lispm-desktop-platinum-menu-status) #'ignore)
               ((symbol-function 'frame-inner-width) (lambda (&rest _) 900)))
@@ -5348,7 +5348,7 @@ in the variation colour; the bar runs from edge to edge."
 its clock alone; the load, the mail and the battery are in the Control
 Strip."
   (let ((labels nil)
-        (lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+        (lispm-ui-current-palette (lispm-ui-derive-palette "#FFFFFF" "#000000"
                                                                                  "#777777" "#6363CE"))
         (global-mode-string '("" "λ 2" display-time-string))
         (display-time-string "9:41AM")
@@ -5376,7 +5376,7 @@ Strip."
 (ert-deftest lispm-desktop-test-menu-status-functions ()
   "Titles of `lispm-desktop-platinum-status-functions' come after the clock,
 in the hook's order, as Spotlight's came after Mac OS X's."
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+  (let ((lispm-ui-current-palette (lispm-ui-derive-palette "#FFFFFF" "#000000"
                                                                                  "#777777" "#6363CE"))
         (global-mode-string nil)
         (display-time-mode t)
@@ -5618,7 +5618,7 @@ closes it too.  The + tab has neither."
   (let ((a (generate-new-buffer " a"))
         (b (generate-new-buffer " b"))
         (closed nil)
-        (lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+        (lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
     (unwind-protect
         (cl-letf (((symbol-function 'lispm-browser-tabs) (lambda () (list a b)))
                   ((symbol-function 'lispm-desktop-browser--window) #'selected-window)
@@ -5659,7 +5659,7 @@ closes it too.  The + tab has neither."
 when it does nothing on the page, its badge at the lower right, pushed in
 while its popup is up; one without an icon shows its name's initial.  The
 Extensions button is a puzzle piece in a bevel."
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+  (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
          (icon `(image :type png :data ,lispm-desktop-test--png :width 16 :height 16))
          (button (list :id "a" :name "Blocker" :icon icon :badge "12345"
                        :badge-color "#123456" :badge-text-color "#FFFFFF" :enabled t))
@@ -5674,7 +5674,7 @@ Extensions button is a puzzle piece in a bevel."
     (should (string-search "opacity='0.45'"
                            (lispm-desktop-browser--draw-extension (plist-put (copy-sequence button) :enabled nil))))
     ;; Pushed in: the bevel's top edge is shaded, not lit.
-    (let ((shade (lispm-desktop-platinum-color :shade)))
+    (let ((shade (lispm-ui-color :shade)))
       (should-not (string-search (format "<rect width='24' height='1' fill='%s'/>" shade) svg))
       (should (string-search (format "<rect width='24' height='1' fill='%s'/>" shade)
                              (lispm-desktop-browser--draw-extension (plist-put (copy-sequence button) :open t)))))
@@ -6277,13 +6277,13 @@ None."
 (ert-deftest lispm-desktop-test-settings-wrap ()
   "A remark wraps between words to the pane; a word wider than the pane is
 cut short, an ellipsis ending it."
-  (let ((width (lispm-desktop-platinum-content-width "aaaa bbbb" 'shadow)))
+  (let ((width (lispm-ui-text-width "aaaa bbbb" 'shadow)))
     (should (equal (lispm-desktop-settings--wrap "aaaa bbbb cccc  dd\n" width) '("aaaa bbbb" "cccc dd")))
     (pcase-let ((`(,first ,long ,last) (lispm-desktop-settings--wrap
                                         (concat "aaaa " (make-string 40 ?x) " dd") width)))
       (should (equal (list first last) '("aaaa" "dd")))
       (should (string-suffix-p "…" long))
-      (should (<= (lispm-desktop-platinum-content-width long 'shadow) width)))))
+      (should (<= (lispm-ui-text-width long 'shadow) width)))))
 
 (ert-deftest lispm-desktop-test-settings-sandbox-domains ()
   "The domains sandboxed commands may reach are kept as typed, separated by
@@ -7832,7 +7832,7 @@ idle, when its label there changes; progress alone does not."
   "A terminal's title bar shows what its program says it is doing."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
   (skip-unless (image-type-available-p 'svg))
-  (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000"
+  (let* ((lispm-ui-current-palette (lispm-ui-derive-palette "#FFFFFF" "#000000"
                                                                                   "#777777" "#6363CE"))
          (bar (lispm-desktop-platinum-draw-title-bar 600 t nil "codex" nil '(on on nil) nil
                                                       (propertize "needs approval" 'face '(:foreground "#CE3131"))))
@@ -8373,7 +8373,7 @@ the tab alone is left."
 panel where it has one; modules that cannot work are left out."
   (require 'battery)
   (lispm-desktop-test--with-strip
-    (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+    (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
           (lispm-desktop-theme 'platinum)
           (lispm-desktop-platinum--battery '((?p . "80") (?L . "AC") (?t . "N/A")))
           (lispm-desktop-platinum--load "1.25")
@@ -8606,7 +8606,7 @@ colour changed: NS Emacs clears a frame whenever its background is set."
         (sets nil))
     (cl-letf (((symbol-function 'lispm-desktop-strip--live-p) #'always)
               ((symbol-function 'lispm-desktop-strip--line) (lambda () "strip"))
-              ((symbol-function 'lispm-desktop-platinum-color) (lambda (_key) color))
+              ((symbol-function 'lispm-ui-color) (lambda (_key) color))
               ((symbol-function 'lispm-desktop-popup-set-size) #'ignore)
               ((symbol-function 'lispm-desktop-strip--width) (lambda () 100))
               ((symbol-function 'lispm-desktop-strip--place) #'ignore)
@@ -11853,7 +11853,7 @@ nothing to close it, stay as written."
   "A line broken into pieces keeps its words' faces, a blank those of the
 blank it stands for."
   (let* ((text (concat "plain " (propertize "bold" 'face 'bold) "  " (propertize "over" 'face 'italic)))
-         (pieces (lispm-desktop-i18n-words text)))
+         (pieces (lispm-ui-text-words text)))
     (should (equal pieces '("plain" " bold" " over")))
     (should (eq (get-text-property 1 'face (nth 1 pieces)) 'bold))
     (should-not (get-text-property 0 'face (nth 1 pieces)))
@@ -11862,7 +11862,7 @@ blank it stands for."
 (ert-deftest lispm-desktop-test-svg-content-slant-and-lines ()
   "Text drawn as SVG is italic, underlined or struck as its faces say."
   (let ((svg (svg-create 200 20)))
-    (lispm-desktop-platinum-svg-content
+    (lispm-ui-svg-content
      svg (concat (propertize "lean" 'face '(:slant italic)) " "
                  (propertize "under" 'face '(:underline t)) " "
                  (propertize "struck" 'face '(:strike-through t)) " plain")
@@ -11884,7 +11884,7 @@ smaller than its size unless narrower to fit, at most three times them."
         (progn
           (with-temp-file file
             (insert "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"480\" height=\"160\" viewBox=\"0 0 240 80\"/>"))
-          (skip-unless (lispm-desktop-platinum-svg-dom file))
+          (skip-unless (lispm-ui-svg-dom file))
           (should (equal (lispm-desktop-store--picture-size file 480) '(480 . 160)))
           (should (equal (lispm-desktop-store--picture-size file 700) '(480 . 160)))
           (should (equal (lispm-desktop-store--picture-size file 900) '(720 . 240)))
@@ -13031,7 +13031,7 @@ application reading it, Emacs's `read-mail-command', in its window."
 (ert-deftest lispm-desktop-test-form-controls-of-applications ()
   "A control an application draws as LispM's forms do, saying what it is in
 its own property, is drawn focused as theirs are."
-  (should (memq :lispm-mail-control lispm-desktop-form-control-properties))
+  (should (memq :lispm-mail-control lispm-ui-form-control-properties))
   (with-temp-buffer
     (insert "Save")
     (let* ((image '(image :type svg :data "<svg/>"))
@@ -13039,8 +13039,8 @@ its own property, is drawn focused as theirs are."
            (widget (list 'push-button :lispm-mail-control '(button default "Save") :button-overlay overlay)))
       (put-text-property 1 5 'display image)
       (cl-letf (((symbol-function 'widget-at) (lambda (&optional _) widget))
-                ((symbol-function 'lispm-desktop-form--image) (lambda (&rest _) image)))
-        (should (equal (seq-take (lispm-desktop-form--control-at 1) 2) '(1 5)))))))
+                ((symbol-function 'lispm-ui-form--image) (lambda (&rest _) image)))
+        (should (equal (seq-take (lispm-ui-form--control-at 1) 2) '(1 5)))))))
 
 (ert-deftest lispm-desktop-test-app-ui-keys-window ()
   "An application's keys window lists each key cap and what it does, and
@@ -13191,9 +13191,9 @@ are written short, and the line under a title says views and age."
 (ert-deftest lispm-desktop-test-app-yeetube-page-colours ()
   "The page takes YouTube's dark theme under a dark desktop theme, else its
 light theme."
-  (cl-letf (((symbol-function 'lispm-desktop-platinum-color) (lambda (_) "#1e1e1e")))
+  (cl-letf (((symbol-function 'lispm-ui-color) (lambda (_) "#1e1e1e")))
     (should (eq (lispm-desktop-app-yeetube-page-colors) lispm-desktop-app-yeetube-page-dark)))
-  (cl-letf (((symbol-function 'lispm-desktop-platinum-color) (lambda (_) "#ffffff")))
+  (cl-letf (((symbol-function 'lispm-ui-color) (lambda (_) "#ffffff")))
     (should (eq (lispm-desktop-app-yeetube-page-colors) lispm-desktop-app-yeetube-page-light))))
 
 (ert-deftest lispm-desktop-test-app-yeetube-page-drawings ()
@@ -13409,7 +13409,7 @@ own, and none when it returns nil, not the buffer's name."
 click plays the cell under it, nothing outside the cells."
   (let* ((played nil)
          (board (list :size 20 :click (lambda (row column) (setq played (list row column)))))
-         (drawn (lispm-desktop-app-board-draw-grid board lispm-desktop-platinum-current-palette
+         (drawn (lispm-desktop-app-board-draw-grid board lispm-ui-current-palette
                                                    '((a b c) (d e f)) '(1 . 2)))
          (svg (car drawn))
          (hit (cdr drawn))
@@ -14781,7 +14781,7 @@ updated, with a button showing them in the App Store."
 (ert-deftest lispm-desktop-test-platinum-check-box-focus ()
   "A check box the keyboard is on is ringed, in the room left about it."
   (let* ((focus "#6666CC")
-         (palette (plist-put (copy-sequence lispm-desktop-platinum-current-palette) :focus focus))
+         (palette (plist-put (copy-sequence lispm-ui-current-palette) :focus focus))
          (plain (lispm-desktop-platinum-draw-check-box palette t :pad 2))
          (focused (lispm-desktop-platinum-draw-check-box palette t :focused t)))
     (should (equal (dom-attr plain 'width) 18))
@@ -15737,8 +15737,8 @@ Marked as an application's own, it is no screen of the desktop's."
     (unwind-protect
         (progn
           (load-theme theme t)
-          (lispm-desktop-platinum--merge-palette
-           (lispm-desktop-platinum-derive-palette "#FFFFFF" "#000000" "#808080" "#000080")
+          (lispm-ui-merge-palette
+           (lispm-ui-derive-palette "#FFFFFF" "#000000" "#808080" "#000080")
            lispm-desktop-platinum-colors))
       (disable-theme theme))))
 
@@ -15746,12 +15746,12 @@ Marked as an application's own, it is no screen of the desktop's."
   "Mac OS 9, Windows 3.2, OS/2 2.0, phosphor and neon are looks, each with
 its own theme."
   (dolist (look '(platinum win3 os2 phosphor neon))
-    (should (assq look lispm-desktop-looks))
-    (should (lispm-desktop-look-title look))
-    (let ((theme (lispm-desktop-look-get :theme look)))
+    (should (assq look lispm-ui-looks))
+    (should (lispm-ui-look-title look))
+    (let ((theme (lispm-ui-look-get :theme look)))
       (should (file-readable-p (expand-file-name (format "themes/%s-theme.el" theme)
                                                  lispm-desktop-directory)))))
-  (should (equal (lispm-desktop-look-title 'win3) "Windows 3.2"))
+  (should (equal (lispm-ui-look-title 'win3) "Windows 3.2"))
   (should (eq (default-value 'lispm-desktop-look) 'platinum)))
 
 (ert-deftest lispm-desktop-test-look-themes-name-their-colours ()
@@ -15818,7 +15818,7 @@ centred between them."
   "Windows 3.2's caption keeps the boxes' targets, so pressing the
 control-menu box, minimize or maximize acts as Platinum's boxes do."
   (let* ((lispm-desktop-look 'win3)
-         (lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette 'win3))
+         (lispm-ui-current-palette (lispm-desktop-test--theme-palette 'win3))
          (bar (lispm-desktop-platinum-draw-title-bar 300 t nil "Notes" nil '(on on on)))
          (targets (delete-dups (delq nil (mapcar (lambda (i) (get-text-property i 'lispm-desktop-platinum-target bar))
                                                  (number-sequence 0 (1- (length bar))))))))
@@ -15910,7 +15910,7 @@ centred along its bottom, under a caption."
   "Every look draws a menu and an alert at the size laid out for it."
   (dolist (look '(platinum win3 os2 phosphor neon))
     (let* ((lispm-desktop-look look)
-           (palette (lispm-desktop-test--theme-palette (lispm-desktop-look-get :theme look)))
+           (palette (lispm-desktop-test--theme-palette (lispm-ui-look-get :theme look)))
            (items (list (list :label "Open" :action #'ignore) 'separator (list :label "Quit")))
            (menu (lispm-desktop-popup-draw-menu palette items 120 0))
            (layout (lispm-desktop-popup--alert-layout "Quit?" nil '(("Cancel" cancel cancel) ("Quit" quit default))))
@@ -15926,28 +15926,28 @@ centred along its bottom, under a caption."
   "Windows 3.2 and OS/2 2.0 are the PC family, phosphor and neon the
 glowing one, Platinum of none; each family draws its looks by their
 metrics."
-  (should (eq (lispm-desktop-look-family 'win3) 'pc))
-  (should (eq (lispm-desktop-look-family 'os2) 'pc))
-  (should (eq (lispm-desktop-look-family 'phosphor) 'glow))
-  (should (eq (lispm-desktop-look-family 'neon) 'glow))
-  (should-not (lispm-desktop-look-family 'platinum))
-  (should (= (lispm-desktop-look-metric :box-width 'win3) (1+ lispm-desktop-win3-button-width)))
-  (should (= (lispm-desktop-look-metric :box-width 'os2) lispm-desktop-os2-button-width))
-  (should (eq (lispm-desktop-look-metric :title-style 'neon) 'gradient))
-  (should-not (lispm-desktop-look-metric :box-width 'platinum))
+  (should (eq (lispm-ui-look-family 'win3) 'pc))
+  (should (eq (lispm-ui-look-family 'os2) 'pc))
+  (should (eq (lispm-ui-look-family 'phosphor) 'glow))
+  (should (eq (lispm-ui-look-family 'neon) 'glow))
+  (should-not (lispm-ui-look-family 'platinum))
+  (should (= (lispm-ui-look-metric :box-width 'win3) (1+ lispm-desktop-win3-button-width)))
+  (should (= (lispm-ui-look-metric :box-width 'os2) lispm-desktop-os2-button-width))
+  (should (eq (lispm-ui-look-metric :title-style 'neon) 'gradient))
+  (should-not (lispm-ui-look-metric :box-width 'platinum))
   (let ((lispm-desktop-look 'os2))
-    (should (eq (lispm-desktop-look-family) 'pc))
-    (should (= (lispm-desktop-look-metric :alert-gap) 8))))
+    (should (eq (lispm-ui-look-family) 'pc))
+    (should (= (lispm-ui-look-metric :alert-gap) 8))))
 
 (ert-deftest lispm-desktop-test-look-own-method-before-family ()
   "A look's own method comes before its family's, whichever was defined
 first, and reaches it, then the default, with `cl-call-next-method'; a
 look of no family gets the default."
-  (let ((lispm-desktop-looks (append '((test-a :family test) (test-b :family test) (test-c))
-                                     lispm-desktop-looks)))
+  (let ((lispm-ui-looks (append '((test-a :family test) (test-b :family test) (test-c))
+                                lispm-ui-looks)))
     (dolist (family-first '(t nil))
       (let* ((name (make-symbol "lispm-desktop-test--drawn"))
-             (family `(cl-defmethod ,name (&context (lispm-desktop-look (lispm-desktop-look-family test)))
+             (family `(cl-defmethod ,name (&context (lispm-desktop-look (lispm-ui-look-family test)))
                         (cons 'family (cl-call-next-method))))
              (own `(cl-defmethod ,name (&context (lispm-desktop-look (eql test-a)))
                      (cons 'test-a (cl-call-next-method)))))
@@ -15970,20 +15970,20 @@ Windows 3.2's ten pixels apart, OS/2 2.0's eight."
                                                   (plist-get (lispm-desktop-popup--alert-layout "Save?" nil buttons)
                                                              :buttons))))
         (should (= (- (nth 3 cancel) (+ (nth 3 save) (nth 5 save)))
-                   (lispm-desktop-look-metric :alert-gap)))))))
+                   (lispm-ui-look-metric :alert-gap)))))))
 
 (ert-deftest lispm-desktop-test-browser-buttons-follow-the-look ()
   "The browser's buttons are the look's bevel buttons, its images kept
 apart look by look; on Mac OS 9 they are Netscape's own, lighter than
 Platinum's."
-  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette 'win3))
+  (let ((lispm-ui-current-palette (lispm-desktop-test--theme-palette 'win3))
         (bevels nil))
     (dolist (look '(platinum win3 os2 neon))
       (let ((lispm-desktop-look look))
         (push (lispm-desktop-browser--bevel 40 30 nil) bevels)
         (unless (eq look 'platinum)
           (let ((svg (svg-create 40 30)))
-            (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-desktop-platinum-current-palette 40 30)
+            (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-ui-current-palette 40 30)
             (should (equal (car bevels) (with-temp-buffer (svg-print svg) (buffer-string))))))))
     (should (= (length (delete-dups bevels)) 4))
     (should (string-prefix-p "<rect width='40' height='30'" (car (last bevels))))
@@ -16000,11 +16000,11 @@ Platinum's."
   "Phosphor and neon are made of glass and bring desktop pictures of their
 own; their themes name the parts the glowing looks add, and neon names
 no yellow."
-  (should (= (lispm-desktop-look-get :glass 'phosphor) 4.0))
-  (should (= (lispm-desktop-look-get :glass 'neon) 1.9))
-  (should-not (lispm-desktop-look-get :glass 'platinum))
+  (should (= (lispm-ui-look-get :glass 'phosphor) 4.0))
+  (should (= (lispm-ui-look-get :glass 'neon) 1.9))
+  (should-not (lispm-ui-look-get :glass 'platinum))
   (dolist (look '(phosphor neon))
-    (should (file-readable-p (expand-file-name (lispm-desktop-look-get :picture look)
+    (should (file-readable-p (expand-file-name (lispm-ui-look-get :picture look)
                                                lispm-desktop-directory)))
     (let ((palette (lispm-desktop-test--theme-palette look)))
       (dolist (key '(:glow :hot :title-end :bar :bar-text :bar-line :track :pressed :danger))
@@ -16038,7 +16038,7 @@ boxes; neon puts it after the close box.  The boxes keep their targets."
                  (+ b 6))))
     (dolist (look '(phosphor neon))
       (let* ((lispm-desktop-look look)
-             (lispm-desktop-platinum-current-palette (lispm-desktop-test--theme-palette look))
+             (lispm-ui-current-palette (lispm-desktop-test--theme-palette look))
              (bar (lispm-desktop-platinum-draw-title-bar 300 t nil "Notes" nil '(on on on)))
              (targets (delete-dups (delq nil (mapcar (lambda (i) (get-text-property i 'lispm-desktop-platinum-target bar))
                                                      (number-sequence 0 (1- (length bar))))))))
@@ -16116,7 +16116,7 @@ user's own, as they placed it, comes first."
 (defmacro lispm-desktop-test--on-tty (&rest body)
   "Run BODY as on a text terminal, in Platinum's palette."
   (declare (indent 0))
-  `(let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+  `(let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
      (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&optional _) t)))
        ,@body)))
 
@@ -16214,7 +16214,7 @@ boxes; the one focused is ringed in the focus colour."
     (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-push-button "OK")) "[ OK ]"))
     (let ((focused (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t nil t))))
       (should (equal (plist-get (get-text-property 0 'face focused) :background)
-                     (lispm-desktop-platinum-color :focus))))
+                     (lispm-ui-color :focus))))
     (let ((top (lispm-desktop-platinum-group-edge 20 "Look"))
           (bottom (lispm-desktop-platinum-group-edge 20 nil t)))
       (should (equal (substring-no-properties top) "┌─ Look ───────────┐"))
@@ -16786,7 +16786,7 @@ minibuffer."
   "A pop-up menu is drawn as a push button with its label on the left and
 its arrows on the right, wide enough for both; ringed when focused."
   (skip-unless (image-type-available-p 'svg))
-  (let ((svg (lispm-desktop-platinum-draw-popup-button lispm-desktop-platinum-current-palette
+  (let ((svg (lispm-desktop-platinum-draw-popup-button lispm-ui-current-palette
                                                        "Medium" 100 :focused t)))
     (should (equal (dom-attr svg 'width) 104))
     (should (dom-by-tag svg 'polygon))
@@ -16798,9 +16798,9 @@ its arrows on the right, wide enough for both; ringed when focused."
 desktop's, the one point is on drawn focused, plain again once it leaves;
 the text field point is in is framed in the focus colour."
   (skip-unless (and (require 'lispm-ui-form nil t) (image-type-available-p 'svg)))
-  (let ((lispm-ui-form-glyph-function #'lispm-desktop-form-glyph)
+  (let ((lispm-ui-form-glyph-function #'lispm-ui-form-glyph)
         (lispm-ui-form-choose-function #'lispm-desktop-form-choose)
-        (lispm-ui-form-drawn-hook (list #'lispm-desktop-form-dress))
+        (lispm-ui-form-drawn-hook (list #'lispm-ui-form-dress))
         (buffer nil))
     ;; A batch Emacs shows no images, which widgets then leave out.
     (cl-letf (((symbol-function 'widget-image-find)
@@ -16809,30 +16809,30 @@ the text field point is in is framed in the focus colour."
           (with-current-buffer (setq buffer (lispm-ui-form "Pet" '((name :type text :label "Name")
                                                                 (barks :type check :text "Barks"))
                                                         :submit "Adopt"))
-            (should (equal (lispm-desktop-form-glyph 'button 'default "Adopt")
-                           (lispm-desktop-form--image 'button 'default "Adopt")))
+            (should (equal (lispm-ui-form-glyph 'button 'default "Adopt")
+                           (lispm-ui-form--image 'button 'default "Adopt")))
             ;; Point starts in the first field, framed.
-            (lispm-desktop-form--follow)
-            (should (eq (car lispm-desktop-form--focus) 'field))
-            (should (eq (overlay-get (cdr lispm-desktop-form--focus) 'face)
-                        'lispm-desktop-platinum-field-focused))
+            (lispm-ui-form--follow)
+            (should (eq (car lispm-ui-form--focus) 'field))
+            (should (eq (overlay-get (cdr lispm-ui-form--focus) 'face)
+                        'lispm-ui-field-focused))
             ;; On the default button, it is drawn focused.
-            (let ((overlay (cdr lispm-desktop-form--focus)))
+            (let ((overlay (cdr lispm-ui-form--focus)))
               (goto-char (point-max))
               (search-backward "Adopt")
               (let ((start (point)))
-                (lispm-desktop-form--follow)
+                (lispm-ui-form--follow)
                 (should (equal (get-text-property start 'display)
-                               (lispm-desktop-form--image 'button 'default "Adopt" t)))
+                               (lispm-ui-form--image 'button 'default "Adopt" t)))
                 (should (eq (overlay-get overlay 'face) 'widget-field))
                 ;; Back in the field, the button is plain again.
                 (goto-char (point-min))
                 (search-forward "Name")
                 (forward-line 1)
                 (end-of-line)
-                (lispm-desktop-form--follow)
+                (lispm-ui-form--follow)
                 (should (equal (get-text-property start 'display)
-                               (lispm-desktop-form--image 'button 'default "Adopt"))))))
+                               (lispm-ui-form--image 'button 'default "Adopt"))))))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
 (ert-deftest lispm-desktop-test-form-dressed-not-lispm ()
@@ -16844,18 +16844,18 @@ panels; LispM's own forms take their faces before they are drawn."
     (let ((area (widget-create 'text :value "Yours,\nAda\n")))
       (widget-setup)
       (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
-        (lispm-desktop-form-dress))
-      (should (eq (overlay-get (widget-get area :field-overlay) 'face) 'lispm-desktop-form-text-area))
+        (lispm-ui-form-dress))
+      (should (eq (overlay-get (widget-get area :field-overlay) 'face) 'lispm-ui-form-text-area))
       (should (equal (overlay-get (widget-get area :field-overlay) 'line-prefix) "  "))
       (should (assq 'widget-field face-remapping-alist))
-      (should (memq #'lispm-desktop-form--follow post-command-hook))))
+      (should (memq #'lispm-ui-form--follow post-command-hook))))
   (when (require 'lispm-ui-form nil t)
     (with-temp-buffer
       (lispm-ui-form-mode)
       (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
         (lispm-desktop-form--faces)
         (setq face-remapping-alist nil)
-        (lispm-desktop-form-dress))
+        (lispm-ui-form-dress))
       (should-not face-remapping-alist))))
 
 (defmacro lispm-desktop-test--with-pictures (&rest body)
@@ -16964,7 +16964,7 @@ click selects a row, a double click opens a folder, a heading sorts by
 its column, the sort-direction button turns the order over, and the
 scroll bar's arrows and track scroll the list."
   (lispm-desktop-test--with-pictures
-    (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+    (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
            (dialog (lispm-desktop-choose--make-dialog :predicate picture-p))
            (layout (lispm-desktop-choose--layout)))
       (dotimes (i 20)
@@ -17019,12 +17019,12 @@ scroll bar's arrows and track scroll the list."
 its title, headings, items and buttons on it."
   (skip-unless (image-type-available-p 'svg))
   (lispm-desktop-test--with-pictures
-    (let* ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette))
+    (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
            (dialog (lispm-desktop-choose--make-dialog :title "Choose a Picture" :predicate picture-p :preview t))
            (layout (lispm-desktop-choose--layout)))
       (lispm-desktop-choose--go dialog folder)
       (let ((text (with-temp-buffer
-                    (svg-print (lispm-desktop-choose-draw dialog lispm-desktop-platinum-current-palette))
+                    (svg-print (lispm-desktop-choose-draw dialog lispm-ui-current-palette))
                     (buffer-string))))
         (should (string-match-p (format "width=\"%d\"" (plist-get layout :width)) text))
         (dolist (word '("Choose a Picture" "Name" "Date Modified" "ada.png" "albums" "bob.jpg" "Cancel" "Choose"))
@@ -17306,14 +17306,14 @@ United States, else British; American English when none is spoken."
   "Lines break between words, and between the characters of Chinese and
 Japanese, punctuation kept off a line's start and opening brackets off
 its end."
-  (should (equal (lispm-desktop-i18n-words "Hello  big\nworld") '("Hello" " big" " world")))
-  (should (equal (lispm-desktop-i18n-words "\u4f60\u597d\uff0c\u4e16\u754c\u3002")
+  (should (equal (lispm-ui-text-words "Hello  big\nworld") '("Hello" " big" " world")))
+  (should (equal (lispm-ui-text-words "\u4f60\u597d\uff0c\u4e16\u754c\u3002")
                  '("\u4f60" "\u597d\uff0c" "\u4e16" "\u754c\u3002")))
-  (should (equal (lispm-desktop-i18n-words "\u300cLispM\u300d\u3092")
+  (should (equal (lispm-ui-text-words "\u300cLispM\u300d\u3092")
                  '("\u300cLispM\u300d" "\u3092")))
-  (should (equal (lispm-desktop-i18n-wrap "one two three four" (lambda (line) (<= (length line) 8)))
+  (should (equal (lispm-ui-text-wrap "one two three four" (lambda (line) (<= (length line) 8)))
                  '("one two" "three" "four")))
-  (should (equal (lispm-desktop-i18n-wrap "\u4f60\u597d\uff0c\u4e16\u754c" (lambda (line) (<= (length line) 3)))
+  (should (equal (lispm-ui-text-wrap "\u4f60\u597d\uff0c\u4e16\u754c" (lambda (line) (<= (length line) 3)))
                  '("\u4f60\u597d\uff0c" "\u4e16\u754c"))))
 
 (ert-deftest lispm-desktop-test-i18n-format-time ()

@@ -165,14 +165,14 @@ speaks, or else its mode's name."
   "Return a memory bar FRACTION full, as About This Computer drew one."
   (let ((filled (round (* (min 1 (max 0 fraction)) 58))))
     (propertize " " 'display
-                (lispm-desktop-platinum-image
+                (lispm-ui-image
                  (list 'memory-bar filled)
                  (lambda ()
                    (let ((svg (svg-create 60 10)))
-                     (svg-rectangle svg 0 0 60 10 :fill (lispm-desktop-platinum-color :frame))
-                     (svg-rectangle svg 1 1 58 8 :fill (lispm-desktop-platinum-color :content))
+                     (svg-rectangle svg 0 0 60 10 :fill (lispm-ui-color :frame))
+                     (svg-rectangle svg 1 1 58 8 :fill (lispm-ui-color :content))
                      (when (> filled 0)
-                       (svg-rectangle svg 1 1 filled 8 :fill (lispm-desktop-platinum-color :accent)))
+                       (svg-rectangle svg 1 1 filled 8 :fill (lispm-ui-color :accent)))
                      svg))))))
 
 (defun lispm-desktop-buffer-manager--entries ()
@@ -337,9 +337,9 @@ speaks; the columns keep their English names, which sorting goes by."
          (columns (lispm-desktop-buffer-manager--columns width))
          (shown (mapcar (pcase-lambda (`(,name . ,rest)) (cons (lispm-desktop-tr name) rest)) columns)))
     (propertize " " 'display
-                (lispm-desktop-platinum-image
+                (lispm-ui-image
                  (list 'manager-header shown)
-                 (lambda () (lispm-desktop-platinum-draw-list-header lispm-desktop-platinum-current-palette
+                 (lambda () (lispm-desktop-platinum-draw-list-header lispm-ui-current-palette
                                                                      shown
                                                                      (* (frame-char-width)
                                                                         (1+ tabulated-list-padding)))))
@@ -392,7 +392,7 @@ speaks; the columns keep their English names, which sorting goes by."
   ;; first.
   (visual-line-mode -1)
   (setq-local truncate-lines t)
-  (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+  (face-remap-add-relative 'default 'lispm-ui-list)
   (face-remap-add-relative 'header-line '(:box nil :underline nil :overline nil))
   (advice-add 'tabulated-list-init-header :after #'lispm-desktop-buffer-manager--keep-header)
   (tabulated-list-init-header))

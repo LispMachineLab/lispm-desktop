@@ -115,7 +115,7 @@ itself, chosen by the digits 1 to 8."
   "What the appearances' pictures are drawn in, by appearance.
 :colors are the theme's background, text, dimmed text and accent, which
 the chrome's palette is derived from, see
-`lispm-desktop-platinum-derive-palette': written out, since at the first
+`lispm-ui-derive-palette': written out, since at the first
 start Dracula's package may not be installed yet.  Without them the
 picture takes the page's own palette, Platinum's.  :code colours the
 lines of the picture's document: keywords, names, strings, comments,
@@ -250,8 +250,8 @@ Go Back button at the bottom right, when PAGE goes back."
 its desktop under the menu bar, and a window over it showing a document
 whose lines are coloured CODE, a list of colours."
   (let ((outline (plist-get palette :outline))
-        (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
-    (cl-flet ((fill (left top w h color) (lispm-desktop-platinum-svg-fill svg left top w h color)))
+        (grey (lambda (level) (lispm-ui-grey palette level))))
+    (cl-flet ((fill (left top w h color) (lispm-ui-svg-fill svg left top w h color)))
       ;; The screen, outlined.
       (fill (1- x) (1- y) (+ width 2) (+ height 2) outline)
       (fill x y width height (plist-get palette :desktop))
@@ -281,14 +281,14 @@ before the key cap, CAP pixels wide, at the right."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (label (plist-get properties :label))
                (text (plist-get properties :text))
-               (room (- w 12 cap 16 (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title))))
-    (lispm-desktop-platinum-svg-content svg label (+ x 12) (+ y (/ (- h 20) 2)) 20 ink
-                                          'lispm-desktop-platinum-title)
+               (room (- w 12 cap 16 (lispm-ui-text-width label 'lispm-ui-title))))
+    (lispm-ui-svg-content svg label (+ x 12) (+ y (/ (- h 20) 2)) 20 ink
+                                          'lispm-ui-title)
     (when (and text (> room 40))
-      (let ((text (lispm-desktop-platinum-fit (propertize text 'face 'lispm-desktop-platinum-list) (- room 8))))
-        (lispm-desktop-platinum-svg-content
-         svg text (- (+ x w) cap 16 (lispm-desktop-platinum-content-width text 'lispm-desktop-platinum-list))
-         (+ y (/ (- h 16) 2)) 16 ink 'lispm-desktop-platinum-list)))))
+      (let ((text (lispm-desktop-platinum-fit (propertize text 'face 'lispm-ui-list) (- room 8))))
+        (lispm-ui-svg-content
+         svg text (- (+ x w) cap 16 (lispm-ui-text-width text 'lispm-ui-list))
+         (+ y (/ (- h 16) 2)) 16 ink 'lispm-ui-list)))))
 
 (defun lispm-desktop-assistant--draw-card (svg palette rect choice state focused)
   "Draw on SVG the button of CHOICE, (VALUE . PROPERTIES), filling RECT.
@@ -305,12 +305,12 @@ line, the key cap at its right."
                (cap 20))
     (when focused
       (lispm-desktop-platinum-svg-focus-ring svg x y w h 1 palette))
-    (lispm-desktop-platinum-svg-embed
+    (lispm-ui-svg-embed
      svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) x y w h)
-    (lispm-desktop-platinum-svg-embed
+    (lispm-ui-svg-embed
      svg (lispm-desktop-platinum-draw-bevel-button
           palette cap cap :label (upcase (char-to-string (plist-get properties :key)))
-          :face 'lispm-desktop-platinum-title)
+          :face 'lispm-ui-title)
      (- (+ x w) cap 8) (if row (+ y (/ (- h cap) 2)) (+ y 8)) cap cap)
     (if row
         (lispm-desktop-assistant--draw-row-card svg ink rect properties cap)
@@ -324,24 +324,24 @@ names no colours, its label and the lines of its text, centred."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (preview (alist-get (plist-get properties :preview) lispm-desktop-assistant--previews))
                (lines (lispm-desktop-popup--wrap (or (plist-get properties :text) "") (- w 32)
-                                                 'lispm-desktop-platinum-list))
+                                                 'lispm-ui-list))
                (label (propertize (plist-get properties :label) 'face '(:height 1.25)))
                (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2))))
     (when preview
       (let ((picture (if-let* ((colors (plist-get preview :colors)))
-                         (apply #'lispm-desktop-platinum-derive-palette colors)
+                         (apply #'lispm-ui-derive-palette colors)
                        palette)))
         (lispm-desktop-assistant--draw-preview svg (+ x (/ (- w 120) 2)) top 120 64 picture
                                                (plist-get preview :code)))
       (setq top (+ top 74)))
-    (lispm-desktop-platinum-svg-content
-     svg label (+ x (/ (- w (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)) 2))
-     top 20 ink 'lispm-desktop-platinum-title)
+    (lispm-ui-svg-content
+     svg label (+ x (/ (- w (lispm-ui-text-width label 'lispm-ui-title)) 2))
+     top 20 ink 'lispm-ui-title)
     (setq top (+ top 24))
     (dolist (line lines)
-      (lispm-desktop-platinum-svg-content
-       svg line (+ x (/ (- w (lispm-desktop-platinum-content-width line 'lispm-desktop-platinum-list)) 2))
-       top 16 ink 'lispm-desktop-platinum-list)
+      (lispm-ui-svg-content
+       svg line (+ x (/ (- w (lispm-ui-text-width line 'lispm-ui-list)) 2))
+       top 16 ink 'lispm-ui-list)
       (setq top (+ top 16)))))
 
 (defun lispm-desktop-assistant--hint (page)
@@ -368,36 +368,36 @@ page with a :picture shows LispM's λ instead of choices, and its
   (let* ((layout (lispm-desktop-assistant--layout width height page))
          (svg (svg-create width height))
          (text (plist-get palette :text))
-         (title (propertize (lispm-desktop-tr "Welcome to LispM") 'face 'lispm-desktop-platinum-title)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :desktop))
+         (title (propertize (lispm-desktop-tr "Welcome to LispM") 'face 'lispm-ui-title)))
+    (lispm-ui-svg-fill svg 0 0 width height (plist-get palette :desktop))
     (pcase-let ((`(,x ,y ,w ,h) (plist-get layout :window))
                 (`(,cx ,cy ,cw ,ch) (plist-get layout :content)))
-      (lispm-desktop-platinum-svg-embed
+      (lispm-ui-svg-embed
        svg (lispm-desktop-platinum-draw-window-frame palette w h :active t) x y w h)
       (let ((bar (lispm-desktop-platinum-title-layout
-                  cw (lispm-desktop-platinum-content-width title 'lispm-desktop-platinum-title)
+                  cw (lispm-ui-text-width title 'lispm-ui-title)
                   '(nil nil nil))))
-        (lispm-desktop-platinum-svg-embed
+        (lispm-ui-svg-embed
          svg (lispm-desktop-platinum-draw-title-part
               palette cw :active t :ridges (plist-get bar :ridges)
               :label (lispm-desktop-platinum-fit title (plist-get bar :title))
               :label-x (plist-get bar :label-x))
          cx (1+ y) cw lispm-desktop-platinum-title-bar-height))
-      (lispm-desktop-platinum-svg-fill svg cx cy cw ch (lispm-desktop-platinum-grey palette #xDD))
+      (lispm-ui-svg-fill svg cx cy cw ch (lispm-ui-grey palette #xDD))
       ;; The icon, the question and what it is about.
       (if (plist-get page :picture)
           (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
                      "image/png" nil :x (+ cx 20) :y (+ cy 18) :width 32 :height 32)
-        (lispm-desktop-platinum-svg-icon
+        (lispm-ui-svg-icon
          svg (lispm-desktop-platinum-icon-file (plist-get page :icon))
          (+ cx 20) (+ cy 18) 32))
       (let ((heading (propertize (plist-get page :title) 'face '(:height 1.4)))
             (top (+ cy 42)))
-        (lispm-desktop-platinum-svg-content svg heading (+ cx 68) (+ cy 14) 26 text
-                                              'lispm-desktop-platinum-title)
+        (lispm-ui-svg-content svg heading (+ cx 68) (+ cy 14) 26 text
+                                              'lispm-ui-title)
         (dolist (line (lispm-desktop-popup--wrap (plist-get page :detail) (- cw 88)
-                                                 'lispm-desktop-platinum-list))
-          (lispm-desktop-platinum-svg-content svg line (+ cx 68) top 16 text 'lispm-desktop-platinum-list)
+                                                 'lispm-ui-list))
+          (lispm-ui-svg-content svg line (+ cx 68) top 16 text 'lispm-ui-list)
           (setq top (+ top 16))))
       (if (plist-get page :picture)
           ;; The λ and the status under it, in the middle of what is left.
@@ -406,9 +406,9 @@ page with a :picture shows LispM's λ instead of choices, and its
             (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
                        "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
             (when-let* ((status (plist-get page :status)))
-              (lispm-desktop-platinum-svg-content
-               svg status (+ cx (/ (- cw (lispm-desktop-platinum-content-width status 'lispm-desktop-platinum-list)) 2))
-               (+ top size 12) 16 text 'lispm-desktop-platinum-list)))
+              (lispm-ui-svg-content
+               svg status (+ cx (/ (- cw (lispm-ui-text-width status 'lispm-ui-list)) 2))
+               (+ top size 12) 16 text 'lispm-ui-list)))
         (seq-mapn (lambda (choice rect index)
                     (lispm-desktop-assistant--draw-card svg palette rect choice
                                                         (and (eql pressed index) 'pressed)
@@ -416,13 +416,13 @@ page with a :picture shows LispM's λ instead of choices, and its
                   (plist-get page :choices) (plist-get layout :cards)
                   (number-sequence 0 (1- (length (plist-get page :choices)))))
         (let ((hint (lispm-desktop-assistant--hint page)))
-          (lispm-desktop-platinum-svg-content
-           svg hint (+ cx (/ (- cw (lispm-desktop-platinum-content-width hint 'lispm-desktop-platinum-small)) 2))
+          (lispm-ui-svg-content
+           svg hint (+ cx (/ (- cw (lispm-ui-text-width hint 'lispm-ui-small)) 2))
            (+ cy 92 lispm-desktop-assistant-card-height 10) 16
-           (lispm-desktop-platinum-grey palette #x55) 'lispm-desktop-platinum-small))
-        (lispm-desktop-platinum-svg-content
+           (lispm-ui-grey palette #x55) 'lispm-ui-small))
+        (lispm-ui-svg-content
          svg (plist-get page :step) (+ cx 20) (- (+ cy ch) 14 lispm-desktop-platinum-button-height)
-         lispm-desktop-platinum-button-height text 'lispm-desktop-platinum-list)
+         lispm-desktop-platinum-button-height text 'lispm-ui-list)
         (pcase (plist-get layout :back)
           (`(,bx ,by ,bw ,_)
            (lispm-desktop-platinum-svg-push-button svg bx by palette (lispm-desktop-tr "Go Back") bw
@@ -448,7 +448,7 @@ the theme chosen."
     ;; the sign of a truncated line and the echo area's fringes, in the
     ;; desktop's colour too.  The theme loaded once LispM is set up
     ;; colours the frame anew.
-    (let ((desktop (plist-get lispm-desktop-platinum-current-palette :desktop)))
+    (let ((desktop (plist-get lispm-ui-current-palette :desktop)))
       (set-frame-parameter nil 'background-color desktop)
       (set-face-background 'fringe desktop (selected-frame)))
     (with-current-buffer buffer
@@ -485,14 +485,14 @@ drawn again while the page and the window's size stay as they are."
          ;; sign of a truncated line: the image leaves it.
          (width (- (window-body-width window t) (frame-char-width (window-frame window))))
          (height (window-body-height window t))
-         (shown (list width height page focused pressed lispm-desktop-platinum-generation)))
+         (shown (list width height page focused pressed lispm-ui-palette-generation)))
     (setq lispm-desktop-assistant--last-page page)
     (unless (equal shown lispm-desktop-assistant--shown)
       (setq lispm-desktop-assistant--shown shown)
       (with-current-buffer (window-buffer window)
         (erase-buffer)
         (insert (propertize " " 'display
-                            (svg-image (lispm-desktop-assistant-draw lispm-desktop-platinum-current-palette
+                            (svg-image (lispm-desktop-assistant-draw lispm-ui-current-palette
                                                                      width height page focused pressed)
                                        :ascent 100 :scale 1)))
         (goto-char (point-min)))

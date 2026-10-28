@@ -90,15 +90,15 @@ the window showing it may fit it again.")
 
 (defun lispm-desktop-app-board--lighter (color ratio)
   "Return COLOR RATIO of the way to white."
-  (lispm-desktop-platinum-blend color "#ffffff" ratio))
+  (lispm-ui-blend color "#ffffff" ratio))
 
 (defun lispm-desktop-app-board--darker (color ratio)
   "Return COLOR RATIO of the way to black."
-  (lispm-desktop-platinum-blend color "#000000" ratio))
+  (lispm-ui-blend color "#000000" ratio))
 
 (defun lispm-desktop-app-board--grey (palette level)
   "Return PALETTE's grey standing where Platinum's LEVEL stands."
-  (lispm-desktop-platinum-grey palette level))
+  (lispm-ui-grey palette level))
 
 (defun lispm-desktop-app-board--gradient (svg from to)
   "Return the name of a gradient on SVG from FROM at the top left to TO at
@@ -119,7 +119,7 @@ the bottom right, as Platinum shades its spheres; defined once per SVG."
 
 (defun lispm-desktop-app-board--fill (svg x y width height color)
   "Fill the rectangle of WIDTH by HEIGHT at X, Y of SVG with COLOR."
-  (lispm-desktop-platinum-svg-fill svg x y width height color))
+  (lispm-ui-svg-fill svg x y width height color))
 
 (defun lispm-desktop-app-board-draw-bevel (svg x y width height color &optional sunken)
   "Draw on SVG a square WIDTH by HEIGHT at X, Y in COLOR, raised as a
@@ -158,7 +158,7 @@ Platinum sphere from light at its top left to dark at its bottom right."
 (defun lispm-desktop-app-board-draw-text (svg text x y size color &optional bold)
   "Write TEXT on SVG centred at X, its middle at Y, SIZE pixels high in COLOR.
 BOLD sets it bold."
-  (let ((font (lispm-desktop-platinum-svg-font 'lispm-desktop-platinum-list)))
+  (let ((font (lispm-ui-svg-font 'lispm-ui-list)))
     (svg-text svg text :x x :y (+ y (* 0.36 size)) :text-anchor "middle"
               :font-family (plist-get font :family) :font-size size
               :font-weight (if bold "bold" "normal") :fill color)))
@@ -289,7 +289,7 @@ click's X and Y returning a function playing the cell there, or nil."
 cannot say yet, as before it made its board."
   (let ((board lispm-desktop-app-board))
     (condition-case nil
-        (list lispm-desktop-platinum-generation
+        (list lispm-ui-palette-generation
               (if-let* ((model (plist-get board :model))) (funcall model) t)
               (when-let* ((cells (plist-get board :cells))) (funcall cells))
               (when-let* ((cursor (plist-get board :cursor))) (funcall cursor)))
@@ -297,7 +297,7 @@ cannot say yet, as before it made its board."
 
 (defun lispm-desktop-app-board--render (model)
   "Return (SVG . HIT) of this buffer's board drawn from MODEL."
-  (let ((palette lispm-desktop-platinum-current-palette))
+  (let ((palette lispm-ui-current-palette))
     (if-let* ((draw (plist-get lispm-desktop-app-board :draw)))
         (funcall draw palette)
       (lispm-desktop-app-board-draw-grid lispm-desktop-app-board palette (nth 2 model) (nth 3 model)))))

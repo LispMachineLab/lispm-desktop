@@ -173,16 +173,16 @@ INDENT and LENGTH are in columns; COLOR is that of the line's first text."
 
 (defun lispm-desktop-workspaces--draw-title (svg x y width height)
   "Draw a title bar WIDTH by HEIGHT at X, Y: platinum, pinstriped, titled."
-  (svg-rectangle svg x y width height :fill (lispm-desktop-platinum-color :chrome))
+  (svg-rectangle svg x y width height :fill (lispm-ui-color :chrome))
   (when (> height 3)
     (dolist (row '(0.35 0.65))
       (svg-line svg (+ x 3) (+ y (* height row)) (- (+ x width) 3) (+ y (* height row))
-                :stroke (lispm-desktop-platinum-color :shade) :stroke-width 0.6)))
+                :stroke (lispm-ui-color :shade) :stroke-width 0.6)))
   (let ((title (min (* width 0.4) 70)))
     (svg-rectangle svg (+ x (/ (- width title) 2)) y title height
-                   :fill (lispm-desktop-platinum-color :chrome))
+                   :fill (lispm-ui-color :chrome))
     (svg-rectangle svg (+ x (/ (- width title) 2) 4) (+ y (* height 0.35))
-                   (- title 8) (max 1 (* height 0.3)) :fill (lispm-desktop-platinum-color :text))))
+                   (- title 8) (max 1 (* height 0.3)) :fill (lispm-ui-color :text))))
 
 (defun lispm-desktop-workspaces--draw-box (svg box scale)
   "Draw window BOX of a workspace into SVG at SCALE."
@@ -194,23 +194,23 @@ INDENT and LENGTH are in columns; COLOR is that of the line's first text."
     (cond
      ((or (null buffer) (provided-mode-derived-p mode 'lispm-desktop-mode)
           (provided-mode-derived-p mode 'lispm-desktop-empty-mode))
-      (svg-rectangle svg x y w h :fill (lispm-desktop-platinum-color :desktop)))
+      (svg-rectangle svg x y w h :fill (lispm-ui-color :desktop)))
      ((provided-mode-derived-p mode 'lispm-desktop-editor-strip-mode)
       (lispm-desktop-workspaces--draw-title svg x y w bar)
-      (svg-rectangle svg x (+ y bar) w (- h bar) :fill (lispm-desktop-platinum-color :header))
+      (svg-rectangle svg x (+ y bar) w (- h bar) :fill (lispm-ui-color :header))
       (dotimes (i 3)
         (svg-rectangle svg (+ x 3 (* i 22 scale 4)) (+ y bar 2) (* 18 scale 4) (- h bar 4)
-                       :fill (lispm-desktop-platinum-color (if (zerop i) :content :chrome)))))
+                       :fill (lispm-ui-color (if (zerop i) :content :chrome)))))
      ((provided-mode-derived-p mode 'xwidget-webkit-mode)
-      (svg-rectangle svg x y w h :fill (lispm-desktop-platinum-color :content))
+      (svg-rectangle svg x y w h :fill (lispm-ui-color :content))
       (svg-rectangle svg (+ x (* w 0.1)) (+ y (* h 0.15)) (* w 0.8) (* h 0.12)
-                     :fill (lispm-desktop-platinum-color :chrome))
+                     :fill (lispm-ui-color :chrome))
       (svg-rectangle svg (+ x (* w 0.1)) (+ y (* h 0.35)) (* w 0.8) (* h 0.5)
-                     :fill (lispm-desktop-platinum-color :header)))
+                     :fill (lispm-ui-color :header)))
      (t
-      (svg-rectangle svg x y w h :fill (lispm-desktop-platinum-color :content))
+      (svg-rectangle svg x y w h :fill (lispm-ui-color :content))
       (lispm-desktop-workspaces--draw-title svg x y w bar)
-      (svg-rectangle svg x (- (+ y h) bar) w bar :fill (lispm-desktop-platinum-color :chrome))
+      (svg-rectangle svg x (- (+ y h) bar) w bar :fill (lispm-ui-color :chrome))
       (let* ((line (* (frame-char-height) scale))
              (column (* (frame-char-width) scale))
              (rows (max 0 (floor (/ (- h (* 2 bar) 2) line)))))
@@ -221,9 +221,9 @@ INDENT and LENGTH are in columns; COLOR is that of the line's first text."
              (when (> right left)
                (svg-rectangle svg left (+ y bar 1 (* index line) (* line 0.3))
                               (- right left) (max 0.8 (* line 0.45))
-                              :fill (or color (lispm-desktop-platinum-color :text))))))
+                              :fill (or color (lispm-ui-color :text))))))
          (lispm-desktop-workspaces--lines buffer start rows)))))
-    (svg-rectangle svg x y w h :fill "none" :stroke (lispm-desktop-platinum-color :frame)
+    (svg-rectangle svg x y w h :fill "none" :stroke (lispm-ui-color :frame)
                    :stroke-width 0.6)))
 
 (defun lispm-desktop-workspaces--thumbnail (layout selected)
@@ -238,15 +238,15 @@ LAYOUT is a value of `lispm-desktop-workspaces--layout'."
     (when selected
       (svg-rectangle svg 0.5 0.5 (+ lispm-desktop-workspaces-thumbnail-width (* 2 ring) -1)
                      (+ thumb-height (* 2 ring) -1)
-                     :fill "none" :stroke (lispm-desktop-platinum-color :accent) :stroke-width 3
+                     :fill "none" :stroke (lispm-ui-color :accent) :stroke-width 3
                      :rx 4))
     (let ((inner (svg-node svg 'g :transform (format "translate(%d %d)" ring ring))))
       (svg-rectangle inner 0 0 lispm-desktop-workspaces-thumbnail-width thumb-height
-                     :fill (lispm-desktop-platinum-color :chrome))
+                     :fill (lispm-ui-color :chrome))
       (dolist (box boxes)
         (lispm-desktop-workspaces--draw-box inner box scale))
       (svg-rectangle inner 0 0 lispm-desktop-workspaces-thumbnail-width thumb-height
-                     :fill "none" :stroke (lispm-desktop-platinum-color :frame) :stroke-width 1))
+                     :fill "none" :stroke (lispm-ui-color :frame) :stroke-width 1))
     svg))
 
 ;;;; The panel

@@ -442,13 +442,13 @@ inside its group box."
 Japanese, into lines at most WIDTH pixels wide when dimmed; a word wider
 than that stands alone, cut short."
   (mapcar (lambda (line)
-            (let ((wide (lispm-desktop-platinum-content-width line 'shadow)))
+            (let ((wide (lispm-ui-text-width line 'shadow)))
               (if (<= wide width)
                   line
                 (lispm-desktop-settings--truncate
                  line (max 2 (1- (/ (* (length line) width) wide)))))))
-          (lispm-desktop-i18n-wrap
-           text (lambda (line) (<= (lispm-desktop-platinum-content-width line 'shadow) width)))))
+          (lispm-ui-text-wrap
+           text (lambda (line) (<= (lispm-ui-text-width line 'shadow) width)))))
 
 (defun lispm-desktop-settings--paragraph (text &optional indent)
   "Insert TEXT, a remark about the settings above, dimmed and wrapped to
@@ -475,8 +475,8 @@ indent of a row of settings."
 (defun lispm-desktop-settings--themes ()
   "Insert the Themes panel: the look, and the colour theme."
   (lispm-desktop-settings--heading (lispm-desktop-tr "Look"))
-  (pcase-dolist (`(,look . ,properties) lispm-desktop-looks)
-    (lispm-desktop-settings--radio (lispm-desktop-look-title look) (eq lispm-desktop-look look)
+  (pcase-dolist (`(,look . ,properties) lispm-ui-looks)
+    (lispm-desktop-settings--radio (lispm-ui-look-title look) (eq lispm-desktop-look look)
                                    (lambda () (lispm-desktop-set-look look))
                                    (when-let* ((description (plist-get properties :description)))
                                      (lispm-desktop-tr description))))
@@ -517,12 +517,12 @@ indent of a row of settings."
 terminal."
   (if (lispm-desktop-tty-p)
       (propertize "██" 'face `(:foreground ,color))
-   (propertize " " 'display (lispm-desktop-platinum-image
+   (propertize " " 'display (lispm-ui-image
                             (list 'swatch color)
                             (lambda ()
                               (let ((svg (svg-create 28 14)))
                                 (svg-rectangle svg 0.5 0.5 27 13 :fill color
-                                               :stroke (lispm-desktop-platinum-color :text))
+                                               :stroke (lispm-ui-color :text))
                                 svg))))))
 
 (defun lispm-desktop-settings--choose-color ()
@@ -723,7 +723,7 @@ and the hosts reached directly."
 (defun lispm-desktop-settings--fit (text width)
   "Return TEXT as it fits in WIDTH pixels when dimmed: whole, or its first
 words and an ellipsis."
-  (if (<= (lispm-desktop-platinum-content-width text 'shadow) width)
+  (if (<= (lispm-ui-text-width text 'shadow) width)
       text
     (concat (car (lispm-desktop-settings--wrap text (max 20 (- width (lispm-desktop-px 12))))) "…")))
 
@@ -731,7 +731,7 @@ words and an ellipsis."
   "Return the pixels left for a note after a radio button or check box
 named LABEL in a row of settings."
   (- (lispm-desktop-settings--text-width (lispm-desktop-px 48))
-     (lispm-desktop-platinum-content-width label 'default)))
+     (lispm-ui-text-width label 'default)))
 
 (defun lispm-desktop-settings--model-items ()
   "Return the items of the menu choosing the model LispM's agents use: the
@@ -825,7 +825,7 @@ as its name."
     (pcase-dolist (`(,action . ,_) (reverse lispm-permission-actions))
       (let ((name (lispm-permission-action-name action)))
         (setq right (+ right (lispm-desktop-px 14)
-                       (max (lispm-desktop-platinum-content-width name 'shadow) (lispm-desktop-px 18))))
+                       (max (lispm-ui-text-width name 'shadow) (lispm-desktop-px 18))))
         (push (cons action right) columns)))
     columns))
 

@@ -234,7 +234,7 @@ it first.  NAME and SIZE stand in for the kind's :name and :size."
                            (left . ,left) (top . ,top)
                            (width . (text-pixels . ,width))
                            (height . (text-pixels . ,height)))))))
-    (set-face-attribute 'internal-border frame :background (lispm-desktop-platinum-color :chrome))
+    (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
     (setf (alist-get id lispm-desktop-app-window--frames) frame)
     (let ((window (frame-root-window frame)))
       (cond ((lispm-desktop-app-window--get id :buffer)

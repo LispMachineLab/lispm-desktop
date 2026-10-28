@@ -162,7 +162,7 @@ of months and days in the current language; see `format-time-string'."
 
 ;;;; Chinese and Japanese type
 
-(defconst lispm-desktop-i18n-cjk-families
+(defconst lispm-ui-text-cjk-families
   '((ja "Hiragino Sans" "Hiragino Kaku Gothic ProN" "Noto Sans CJK JP")
     (zh-Hant "PingFang TC" "Noto Sans CJK TC")
     (zh-Hans "PingFang SC" "Noto Sans CJK SC"))
@@ -172,24 +172,24 @@ language draws them as Simplified Chinese does.  The fonts the chrome's
 text is set in have no ideographs, and Emacs's own fallback for them is
 the terminals' monospace family, its ideographs a cell apart.")
 
-(defun lispm-desktop-i18n-cjk-family ()
+(defun lispm-ui-text-cjk-family ()
   "Return the family the chrome draws Chinese and Japanese in, for the
 language spoken, or nil when none is installed."
   (let ((installed (font-family-list)))
     (seq-find (lambda (family) (member family installed))
-              (or (alist-get (lispm-desktop-current-language) lispm-desktop-i18n-cjk-families)
-                  (alist-get 'zh-Hans lispm-desktop-i18n-cjk-families)))))
+              (or (alist-get (lispm-desktop-current-language) lispm-ui-text-cjk-families)
+                  (alist-get 'zh-Hans lispm-ui-text-cjk-families)))))
 
 ;;;; Breaking lines
 
-(defun lispm-desktop-i18n-words (text)
+(defun lispm-ui-text-words (text)
   "Return TEXT in the pieces a line may break between.
 A piece is a word, after the blank before it if any, or a character of a
 script written without blanks, as Chinese and Japanese; punctuation that
 may not start a line stays on the piece before it, and punctuation that
 may not end one on the piece after it.  Concatenated, the pieces are TEXT
 with its blanks made single spaces; a line starting at a piece drops its
-blank, see `lispm-desktop-i18n-wrap'.  The pieces keep TEXT's
+blank, see `lispm-ui-text-wrap'.  The pieces keep TEXT's
 properties, a blank those of the last blank it stands for."
   (require 'kinsoku)
   (let ((pieces nil) (start nil) (end nil) (lead nil)
@@ -212,13 +212,13 @@ properties, a blank those of the last blank it stands for."
                     joined (aref categories ?<) breakable here blank nil)))))
       (nreverse (if start (cons (piece) pieces) pieces)))))
 
-(defun lispm-desktop-i18n-wrap (text fits)
+(defun lispm-ui-text-wrap (text fits)
   "Return TEXT broken into lines, each as long as FITS allows.
 FITS is called with a line and returns non-nil when it is short enough;
-lines break between the pieces of `lispm-desktop-i18n-words', and a
+lines break between the pieces of `lispm-ui-text-words', and a
 piece too long for a line stands alone."
   (let ((lines nil) (line nil))
-    (dolist (piece (lispm-desktop-i18n-words text))
+    (dolist (piece (lispm-ui-text-words text))
       (let ((longer (if line (concat line piece) (string-trim-left piece))))
         (if (or (null line) (funcall fits longer))
             (setq line longer)

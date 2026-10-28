@@ -61,7 +61,7 @@
 (defconst lispm-desktop-os2-button-width 18
   "Width in pixels of a title bar's buttons, the system menu's included.")
 
-(lispm-desktop-look-define
+(lispm-ui-look-define
  'os2
  :title "OS/2 2.0"
  :description (lispm-desktop-tr-noop "OS/2 2.0's Workplace Shell: teal title bars, pale yellow borders")
@@ -118,15 +118,15 @@ from column LABEL-X in the bar's text colour."
                (svg (svg-create width h))
                (`(,ground . ,ink) (lispm-desktop-pc-caption-colors palette active))
                (shadow (lispm-desktop-pc-shadow palette)))
-    (lispm-desktop-look-svg-fill svg 0 0 width h ground)
-    (lispm-desktop-look-svg-fill svg 0 0 width 1 shadow)
-    (lispm-desktop-look-svg-fill svg 0 (1- h) width 1 shadow)
+    (lispm-ui-svg-paint svg 0 0 width h ground)
+    (lispm-ui-svg-paint svg 0 0 width 1 shadow)
+    (lispm-ui-svg-paint svg 0 (1- h) width 1 shadow)
     (when label
       (let ((label (copy-sequence label)))
         (add-face-text-property 0 (length label) `(:foreground ,ink) nil label)
-        (lispm-desktop-platinum-svg-content
+        (lispm-ui-svg-content
          svg label label-x 1 (- h 2) ink
-         (if active 'lispm-desktop-platinum-title 'lispm-desktop-platinum-title-inactive))))
+         (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))))
     svg))
 
 (cl-defmethod lispm-desktop-pc-draw-system-box (palette &context (lispm-desktop-look (eql os2))
@@ -138,12 +138,12 @@ would show it, its image included, or nil; PRESSED pushes it in."
          (h lispm-desktop-platinum-title-bar-height)
          (svg (svg-create w h))
          (shadow (lispm-desktop-pc-shadow palette)))
-    (lispm-desktop-look-svg-fill svg 0 0 w h shadow)
+    (lispm-ui-svg-paint svg 0 0 w h shadow)
     (lispm-desktop-pc-svg-raise svg 0 1 w (- h 2) palette (and pressed :pushed))
     (if icon
-        (lispm-desktop-platinum-svg-content svg icon 1 2 (- h 4) (plist-get palette :text)
-                                            'lispm-desktop-platinum-list)
-      (lispm-desktop-look-svg-fill svg 4 9 10 2 (plist-get palette :text)))
+        (lispm-ui-svg-content svg icon 1 2 (- h 4) (plist-get palette :text)
+                              'lispm-ui-list)
+      (lispm-ui-svg-paint svg 4 9 10 2 (plist-get palette :text)))
     svg))
 
 (cl-defmethod lispm-desktop-pc-draw-caption-button (palette kind &context (lispm-desktop-look (eql os2))
@@ -155,16 +155,16 @@ in."
   (let* ((w lispm-desktop-os2-button-width)
          (h lispm-desktop-platinum-title-bar-height)
          (svg (svg-create w h))
-         (ink (lispm-desktop-platinum-legible (plist-get palette :chrome)
-                                              (plist-get palette :outline) (plist-get palette :text)))
+         (ink (lispm-ui-legible (plist-get palette :chrome)
+                                (plist-get palette :outline) (plist-get palette :text)))
          (shift (if pressed 1 0)))
-    (lispm-desktop-look-svg-fill svg 0 0 w h (lispm-desktop-pc-shadow palette))
+    (lispm-ui-svg-paint svg 0 0 w h (lispm-desktop-pc-shadow palette))
     (lispm-desktop-pc-svg-raise svg 0 1 w (- h 2) palette (and pressed :pushed))
     (if (eq kind 'minimize)
-        (lispm-desktop-look-svg-pixels svg (+ 6 shift) (+ 7 shift)
-                                       '("##..##" "#....#" "......" "......" "#....#" "##..##")
-                                       `((?# . ,ink)))
-      (lispm-desktop-look-svg-outline svg (+ 5 shift) (+ 6 shift) 8 8 ink))
+        (lispm-ui-svg-pixels svg (+ 6 shift) (+ 7 shift)
+                             '("##..##" "#....#" "......" "......" "#....#" "##..##")
+                             `((?# . ,ink)))
+      (lispm-ui-svg-outline svg (+ 5 shift) (+ 6 shift) 8 8 ink))
     svg))
 
 ;;;; Borders
@@ -181,12 +181,12 @@ ACTIVE window, and a groove where the window starts."
          (svg (svg-create w h))
          (light (plist-get palette :light))
          (shadow (lispm-desktop-pc-shadow palette)))
-    (lispm-desktop-look-svg-fill svg 0 0 w h (plist-get palette (if active :border :border-inactive)))
-    (lispm-desktop-look-svg-edges svg 0 0 w h (list light) (list (plist-get palette :outline) shadow))
+    (lispm-ui-svg-paint svg 0 0 w h (plist-get palette (if active :border :border-inactive)))
+    (lispm-ui-svg-edges svg 0 0 w h (list light) (list (plist-get palette :outline) shadow))
     ;; The groove round the window: shaded where it is lit outside.
-    (lispm-desktop-look-svg-fill svg 5 1 1 (- h 7) shadow)
-    (lispm-desktop-look-svg-fill svg (- w 7) 1 1 (- h 7) light)
-    (lispm-desktop-look-svg-fill svg 5 (- h 7) (- w 11) 1 light)
+    (lispm-ui-svg-paint svg 5 1 1 (- h 7) shadow)
+    (lispm-ui-svg-paint svg (- w 7) 1 1 (- h 7) light)
+    (lispm-ui-svg-paint svg 5 (- h 7) (- w 11) 1 light)
     svg))
 
 (cl-defmethod lispm-desktop-platinum-draw-grow-box (palette height
@@ -197,10 +197,10 @@ as OS/2's buttons were, a small window in a large one marking it."
          (svg (svg-create s height))
          (y (/ (- height s) 2))
          (ink (plist-get palette :text)))
-    (lispm-desktop-look-svg-fill svg 0 0 s height (plist-get palette :chrome))
+    (lispm-ui-svg-paint svg 0 0 s height (plist-get palette :chrome))
     (lispm-desktop-pc-svg-raise svg 0 y s s palette)
-    (lispm-desktop-look-svg-outline svg 4 (+ y 4) 9 9 ink)
-    (lispm-desktop-look-svg-outline svg 4 (+ y 8) 5 5 ink)
+    (lispm-ui-svg-outline svg 4 (+ y 4) 9 9 ink)
+    (lispm-ui-svg-outline svg 4 (+ y 8) 5 5 ink)
     svg))
 
 ;;;; The menu bar and menus
@@ -214,17 +214,17 @@ colour.  CORNER and MARKED are Platinum's, not drawn."
   (ignore corner marked)
   (let* ((h lispm-desktop-platinum-menu-bar-height)
          (svg (svg-create width h)))
-    (lispm-desktop-look-svg-fill svg 0 0 width (1- h) (plist-get palette :menu))
-    (lispm-desktop-look-svg-fill svg 0 (1- h) width 1 (lispm-desktop-pc-shadow palette))
+    (lispm-ui-svg-paint svg 0 0 width (1- h) (plist-get palette :menu))
+    (lispm-ui-svg-paint svg 0 (1- h) width 1 (lispm-desktop-pc-shadow palette))
     (when highlighted
-      (lispm-desktop-look-svg-fill svg 0 1 width (- h 3) (plist-get palette :highlight)))
+      (lispm-ui-svg-paint svg 0 1 width (- h 3) (plist-get palette :highlight)))
     (when label
       (let ((ink (plist-get palette (if highlighted :highlight-text :menu-text)))
             (label (copy-sequence label)))
         (add-face-text-property 0 (length label) `(:foreground ,ink) nil label)
-        (lispm-desktop-platinum-svg-content
+        (lispm-ui-svg-content
          svg label
-         (/ (- width (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-menu-title)) 2)
+         (/ (- width (lispm-ui-text-width label 'lispm-desktop-platinum-menu-title)) 2)
          0 (1- h) ink 'lispm-desktop-platinum-menu-title)))
     svg))
 
@@ -263,21 +263,21 @@ BOTTOM draws the bottom edge instead."
          (shadow (lispm-desktop-pc-shadow palette))
          (light (plist-get palette :light)))
     (if bottom
-        (progn (lispm-desktop-look-svg-fill svg 0 0 1 (1+ y) shadow)
-               (lispm-desktop-look-svg-fill svg 1 0 1 y light)
-               (lispm-desktop-look-svg-fill svg (- width 2) 0 1 (1+ y) shadow)
-               (lispm-desktop-look-svg-fill svg (1- width) 0 1 (+ 2 y) light))
-      (lispm-desktop-look-svg-fill svg 0 y 1 (- h y) shadow)
-      (lispm-desktop-look-svg-fill svg 1 (1+ y) 1 (- h y 1) light)
-      (lispm-desktop-look-svg-fill svg (- width 2) y 1 (- h y) shadow)
-      (lispm-desktop-look-svg-fill svg (1- width) y 1 (- h y) light))
-    (lispm-desktop-look-svg-fill svg 0 y (1- width) 1 shadow)
-    (lispm-desktop-look-svg-fill svg 1 (1+ y) (1- width) 1 light)
+        (progn (lispm-ui-svg-paint svg 0 0 1 (1+ y) shadow)
+               (lispm-ui-svg-paint svg 1 0 1 y light)
+               (lispm-ui-svg-paint svg (- width 2) 0 1 (1+ y) shadow)
+               (lispm-ui-svg-paint svg (1- width) 0 1 (+ 2 y) light))
+      (lispm-ui-svg-paint svg 0 y 1 (- h y) shadow)
+      (lispm-ui-svg-paint svg 1 (1+ y) 1 (- h y 1) light)
+      (lispm-ui-svg-paint svg (- width 2) y 1 (- h y) shadow)
+      (lispm-ui-svg-paint svg (1- width) y 1 (- h y) light))
+    (lispm-ui-svg-paint svg 0 y (1- width) 1 shadow)
+    (lispm-ui-svg-paint svg 1 (1+ y) (1- width) 1 light)
     (when title
-      (let ((title-width (lispm-desktop-platinum-content-width title 'lispm-desktop-platinum-title)))
-        (lispm-desktop-look-svg-fill svg 6 0 (+ title-width 8) h (plist-get palette :content))
-        (lispm-desktop-platinum-svg-content svg title 10 0 h (plist-get palette :text)
-                                            'lispm-desktop-platinum-title)))
+      (let ((title-width (lispm-ui-text-width title 'lispm-ui-title)))
+        (lispm-ui-svg-paint svg 6 0 (+ title-width 8) h (plist-get palette :content))
+        (lispm-ui-svg-content svg title 10 0 h (plist-get palette :text)
+                              'lispm-ui-title)))
     svg))
 
 (cl-defmethod lispm-desktop-platinum-draw-tab (palette label width
@@ -287,7 +287,7 @@ BOTTOM draws the bottom edge instead."
 settings notebooks drew theirs: raised, its top corners bevelled; the
 tab in FRONT stands taller and opens into the page, one behind stands on
 the page's lit edge."
-  (let* ((face (or face 'lispm-desktop-platinum-title))
+  (let* ((face (or face 'lispm-ui-title))
          (h lispm-desktop-platinum-tab-height)
          (w width)
          (svg (svg-create w (+ h 3)))
@@ -296,18 +296,18 @@ the page's lit edge."
          (shadow (lispm-desktop-pc-shadow palette))
          (top (if front 0 2))
          (bottom (if front (+ h 2) (1- h))))
-    (lispm-desktop-look-svg-fill svg 0 0 w (+ h 3) (plist-get palette :chrome))
+    (lispm-ui-svg-paint svg 0 0 w (+ h 3) (plist-get palette :chrome))
     (unless front
-      (lispm-desktop-look-svg-fill svg 0 h w 1 light)
-      (lispm-desktop-look-svg-fill svg 0 (1+ h) w 2 page))
-    (lispm-desktop-look-svg-fill svg 1 (1+ top) (- w 2) (- bottom top) (if front page (plist-get palette :chrome)))
-    (lispm-desktop-look-svg-fill svg 3 top (- w 6) 1 light)
-    (lispm-desktop-look-svg-fill svg 2 (1+ top) 1 1 light)
-    (lispm-desktop-look-svg-fill svg 1 (+ top 2) 1 (- bottom top 1) light)
-    (lispm-desktop-look-svg-fill svg (- w 3) (1+ top) 1 1 shadow)
-    (lispm-desktop-look-svg-fill svg (- w 2) (+ top 2) 1 (- bottom top 1) shadow)
-    (lispm-desktop-platinum-svg-content
-     svg label (/ (- w (lispm-desktop-platinum-content-width label face)) 2) top (- h top)
+      (lispm-ui-svg-paint svg 0 h w 1 light)
+      (lispm-ui-svg-paint svg 0 (1+ h) w 2 page))
+    (lispm-ui-svg-paint svg 1 (1+ top) (- w 2) (- bottom top) (if front page (plist-get palette :chrome)))
+    (lispm-ui-svg-paint svg 3 top (- w 6) 1 light)
+    (lispm-ui-svg-paint svg 2 (1+ top) 1 1 light)
+    (lispm-ui-svg-paint svg 1 (+ top 2) 1 (- bottom top 1) light)
+    (lispm-ui-svg-paint svg (- w 3) (1+ top) 1 1 shadow)
+    (lispm-ui-svg-paint svg (- w 2) (+ top 2) 1 (- bottom top 1) shadow)
+    (lispm-ui-svg-content
+     svg label (/ (- w (lispm-ui-text-width label face)) 2) top (- h top)
      (plist-get palette :text) face)
     svg))
 
@@ -324,11 +324,11 @@ bottom left of fourteen pixels."
          (y (+ pad 1))
          (ink (if (eq state 'disabled) (lispm-desktop-pc-shadow palette) (plist-get palette :outline))))
     (when focused
-      (lispm-desktop-look-svg-dotted svg (- x 2) (- y 2) 17 17 (plist-get palette :text)))
-    (lispm-desktop-look-svg-fill svg x y 13 13
-                                 (if (eq state 'pressed) (plist-get palette :chrome) (plist-get palette :content)))
-    (lispm-desktop-look-svg-edges svg x y 13 13 (list (lispm-desktop-pc-shadow palette) ink)
-                                  (list (plist-get palette :light)))
+      (lispm-ui-svg-dotted svg (- x 2) (- y 2) 17 17 (plist-get palette :text)))
+    (lispm-ui-svg-paint svg x y 13 13
+                        (if (eq state 'pressed) (plist-get palette :chrome) (plist-get palette :content)))
+    (lispm-ui-svg-edges svg x y 13 13 (list (lispm-desktop-pc-shadow palette) ink)
+                        (list (plist-get palette :light)))
     (when on
       (svg-polyline svg (list (cons (+ x 3) (+ y 6.5)) (cons (+ x 5.5) (+ y 9.5)) (cons (+ x 10) (+ y 3)))
                     :fill "none" :stroke ink :stroke-width 2))
@@ -340,12 +340,12 @@ bottom left of fourteen pixels."
 STATE is `on', a bar across it when `mixed'."
   (let ((svg (svg-create 12 12))
         (ink (plist-get palette :outline)))
-    (lispm-desktop-look-svg-fill svg 0 0 12 12 (plist-get palette :content))
-    (lispm-desktop-look-svg-edges svg 0 0 12 12 (list (lispm-desktop-pc-shadow palette) ink)
-                                  (list (plist-get palette :light)))
+    (lispm-ui-svg-paint svg 0 0 12 12 (plist-get palette :content))
+    (lispm-ui-svg-edges svg 0 0 12 12 (list (lispm-desktop-pc-shadow palette) ink)
+                        (list (plist-get palette :light)))
     (pcase state
       ('on (svg-polyline svg '((2.5 . 6) (4.5 . 8.5) (9 . 3)) :fill "none" :stroke ink :stroke-width 2))
-      ('mixed (lispm-desktop-look-svg-fill svg 3 5 6 2 ink)))
+      ('mixed (lispm-ui-svg-paint svg 3 5 6 2 ink)))
     svg))
 
 (cl-defmethod lispm-desktop-platinum-svg-progress-bar (svg x y width fraction palette
@@ -355,10 +355,10 @@ grey, FRACTION of it filled in the title bar's colour."
   (let* ((h lispm-desktop-platinum-progress-height)
          (inner (- width 2))
          (filled (round (* inner (min 1.0 (max 0.0 fraction))))))
-    (lispm-desktop-look-svg-fill svg x y width h (plist-get palette :content))
-    (lispm-desktop-look-svg-edges svg x y width h (list (lispm-desktop-pc-shadow palette))
-                                  (list (plist-get palette :light)))
-    (lispm-desktop-look-svg-fill svg (1+ x) (1+ y) filled (- h 2) (plist-get palette :title))))
+    (lispm-ui-svg-paint svg x y width h (plist-get palette :content))
+    (lispm-ui-svg-edges svg x y width h (list (lispm-desktop-pc-shadow palette))
+                        (list (plist-get palette :light)))
+    (lispm-ui-svg-paint svg (1+ x) (1+ y) filled (- h 2) (plist-get palette :title))))
 
 (cl-defmethod lispm-desktop-platinum-draw-list-header (palette columns
                                                                &context (lispm-desktop-look (eql os2))
@@ -372,15 +372,15 @@ not used: titles are centred."
          (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
          (svg (svg-create width h))
          (x 0))
-    (lispm-desktop-look-svg-fill svg 0 0 width h (plist-get palette :content))
+    (lispm-ui-svg-paint svg 0 0 width h (plist-get palette :content))
     (pcase-dolist (`(,label ,w ,sorted) columns)
-      (lispm-desktop-look-svg-fill svg (+ x 4) (- h 3) (- w 8) 1 (lispm-desktop-pc-shadow palette))
+      (lispm-ui-svg-paint svg (+ x 4) (- h 3) (- w 8) 1 (lispm-desktop-pc-shadow palette))
       (when label
         (let ((label (if sorted (propertize label 'face 'bold) label)))
-          (lispm-desktop-platinum-svg-content
-           svg label (+ x (/ (- w (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-list)) 2))
-           0 (- h 3) (plist-get palette :text) 'lispm-desktop-platinum-list)))
-      (lispm-desktop-look-svg-fill svg (+ x w -1) 2 1 (- h 4) (lispm-desktop-pc-shadow palette))
+          (lispm-ui-svg-content
+           svg label (+ x (/ (- w (lispm-ui-text-width label 'lispm-ui-list)) 2))
+           0 (- h 3) (plist-get palette :text) 'lispm-ui-list)))
+      (lispm-ui-svg-paint svg (+ x w -1) 2 1 (- h 4) (lispm-desktop-pc-shadow palette))
       (setq x (+ x w)))
     svg))
 
@@ -413,11 +413,11 @@ nil, shows no thumb."
          (b lispm-desktop-pc-scroll-button)
          (live (and active thumb))
          (shadow (lispm-desktop-pc-shadow palette)))
-    (lispm-desktop-look-svg-fill svg 0 0 w height (lispm-desktop-os2--stipple svg palette))
+    (lispm-ui-svg-paint svg 0 0 w height (lispm-desktop-os2--stipple svg palette))
     (dolist (button (list (cons (plist-get layout :up) 'up) (cons (plist-get layout :down) 'down)))
       (lispm-desktop-pc-svg-raise svg 0 (car button) w b palette)
-      (lispm-desktop-look-svg-arrow svg 4 (+ (car button) 6) 4 (cdr button)
-                                    (if live (plist-get palette :text) shadow)))
+      (lispm-ui-svg-arrow svg 4 (+ (car button) 6) 4 (cdr button)
+                          (if live (plist-get palette :text) shadow)))
     (when live
       (lispm-desktop-pc-svg-raise svg 0 (car thumb) w (cdr thumb) palette))
     svg))
@@ -430,11 +430,11 @@ nil, shows no thumb."
 Shell drew icons on the desktop: the title straight on the desktop, and,
 when SELECTED, icon and title set on the highlight colour.  See
 `lispm-desktop--draw-icon'."
-  (let* ((palette lispm-desktop-platinum-current-palette)
+  (let* ((palette lispm-ui-current-palette)
          (desktop (lispm-desktop--color))
          (ink (if selected
                   (plist-get palette :highlight-text)
-                (lispm-desktop-platinum-legible desktop (plist-get palette :text) (plist-get palette :content))))
+                (lispm-ui-legible desktop (plist-get palette :text) (plist-get palette :content))))
          (icon-left (- (+ x (/ lispm-desktop-column 2)) (/ lispm-desktop-icon-size 2)))
          (highlight (and selected (plist-get palette :highlight))))
     (concat

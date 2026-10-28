@@ -95,18 +95,18 @@ the screen's corner over that end.  MARKED circles the title with a
 coach mark, see lispm-desktop-platinum-coach.el."
   (let* ((h lispm-desktop-platinum-menu-bar-height)
          (svg (svg-create width h))
-         (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width h (funcall grey #xDD))
-    (lispm-desktop-platinum-svg-row svg 0 (1- width) 0 (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-row svg 0 (1- width) (- h 2) (funcall grey #x99))
-    (lispm-desktop-platinum-svg-row svg 0 (1- width) (1- h) (plist-get palette :outline))
+         (grey (lambda (level) (lispm-ui-grey palette level))))
+    (lispm-ui-svg-fill svg 0 0 width h (funcall grey #xDD))
+    (lispm-ui-svg-row svg 0 (1- width) 0 (funcall grey #xFF))
+    (lispm-ui-svg-row svg 0 (1- width) (- h 2) (funcall grey #x99))
+    (lispm-ui-svg-row svg 0 (1- width) (1- h) (plist-get palette :outline))
     (when highlighted
-      (lispm-desktop-platinum-svg-fill svg 0 1 width (- h 3) (plist-get palette :highlight))
-      (lispm-desktop-platinum-svg-row svg 0 (1- width) 0 (plist-get palette :thumb-dark))
-      (lispm-desktop-platinum-svg-row svg 0 (1- width) (- h 2) (plist-get palette :highlight-dark)))
+      (lispm-ui-svg-fill svg 0 1 width (- h 3) (plist-get palette :highlight))
+      (lispm-ui-svg-row svg 0 (1- width) 0 (plist-get palette :thumb-dark))
+      (lispm-ui-svg-row svg 0 (1- width) (- h 2) (plist-get palette :highlight-dark)))
     (when label
-      (lispm-desktop-platinum-svg-content
-       svg label (/ (- width (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-menu-title)) 2)
+      (lispm-ui-svg-content
+       svg label (/ (- width (lispm-ui-text-width label 'lispm-desktop-platinum-menu-title)) 2)
        1 (- h 3)
        (plist-get palette (if highlighted :highlight-text :text))
        'lispm-desktop-platinum-menu-title))
@@ -116,7 +116,7 @@ coach mark, see lispm-desktop-platinum-coach.el."
                       (?W . ,(funcall grey (if (eq corner 'left) #xFF #xDD))))))
         (if (eq corner 'left)
             (progn
-              (lispm-desktop-platinum-svg-column svg 0 8 (- h 3) (funcall grey #xFF))
+              (lispm-ui-svg-column svg 0 8 (- h 3) (funcall grey #xFF))
               (lispm-desktop-platinum-svg-pixel-map svg 0 0 lispm-desktop-platinum--screen-corner colors))
           (lispm-desktop-platinum-svg-pixel-map
            svg (- width 9) 0
@@ -138,17 +138,17 @@ CORNER rounds the screen's corner over it, see
 `lispm-desktop-platinum-draw-menu-title'; a coach mark circles it while
 it is what the mark circles, (menu . KEY).  The title string keeps LABEL
 in its `lispm-desktop-platinum-label' property."
-  (let* ((width (+ (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-menu-title)
+  (let* ((width (+ (lispm-ui-text-width label 'lispm-desktop-platinum-menu-title)
                    (* 2 lispm-desktop-platinum-menu-padding)))
          (marked (lispm-desktop-platinum-coach-marked-p (cons 'menu key)))
          (title (if (lispm-desktop-tty-p)
                     (lispm-desktop-platinum--text-menu-title label active)
                   (propertize " " 'display
-                              (lispm-desktop-platinum-image
-                               (list 'menu-title (lispm-desktop-platinum--content-key label) width active corner
+                              (lispm-ui-image
+                               (list 'menu-title (lispm-ui-content-key label) width active corner
                                      marked)
                                (lambda ()
-                                 (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette width
+                                 (lispm-desktop-platinum-draw-menu-title lispm-ui-current-palette width
                                                                          :label label :highlighted active
                                                                          :corner corner :marked marked)))
                               'lispm-desktop-platinum-label label
@@ -174,9 +174,9 @@ or WIDTH columns on a text terminal."
         (if (lispm-desktop-tty-p)
             (propertize (make-string width ?\s) 'face 'lispm-desktop-platinum-menu-title)
           (propertize " " 'display
-                      (lispm-desktop-platinum-image
+                      (lispm-ui-image
                        (list 'menu-title nil width nil nil nil)
-                       (lambda () (lispm-desktop-platinum-draw-menu-title lispm-desktop-platinum-current-palette
+                       (lambda () (lispm-desktop-platinum-draw-menu-title lispm-ui-current-palette
                                                                           width)))))
         #'ignore))
 

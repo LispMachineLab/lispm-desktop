@@ -385,25 +385,25 @@ inside, and its size under it, if it is a picture."
                  (iy (+ y (/ (- room-h ih) 2))))
       (svg-embed svg data (format "image/%s" (pcase type ('svg "svg+xml") (_ type))) t
                  :x ix :y iy :width iw :height ih)
-      (lispm-desktop-platinum-svg-content svg (format "%d × %d" pw ph)
-                                          (+ x (/ (- w (lispm-desktop-platinum-content-width
-                                                        (format "%d × %d" pw ph)
-                                                        'lispm-desktop-platinum-small))
-                                                  2))
-                                          (+ y room-h 4) 16 (plist-get palette :muted)
-                                          'lispm-desktop-platinum-small))))
+      (lispm-ui-svg-content svg (format "%d × %d" pw ph)
+                            (+ x (/ (- w (lispm-ui-text-width
+                                          (format "%d × %d" pw ph)
+                                          'lispm-ui-small))
+                                    2))
+                            (+ y room-h 4) 16 (plist-get palette :muted)
+                            'lispm-ui-small))))
 
 (defun lispm-desktop-choose--draw-title (svg width title palette)
   "Draw on SVG a movable modal window's title bar WIDTH wide reading TITLE,
 inside the outline: ridges either side of the title, and no boxes."
   (let* ((label (let ((label (copy-sequence title)))
-                  (add-face-text-property 0 (length label) 'lispm-desktop-platinum-title t label)
+                  (add-face-text-property 0 (length label) 'lispm-ui-title t label)
                   label))
          (layout (lispm-desktop-platinum-title-layout
-                  width (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)
+                  width (lispm-ui-text-width label 'lispm-ui-title)
                   '(nil nil nil)))
          (label (lispm-desktop-platinum-fit label (plist-get layout :title))))
-    (lispm-desktop-platinum-svg-embed
+    (lispm-ui-svg-embed
      svg (lispm-desktop-platinum-draw-title-part palette width :active t :lead t :trail t
                                                  :ridges (plist-get layout :ridges)
                                                  :label label :label-x (plist-get layout :label-x))
@@ -418,13 +418,13 @@ folder's icon and name, and the menu's arrows."
                (name (or (file-name-nondirectory (directory-file-name directory)) ""))
                (label (concat (lispm-desktop-platinum-icon "folder") " "
                               (lispm-desktop-platinum-fit
-                               (propertize (if (string-empty-p name) "/" name) 'face 'lispm-desktop-platinum-title)
+                               (propertize (if (string-empty-p name) "/" name) 'face 'lispm-ui-title)
                                (- w 52)))))
-    (lispm-desktop-platinum-svg-embed svg (lispm-desktop-platinum-draw-popup-button palette "" w :state state)
-                                      x y w lispm-desktop-platinum-button-height)
-    (lispm-desktop-platinum-svg-content svg label (+ x 8) y lispm-desktop-platinum-button-height
-                                        (plist-get (lispm-desktop-platinum--push-button-colors palette state) :label)
-                                        'lispm-desktop-platinum-title)))
+    (lispm-ui-svg-embed svg (lispm-desktop-platinum-draw-popup-button palette "" w :state state)
+                        x y w lispm-desktop-platinum-button-height)
+    (lispm-ui-svg-content svg label (+ x 8) y lispm-desktop-platinum-button-height
+                          (plist-get (lispm-desktop-platinum--push-button-colors palette state) :label)
+                          'lispm-ui-title)))
 
 (defun lispm-desktop-choose--draw-place-button (svg rect palette state kind)
   "Draw on SVG in RECT the bevel button of KIND, `shortcuts' or `recent', in
@@ -432,16 +432,16 @@ STATE: a disk for the usual places, a clock for the files chosen lately,
 and the small arrow of a button popping up a menu."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (ink (if (eq state 'disabled)
-                        (lispm-desktop-platinum-grey palette #x99)
+                        (lispm-ui-grey palette #x99)
                       (plist-get palette :outline))))
-    (lispm-desktop-platinum-svg-embed svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state)
-                                      x y w h)
+    (lispm-ui-svg-embed svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state)
+                        x y w h)
     (if (eq kind 'shortcuts)
-        (lispm-desktop-platinum-svg-icon svg (lispm-desktop-platinum-icon-file "disk") (+ x 5) (+ y 5) 16)
+        (lispm-ui-svg-icon svg (lispm-desktop-platinum-icon-file "disk") (+ x 5) (+ y 5) 16)
       (let ((cx (+ x 13)) (cy (+ y 13)))
         (svg-circle svg cx cy 6.5 :fill (if (eq state 'disabled)
-                                             (lispm-desktop-platinum-grey palette #xDD)
-                                           (lispm-desktop-platinum-grey palette #xFF))
+                                             (lispm-ui-grey palette #xDD)
+                                           (lispm-ui-grey palette #xFF))
                     :stroke ink)
         (svg-line svg cx cy cx (- cy 4) :stroke ink)
         (svg-line svg cx cy (+ cx 3) cy :stroke ink)))
@@ -453,7 +453,7 @@ and the small arrow of a button popping up a menu."
   "Draw on SVG DIALOG's list as LAYOUT places it: its headings, its rows,
 the sorted column darker, the item selected in reverse, and its scroll
 bar."
-  (pcase-let* ((grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+  (pcase-let* ((grey (lambda (level) (lispm-ui-grey palette level)))
                (`(,lx ,ly ,lw ,lh) (plist-get layout :list))
                (`(,hx ,hy ,hw ,hh) (plist-get layout :header))
                (`(,rx ,ry ,rw ,_) (plist-get layout :rows))
@@ -464,12 +464,12 @@ bar."
                (items (lispm-desktop-choose--dialog-items dialog))
                (top (lispm-desktop-choose--dialog-top dialog))
                (text (plist-get palette :text)))
-    (lispm-desktop-platinum-svg-fill svg lx ly lw lh (plist-get palette :outline))
+    (lispm-ui-svg-fill svg lx ly lw lh (plist-get palette :outline))
     (cl-flet ((heading (label width)
                 ;; A heading longer than its column is cut short, as a
                 ;; longer language's may be.
-                (lispm-desktop-platinum-fit (propertize label 'face 'lispm-desktop-platinum-list) width)))
-      (lispm-desktop-platinum-svg-embed
+                (lispm-desktop-platinum-fit (propertize label 'face 'lispm-ui-list) width)))
+      (lispm-ui-svg-embed
        svg (lispm-desktop-platinum-draw-list-header
             palette (list (list (heading (lispm-desktop-tr "Name") (- name-w 34)) name-w (not by-date) 28)
                           (list (heading (lispm-desktop-tr "Date Modified") (- date-w 10)) date-w by-date 6)))
@@ -477,30 +477,30 @@ bar."
     (dotimes (row lispm-desktop-choose-rows)
       (let ((y (+ ry (* row lispm-desktop-choose-row-height)))
             (index (+ top row)))
-        (lispm-desktop-platinum-svg-fill svg rx y name-w (1- lispm-desktop-choose-row-height)
-                                         (funcall grey (if by-date #xEE #xDD)))
-        (lispm-desktop-platinum-svg-fill svg (+ rx name-w) y date-w (1- lispm-desktop-choose-row-height)
-                                         (funcall grey (if by-date #xDD #xEE)))
-        (lispm-desktop-platinum-svg-row svg rx (+ rx rw -1) (+ y lispm-desktop-choose-row-height -1)
-                                        (funcall grey #xFF))
+        (lispm-ui-svg-fill svg rx y name-w (1- lispm-desktop-choose-row-height)
+                           (funcall grey (if by-date #xEE #xDD)))
+        (lispm-ui-svg-fill svg (+ rx name-w) y date-w (1- lispm-desktop-choose-row-height)
+                           (funcall grey (if by-date #xDD #xEE)))
+        (lispm-ui-svg-row svg rx (+ rx rw -1) (+ y lispm-desktop-choose-row-height -1)
+                          (funcall grey #xFF))
         (when-let* ((item (nth index items)))
           (pcase-let* ((`(,name ,file ,folder ,time) item)
                        (selected (eql index (lispm-desktop-choose--dialog-selected dialog)))
-                       (label (lispm-desktop-platinum-fit (propertize name 'face 'lispm-desktop-platinum-list)
+                       (label (lispm-desktop-platinum-fit (propertize name 'face 'lispm-ui-list)
                                                           (- name-w 34)))
-                       (label-w (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-list)))
-            (lispm-desktop-platinum-svg-icon
+                       (label-w (lispm-ui-text-width label 'lispm-ui-list)))
+            (lispm-ui-svg-icon
              svg (lispm-desktop-platinum-icon-file (if folder "folder" (lispm-desktop-platinum-file-icon-name file)))
              (+ rx 8) (+ y 2) 16)
             (when selected
-              (lispm-desktop-platinum-svg-fill svg (+ rx 26) (+ y 2) (+ label-w 4) 15 (plist-get palette :outline)))
-            (lispm-desktop-platinum-svg-content svg label (+ rx 28) y (1- lispm-desktop-choose-row-height)
-                                                (if selected (funcall grey #xFF) text)
-                                                'lispm-desktop-platinum-list)
-            (lispm-desktop-platinum-svg-content svg (lispm-desktop-choose--date time) (+ rx name-w 6) y
-                                                (1- lispm-desktop-choose-row-height) text
-                                                'lispm-desktop-platinum-list)))))
-    (lispm-desktop-platinum-svg-embed
+              (lispm-ui-svg-fill svg (+ rx 26) (+ y 2) (+ label-w 4) 15 (plist-get palette :outline)))
+            (lispm-ui-svg-content svg label (+ rx 28) y (1- lispm-desktop-choose-row-height)
+                                  (if selected (funcall grey #xFF) text)
+                                  'lispm-ui-list)
+            (lispm-ui-svg-content svg (lispm-desktop-choose--date time) (+ rx name-w 6) y
+                                  (1- lispm-desktop-choose-row-height) text
+                                  'lispm-ui-list)))))
+    (lispm-ui-svg-embed
      svg (lispm-desktop-platinum-draw-scroll-bar palette sh (lispm-desktop-choose--thumb dialog sh) t)
      sx sy sw sh)))
 
@@ -514,17 +514,17 @@ and right; the controls as Navigation Services drew them."
          (w (plist-get layout :width))
          (h (plist-get layout :height))
          (svg (svg-create w h))
-         (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+         (grey (lambda (level) (lispm-ui-grey palette level)))
          (pressed (lispm-desktop-choose--dialog-pressed dialog))
          (labels (lispm-desktop-choose--button-labels dialog))
          (body (1+ lispm-desktop-platinum-title-bar-height)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 w h (plist-get palette :outline))
-    (lispm-desktop-platinum-svg-fill svg 1 1 (- w 2) (- h 2) (funcall grey #xDD))
+    (lispm-ui-svg-fill svg 0 0 w h (plist-get palette :outline))
+    (lispm-ui-svg-fill svg 1 1 (- w 2) (- h 2) (funcall grey #xDD))
     (lispm-desktop-choose--draw-title svg (- w 2) (lispm-desktop-choose--dialog-title dialog) palette)
-    (lispm-desktop-platinum-svg-row svg 2 (- w 4) (1+ body) (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-column svg 2 (1+ body) (- h 4) (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-row svg 3 (- w 3) (- h 3) (funcall grey #x99))
-    (lispm-desktop-platinum-svg-column svg (- w 3) (+ body 2) (- h 3) (funcall grey #x99))
+    (lispm-ui-svg-row svg 2 (- w 4) (1+ body) (funcall grey #xFF))
+    (lispm-ui-svg-column svg 2 (1+ body) (- h 4) (funcall grey #xFF))
+    (lispm-ui-svg-row svg 3 (- w 3) (- h 3) (funcall grey #x99))
+    (lispm-ui-svg-column svg (- w 3) (+ body 2) (- h 3) (funcall grey #x99))
     (lispm-desktop-choose--draw-location svg dialog (plist-get layout :location) palette)
     (lispm-desktop-choose--draw-place-button svg (plist-get layout :shortcuts) palette
                                              (and (eq pressed 'shortcuts) 'pressed) 'shortcuts)
@@ -535,10 +535,10 @@ and right; the controls as Navigation Services drew them."
     (lispm-desktop-choose--draw-list svg dialog layout palette)
     ;; The preview pane, sunk into the body.
     (pcase-let ((`(,x ,y ,pw ,ph) (plist-get layout :preview)))
-      (lispm-desktop-platinum-svg-row svg x (+ x pw -2) y (funcall grey #x88))
-      (lispm-desktop-platinum-svg-column svg x y (+ y ph -2) (funcall grey #x88))
-      (lispm-desktop-platinum-svg-row svg (1+ x) (+ x pw -1) (+ y ph -1) (funcall grey #xFF))
-      (lispm-desktop-platinum-svg-column svg (+ x pw -1) (1+ y) (+ y ph -1) (funcall grey #xFF))
+      (lispm-ui-svg-row svg x (+ x pw -2) y (funcall grey #x88))
+      (lispm-ui-svg-column svg x y (+ y ph -2) (funcall grey #x88))
+      (lispm-ui-svg-row svg (1+ x) (+ x pw -1) (+ y ph -1) (funcall grey #xFF))
+      (lispm-ui-svg-column svg (+ x pw -1) (1+ y) (+ y ph -1) (funcall grey #xFF))
       (lispm-desktop-choose--draw-picture svg dialog (list (+ x 8) (+ y 8) (- pw 16) (- ph 16)) palette))
     (pcase-dolist (`(,part ,label ,default) `((:cancel ,(car labels) nil) (:choose ,(cdr labels) t)))
       (pcase-let ((`(,x ,y ,bw ,_) (plist-get layout part)))
@@ -552,7 +552,7 @@ and right; the controls as Navigation Services drew them."
 (defun lispm-desktop-choose--show (frame dialog)
   "Show DIALOG in its popup FRAME, drawn anew."
   (lispm-desktop-popup-fill
-   frame (propertize " " 'display (svg-image (lispm-desktop-choose-draw dialog lispm-desktop-platinum-current-palette)
+   frame (propertize " " 'display (svg-image (lispm-desktop-choose-draw dialog lispm-ui-current-palette)
                                              :ascent 100 :scale 1)))
   (redisplay t))
 

@@ -63,7 +63,7 @@
   "Return non-nil when menus and alerts can pop up: in an interactive Emacs
 on a graphical display, or on a text terminal whose Emacs shows child
 frames there, drawn in text, see `lispm-desktop-popup-text-p'."
-  (and (not noninteractive) lispm-desktop-platinum-current-palette
+  (and (not noninteractive) lispm-ui-current-palette
        (or (display-graphic-p) (lispm-desktop-popup-text-p))))
 
 (defun lispm-desktop-popup-graphic-p ()
@@ -95,8 +95,8 @@ It takes no focus, and hooks run for new frames do not see it."
                      (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
                      (line-spacing . 0) (cursor-type . nil) (no-special-glyphs . t)
                      (desktop-dont-save . t) (visibility . nil)
-                     (background-color . ,(lispm-desktop-platinum-color :chrome))
-                     (foreground-color . ,(lispm-desktop-platinum-color :text))
+                     (background-color . ,(lispm-ui-color :chrome))
+                     (foreground-color . ,(lispm-ui-color :text))
                      (width . 20) (height . 2))))))
     (with-current-buffer buffer
       (setq-local mode-line-format nil
@@ -132,8 +132,8 @@ bottom, or `alert', whose shadow is black.  The shadow is shown before
 FRAME, so FRAME stands over it."
   (let* ((parent (frame-parent frame))
          (color (if (eq kind 'alert)
-                    (lispm-desktop-platinum-color :outline)
-                  (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #x22)))
+                    (lispm-ui-color :outline)
+                  (lispm-ui-grey lispm-ui-current-palette #x22)))
          (shadow (let ((after-make-frame-functions nil)
                        (before-make-frame-hook nil))
                    (make-frame
@@ -243,9 +243,9 @@ display draws at FRAME's edge."
 (defun lispm-desktop-popup-apply-faces (&rest _)
   "Fit the menu item faces to the active theme: disabled items are dimmed
 in the theme's dim colour, Platinum's grey for them."
-  (when lispm-desktop-platinum-current-palette
+  (when lispm-ui-current-palette
     (set-face-attribute 'lispm-desktop-popup-item-disabled nil
-                        :foreground (lispm-desktop-platinum-color :dim))))
+                        :foreground (lispm-ui-color :dim))))
 
 (defconst lispm-desktop-popup-item-height 16
   "Height in pixels of a menu item, Mac OS 9's in the system font.")
@@ -307,7 +307,7 @@ icons take: an icon and a gap when one of them has one, else none."
 
 (defun lispm-desktop-popup--face (enabled)
   "Return the face of a menu item's label, ENABLED or not."
-  (cond (lispm-desktop-popup-small 'lispm-desktop-platinum-small)
+  (cond (lispm-desktop-popup-small 'lispm-ui-small)
         (enabled 'lispm-desktop-popup-item)
         (t 'lispm-desktop-popup-item-disabled)))
 
@@ -364,7 +364,7 @@ submenu shows the triangle pointing to it."
 
 (defun lispm-desktop-popup--label-width (label)
   "Return the width in pixels of LABEL in a menu item's face."
-  (lispm-desktop-platinum-content-width label (lispm-desktop-popup--face t)))
+  (lispm-ui-text-width label (lispm-desktop-popup--face t)))
 
 (defun lispm-desktop-popup--menu-width (items)
   "Return the pixel width a menu of ITEMS needs, its edges included."
@@ -404,21 +404,21 @@ variation colour, light on dark, its edges lit and shaded in it too."
   (pcase-let* ((`(,tops . ,height) (lispm-desktop-popup--rows items))
                (svg (svg-create width height))
                (icons (lispm-desktop-popup--icon-room items))
-               (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+               (grey (lambda (level) (lispm-ui-grey palette level)))
                (right (1- width))
                (bottom (1- height)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height (funcall grey #xDD))
-    (lispm-desktop-platinum-svg-row svg 0 (1- right) 0 (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-column svg 0 0 (1- bottom) (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-column svg right 0 bottom (funcall grey #x99))
-    (lispm-desktop-platinum-svg-row svg 0 right bottom (funcall grey #x99))
+    (lispm-ui-svg-fill svg 0 0 width height (funcall grey #xDD))
+    (lispm-ui-svg-row svg 0 (1- right) 0 (funcall grey #xFF))
+    (lispm-ui-svg-column svg 0 0 (1- bottom) (funcall grey #xFF))
+    (lispm-ui-svg-column svg right 0 bottom (funcall grey #x99))
+    (lispm-ui-svg-row svg 0 right bottom (funcall grey #x99))
     (seq-do-indexed
      (lambda (item index)
        (let ((top (nth index tops)))
          (if (lispm-desktop-popup--separator-p item)
              (progn
-               (lispm-desktop-platinum-svg-row svg 0 right (+ top 2) (funcall grey #x88))
-               (lispm-desktop-platinum-svg-row svg 0 right (+ top 3) (funcall grey #xFF)))
+               (lispm-ui-svg-row svg 0 right (+ top 2) (funcall grey #x88))
+               (lispm-ui-svg-row svg 0 right (+ top 3) (funcall grey #xFF)))
            (let* ((h (lispm-desktop-popup--item-height))
                   (lit (eql index highlight))
                   (ink (cond (lit (plist-get palette :highlight-text))
@@ -429,20 +429,20 @@ variation colour, light on dark, its edges lit and shaded in it too."
                   (face (lispm-desktop-popup--face (or lit (lispm-desktop-popup--enabled-p item))))
                   (key (and (not (plist-get item :submenu)) (lispm-desktop-popup--key item))))
              (when lit
-               (lispm-desktop-platinum-svg-fill svg 0 top width h (plist-get palette :highlight))
-               (lispm-desktop-platinum-svg-column svg 0 top (+ top h -1) (plist-get palette :thumb-dark))
-               (lispm-desktop-platinum-svg-column svg right top (+ top h -1) (plist-get palette :highlight-dark))
+               (lispm-ui-svg-fill svg 0 top width h (plist-get palette :highlight))
+               (lispm-ui-svg-column svg 0 top (+ top h -1) (plist-get palette :thumb-dark))
+               (lispm-ui-svg-column svg right top (+ top h -1) (plist-get palette :highlight-dark))
                (when (= top 0)
-                 (lispm-desktop-platinum-svg-row svg 0 (1- right) 0 (plist-get palette :thumb-dark)))
+                 (lispm-ui-svg-row svg 0 (1- right) 0 (plist-get palette :thumb-dark)))
                (when (= (+ top h) height)
-                 (lispm-desktop-platinum-svg-row svg 0 right bottom (plist-get palette :highlight-dark))))
+                 (lispm-ui-svg-row svg 0 right bottom (plist-get palette :highlight-dark))))
              (when (plist-get item :checked)
-               (lispm-desktop-platinum-svg-content svg "✓" (if lispm-desktop-popup-small 3 4) top h ink face))
+               (lispm-ui-svg-content svg "✓" (if lispm-desktop-popup-small 3 4) top h ink face))
              (when-let* ((icon (plist-get item :icon))
                          (size (min lispm-desktop-popup-icon-size h)))
-               (lispm-desktop-platinum-svg-emacs-image svg icon (lispm-desktop-popup--label-x)
+               (lispm-ui-svg-emacs-image svg icon (lispm-desktop-popup--label-x)
                                                    (+ top (/ (- h size) 2)) size size))
-             (lispm-desktop-platinum-svg-content svg (plist-get item :label)
+             (lispm-ui-svg-content svg (plist-get item :label)
                                                    (+ (lispm-desktop-popup--label-x) icons)
                                                    top h ink face)
              (cond ((plist-get item :submenu)
@@ -451,7 +451,7 @@ variation colour, light on dark, its edges lit and shaded in it too."
                      '("#" "##" "###" "####" "#####" "######" "#####" "####" "###" "##" "#")
                      `((?# . ,ink))))
                    (key
-                    (lispm-desktop-platinum-svg-content
+                    (lispm-ui-svg-content
                      svg key (- width (lispm-desktop-popup--key-margin) (lispm-desktop-popup--label-width key))
                      top h ink face)))))))
      items)
@@ -459,7 +459,7 @@ variation colour, light on dark, its edges lit and shaded in it too."
 
 (defun lispm-desktop-popup--menu-image (items width highlight)
   "Return the image of a menu of ITEMS, see `lispm-desktop-popup-draw-menu'."
-  (svg-image (lispm-desktop-popup-draw-menu lispm-desktop-platinum-current-palette items width highlight)
+  (svg-image (lispm-desktop-popup-draw-menu lispm-ui-current-palette items width highlight)
              :ascent 100 :scale 1))
 
 (defun lispm-desktop-popup--text-menu (items width highlight)
@@ -1006,8 +1006,8 @@ command of the place clicked."
   "Return TEXT broken into lines no wider than WIDTH pixels in FACE.
 Lines break between words, or between the characters of Chinese and
 Japanese; a word wider than WIDTH stands alone."
-  (lispm-desktop-i18n-wrap
-   text (lambda (line) (<= (lispm-desktop-platinum-content-width line face) width))))
+  (lispm-ui-text-wrap
+   text (lambda (line) (<= (lispm-ui-text-width line face) width))))
 
 (cl-defgeneric lispm-desktop-popup--alert-layout (message detail buttons)
   "Return where an alert of MESSAGE, DETAIL and BUTTONS draws its parts.
@@ -1035,8 +1035,8 @@ stay clear of the others."
 `lispm-desktop-popup--alert-layout' does, with :overlap, the pixels its
 buttons standing apart come too close to the others, if any."
   (let* ((text-width (- w lispm-desktop-popup-alert-text-x 20))
-         (lines (lispm-desktop-popup--wrap message text-width 'lispm-desktop-platinum-title))
-         (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-desktop-platinum-list)))
+         (lines (lispm-desktop-popup--wrap message text-width 'lispm-ui-title))
+         (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-ui-list)))
          (text-bottom (+ 15 (* 16 (length lines)) (if details (+ 6 (* 16 (length details))) 0)))
          (top (+ (max text-bottom 47) 29))
          (cancel (seq-position buttons 'cancel (lambda (button role) (eq (nth 2 button) role))))
@@ -1083,13 +1083,13 @@ in the list's, in DETAIL-COLOR, by default PALETTE's text colour, and the
 buttons.  PRESSED and FOCUSED are values of buttons, held down or
 holding the keyboard."
   (dolist (line (plist-get layout :message))
-    (lispm-desktop-platinum-svg-content svg line x y 16 (plist-get palette :text) 'lispm-desktop-platinum-title)
+    (lispm-ui-svg-content svg line x y 16 (plist-get palette :text) 'lispm-ui-title)
     (setq y (+ y 16)))
   (when (plist-get layout :detail)
     (setq y (+ y 6))
     (dolist (line (plist-get layout :detail))
-      (lispm-desktop-platinum-svg-content svg line x y 16 (or detail-color (plist-get palette :text))
-                                          'lispm-desktop-platinum-list)
+      (lispm-ui-svg-content svg line x y 16 (or detail-color (plist-get palette :text))
+                            'lispm-ui-list)
       (setq y (+ y 16))))
   (pcase-dolist (`(,label ,value ,role ,x ,top ,width) (plist-get layout :buttons))
     (lispm-desktop-platinum-svg-push-button svg x top palette label width
@@ -1109,14 +1109,14 @@ keyboard is on."
          (w (or (plist-get layout :width) lispm-desktop-popup-alert-width))
          (h (plist-get layout :height))
          (svg (svg-create w h))
-         (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+         (grey (lambda (level) (lispm-ui-grey palette level)))
          (y 15))
-    (lispm-desktop-platinum-svg-fill svg 0 0 w h (plist-get palette :alert-dark))
-    (lispm-desktop-platinum-svg-fill svg 0 0 (1- w) (1- h) (plist-get palette :alert))
-    (lispm-desktop-platinum-svg-fill svg 1 1 (- w 2) (- h 2) (funcall grey #x99))
-    (lispm-desktop-platinum-svg-fill svg 1 1 (- w 3) (- h 3) (funcall grey #xFF))
-    (lispm-desktop-platinum-svg-fill svg 2 2 (- w 4) (- h 4) (funcall grey #xDD))
-    (lispm-desktop-platinum-svg-icon svg (expand-file-name (format "icons/os9/%s.svg" icon)
+    (lispm-ui-svg-fill svg 0 0 w h (plist-get palette :alert-dark))
+    (lispm-ui-svg-fill svg 0 0 (1- w) (1- h) (plist-get palette :alert))
+    (lispm-ui-svg-fill svg 1 1 (- w 2) (- h 2) (funcall grey #x99))
+    (lispm-ui-svg-fill svg 1 1 (- w 3) (- h 3) (funcall grey #xFF))
+    (lispm-ui-svg-fill svg 2 2 (- w 4) (- h 4) (funcall grey #xDD))
+    (lispm-ui-svg-icon svg (expand-file-name (format "icons/os9/%s.svg" icon)
                                                               lispm-desktop-directory)
                                         25 15 32)
     (lispm-desktop-popup-svg-alert-contents svg layout lispm-desktop-popup-alert-text-x y palette
@@ -1152,8 +1152,8 @@ buttons would not fit."
          (needed (+ x (apply #'+ (mapcar (lambda (w) (+ w 2)) widths)) 2))
          (w (max lispm-desktop-popup-text-alert-width needed))
          (text-width (- w x 2))
-         (lines (lispm-desktop-popup--wrap message text-width 'lispm-desktop-platinum-title))
-         (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-desktop-platinum-list)))
+         (lines (lispm-desktop-popup--wrap message text-width 'lispm-ui-title))
+         (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-ui-list)))
          ;; Under the message and the detail, and under the icon.
          (top (+ 1 (max (+ (length lines) (if details (1+ (length details)) 0))
                         (cdr (lispm-desktop-platinum-text-size lispm-desktop-popup--text-alert-icon-size)))
@@ -1198,14 +1198,14 @@ takes them."
                                                                (car size) (cdr size)))
                              (lispm-desktop-platinum-icon-picture
                               (symbol-name icon) lispm-desktop-popup--text-alert-icon-size nil
-                              (lispm-desktop-platinum-color :chrome)))))
+                              (lispm-ui-color :chrome)))))
           (seq-do-indexed (lambda (line index) (put (1+ index) 3 line)) picture)
         (put 1 3 (propertize (concat " " (pcase icon ('stop "×") ('note "i") (_ "!")) " ")
-                             'face `(:foreground ,(lispm-desktop-platinum-color :highlight-text)
-                                     :background ,(lispm-desktop-platinum-color :alert-dark)
+                             'face `(:foreground ,(lispm-ui-color :highlight-text)
+                                     :background ,(lispm-ui-color :alert-dark)
                                      :weight bold))))
       (dolist (line (plist-get layout :message))
-        (put row x (propertize line 'face 'lispm-desktop-platinum-title))
+        (put row x (propertize line 'face 'lispm-ui-title))
         (setq row (1+ row)))
       (when (plist-get layout :detail)
         (setq row (1+ row))
@@ -1243,7 +1243,7 @@ On a text terminal the alert is text, see `lispm-desktop-popup--text-alert'."
    frame (if (lispm-desktop-tty-p frame)
              (lispm-desktop-popup--text-alert icon message detail buttons pressed focused)
            (propertize " " 'display
-                       (svg-image (lispm-desktop-popup-draw-alert lispm-desktop-platinum-current-palette icon message
+                       (svg-image (lispm-desktop-popup-draw-alert lispm-ui-current-palette icon message
                                                                   detail buttons pressed focused)
                                   :ascent 100 :scale 1))))
   ;; The icon as an image where the terminal shows it.

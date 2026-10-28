@@ -46,7 +46,7 @@
 
 (defcustom lispm-desktop-platinum-colors nil
   "Chrome colours a theme names outright, a plist.
-Keys are those of `lispm-desktop-platinum-derive-palette' (:chrome, :header,
+Keys are those of `lispm-ui-derive-palette' (:chrome, :header,
 :light, :shade, :frame, :muted, :accent, :outline, :highlight, :thumb,
 :focus, :strip, :title, :border, :menu, ...); a colour left out is
 derived from the theme's faces.  Themes set it, as the platinum theme
@@ -55,7 +55,7 @@ does; users rarely need to."
 
 ;;;; Palette
 
-(defun lispm-desktop-platinum-rgb (color)
+(defun lispm-ui-rgb (color)
   "Return COLOR as a list of red, green and blue between 0 and 1, or nil.
 A colour written #RRGGBB is read as written, whatever the display can
 show; any other name is resolved by the display."
@@ -67,24 +67,24 @@ show; any other name is resolved by the display."
               '(1 2 3))
     (and color (color-name-to-rgb color))))
 
-(defun lispm-desktop-platinum-blend (from to ratio)
+(defun lispm-ui-blend (from to ratio)
   "Return the colour RATIO of the way from colour FROM to colour TO.
 Each component is rounded to the nearest of its 256 values, so a blend
 falling on one of them comes back exactly.  Return nil when either
 colour cannot be resolved, as on a text terminal."
-  (when-let* ((a (lispm-desktop-platinum-rgb from))
-              (b (lispm-desktop-platinum-rgb to)))
+  (when-let* ((a (lispm-ui-rgb from))
+              (b (lispm-ui-rgb to)))
     (apply #'format "#%02x%02x%02x"
            (cl-mapcar (lambda (x y) (round (* 255 (+ x (* ratio (- y x)))))) a b))))
 
-(defvar lispm-desktop-platinum-current-palette nil
+(defvar lispm-ui-current-palette nil
   "The chrome's colours, a plist derived from the theme.
-See `lispm-desktop-platinum-derive-palette'.")
+See `lispm-ui-derive-palette'.")
 
-(defvar lispm-desktop-platinum-generation 0
+(defvar lispm-ui-palette-generation 0
   "Count of palettes derived so far; memoized drawings carry it in their key.")
 
-(defun lispm-desktop-platinum-derive-palette (content text dim accent)
+(defun lispm-ui-derive-palette (content text dim accent)
   "Return the chrome's palette for a theme drawing CONTENT, TEXT, DIM and ACCENT.
 CONTENT and TEXT are the editor's background and foreground, DIM its
 dimmed text, ACCENT its highlight colour.  The chrome is the content a
@@ -103,45 +103,45 @@ Other looks than Platinum draw a few more parts: active captions
 :title-inactive-text) in the chrome, sizing borders (:border,
 :border-inactive) in the chrome, menus (:menu, :menu-text) on the
 document's ground."
-  (let* ((chrome (lispm-desktop-platinum-blend content "#000000" 0.25))
-         (light (lispm-desktop-platinum-blend chrome text 0.3))
-         (outline (lispm-desktop-platinum-blend content "#000000" 0.85))
-         (highlight (lispm-desktop-platinum-blend accent "#000000" 0.4))
+  (let* ((chrome (lispm-ui-blend content "#000000" 0.25))
+         (light (lispm-ui-blend chrome text 0.3))
+         (outline (lispm-ui-blend content "#000000" 0.85))
+         (highlight (lispm-ui-blend accent "#000000" 0.4))
          (palette (list :content content :text text :dim dim :accent accent
                         :chrome chrome :light light :outline outline)))
     (append
      palette
-     (list :desktop (lispm-desktop-platinum-blend content accent 0.25)
-           :header (lispm-desktop-platinum-blend chrome content 0.5)
-           :shade (lispm-desktop-platinum-blend chrome "#000000" 0.6)
-           :frame (lispm-desktop-platinum-blend content "#000000" 0.65)
-           :muted (lispm-desktop-platinum-blend dim text 0.35)
+     (list :desktop (lispm-ui-blend content accent 0.25)
+           :header (lispm-ui-blend chrome content 0.5)
+           :shade (lispm-ui-blend chrome "#000000" 0.6)
+           :frame (lispm-ui-blend content "#000000" 0.65)
+           :muted (lispm-ui-blend dim text 0.35)
            :highlight highlight
-           :highlight-dark (lispm-desktop-platinum-blend highlight "#000000" 0.45)
-           :highlight-text (lispm-desktop-platinum-legible highlight text content)
-           :thumb (lispm-desktop-platinum-blend accent "#FFFFFF" 0.35)
-           :thumb-light (lispm-desktop-platinum-blend accent "#FFFFFF" 0.65)
+           :highlight-dark (lispm-ui-blend highlight "#000000" 0.45)
+           :highlight-text (lispm-ui-legible highlight text content)
+           :thumb (lispm-ui-blend accent "#FFFFFF" 0.35)
+           :thumb-light (lispm-ui-blend accent "#FFFFFF" 0.65)
            :thumb-dark accent
            :focus accent
-           :alert (lispm-desktop-platinum-blend light "#FF0000" 0.4)
-           :alert-dark (lispm-desktop-platinum-blend light "#FF0000" 0.6)
-           :strip (lispm-desktop-platinum-grey palette #xC0)
-           :strip-light (lispm-desktop-platinum-grey palette #xFF)
-           :strip-shade (lispm-desktop-platinum-grey palette #xA0)
-           :strip-dark (lispm-desktop-platinum-grey palette #x80)
+           :alert (lispm-ui-blend light "#FF0000" 0.4)
+           :alert-dark (lispm-ui-blend light "#FF0000" 0.6)
+           :strip (lispm-ui-grey palette #xC0)
+           :strip-light (lispm-ui-grey palette #xFF)
+           :strip-shade (lispm-ui-grey palette #xA0)
+           :strip-dark (lispm-ui-grey palette #x80)
            ;; What other looks draw: captions in the highlight, an
            ;; inactive one in the chrome; sizing borders in the chrome;
            ;; menus on the document's own ground.
            :title highlight
-           :title-text (lispm-desktop-platinum-legible highlight text content)
+           :title-text (lispm-ui-legible highlight text content)
            :title-inactive chrome
-           :title-inactive-text (lispm-desktop-platinum-blend dim text 0.35)
+           :title-inactive-text (lispm-ui-blend dim text 0.35)
            :border chrome
            :border-inactive chrome
            :menu content
            :menu-text text))))
 
-(defun lispm-desktop-platinum-grey (palette level)
+(defun lispm-ui-grey (palette level)
   "Return the colour of PALETTE standing where Platinum's grey LEVEL stands.
 LEVEL is one of Mac OS 9's greys as a byte, #xDD its chrome, #xFF its
 lit edges and #x00 its outlines: the greys between the chrome and white
@@ -151,37 +151,37 @@ level comes back as itself, so a control is drawn with the greys Mac OS 9
 drew it with, and a theme of other colours gets their counterparts."
   (let ((chrome #xDD))
     (if (>= level chrome)
-        (lispm-desktop-platinum-blend (plist-get palette :chrome) (plist-get palette :light)
-                                      (/ (- level chrome) (float (- #xFF chrome))))
-      (lispm-desktop-platinum-blend (plist-get palette :chrome) (plist-get palette :outline)
-                                    (/ (- chrome level) (float chrome))))))
+        (lispm-ui-blend (plist-get palette :chrome) (plist-get palette :light)
+                        (/ (- level chrome) (float (- #xFF chrome))))
+      (lispm-ui-blend (plist-get palette :chrome) (plist-get palette :outline)
+                      (/ (- chrome level) (float chrome))))))
 
-(defun lispm-desktop-platinum--luminance (color)
+(defun lispm-ui-luminance (color)
   "Return the relative luminance of COLOR, between 0 and 1."
-  (pcase-let ((`(,r ,g ,b) (or (lispm-desktop-platinum-rgb color) '(0 0 0))))
+  (pcase-let ((`(,r ,g ,b) (or (lispm-ui-rgb color) '(0 0 0))))
     (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b))))
 
-(defun lispm-desktop-platinum-legible (background &rest colors)
+(defun lispm-ui-legible (background &rest colors)
   "Return whichever of COLORS stands out most from BACKGROUND."
-  (let ((ground (lispm-desktop-platinum--luminance background)))
-    (car (seq-sort-by (lambda (color) (abs (- (lispm-desktop-platinum--luminance color) ground)))
+  (let ((ground (lispm-ui-luminance background)))
+    (car (seq-sort-by (lambda (color) (abs (- (lispm-ui-luminance color) ground)))
                       #'> colors))))
 
-(defun lispm-desktop-platinum--merge-palette (derived named)
+(defun lispm-ui-merge-palette (derived named)
   "Return the palette DERIVED with the colours NAMED put in their place."
   (let ((palette (copy-sequence derived)))
     (cl-loop for (key value) on named by #'cddr
              do (setq palette (plist-put palette key value)))
     palette))
 
-(defun lispm-desktop-platinum-color (name)
+(defun lispm-ui-color (name)
   "Return the palette colour NAME."
-  (plist-get lispm-desktop-platinum-current-palette name))
+  (plist-get lispm-ui-current-palette name))
 
 ;;;; Faces
 
 
-(defface lispm-desktop-platinum-title '((t :weight bold))
+(defface lispm-ui-title '((t :weight bold))
   "Face of the active window's title."
   :group 'lispm-desktop-platinum)
 
@@ -197,7 +197,7 @@ drew it with, and a theme of other colours gets their counterparts."
   "Face of a highlighted menu bar title, as of an open menu."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-list nil
+(defface lispm-ui-list nil
   "Face of list views: the sidebar's rows."
   :group 'lispm-desktop-platinum)
 
@@ -205,7 +205,7 @@ drew it with, and a theme of other colours gets their counterparts."
   "Face of a list window's header, below its title bar."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-small nil
+(defface lispm-ui-small nil
   "Face of the small system font, as Mac OS 9's Geneva 9: window headers,
 the Control Strip's menus."
   :group 'lispm-desktop-platinum)
@@ -239,19 +239,19 @@ Finder's list view."
   "Face of a label in a toolbar, such as the address field's."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-field '((t :box (:line-width (1 . 1))))
+(defface lispm-ui-field '((t :box (:line-width (1 . 1))))
   "Face of an edit text field: framed in black, in the list colour."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-field-focused '((t :inherit lispm-desktop-platinum-field))
+(defface lispm-ui-field-focused '((t :inherit lispm-ui-field))
   "Face of an edit text field with the keyboard: ringed in the focus colour."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-button '((t :box (:line-width (1 . 1) :style released-button)))
+(defface lispm-ui-button '((t :box (:line-width (1 . 1) :style released-button)))
   "Face of a bevel button."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-button-pressed '((t :box (:line-width (1 . 1) :style pressed-button)))
+(defface lispm-ui-button-pressed '((t :box (:line-width (1 . 1) :style pressed-button)))
   "Face of a bevel button pushed in: a toggle that is on."
   :group 'lispm-desktop-platinum)
 

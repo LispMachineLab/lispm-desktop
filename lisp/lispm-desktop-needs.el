@@ -1086,10 +1086,10 @@ installing now filled as far as it says it is, else striped and moving."
          (done (+ (seq-count #'lispm-desktop-needs--done-p jobs) (or part 0)))
          (running (and (lispm-desktop-needs-running-p) (not part)))
          (frame (if running (mod lispm-desktop-needs--frame 6) 0)))
-    (lispm-desktop-platinum-image
+    (lispm-ui-image
      (list 'lispm-desktop-needs-bar width count done running frame)
      (lambda ()
-       (let* ((palette lispm-desktop-platinum-current-palette)
+       (let* ((palette lispm-ui-current-palette)
               (height 12)
               (svg (svg-create width height))
               (inner (- width 2))
@@ -1097,13 +1097,13 @@ installing now filled as far as it says it is, else striped and moving."
               (step (round (* inner (/ 1.0 count))))
               (fill (or (plist-get palette :highlight) "#6666CC"))
               (light (or (plist-get palette :thumb-light) "#CCCCFF")))
-         (lispm-desktop-platinum-svg-fill svg 0 0 width height (lispm-desktop-platinum-grey palette #x88))
-         (lispm-desktop-platinum-svg-fill svg 1 1 inner (- height 2) (lispm-desktop-platinum-grey palette #xEE))
-         (lispm-desktop-platinum-svg-fill svg 1 1 filled (- height 2) fill)
+         (lispm-ui-svg-fill svg 0 0 width height (lispm-ui-grey palette #x88))
+         (lispm-ui-svg-fill svg 1 1 inner (- height 2) (lispm-ui-grey palette #xEE))
+         (lispm-ui-svg-fill svg 1 1 filled (- height 2) fill)
          (when running
            (let ((from (+ 1 filled))
                  (to (min (+ 1 inner) (+ 1 filled step))))
-             (lispm-desktop-platinum-svg-fill svg from 1 (- to from) (- height 2) light)
+             (lispm-ui-svg-fill svg from 1 (- to from) (- height 2) light)
              (cl-loop for x from (+ (- from 12) (* 2 frame)) below to by 12
                       do (svg-polygon svg (list (cons (max from x) 1) (cons (max from (min to (+ x 6))) 1)
                                                 (cons (max from (min to (+ x 6 (- height 2)))) (1- height))

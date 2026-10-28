@@ -150,7 +150,7 @@ Finder list; its sessions are rows one level in, newest first."
             (lispm-desktop-sidebar-insert-entry
              (lispm-agents-icon (plist-get session :agent))
              (if archived
-                 (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-desktop-platinum-list)))
+                 (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-ui-list)))
                (plist-get session :title))
              (if (member id running-ids)
                  (lispm-desktop-agent-list--running-label (lispm-agents-session-buffer id))
@@ -175,7 +175,7 @@ Finder list; its sessions are rows one level in, newest first."
                            (lispm-desktop-tr "Fewer")
                          (let ((more (- (length sessions) (length shown))))
                            (lispm-desktop-tr-n "%d more…" "%d more…" more)))
-                       'face '(:inherit (shadow lispm-desktop-platinum-list)))
+                       'face '(:inherit (shadow lispm-ui-list)))
            nil
            (apply-partially #'lispm-desktop-agent-list--toggle-expanded (plist-get group :key))
            (lispm-desktop-tr "Toggle the full session list of this project")

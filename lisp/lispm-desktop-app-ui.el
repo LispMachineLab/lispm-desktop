@@ -736,7 +736,7 @@ declares, or those of its keymap's commands."
 (define-derived-mode lispm-desktop-app-ui-keys-mode lispm-desktop-app-window-mode "Keys"
   "Major mode of an application's keys window: each key and what it does,
 the whole list in sight, without a bottom saying where in it point is."
-  (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+  (face-remap-add-relative 'default 'lispm-ui-list)
   (setq-local line-spacing 4
               mode-line-format nil))
 
@@ -745,7 +745,7 @@ the whole list in sight, without a bottom saying where in it point is."
 caps and what they do, the caps right-aligned in a column of their own."
   (let* ((caps (mapcar (lambda (entry)
                          (mapconcat (lambda (key) (lispm-desktop-platinum-bevel-button
-                                                   key nil 18 'lispm-desktop-platinum-small))
+                                                   key nil 18 'lispm-ui-small))
                                     (split-string (car entry) "  ") " "))
                        keys))
          (column (+ 12 (seq-reduce #'max (mapcar #'string-pixel-width caps) 0))))
@@ -881,7 +881,7 @@ broken where it says."
                                       `(space :align-to (- center (0.5 . (,(string-pixel-width string))))))
                           string "\n"))))
     (concat (propertize " " 'display '(space :height (60))) "\n"
-            (mapconcat (lambda (line) (funcall centre (propertize line 'face 'lispm-desktop-platinum-list)))
+            (mapconcat (lambda (line) (funcall centre (propertize line 'face 'lispm-ui-list)))
                        (split-string (lispm-desktop-tr text) "\n") "")
             (propertize " " 'display '(space :height (16))) "\n"
             (funcall centre (mapconcat (pcase-lambda (`(,label ,command))
@@ -1017,7 +1017,7 @@ windows on its first line left there; one printed later prints them."
          (visual-line-mode -1)
          (setq-local truncate-lines t)))
   (when (lispm-desktop-app-ui-get :list)
-    (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+    (face-remap-add-relative 'default 'lispm-ui-list)
     (setq-local line-spacing 4)
     (hl-line-mode 1))
   (lispm-desktop-app-ui--list-header)

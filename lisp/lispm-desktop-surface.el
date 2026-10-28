@@ -344,7 +344,7 @@ text terminal shows names only roughly."
   "Return the desktop's colour, written #RRGGBB as SVG takes it:
 `lispm-desktop-color', or the theme's when that is unset or no colour."
   (or (lispm-desktop--hex-color lispm-desktop-color)
-      (lispm-desktop--hex-color (lispm-desktop-platinum-color :desktop))
+      (lispm-desktop--hex-color (lispm-ui-color :desktop))
       "#666699"))
 
 (defun lispm-desktop--darken (svg)
@@ -455,9 +455,9 @@ aliases after its own, the Trash last."
 
 (defun lispm-desktop--font ()
   "Return the names' font as (FAMILY SIZE ASCENT), sizes in pixels."
-  (let* ((font (ignore-errors (face-font 'lispm-desktop-platinum-list)))
+  (let* ((font (ignore-errors (face-font 'lispm-ui-list)))
          (info (and font (ignore-errors (font-info font))))
-         (family (face-attribute 'lispm-desktop-platinum-list :family nil t)))
+         (family (face-attribute 'lispm-ui-list :family nil t)))
     (list (if (stringp family) family "Geneva")
           (if info (aref info 2) 12)
           (if info (aref info 8) 10))))
@@ -532,10 +532,10 @@ Bound rather than that setting, whose watcher draws the desktop again.")
   "Return the picture covering the desktop as (FILE . POSITION), or nil:
 `lispm-desktop-picture' as `lispm-desktop-picture-position' places it,
 else the look's own :picture filling the desktop, see
-`lispm-desktop-look-define'."
+`lispm-ui-look-define'."
   (cond ((and lispm-desktop-picture (file-readable-p (expand-file-name lispm-desktop-picture)))
          (cons (expand-file-name lispm-desktop-picture) lispm-desktop-picture-position))
-        ((when-let* ((own (lispm-desktop-look-get :picture))
+        ((when-let* ((own (lispm-ui-look-get :picture))
                      (file (expand-file-name own lispm-desktop-directory))
                      ((file-readable-p file)))
            (cons file 'fill)))))
@@ -716,8 +716,8 @@ darkened and its name inverted when SELECTED.  SPEC's :label is the name
 as shown, in the language LispM speaks.  LABEL-WIDTH, FAMILY, SIZE and
 ASCENT measure and set its name, centred as `lispm-desktop--label-center'
 says; see `lispm-desktop--icon-label'."
-  (let ((text (or (lispm-desktop-platinum-color :text) "#000000"))
-        (content (or (lispm-desktop-platinum-color :content) "#FFFFFF")))
+  (let ((text (or (lispm-ui-color :text) "#000000"))
+        (content (or (lispm-ui-color :content) "#FFFFFF")))
     (concat
      (lispm-desktop--nest (lispm-desktop--item-icon spec) selected
                           (- (+ x (/ lispm-desktop-column 2)) (/ lispm-desktop-icon-size 2)) y)
@@ -768,7 +768,7 @@ default 0, 0."
     (pcase-dolist (`((,key . ,spec) ,x ,y) (lispm-desktop--layout width height))
       (let* ((label (lispm-desktop--item-label spec))
              (label-width (+ 8 (string-pixel-width
-                                (propertize label 'face 'lispm-desktop-platinum-list))))
+                                (propertize label 'face 'lispm-ui-list))))
              (center (+ x (/ lispm-desktop-column 2)))
              ;; A name wider than its column, as in a longer language,
              ;; is kept whole on the desktop.
@@ -803,7 +803,7 @@ the icon alone, and its name as a selected icon shows it, inverted.  Mac
 OS 9's Drag Manager dragged an image of the two, translucent, without
 the desktop between them."
   (pcase-let* ((`(,family ,size ,ascent) (lispm-desktop--font))
-               (label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
+               (label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-ui-list))))
                (label-height (+ size 4))
                (s lispm-desktop-icon-size))
     (cons
@@ -813,10 +813,10 @@ the desktop between them."
       (format "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">"
               label-width label-height label-width label-height)
       (format "<rect width=\"%d\" height=\"%d\" fill=\"%s\"/>" label-width label-height
-              (or (lispm-desktop-platinum-color :text) "#000000"))
+              (or (lispm-ui-color :text) "#000000"))
       (format "<text x=\"%d\" y=\"%d\" font-family=\"%s\" font-size=\"%d\" text-anchor=\"middle\" fill=\"%s\">%s</text>"
               (/ label-width 2) (+ 2 ascent) (lispm-desktop--escape family) size
-              (or (lispm-desktop-platinum-color :content) "#FFFFFF") (lispm-desktop--escape label))
+              (or (lispm-ui-color :content) "#FFFFFF") (lispm-desktop--escape label))
       "</svg>"))))
 
 (defconst lispm-desktop-text-icon-size 16
@@ -1166,7 +1166,7 @@ passes."
 cell's top left at X, Y: ((ICON-X . ICON-Y) (NAME-X . NAME-Y)), in the
 desktop's pixels.  The icon is centred at the top of the cell, its name
 under it, as an icon itself is drawn, see `lispm-desktop--draw-icon'."
-  (let* ((label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-desktop-platinum-list))))
+  (let* ((label-width (+ 8 (string-pixel-width (propertize label 'face 'lispm-ui-list))))
          (center (+ x (/ lispm-desktop-column 2))))
     (list (cons (- center (/ lispm-desktop-icon-size 2)) y)
           (cons (- center (/ label-width 2)) (+ y lispm-desktop-icon-size 4)))))
@@ -1498,13 +1498,13 @@ stay where they are."
 
 (defun lispm-desktop--paint ()
   "Colour the desktop, its background and its names from the palette."
-  (when lispm-desktop-platinum-current-palette
-    (let ((content (lispm-desktop-platinum-color :content))
-          (text (lispm-desktop-platinum-color :text)))
+  (when lispm-ui-current-palette
+    (let ((content (lispm-ui-color :content))
+          (text (lispm-ui-color :text)))
       (set-face-attribute 'lispm-desktop-label nil
-                          :inherit 'lispm-desktop-platinum-list :background content :foreground text)
+                          :inherit 'lispm-ui-list :background content :foreground text)
       (set-face-attribute 'lispm-desktop-label-selected nil
-                          :inherit 'lispm-desktop-platinum-list :background text :foreground content)
+                          :inherit 'lispm-ui-list :background text :foreground content)
       (dolist (name (list lispm-desktop-buffer-name lispm-desktop-empty-buffer-name))
         (when-let* ((buffer (get-buffer name)))
           (lispm-desktop--paint-buffer buffer)))
@@ -1571,7 +1571,7 @@ a workspace whose main area holds nothing else."
   (or (get-buffer lispm-desktop-empty-buffer-name)
       (with-current-buffer (get-buffer-create lispm-desktop-empty-buffer-name)
         (lispm-desktop-empty-mode)
-        (when lispm-desktop-platinum-current-palette
+        (when lispm-ui-current-palette
           (lispm-desktop--paint-buffer (current-buffer)))
         (current-buffer))))
 

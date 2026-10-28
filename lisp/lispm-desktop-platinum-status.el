@@ -159,10 +159,10 @@ a bolt across it; a nearly empty one is filled in red."
   (let* ((svg (svg-create 16 16))
          (ink (plist-get palette :text))
          (level (round (* 10 (/ (max 0 (min 100 percent)) 100.0)))))
-    (lispm-desktop-platinum-svg-fill svg 0 4 14 8 ink)
-    (lispm-desktop-platinum-svg-fill svg 1 5 12 6 (plist-get palette :strip))
-    (lispm-desktop-platinum-svg-fill svg 14 6 2 4 ink)
-    (lispm-desktop-platinum-svg-fill svg 2 6 level 4 (if (< percent 10) "#CE3131" ink))
+    (lispm-ui-svg-fill svg 0 4 14 8 ink)
+    (lispm-ui-svg-fill svg 1 5 12 6 (plist-get palette :strip))
+    (lispm-ui-svg-fill svg 14 6 2 4 ink)
+    (lispm-ui-svg-fill svg 2 6 level 4 (if (< percent 10) "#CE3131" ink))
     (when charging
       (svg-polygon svg '((8 . 3) (4 . 8) (6.5 . 8) (5 . 13) (10 . 7) (7.5 . 7) (9 . 3))
                    :fill (plist-get palette :accent) :stroke (plist-get palette :strip)
@@ -175,7 +175,7 @@ bars rising left to right, filled to FRACTION."
   (let ((svg (svg-create 16 16)))
     (dotimes (i 3)
       (let ((height (* 4 (1+ i))))
-        (lispm-desktop-platinum-svg-fill svg (1+ (* i 5)) (- 14 height) 4 height
+        (lispm-ui-svg-fill svg (1+ (* i 5)) (- 14 height) 4 height
                                       (if (> fraction (/ i 3.0))
                                           (plist-get palette :text)
                                         (plist-get palette :strip-dark)))))

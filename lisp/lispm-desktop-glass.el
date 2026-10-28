@@ -33,7 +33,7 @@
 ;;
 ;; Pure black is clear, the darkest colours are see-through and the rest
 ;; is solid, text on dark glass too.  A look names its GAIN with :glass,
-;; see `lispm-desktop-look-define'; its theme then paints what should be
+;; see `lispm-ui-look-define'; its theme then paints what should be
 ;; see-through in colours dark enough, and cuts corners out in black.
 ;;
 ;; The desktop itself is never glass: it lies under everything, and a
@@ -70,7 +70,7 @@ a look of glass is in use.")
 
 (defun lispm-desktop-glass-gain ()
   "Return the gain of the look's glass, or nil when windows stay opaque."
-  (and lispm-desktop-glass (lispm-desktop-look-get :glass)))
+  (and lispm-desktop-glass (lispm-ui-look-get :glass)))
 
 (defun lispm-desktop-glass--module-p ()
   "Return non-nil when lispm-desktop-term's module can draw glass."

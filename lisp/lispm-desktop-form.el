@@ -66,29 +66,29 @@
 
 (declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 
-(defvar-local lispm-desktop-form--focus nil
+(defvar-local lispm-ui-form--focus nil
   "What of the form in this buffer is drawn focused: (START END PLAIN) for a
 control, the text from START to END showing it focused in place of its
 image PLAIN; (field . OVERLAY) for a text field; or nil.")
 
-(defvar-local lispm-desktop-form--remaps nil
+(defvar-local lispm-ui-form--remaps nil
   "The face remappings dressing the form in this buffer, to undo.")
 
-(defface lispm-desktop-form-text-area '((t :extend t))
+(defface lispm-ui-form-text-area '((t :extend t))
   "Face of a text area of several lines of a form not LispM's: a white panel."
   :group 'lispm-desktop-platinum)
 
-(defconst lispm-desktop-form-well-size 64
+(defconst lispm-ui-form-well-size 64
   "Width and height in pixels of the picture in a form's image well.")
 
 ;;;; Controls
 
-(defun lispm-desktop-form--image (kind state label &optional focused)
+(defun lispm-ui-form--image (kind state label &optional focused)
   "Return the image of a form's control of KIND in STATE reading LABEL, ringed
 when FOCUSED; nil on a text terminal, where the form draws it as text."
   (unless (lispm-desktop-tty-p)
     (if (eq kind 'picture)
-        (lispm-desktop-form--well label)
+        (lispm-ui-form--well label)
       (lispm-desktop-platinum-image-of
        (pcase kind
          ('check (lispm-desktop-platinum-check-box (eq state 'on) nil focused 2))
@@ -96,26 +96,26 @@ when FOCUSED; nil on a text terminal, where the form draws it as text."
          ('button (lispm-desktop-platinum-push-button label :default (eq state 'default) :focused focused))
          ('popup (lispm-desktop-platinum-popup-button label :focused focused)))))))
 
-(defun lispm-desktop-form--well (file)
+(defun lispm-ui-form--well (file)
   "Return an image well holding the picture in FILE, or empty for nil: the
 picture framed in a well sunk into the window, as Mac OS 9 drew one."
-  (lispm-desktop-platinum-image
+  (lispm-ui-image
    (list 'form-well file)
    (lambda ()
-     (let* ((size lispm-desktop-form-well-size)
-            (palette lispm-desktop-platinum-current-palette)
-            (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+     (let* ((size lispm-ui-form-well-size)
+            (palette lispm-ui-current-palette)
+            (grey (lambda (level) (lispm-ui-grey palette level)))
             (svg (svg-create (+ size 4) (+ size 4))))
        ;; Shaded along its top and left, lit along its bottom and right.
-       (lispm-desktop-platinum-svg-fill svg 0 0 (+ size 4) (+ size 4) (funcall grey #xFF))
-       (lispm-desktop-platinum-svg-fill svg 0 0 (+ size 3) (+ size 3) (funcall grey #x88))
-       (lispm-desktop-platinum-svg-fill svg 1 1 (+ size 2) (+ size 2) (plist-get palette :outline))
-       (lispm-desktop-platinum-svg-fill svg 2 2 size size (plist-get palette :content))
+       (lispm-ui-svg-fill svg 0 0 (+ size 4) (+ size 4) (funcall grey #xFF))
+       (lispm-ui-svg-fill svg 0 0 (+ size 3) (+ size 3) (funcall grey #x88))
+       (lispm-ui-svg-fill svg 1 1 (+ size 2) (+ size 2) (plist-get palette :outline))
+       (lispm-ui-svg-fill svg 2 2 size size (plist-get palette :content))
        (when (and file (file-readable-p file))
-         (lispm-desktop-platinum-svg-emacs-image svg (create-image file) 2 2 size size))
+         (lispm-ui-svg-emacs-image svg (create-image file) 2 2 size size))
        svg))))
 
-(defun lispm-desktop-form-group (part &rest args)
+(defun lispm-ui-form-group (part &rest args)
   "Return PART of a form's group box in the desktop's look, a string.
 PART and ARGS are as `lispm-ui-form-group-function' gives them: the top
 edge, titled, and the bottom one are the desktop's group box's; a side
@@ -125,18 +125,18 @@ is its grey line and its lit one, as tall as the line they stand on."
     ('bottom (lispm-desktop-platinum-group-edge (car args) nil t))
     ('side (if (lispm-desktop-tty-p)
                (lispm-desktop-platinum-group-side 1)
-             (let ((palette lispm-desktop-platinum-current-palette))
+             (let ((palette lispm-ui-current-palette))
                (concat (propertize " " 'display '(space :width (1))
-                                   'face `(:background ,(lispm-desktop-platinum-grey palette #x88)))
+                                   'face `(:background ,(lispm-ui-grey palette #x88)))
                        (propertize " " 'display '(space :width (1))
-                                   'face `(:background ,(lispm-desktop-platinum-grey palette #xFF)))))))))
+                                   'face `(:background ,(lispm-ui-grey palette #xFF)))))))))
 
-(defun lispm-desktop-form-glyph (kind state label)
+(defun lispm-ui-form-glyph (kind state label)
   "Return the image of a form's control in the desktop's look, or nil.
 KIND, STATE and LABEL are as `lispm-ui-form-glyph-function' gives them.
 Emacs's widgets centre a check box's or a radio button's image on its
 line themselves, and an image saying so twice is no image."
-  (when-let* ((image (lispm-desktop-form--image kind state label)))
+  (when-let* ((image (lispm-ui-form--image kind state label)))
     (if (memq kind '(check radio))
         (cons 'image (map-delete (copy-sequence (cdr image)) :ascent))
       image)))
@@ -166,18 +166,18 @@ selected.  TYPE, LABEL, FILE and PREDICATE are as
 
 ;;;; Focus
 
-(defvar lispm-desktop-form-control-properties '(:lispm-form-control :lispm-mail-control)
+(defvar lispm-ui-form-control-properties '(:lispm-form-control :lispm-mail-control)
   "The properties of a widget saying what control of a form it is, as
 `lispm-ui-form-glyph-function' gives them: LispM's forms', and those of
 applications drawing forms of their own the same way, as LispM Mail's
 settings.")
 
-(defun lispm-desktop-form--control-at (position)
+(defun lispm-ui-form--control-at (position)
   "The control of the form at POSITION drawn as an image, as (START END
 PLAIN FOCUSED): the text it is drawn over, and its images; or nil."
   (when-let* ((widget (widget-at position))
               (control (seq-some (lambda (property) (widget-get widget property))
-                                 lispm-desktop-form-control-properties))
+                                 lispm-ui-form-control-properties))
               (overlay (widget-get widget :button-overlay))
               ((overlayp overlay))
               (start (overlay-start overlay))
@@ -186,17 +186,17 @@ PLAIN FOCUSED): the text it is drawn over, and its images; or nil."
                  (if (consp control)
                      control
                    (list control (if (widget-value widget) 'on 'off) nil))))
-      (when-let* ((plain (lispm-desktop-form--image kind state label))
-                  (focused (lispm-desktop-form--image kind state label t)))
+      (when-let* ((plain (lispm-ui-form--image kind state label))
+                  (focused (lispm-ui-form--image kind state label t)))
         (list start (overlay-end overlay) plain focused)))))
 
-(defun lispm-desktop-form--show (start end image)
+(defun lispm-ui-form--show (start end image)
   "Show IMAGE over the text from START to END, quietly."
   (with-silent-modifications
     (let ((inhibit-read-only t))
       (put-text-property start end 'display image))))
 
-(defun lispm-desktop-form--field-overlay (position)
+(defun lispm-ui-form--field-overlay (position)
   "The overlay of the form's text field of one line at POSITION, or nil.
 A text area has no frame to ring."
   (when-let* ((field (widget-field-at position))
@@ -204,27 +204,27 @@ A text area has no frame to ring."
     (let ((overlay (widget-get field :field-overlay)))
       (and (overlayp overlay) overlay))))
 
-(defun lispm-desktop-form--follow ()
+(defun lispm-ui-form--follow ()
   "Draw focused what of the form in this buffer point is on, and plain what
 was before: a control ringed, a text field framed in the focus colour.
 Run from the buffer's `post-command-hook', and once the form is drawn."
-  (let* ((control (lispm-desktop-form--control-at (point)))
-         (field (and (not control) (lispm-desktop-form--field-overlay (point))))
+  (let* ((control (lispm-ui-form--control-at (point)))
+         (field (and (not control) (lispm-ui-form--field-overlay (point))))
          (now (cond (control control)
                     (field (cons 'field field)))))
-    (unless (equal now lispm-desktop-form--focus)
-      (pcase lispm-desktop-form--focus
+    (unless (equal now lispm-ui-form--focus)
+      (pcase lispm-ui-form--focus
         (`(field . ,overlay)
          (when (overlay-buffer overlay)
            (overlay-put overlay 'face 'widget-field)))
         (`(,start ,end ,plain ,_)
          (when (<= end (point-max))
-           (lispm-desktop-form--show start end plain))))
+           (lispm-ui-form--show start end plain))))
       (pcase now
         (`(field . ,overlay)
-         (overlay-put overlay 'face 'lispm-desktop-platinum-field-focused))
-        (`(,start ,end ,_ ,focused) (lispm-desktop-form--show start end focused)))
-      (setq lispm-desktop-form--focus now))))
+         (overlay-put overlay 'face 'lispm-ui-field-focused))
+        (`(,start ,end ,_ ,focused) (lispm-ui-form--show start end focused)))
+      (setq lispm-ui-form--focus now))))
 
 ;;;; Dressing
 
@@ -233,29 +233,29 @@ Run from the buffer's `post-command-hook', and once the form is drawn."
 the system face on the platinum ground, the fields white and framed, a
 text area white, framed in grey, the help small.  LispM's forms take them
 before they are drawn, to be measured in them."
-  (mapc #'face-remap-remove-relative lispm-desktop-form--remaps)
+  (mapc #'face-remap-remove-relative lispm-ui-form--remaps)
   (when (derived-mode-p 'lispm-ui-form-mode)
     ;; The window shows the title and the keys.
     (setq-local lispm-ui-form-show-header nil)
     ;; The system face is narrower than Emacs's own: the fields widen.
     (setq-local lispm-ui-form-width 44))
-  (setq lispm-desktop-form--remaps
+  (setq lispm-ui-form--remaps
         (unless (lispm-desktop-tty-p)
-          (let ((content (lispm-desktop-platinum-color :content)))
-            (list (face-remap-add-relative 'default 'lispm-desktop-platinum-list
-                                           `(:background ,(lispm-desktop-platinum-color :chrome)))
-                  (face-remap-add-relative 'widget-field 'lispm-desktop-platinum-field)
+          (let ((content (lispm-ui-color :content)))
+            (list (face-remap-add-relative 'default 'lispm-ui-list
+                                           `(:background ,(lispm-ui-color :chrome)))
+                  (face-remap-add-relative 'widget-field 'lispm-ui-field)
                   (face-remap-add-relative 'lispm-ui-form-area `(:background ,content :foreground
-                                                              ,(lispm-desktop-platinum-color :text)))
+                                                              ,(lispm-ui-color :text)))
                   (face-remap-add-relative 'lispm-ui-form-area-edge
-                                           `(:background ,(lispm-desktop-platinum-grey
-                                                           lispm-desktop-platinum-current-palette #x88)))
-                  (face-remap-add-relative 'lispm-desktop-form-text-area `(:background ,content))
-                  (face-remap-add-relative 'lispm-ui-form-help 'lispm-desktop-platinum-small
-                                           `(:foreground ,(lispm-desktop-platinum-color :muted)))
-                  (face-remap-add-relative 'lispm-ui-form-title 'lispm-desktop-platinum-title))))))
+                                           `(:background ,(lispm-ui-grey
+                                                           lispm-ui-current-palette #x88)))
+                  (face-remap-add-relative 'lispm-ui-form-text-area `(:background ,content))
+                  (face-remap-add-relative 'lispm-ui-form-help 'lispm-ui-small
+                                           `(:foreground ,(lispm-ui-color :muted)))
+                  (face-remap-add-relative 'lispm-ui-form-title 'lispm-ui-title))))))
 
-(defun lispm-desktop-form--text-areas ()
+(defun lispm-ui-form--text-areas ()
   "Draw the text areas of the form in this buffer as white panels, their
 lines after the first lined up with it: a form not LispM's, which draws
 its own."
@@ -263,15 +263,15 @@ its own."
     (when-let* (((eq (car field) 'text))
                 (overlay (widget-get field :field-overlay))
                 ((overlayp overlay)))
-      (overlay-put overlay 'face 'lispm-desktop-form-text-area)
+      (overlay-put overlay 'face 'lispm-ui-form-text-area)
       (overlay-put overlay 'line-prefix "  ")
       ;; Its last newline is in an overlay of its own.
       (when-let* ((end (widget-get field :field-end-overlay))
                   ((overlayp end)))
-        (overlay-put end 'face 'lispm-desktop-form-text-area)
+        (overlay-put end 'face 'lispm-ui-form-text-area)
         (overlay-put end 'line-prefix "  ")))))
 
-(defun lispm-desktop-form-dress ()
+(defun lispm-ui-form-dress ()
   "Dress the form in this buffer, just drawn: what point is on drawn
 focused, as the keyboard moves.  A form not LispM's, drawn with Emacs's
 widgets as an application's settings are, is put in the look and theme
@@ -279,13 +279,13 @@ in use here too, its text areas white panels.  Run from
 `lispm-ui-form-drawn-hook', and from an application's like it."
   (unless (derived-mode-p 'lispm-ui-form-mode)
     (lispm-desktop-form--faces)
-    (lispm-desktop-form--text-areas))
-  (add-hook 'post-command-hook #'lispm-desktop-form--follow nil t)
+    (lispm-ui-form--text-areas))
+  (add-hook 'post-command-hook #'lispm-ui-form--follow nil t)
   ;; What was focused was drawn over.
-  (setq lispm-desktop-form--focus nil)
-  (lispm-desktop-form--follow))
+  (setq lispm-ui-form--focus nil)
+  (lispm-ui-form--follow))
 
-(defun lispm-desktop-form-redraw-all (&rest _)
+(defun lispm-ui-form-redraw-all (&rest _)
   "Draw every form again, in the look, theme and language now in use."
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
@@ -300,14 +300,14 @@ in use here too, its text areas white panels.  Run from
 (defun lispm-desktop-form-setup ()
   "Dress LispM UI's forms in the desktop's look, and have LispM UI ask what
 it asks in the desktop's alerts, menus and dialog, in its language."
-  (setq lispm-ui-form-glyph-function #'lispm-desktop-form-glyph
-        lispm-ui-form-group-function #'lispm-desktop-form-group
+  (setq lispm-ui-form-glyph-function #'lispm-ui-form-glyph
+        lispm-ui-form-group-function #'lispm-ui-form-group
         lispm-ui-form-choose-function #'lispm-desktop-form-choose
         lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--faces)
-  (add-hook 'lispm-ui-form-drawn-hook #'lispm-desktop-form-dress)
-  (add-hook 'enable-theme-functions #'lispm-desktop-form-redraw-all)
-  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-form-redraw-all)
+  (add-hook 'lispm-ui-form-drawn-hook #'lispm-ui-form-dress)
+  (add-hook 'enable-theme-functions #'lispm-ui-form-redraw-all)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-ui-form-redraw-all)
   (setq lispm-ui-alert-function #'lispm-desktop-popup-alert
         lispm-ui-choose-function #'lispm-desktop-platinum-choose
         lispm-ui-choose-file-function #'lispm-desktop-choose-file)

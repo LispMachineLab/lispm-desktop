@@ -331,7 +331,7 @@ the desktop, as an alert stands."
 words between the sequences dimmed."
   (let* ((caps (mapcar (lambda (sequence)
                          (mapconcat (lambda (key)
-                                      (lispm-desktop-platinum-bevel-button key nil 18 'lispm-desktop-platinum-small))
+                                      (lispm-desktop-platinum-bevel-button key nil 18 'lispm-ui-small))
                                     (split-string sequence " " t)
                                     (propertize " " 'display '(space :width (3)))))
                        (split-string keys ", *" t)))
@@ -340,7 +340,7 @@ words between the sequences dimmed."
     ;; The words are what shows no key cap.
     (dotimes (i (length text))
       (unless (get-text-property i 'display text)
-        (put-text-property i (1+ i) 'face '(shadow lispm-desktop-platinum-small) text)))
+        (put-text-property i (1+ i) 'face '(shadow lispm-ui-small) text)))
     text))
 
 (defconst lispm-desktop-guide--margin 20
@@ -392,7 +392,7 @@ FIRST step, Done on the LAST, LIFT pixels lower than right under the keys."
     (insert (propertize (concat (lispm-desktop-guide--icon (plist-get properties :icon))
                                 (propertize " " 'display '(space :width (10)))
                                 (propertize (lispm-desktop-tr (plist-get properties :title))
-                                            'face '(:inherit lispm-desktop-platinum-title :height 1.25)))
+                                            'face '(:inherit lispm-ui-title :height 1.25)))
                         'line-prefix indent)
             "\n")
     (insert (lispm-desktop-guide--gap 8))
@@ -404,7 +404,7 @@ FIRST step, Done on the LAST, LIFT pixels lower than right under the keys."
                   (insert (propertize (concat cap
                                               (propertize " " 'display `(space :align-to (,column)))
                                               (propertize (lispm-desktop-tr (nth 1 entry))
-                                                          'face 'lispm-desktop-platinum-small))
+                                                          'face 'lispm-ui-small))
                                       'line-prefix indent
                                       'wrap-prefix `(space :align-to (,column)))
                           "\n"))

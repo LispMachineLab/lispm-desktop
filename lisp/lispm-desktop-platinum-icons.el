@@ -53,7 +53,7 @@
 (defun lispm-desktop-platinum-icon-file (name)
   "Return the file of icon NAME: a file of icons/os9 without its extension,
 or of the look's own icons, which take their place where the look draws
-one (see `lispm-desktop-look-define'); `lambda' for LispM's rainbow λ,
+one (see `lispm-ui-look-define'); `lambda' for LispM's rainbow λ,
 `emacs' for the icon Emacs ships with, read from this Emacs's own data
 directory, or an absolute file name, as of an application's icon
 installed from the App Store."
@@ -70,7 +70,7 @@ installed from the App Store."
          (or (seq-some (lambda (directory)
                          (let ((file (expand-file-name file (expand-file-name directory icons))))
                            (and (file-readable-p file) file)))
-                       (lispm-desktop-look-get :icons))
+                       (lispm-ui-look-get :icons))
              (expand-file-name file (expand-file-name "os9" icons)))))))
 
 (defcustom lispm-desktop-platinum-text-icons
@@ -110,8 +110,8 @@ most, see `lispm-desktop-platinum-raster-color'."
                            (lambda (a b) (> (length (car a)) (length (car b))))))))
     (propertize (truncate-string-to-width (or (cdr match) "·") 1 nil ?\s)
                 'face (if color
-                          `(:inherit lispm-desktop-platinum-list :foreground ,color)
-                        'lispm-desktop-platinum-list))))
+                          `(:inherit lispm-ui-list :foreground ,color)
+                        'lispm-ui-list))))
 
 (defun lispm-desktop-platinum--icon-source (name size)
   "Return the file to draw icon NAME from at SIZE pixels, 16 or less: its
@@ -161,12 +161,12 @@ elsewhere where images cannot be shown, a blank."
     (cond
      ((lispm-desktop-tty-p) (lispm-desktop-platinum--text-icon name))
      ((and (display-images-p) (file-readable-p file))
-        (propertize " " 'face 'lispm-desktop-platinum-list
+        (propertize " " 'face 'lispm-ui-list
                     'display (or (gethash file lispm-desktop-platinum--icons)
                                  (puthash file (create-image file nil nil :height 16
                                                              :ascent 'center)
                                           lispm-desktop-platinum--icons))))
-     (t (propertize " " 'face 'lispm-desktop-platinum-list 'display '(space :width (16)))))))
+     (t (propertize " " 'face 'lispm-ui-list 'display '(space :width (16)))))))
 
 (defconst lispm-desktop-platinum-lisp-extensions '("el" "lisp" "lsp" "cl" "scm" "ss" "rkt" "clj" "cljs"
                                                    "cljc" "edn" "fnl")
@@ -216,10 +216,10 @@ from changes."
   (with-current-buffer buffer
     (let ((key (list major-mode buffer-file-name default-directory (buffer-name))))
       (if (and (equal (car lispm-desktop-platinum--icon-cache) key)
-               (eq (cadr lispm-desktop-platinum--icon-cache) lispm-desktop-platinum-current-palette))
+               (eq (cadr lispm-desktop-platinum--icon-cache) lispm-ui-current-palette))
           (cddr lispm-desktop-platinum--icon-cache)
         (cddr (setq lispm-desktop-platinum--icon-cache
-                    (cons key (cons lispm-desktop-platinum-current-palette
+                    (cons key (cons lispm-ui-current-palette
                                     (lispm-desktop-platinum--choose-icon buffer)))))))))
 
 (defun lispm-desktop-platinum--choose-icon (buffer)

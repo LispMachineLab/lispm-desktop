@@ -288,7 +288,7 @@ and below it, who the one point is on is."
         (insert (propertize " " 'display `(space :width (,indent)))
                 (lispm-desktop-characters--icon character 32)
                 (propertize " " 'display `(space :width (,indent)))
-                (propertize (lispm-character-title* character) 'face 'lispm-desktop-platinum-title))
+                (propertize (lispm-character-title* character) 'face 'lispm-ui-title))
         (when-let* ((description (lispm-character-description character)))
           (insert (propertize " " 'display `(space :align-to (,(lispm-desktop-px 160))))
                   (propertize description 'face 'shadow)))
@@ -308,7 +308,7 @@ and below it, who the one point is on is."
 (defun lispm-desktop-characters--card-row (insert &optional thin)
   "Insert a row of the card, what INSERT, a function, inserts, between its
 group box's sides; THIN makes it a gap of a few pixels."
-  (let* ((side (lispm-desktop-form-group 'side))
+  (let* ((side (lispm-ui-form-group 'side))
          (margin (lispm-desktop-px 12))
          (face (and thin '(:height 40))))
     (insert (propertize " " 'display `(space :align-to (,margin)) 'face face) side
@@ -348,7 +348,7 @@ what it is told to be, what it thinks with, its conversations, its days."
          (width (- (lispm-desktop-characters--width) (* 2 margin)))
          (heading (lambda (text)
                     (lispm-desktop-characters--card-row
-                     (lambda () (insert (propertize text 'face 'lispm-desktop-platinum-title))))))
+                     (lambda () (insert (propertize text 'face 'lispm-ui-title))))))
          (line (lambda (text &optional object)
                  (lispm-desktop-characters--card-row
                   (lambda ()
@@ -366,7 +366,7 @@ what it is told to be, what it thinks with, its conversations, its days."
     ;; is alone, a line each.
     (if (lispm-desktop-tty-p)
         (dolist (text (delq nil (list (propertize (lispm-character-title* character)
-                                                  'face 'lispm-desktop-platinum-title)
+                                                  'face 'lispm-ui-title)
                                       (lispm-character-description character)
                                       (propertize (lispm-desktop-characters--thinks character)
                                                   'face 'shadow))))
@@ -375,10 +375,10 @@ what it is told to be, what it thinks with, its conversations, its days."
      (lambda ()
        (insert (if (lispm-desktop-tty-p)
                    ""
-                 (propertize " " 'display (lispm-desktop-form--well (lispm-character-avatar character))))
+                 (propertize " " 'display (lispm-ui-form--well (lispm-character-avatar character))))
                (propertize " " 'display `(space :width (,(lispm-desktop-px 12)))))
        (let ((lines (delq nil (list (propertize (lispm-character-title* character)
-                                                'face '(lispm-desktop-platinum-title (:height 1.3)))
+                                                'face '(lispm-ui-title (:height 1.3)))
                                     (lispm-character-description character)
                                     (propertize (lispm-desktop-characters--thinks character)
                                                 'face 'shadow)))))
@@ -430,23 +430,23 @@ when, and who asked what."
 
 (defun lispm-desktop-characters--lines-svg (lines width)
   "SVG text of LINES, strings, one under another, in their faces' fonts."
-  (let* ((palette lispm-desktop-platinum-current-palette)
+  (let* ((palette lispm-ui-current-palette)
          (height (* (length lines) 20))
          (svg (svg-create (max 1 (- width 120)) height)))
     (cl-loop for text in lines
              for y from 15 by 20
              do (let* ((face (get-text-property 0 'face text))
-                       (font (lispm-desktop-platinum-svg-font
-                              (if (eq face 'shadow) 'lispm-desktop-platinum-list 'lispm-desktop-platinum-title))))
-                  (lispm-desktop-platinum--label svg (substring-no-properties text) 0 y
-                                                 (if (eq face 'shadow)
-                                                     (lispm-desktop-platinum-grey palette #x66)
-                                                   (plist-get palette :text))
-                                                 (if (consp face)
-                                                     (plist-put (copy-sequence font) :size
-                                                                (* 1.3 (plist-get font :size)))
-                                                   font)
-                                                 "start")))
+                       (font (lispm-ui-svg-font
+                              (if (eq face 'shadow) 'lispm-ui-list 'lispm-ui-title))))
+                  (lispm-ui-svg-label svg (substring-no-properties text) 0 y
+                                      (if (eq face 'shadow)
+                                          (lispm-ui-grey palette #x66)
+                                        (plist-get palette :text))
+                                      (if (consp face)
+                                          (plist-put (copy-sequence font) :size
+                                                     (* 1.3 (plist-get font :size)))
+                                        font)
+                                      "start")))
     (with-temp-buffer (svg-print svg) (buffer-string))))
 
 (defun lispm-desktop-characters--follow ()
