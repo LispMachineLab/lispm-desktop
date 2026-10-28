@@ -377,7 +377,7 @@ keyboard."
 ;;;; Controls
 
 (cl-defmethod lispm-ui-svg-focus-ring (svg x y width height _radius palette
-                                           &context (lispm-desktop-look (lispm-ui-look-family pc)))
+                                           &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Mark on SVG the control in the WIDTH by HEIGHT box at X, Y as Windows
 and OS/2 marked the one the keyboard was on: a dotted rectangle just
 inside it."
@@ -385,7 +385,7 @@ inside it."
                        (plist-get palette :text)))
 
 (cl-defmethod lispm-ui-svg-push-button (svg x y palette label width
-                                            &context (lispm-desktop-look (lispm-ui-look-family pc))
+                                            &context (lispm-ui-look (lispm-ui-look-family pc))
                                             &key state default focused font)
   "Draw on SVG at X, Y a PC push button WIDTH pixels wide.
 Outlined in black, its corners cut where the look's :button-cut says,
@@ -421,7 +421,7 @@ in :button-pushed and moves the label a pixel down and right,
                                text (- h inset inset) (plist-get palette :text)))))))
 
 (cl-defmethod lispm-ui-svg-bevel-button (svg x y palette width height
-                                             &context (lispm-desktop-look (lispm-ui-look-family pc))
+                                             &context (lispm-ui-look (lispm-ui-look-family pc))
                                              &key state label face)
   "Draw on SVG at X, Y a PC toolbar button WIDTH by HEIGHT pixels, :raised,
 or :pushed when STATE is `pressed', its label greyed when `disabled'.
@@ -468,7 +468,7 @@ pixels of opening before it."
     svg))
 
 (cl-defmethod lispm-ui-draw-group-side (palette height
-                                                &context (lispm-desktop-look (lispm-ui-look-family pc)))
+                                                &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a side of a PC group box: the lines of the look's :group-side."
   (pcase-let ((svg (svg-create 2 height))
               (`(,line ,pane) (lispm-desktop-pc-colors palette (lispm-ui-look-metric :group-side))))
@@ -506,7 +506,7 @@ inactive window (STATE `inactive') as on the active one, as Windows'."
     svg))
 
 (cl-defmethod lispm-ui-draw-radio (palette on
-                                           &context (lispm-desktop-look (lispm-ui-look-family pc))
+                                           &context (lispm-ui-look (lispm-ui-look-family pc))
                                            &key state focused pad)
   "Return a PC option button: a white circle outlined in black, in a grey
 ring where the look's :radio-sunk says, a black dot of :radio-dot when

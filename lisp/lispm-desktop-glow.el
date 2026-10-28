@@ -559,14 +559,14 @@ holding the keyboard."
 ;;;; Controls
 
 (cl-defmethod lispm-ui-svg-focus-ring (svg x y width height _radius palette
-                                           &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                           &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Mark on SVG the control in the WIDTH by HEIGHT box at X, Y as having the
 keyboard: a glowing line about it, its corners cut."
   (lispm-desktop-glow--path svg (lispm-desktop-glow-chamfer (- x 2.5) (- y 2.5) (+ width 5) (+ height 5) 6 '(tl br))
                             :fill "none" :stroke (plist-get palette :focus) :stroke-width 1.5))
 
 (cl-defmethod lispm-ui-svg-push-button (svg x y palette label width
-                                            &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                            &context (lispm-ui-look (lispm-ui-look-family glow))
                                             &key state default focused font)
   "Draw on SVG at X, Y a glowing push button WIDTH pixels wide.
 Its top left and bottom right corners cut; outlined in the glow colour,
@@ -606,7 +606,7 @@ and right, `disabled' dashes its outline.  FOCUSED rings it."
       (lispm-ui-svg-focus-ring svg x y width h 0 palette))))
 
 (cl-defmethod lispm-ui-svg-bevel-button (svg x y palette width height
-                                             &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                             &context (lispm-ui-look (lispm-ui-look-family glow))
                                              &key state label face)
   "Draw on SVG at X, Y a glowing toolbar button WIDTH by HEIGHT pixels: dark,
 outlined, its corners cut; filled with the glow colour when STATE is
@@ -653,7 +653,7 @@ before it."
     svg))
 
 (cl-defmethod lispm-ui-draw-group-edge (palette width
-                                                &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                                &context (lispm-ui-look (lispm-ui-look-family glow))
                                                 &optional title bottom)
   "Return an edge of a glowing group box WIDTH pixels wide: a dim line, TITLE
 breaking the top one near its left end in the glow colour; BOTTOM draws
@@ -676,7 +676,7 @@ the bottom edge instead."
     svg))
 
 (cl-defmethod lispm-ui-draw-group-side (palette height
-                                                &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                                &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a side of a glowing group box: a dim line, then the pane."
   (let ((svg (svg-create 2 height)))
     (lispm-ui-svg-paint svg 0 0 1 height (plist-get palette :border-inactive))
@@ -748,7 +748,7 @@ inactive window's (STATE `inactive') is drawn alike."
     svg))
 
 (cl-defmethod lispm-ui-draw-radio (palette on
-                                           &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                           &context (lispm-ui-look (lispm-ui-look-family glow))
                                            &key state focused pad)
   "Return a glowing radio button: a ring in the glow colour, a dot in it
 when ON; dim when STATE is `disabled', filled when `pressed'.  FOCUSED
@@ -768,7 +768,7 @@ rings it again."
     svg))
 
 (cl-defmethod lispm-ui-draw-check-box (palette on
-                                               &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                               &context (lispm-ui-look (lispm-ui-look-family glow))
                                                &key state focused pad)
   "Return a glowing check box: a box in the glow colour, its corners cut,
 checked when ON; dim when STATE is `disabled', filled when `pressed'.
@@ -793,7 +793,7 @@ FOCUSED rings it.  It stands where Platinum's does."
     svg))
 
 (cl-defmethod lispm-ui-draw-list-check-box (palette state
-                                                    &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                                    &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a list's twelve-pixel glowing check box, checked when STATE is
 `on', a bar across it when `mixed'."
   (let ((svg (svg-create 12 12))

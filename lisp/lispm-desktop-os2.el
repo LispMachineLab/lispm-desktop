@@ -252,7 +252,7 @@ yellow triangle, `stop' a white cross on a red disc."
 ;;;; Controls
 
 (cl-defmethod lispm-ui-draw-group-edge (palette width
-                                                &context (lispm-desktop-look (eql os2))
+                                                &context (lispm-ui-look (eql os2))
                                                 &optional title bottom)
   "Return an edge of OS/2 2.0's group box WIDTH pixels wide, grooved: a
 grey line beside a lit one, TITLE breaking the top near its left end;
@@ -312,7 +312,7 @@ the page's lit edge."
     svg))
 
 (cl-defmethod lispm-ui-draw-check-box (palette on
-                                               &context (lispm-desktop-look (eql os2))
+                                               &context (lispm-ui-look (eql os2))
                                                &key state focused pad)
   "Return OS/2 2.0's check box: a white square sunk into the grey, ticked
 when ON; grey when STATE is `disabled', its inside grey when `pressed'.
@@ -335,7 +335,7 @@ bottom left of fourteen pixels."
     svg))
 
 (cl-defmethod lispm-ui-draw-list-check-box (palette state
-                                                    &context (lispm-desktop-look (eql os2)))
+                                                    &context (lispm-ui-look (eql os2)))
   "Return a list's twelve-pixel check box in OS/2 2.0's form: ticked when
 STATE is `on', a bar across it when `mixed'."
   (let ((svg (svg-create 12 12))

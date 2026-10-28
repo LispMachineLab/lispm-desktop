@@ -157,8 +157,8 @@ Optional, used when present:
   Code and Codex among them, reach it by name, as =@Ada=.  An application of the App Store with a
   skill is a character too, its skill its soul.
 - *Forms in the look*: LispM Agent's forms, written as data, are drawn as classic-style dialogs,
-  their buttons, check boxes, radio buttons and pop-up menus the desktop's own controls,
-  which any window may hold (=lispm-desktop-platinum-insert-radio-button= and the others).
+  their buttons, check boxes, radio buttons and pop-up menus LispM UI's controls in the look
+  chosen, which any window may hold (=lispm-ui-insert-radio-button= and the others).
 - *Skills for agents*: LispM's agents find the desktop's manuals in =skills/=, with tools to open
   applications, folders and windows, change settings and install from the App Store; and an
   application's skill comes and goes with it from the App Store.

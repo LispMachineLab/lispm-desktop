@@ -262,7 +262,7 @@ holding a blue i or a black exclamation mark."
 ;;;; Controls
 
 (cl-defmethod lispm-ui-draw-group-edge (palette width
-                                                &context (lispm-desktop-look (eql win3))
+                                                &context (lispm-ui-look (eql win3))
                                                 &optional title bottom)
   "Return an edge of Windows 3.2's group box WIDTH pixels wide: a black
 line, TITLE breaking the top one near its left end; BOTTOM draws the
@@ -319,7 +319,7 @@ stands on the pane's lit edge."
     svg))
 
 (cl-defmethod lispm-ui-draw-check-box (palette on
-                                               &context (lispm-desktop-look (eql win3))
+                                               &context (lispm-ui-look (eql win3))
                                                &key state focused pad)
   "Return Windows 3.2's check box: a white square outlined in black, crossed
 when ON; grey when STATE is `disabled', its inside grey when `pressed'.
@@ -341,7 +341,7 @@ bottom left of fourteen pixels."
     svg))
 
 (cl-defmethod lispm-ui-draw-list-check-box (palette state
-                                                    &context (lispm-desktop-look (eql win3)))
+                                                    &context (lispm-ui-look (eql win3)))
   "Return a list's twelve-pixel check box in Windows 3.2's form, crossed
 when STATE is `on', a bar across it when `mixed'."
   (let ((svg (svg-create 12 12))
