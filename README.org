@@ -122,8 +122,9 @@ Optional, used when present:
   packages, goes too when asked.
 - *The editor*, full screen or floating: a sidebar of Files, Agents and Shells, a workspace per
   project (=C-<tab>=, =M-`= for thumbnails), chats and terminals on the left, files on the right.
-- *Platinum windows*: title bars with close, zoom and collapse boxes, scroll bars, placards,
-  grow boxes, outline moves and resizes, classic-style menus and alerts, Balloon Help.
+- *Platinum windows*: title bars with close, zoom and collapse boxes, scroll bars, placards
+  telling the line, problems, branch and mode (each pressed for its command), grow boxes,
+  outline moves and resizes, classic-style menus and alerts, Balloon Help.
 - *Agents side by side*: sessions of LispM, Claude Code, Codex and App Store agents (Hermes),
   listed per project.  Claude Code and Codex see the selection, open files and diagnostics;
   programs speaking the [[https://superlogical.com/rex/docs/build/program-status][Program Status Protocol]] show working, done or waiting in their title

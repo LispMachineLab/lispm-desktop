@@ -686,26 +686,31 @@ the tab's colour shows about it.  PRESSED, it is lit on a grey disc."
 
 ;;;;; Placards, radio buttons, check boxes
 
-(cl-defgeneric lispm-desktop-platinum-draw-placard (palette width height &key label font)
+(cl-defgeneric lispm-desktop-platinum-draw-placard (palette width height &key label font state)
   "Return an SVG of a placard WIDTH by HEIGHT pixels, in PALETTE.
 A placard is the plate Mac OS 9 showed status on, as the Finder window
 counted its items on one: outlined, lit along the top and left, shaded
-along the bottom and right.  LABEL, when given, is centred in FONT, a
-value of `lispm-desktop-platinum-svg-font', by default the list's."
+along the bottom and right.  STATE `inactive' lays it flat in a grey
+outline, as on an inactive window.  LABEL, when given, is centred in
+FONT, a value of `lispm-desktop-platinum-svg-font', by default the list's."
   (let ((svg (svg-create width height))
+        (inactive (eq state 'inactive))
         (w width)
         (h height))
-    (lispm-desktop-platinum-svg-fill svg 0 0 w h (plist-get palette :outline))
+    (lispm-desktop-platinum-svg-fill svg 0 0 w h (if inactive
+                                                     (lispm-desktop-platinum-grey palette #x99)
+                                                   (plist-get palette :outline)))
     (lispm-desktop-platinum-svg-fill svg 1 1 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xDD))
-    (lispm-desktop-platinum-svg-row svg 1 (- w 2) 1 (lispm-desktop-platinum-grey palette #xFF))
-    (lispm-desktop-platinum-svg-column svg 1 1 (- h 2) (lispm-desktop-platinum-grey palette #xFF))
-    (lispm-desktop-platinum-svg-row svg 2 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xAA))
-    (lispm-desktop-platinum-svg-column svg (- w 2) 2 (- h 2) (lispm-desktop-platinum-grey palette #xAA))
+    (unless inactive
+      (lispm-desktop-platinum-svg-row svg 1 (- w 2) 1 (lispm-desktop-platinum-grey palette #xFF))
+      (lispm-desktop-platinum-svg-column svg 1 1 (- h 2) (lispm-desktop-platinum-grey palette #xFF))
+      (lispm-desktop-platinum-svg-row svg 2 (- w 2) (- h 2) (lispm-desktop-platinum-grey palette #xAA))
+      (lispm-desktop-platinum-svg-column svg (- w 2) 2 (- h 2) (lispm-desktop-platinum-grey palette #xAA)))
     (when label
       (let ((font (or font (lispm-desktop-platinum-svg-font 'lispm-desktop-platinum-list))))
         (lispm-desktop-platinum--label svg label (/ w 2.0)
                                        (round (+ (/ h 2.0) (* 0.35 (plist-get font :size))))
-                                       (plist-get palette :text) font)))
+                                       (plist-get palette (if inactive :muted :text)) font)))
     svg))
 
 (defun lispm-desktop-platinum--gradient (svg id from to)

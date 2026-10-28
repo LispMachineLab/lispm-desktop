@@ -59,7 +59,7 @@
 ;;
 ;;   (cl-defmethod lispm-desktop-platinum-draw-placard
 ;;     (palette width height &context (lispm-desktop-look (lispm-desktop-look-family pc))
-;;      &key label font)
+;;      &key label font state)
 ;;     ...)
 ;;
 ;; A family's methods draw each of its looks by the look's metrics, see

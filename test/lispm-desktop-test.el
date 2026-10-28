@@ -3224,21 +3224,155 @@ faces take the default face's fontset: `unspecified' would make
   (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
     (should-not (lispm-desktop-platinum--fontset-attribute "Geneva"))))
 
+(defun lispm-desktop-test--bottom-text (bottom)
+  "Return the text BOTTOM, a part of a window's bottom edge, shows: each
+drawn placard's label in its place, text placards as they are."
+  (let ((text "") (start 0))
+    (while (< start (length bottom))
+      (let* ((label (get-text-property start 'lispm-desktop-platinum-label bottom))
+             (end (next-single-property-change start 'lispm-desktop-platinum-label bottom (length bottom))))
+        (setq text (concat text (if label (concat " " label " ") (substring-no-properties bottom start end)))
+              start end)))
+    text))
+
 (ert-deftest lispm-desktop-test-window-bottom ()
-  "A window's bottom edge counts a list's items, or shows the buffer."
+  "A window's bottom edge counts a list's items, or shows the buffer's name
+where no title bar does."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
   (skip-unless (image-type-available-p 'svg))
   (let ((lispm-desktop-platinum-current-palette (lispm-desktop-platinum-derive-palette "#282a36" "#f8f8f2"
                                                                                  "#6272a4" "#bd93f9")))
     (with-temp-buffer
       (rename-buffer "lispm-desktop-test 100% done" t)
+      (setq-local tab-line-format nil)
       (let ((left (lispm-desktop-platinum-mode-line-left)))
-        ;; A % in the buffer name is escaped, as the bottom is a mode line.
-        (should (string-search "100%% done" left)))
+        (should (string-search "100% done" (lispm-desktop-test--bottom-text left)))
+        ;; Drawn, the name is no text a mode line would read a % of.
+        (should-not (string-search "%" (substring-no-properties left))))
+      ;; On a terminal it is text, and its % escaped.
+      (lispm-desktop-test--on-tty
+        (should (string-search "100%% done" (lispm-desktop-platinum-mode-line-left))))
+      (setq-local tab-line-format '(:eval "title"))
+      (should-not (string-search "done" (lispm-desktop-test--bottom-text (lispm-desktop-platinum-mode-line-left))))
       (setq-local lispm-desktop-platinum-info "3 sessions")
-      (should (string-search "3 sessions" (lispm-desktop-platinum-mode-line-left)))
+      (should (string-search "3 sessions" (lispm-desktop-test--bottom-text (lispm-desktop-platinum-mode-line-left))))
       (should (string-empty-p (string-trim (substring-no-properties
                                             (lispm-desktop-platinum-mode-line-right))))))))
+
+(ert-deftest lispm-desktop-test-window-placard ()
+  "A placard of a window's bottom edge is Mac OS 9's, as tall as the grow
+box: outlined, lit along its top and left; flat in a grey outline on an
+inactive window; a pop-up one ends in the pop-up arrow."
+  (let* ((palette (lispm-desktop-test--platinum-palette))
+         (active (lispm-desktop-platinum-draw-window-placard palette "main" :active t))
+         (inactive (lispm-desktop-platinum-draw-window-placard palette "main"))
+         (menu (lispm-desktop-platinum-draw-window-placard palette "main" :active t :menu t))
+         (width (car (lispm-desktop-test--size active))))
+    (should (= (cdr (lispm-desktop-test--size active)) lispm-desktop-platinum-placard-height))
+    (should (equal (lispm-desktop-test--pixel active 0 0) "#000000"))
+    (should (equal (lispm-desktop-test--pixel active 1 1) "#FFFFFF"))
+    (should (equal (lispm-desktop-test--pixel active (- width 2) 8) "#AAAAAA"))
+    (should (equal (lispm-desktop-test--pixel inactive 0 0) "#999999"))
+    (should (equal (lispm-desktop-test--pixel inactive 1 1) "#DDDDDD"))
+    ;; The arrow, seven pixels wide, ends a padding short of the right.
+    (should (= (car (lispm-desktop-test--size menu)) (+ width 13)))
+    (let ((right (- (car (lispm-desktop-test--size menu)) lispm-desktop-platinum-placard-padding 1)))
+      (should (equal (lispm-desktop-test--pixel menu right 6) "#000000"))
+      (should (equal (lispm-desktop-test--pixel menu (- right 3) 9) "#000000"))
+      (should (equal (lispm-desktop-test--pixel menu right 9) "#DDDDDD")))))
+
+(ert-deftest lispm-desktop-test-placards-on-tty ()
+  "On a text terminal a placard is its text in the placard's face, a pop-up
+one followed by an arrow, its icons letters; a % stays text."
+  (lispm-desktop-test--on-tty
+    (let ((placard (lispm-desktop-platinum-placard "50%" :active t :menu t)))
+      (should (string-search "50%%" placard))
+      (should (string-search "▾" placard))
+      (should (memq 'lispm-desktop-platinum-placard
+                    (ensure-list (get-text-property 1 'face placard)))))
+    (should (equal (lispm-desktop-platinum-problems-text '(2 0 5)) "E 2 N 5"))
+    (should-not (lispm-desktop-platinum-problems-text '(0 0 0)))))
+
+(ert-deftest lispm-desktop-test-placard-texts ()
+  "The placards say the line and column, the coding system only when it is
+not UTF-8 and LF, the branch without its backend, the mode by its name."
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'format-mode-line)
+               (lambda (format &rest _)
+                 (pcase format ("%l" "12") ("%c" "3") ("%C" "4") (_ "ELisp/l")))))
+      (let ((mode-line-position-column-format '(" C%c")))
+        (should (equal (lispm-desktop-platinum-position-text) "Line 12, Col 3")))
+      (let ((mode-line-position-column-format '(" C%C")))
+        (should (equal (lispm-desktop-platinum-position-text) "Line 12, Col 4")))
+      (should-not (lispm-desktop-platinum-coding-text))
+      (setq buffer-file-name "/tmp/lispm-desktop-test.el")
+      (dolist (case '((utf-8-unix . nil) (undecided-unix . nil) (utf-8-dos . "CRLF")
+                      (iso-latin-1-unix . "ISO-8859-1") (iso-latin-1-dos . "ISO-8859-1 · CRLF")))
+        (setq buffer-file-coding-system (car case))
+        (should (equal (lispm-desktop-platinum-coding-text) (cdr case))))
+      (setq buffer-file-name nil)
+      (setq-local vc-mode " Git:feature/x")
+      (should (equal (lispm-desktop-platinum-branch) "feature/x"))
+      (setq-local vc-mode nil)
+      (should-not (lispm-desktop-platinum-branch))
+      (emacs-lisp-mode)
+      (should (equal (lispm-desktop-platinum-mode-text) "Emacs Lisp"))
+      (setq major-mode 'lispm-desktop-test-mode)
+      (should (equal (lispm-desktop-platinum-mode-text) "ELisp/l")))))
+
+(ert-deftest lispm-desktop-test-placard-problems ()
+  "Flymake's diagnostics are counted by the category of their type, a type
+of its own by the category it names."
+  (require 'flymake)
+  (with-temp-buffer
+    (insert "one two three four five")
+    (put 'lispm-desktop-test-error 'flymake-category 'flymake-error)
+    (let ((diagnostics (mapcar (lambda (type) (flymake-make-diagnostic (current-buffer) 1 2 type "x"))
+                               '(:error lispm-desktop-test-error :warning :note :note :note))))
+      (cl-letf (((symbol-function 'flymake-diagnostics) (lambda (&rest _) diagnostics)))
+        (should-not (lispm-desktop-platinum-problems))
+        (setq-local flymake-mode t)
+        (should (equal (lispm-desktop-platinum-problems) '(2 1 3)))))))
+
+(ert-deftest lispm-desktop-test-document-placards ()
+  "A read-only file shows a padlock, which pressed unlocks it; the branch
+and mode placards pop their menus up as they are pressed."
+  (let ((lispm-desktop-platinum-current-palette (lispm-desktop-test--platinum-palette)))
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/lispm-desktop-test.el"
+            buffer-file-coding-system 'utf-8-unix)
+      (should (= (length (lispm-desktop-platinum-document-placards t)) 1))
+      (setq buffer-read-only t)
+      (let ((padlock (car (lispm-desktop-platinum-document-placards t))))
+        (should (= (length (lispm-desktop-platinum-document-placards t)) 2))
+        (should (eq (keymap-lookup (get-text-property 0 'keymap padlock) "<mode-line> <mouse-1>")
+                    #'lispm-desktop-platinum-placard-unlock)))
+      (setq buffer-file-name nil)
+      (setq-local vc-mode " Git:main")
+      (pcase-let ((`(,branch ,mode) (lispm-desktop-platinum-state-placards t)))
+        (should (eq (keymap-lookup (get-text-property 0 'keymap branch) "<mode-line> <down-mouse-1>")
+                    #'lispm-desktop-platinum-placard-vc-menu))
+        (should (eq (keymap-lookup (get-text-property 0 'keymap mode) "<mode-line> <down-mouse-1>")
+                    #'lispm-desktop-platinum-placard-mode-menu))
+        (should (functionp (get-text-property 0 'help-echo branch)))))))
+
+(ert-deftest lispm-desktop-test-fit-placards ()
+  "A window too narrow for all its placards leaves the branch out first,
+then the problems, then the mode; a long branch is cut short."
+  (cl-flet ((placard (kind width)
+              (propertize " " 'display `(image :type svg :lispm-desktop-platinum-width ,width)
+                          'lispm-desktop-platinum-kind kind)))
+    (let ((placards (list (placard 'problems 40) (placard 'branch 100) (placard 'mode 60))))
+      (cl-flet ((kinds (room)
+                  (mapcar (lambda (placard) (get-text-property 0 'lispm-desktop-platinum-kind placard))
+                          (lispm-desktop-platinum-fit-placards placards room 4))))
+        (should (equal (kinds 208) '(problems branch mode)))
+        (should (equal (kinds 207) '(problems mode)))
+        (should (equal (kinds 103) '(mode)))
+        (should (equal (kinds 59) '())))))
+  (with-temp-buffer
+    (setq-local vc-mode " Git:a-branch-name-much-too-long-to-show")
+    (should (equal (lispm-desktop-platinum-branch) "a-branch-name-much-…"))))
 
 (ert-deftest lispm-desktop-test-sidebar-keeps-width ()
   "The frame narrowing, the main area gives up the columns and the sidebar
@@ -4759,10 +4893,13 @@ has no room, as Mac OS 9's did at the screen's edge."
     (define-key map [hidden] '(menu-item "Hidden" ignore :visible nil))
     (define-key map [toggle] '(menu-item "Toggle" ignore :button (:toggle . t)))
     (define-key map [first] '(menu-item "First" ignore :keys "C-x f"))
+    ;; Keys may be a function returning them, as Edit's Cut has.
+    (define-key map [zeroth] `(menu-item "Zeroth" ignore :keys ,(lambda () "C-x z")))
     (let ((items (lispm-desktop-popup-keymap-items map)))
       (should (equal (mapcar (lambda (item) (if (eq item 'separator) item (plist-get item :label)))
                              items)
-                     '("First" "Toggle" separator "More" "Last")))
+                     '("Zeroth" "First" "Toggle" separator "More" "Last")))
+      (should (equal (plist-get (pop items) :key) "C-x z"))
       (should (equal (plist-get (nth 0 items) :key) "C-x f"))
       (should (plist-get (nth 1 items) :checked))
       (should-not (lispm-desktop-popup--enabled-p (nth 4 items)))
@@ -13160,11 +13297,12 @@ own, and none when it returns nil, not the buffer's name."
   (with-temp-buffer
     (rename-buffer "lispm-desktop-test-info" t)
     (setq-local lispm-desktop-platinum-info (lambda () '("Score 1" "Rows 2")))
-    (let ((left (lispm-desktop-platinum-mode-line-left)))
+    (let ((left (lispm-desktop-test--bottom-text (lispm-desktop-platinum-mode-line-left))))
       (should (string-search "Score 1" left))
       (should (string-search "Rows 2" left)))
     (setq-local lispm-desktop-platinum-info #'ignore)
-    (should-not (string-search "lispm-desktop-test-info" (lispm-desktop-platinum-mode-line-left)))))
+    (should-not (string-search "lispm-desktop-test-info"
+                               (lispm-desktop-test--bottom-text (lispm-desktop-platinum-mode-line-left))))))
 
 (ert-deftest lispm-desktop-test-app-board-grid-hits ()
   "A board's grid is drawn as wide and tall as its cells and edges, and a

@@ -489,9 +489,11 @@ pane's lit line and the pane below."
 
 (cl-defmethod lispm-desktop-platinum-draw-placard (palette width height
                                                            &context (lispm-desktop-look (lispm-desktop-look-family pc))
-                                                           &key label font)
+                                                           &key label font state)
   "Return a status panel WIDTH by HEIGHT pixels, sunk into the grey:
-shaded along its top and left, lit along its bottom and right."
+shaded along its top and left, lit along its bottom and right, on an
+inactive window (STATE `inactive') as on the active one, as Windows'."
+  (ignore state)
   (let ((svg (svg-create width height)))
     (lispm-desktop-look-svg-fill svg 0 0 width height (plist-get palette :chrome))
     (lispm-desktop-look-svg-edges svg 0 0 width height
