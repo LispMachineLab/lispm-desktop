@@ -39,6 +39,11 @@ jobs:
       published: ${{ steps.version.outputs.published }}
     steps:
       - uses: actions/checkout@v7
+      # LispM UI, whose modal kit lispm-desktop-term.el requires.
+      - uses: actions/checkout@v7
+        with:
+          repository: LispMachineLab/lispm-ui
+          path: .deps/lispm-ui
       - uses: purcell/setup-emacs@v8.0
         with:
           version: '31.1'
@@ -46,7 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(emacs -Q --batch -L lisp -l lispm-desktop-term --eval '(princ (lispm-desktop-term-source-version))')
+          version=$(emacs -Q --batch -L lisp -L .deps/lispm-ui -l lispm-desktop-term --eval '(princ (lispm-desktop-term-source-version))')
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if gh release view "term-module-$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "published=true" >> "$GITHUB_OUTPUT"
@@ -128,6 +133,10 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: LispMachineLab/lispm-ui
+          path: .deps/lispm-ui
       - uses: purcell/setup-emacs@v8.0
         with:
           version: '31.1'
@@ -151,7 +160,7 @@ jobs:
         run: python3 scripts/pin-term-module.py --url "file://$PWD/releases"
       - name: Download it as LispM does
         run: |
-          emacs -Q --batch -L lisp -l lispm-desktop-term \
+          emacs -Q --batch -L lisp -L .deps/lispm-ui -l lispm-desktop-term \
             --eval "(setq lispm-desktop-term-prebuilt-url \"file://$PWD/releases\")" \
             -f lispm-desktop-term-batch-download
           test -f "native/lispm-desktop-term/prebuilt/$VERSION/liblispm_desktop_term-x86_64-unknown-linux-gnu.so"
