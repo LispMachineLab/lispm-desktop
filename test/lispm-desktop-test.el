@@ -122,7 +122,8 @@ running, and says when sessions are still being read."
   (should (equal (lispm-desktop-agent-list--info 1 0 nil) "1 session"))
   (should (equal (lispm-desktop-agent-list--info 3 2 nil) "3 sessions, 2 running"))
   (should (equal (lispm-desktop-agent-list--info 0 0 t) "0 sessions, still reading…"))
-  (should (equal (lispm-desktop-agent-list--info 4 1 t) "4 sessions, 1 running, still reading…")))
+  (should (equal (lispm-desktop-agent-list--info 4 1 t) "4 sessions, 1 running, still reading…"))
+  (should (equal (lispm-desktop-agent-list--info 4 2 nil 1) "4 sessions, 1 waiting, 2 running")))
 
 (ert-deftest lispm-desktop-test-agent-terminals-know-their-agent ()
   "A terminal is an agent's when started for it, or named after it while
@@ -7730,6 +7731,49 @@ its transcript, and gets no Resume in its menu."
                 (should-error (lispm-desktop-agent-list-open-sub-sessions) :type 'user-error))))
           (kill-buffer)
           (delete-file lispm-agents-state-file))))))
+
+(ert-deftest lispm-desktop-test-agent-list-puts-waiting-first ()
+  "A session whose agent waits for the user, as its terminal reports or
+one of LispM's agents says, comes first in its project, in bold, with
+its state as its label, and the bottom edge counts it; LispM's agents
+report themselves through the same functions as terminals."
+  (lispm-desktop-test--with-agents
+      `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
+               :sessions ,(lambda ()
+                            (let ((now (float-time)))
+                              (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
+                                          :title "Fix the build" :time (- now 30))
+                                    (list :agent 'codex :id "0200" :cwd "/tmp/project/"
+                                          :title "Ship it" :time (- now 10)))))))
+    (let ((lispm-agents--session-readers nil)
+          (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
+          (lispm-agents--archived 'unloaded)
+          (lispm-agents-terminal-live-p-function #'buffer-live-p)
+          (terminal (get-buffer-create "*codex:project:0199*")))
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+            (with-current-buffer terminal
+              (setq major-mode 'lispm-desktop-term-mode
+                    default-directory "/tmp/project/"
+                    lispm-agents-buffer-session-id "0199"
+                    lispm-desktop-term-status-records '((:state blocked :kind permission))))
+            (should (equal (lispm-agents-buffer-status terminal) '(:state blocked :kind permission)))
+            (should (equal (lispm-desktop-agent-list--running-label terminal) "needs approval"))
+            (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
+              (unwind-protect
+                  (progn
+                    (lispm-desktop-agent-list-mode)
+                    (lispm-desktop-agent-list--render)
+                    (let ((fix (save-excursion (goto-char (point-min)) (search-forward "Fix the build")))
+                          (ship (save-excursion (goto-char (point-min)) (search-forward "Ship it"))))
+                      (should (< fix ship))
+                      ;; The row's own faces are layered over the title's.
+                      (should (string-search ":weight bold" (format "%S" (get-text-property (1- fix) 'face))))
+                      (should-not (string-search ":weight bold" (format "%S" (get-text-property (1- ship) 'face))))
+                      (should (equal lispm-desktop-platinum-info "2 sessions, 1 waiting, 1 running"))))
+                (kill-buffer))))
+        (kill-buffer terminal)
+        (delete-file lispm-agents-state-file)))))
 
 (ert-deftest lispm-desktop-test-agent-list-refreshes-on-status-changes ()
   "An agent terminal's status refreshes the agent sidebar, once Emacs is

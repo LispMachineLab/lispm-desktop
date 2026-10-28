@@ -33,6 +33,7 @@
   ("Show archived sessions" . "アーカイブ済みのセッションを表示")
   ("%d session" "%d個のセッション")
   ("%s, %s" . "%s、%s")
+  ("%d waiting" "%d個が待機中")
   ("%d running" "%d個が実行中")
   ("still reading…" . "読み込み中…")
   ("Modified" . "変更日")

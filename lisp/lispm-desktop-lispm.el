@@ -73,6 +73,7 @@
 (declare-function lispm-agent-id "lispm-core" (agent))
 (declare-function lispm-agent-name "lispm-core" (agent))
 (declare-function lispm-agent-view "lispm-core" (agent))
+(declare-function lispm-agent-status-record "lispm-runtime" (agent))
 (declare-function lispm-read-role "lispm" (prompt))
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
 (declare-function lispm-desktop-store-skill-sources "lispm-desktop-store" ())
@@ -158,6 +159,13 @@ lispm-desktop-ai reads them."
           lispm-agents-buffer-title (or lispm-agents-buffer-title
                                         (symbol-name (lispm-agent-name agent))))
     (setq-local lispm-desktop-conversation-buffer t)))
+
+(defun lispm-desktop-lispm--status (buffer)
+  "Return what the LispM agent talked to in BUFFER is doing, as
+`lispm-agents-status-functions' say it: blocked while it waits for its
+user, see `lispm-agent-status-record'; nil for any other buffer."
+  (when-let* ((agent (with-current-buffer buffer (lispm-desktop-lispm--buffer-agent))))
+    (lispm-agent-status-record agent)))
 
 (defun lispm-desktop-lispm--changed (agent)
   "Keep AGENT's buffer tagged, and say its sessions changed."
@@ -360,6 +368,8 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
   (add-hook 'lispm-chat-mode-hook #'lispm-desktop-lispm--tag-buffer)
   (add-hook 'lispm-session-mode-hook #'lispm-desktop-lispm--tag-buffer)
   (add-hook 'lispm-state-change-functions #'lispm-desktop-lispm--changed)
+  ;; Lists of the sessions say when one of LispM's agents waits for the user.
+  (add-hook 'lispm-agents-status-functions #'lispm-desktop-lispm--status)
   (add-hook 'lispm-title-change-functions #'lispm-desktop-lispm--changed)
   ;; LispM speaks the desktop's language, unless `lispm-language' says
   ;; another; it knows nothing of the desktop, so the desktop tells it.

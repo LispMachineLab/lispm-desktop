@@ -89,13 +89,20 @@ placed as `lispm-desktop-sidebar-show-in-main' places terminals.  This is
       (lispm-desktop-sidebar-show-in-main buffer))))
 
 (defun lispm-desktop-agent-next-waiting ()
-  "Show the next terminal whose program waits for you.
-Programs blocked on an answer come first, then those that failed, then
-those that finished, as they report themselves, see
-`lispm-desktop-term-waiting-buffers'; repeating the command goes on to
-the next one."
+  "Show the next terminal, or agent of LispM's, waiting for you.
+Those blocked on an answer come first, then those that failed, then the
+programs that finished, as they report themselves, see
+`lispm-desktop-term-waiting-buffers' and `lispm-agents-waiting-buffers';
+repeating the command goes on to the next one."
   (interactive)
-  (let* ((waiting (lispm-desktop-term-waiting-buffers))
+  (let* ((all (delete-dups (append (lispm-agents-waiting-buffers)
+                                   (lispm-desktop-term-waiting-buffers))))
+         (waiting (seq-mapcat (lambda (state)
+                                (seq-filter (lambda (buffer)
+                                              (eq (plist-get (lispm-agents-buffer-status buffer) :state)
+                                                  state))
+                                            all))
+                              '(blocked error done)))
          (next (or (cadr (memq (current-buffer) waiting)) (car waiting))))
     (unless next
       (user-error (lispm-desktop-tr "No terminal is waiting for you")))

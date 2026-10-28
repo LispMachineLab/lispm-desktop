@@ -111,11 +111,10 @@ drawn again."
   (lispm-desktop-agent-list--redraw))
 
 (defun lispm-desktop-agent-list--running-label (buffer)
-  "Return the label of running agent terminal BUFFER in the sidebar: what
-its program says it is doing, see `lispm-desktop-term-status', else
-\"running\"."
-  (if-let* ((record (and buffer (fboundp 'lispm-desktop-term-status)
-                         (lispm-desktop-term-status buffer))))
+  "Return the label of running agent BUFFER in the sidebar: what its
+agent says it is doing, see `lispm-agents-buffer-status', a terminal's
+program or one of LispM's agents, else \"running\"."
+  (if-let* ((record (and buffer (lispm-agents-buffer-status buffer))))
       (lispm-desktop-term-status-label record t)
     (propertize (lispm-desktop-tr "running") 'face 'success)))
 
@@ -161,9 +160,12 @@ Finder list; its sessions are rows one level in, newest first."
          (lispm-desktop-tr "Show this terminal")
          nil 1))
       ;; The sessions are a tree: one a session started goes under it,
-      ;; and the preview counts the sessions nobody started.
+      ;; and the preview counts the sessions nobody started.  Those
+      ;; waiting for the user come first.
       (let* ((expanded (member (plist-get group :key) lispm-desktop-agent-list--expanded))
-             (trees (lispm-agents-session-tree sessions))
+             (trees (seq-sort-by (lambda (tree)
+                                   (if (lispm-desktop-agent-list--waiting-p (car tree) running-ids) 0 1))
+                                 #'< (lispm-agents-session-tree sessions)))
              (shown (if expanded trees
                       (seq-take trees lispm-desktop-agent-list-project-preview))))
         (dolist (tree shown)
@@ -180,6 +182,13 @@ Finder list; its sessions are rows one level in, newest first."
            (apply-partially #'lispm-desktop-agent-list--toggle-expanded (plist-get group :key))
            (lispm-desktop-tr "Toggle the full session list of this project")
            nil 1))))))
+
+(defun lispm-desktop-agent-list--waiting-p (session running-ids)
+  "Return non-nil when SESSION runs, its id among RUNNING-IDS, and its
+agent waits for the user, see `lispm-agents-buffer-waiting-p'."
+  (let ((id (plist-get session :id)))
+    (and (member id running-ids)
+         (lispm-agents-buffer-waiting-p (lispm-agents-session-buffer id)))))
 
 (defun lispm-desktop-agent-list--session-help (session resumable location archived)
   "Return what the row of SESSION says of itself: that it is resumed, or
@@ -223,6 +232,7 @@ DIRECTORY is its directory."
                (id (plist-get session :id))
                (archived (lispm-agents-archived-p session))
                (opened (and subtrees (lispm-desktop-agent-list--opened-p session) t))
+               (waiting (lispm-desktop-agent-list--waiting-p session running-ids))
                (resumable (lispm-agents-session-resumable-p session))
                (location (lispm-agents-location-label
                           (plist-get session :cwd)
@@ -236,9 +246,12 @@ DIRECTORY is its directory."
                  (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                  icon)
        icon)
-     (if archived
-         (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-ui-list)))
-       (plist-get session :title))
+     ;; A session waiting for the user stands out, as a mailbox's unread do.
+     (cond (archived
+            (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-ui-list))))
+           (waiting
+            (propertize (plist-get session :title) 'face '(:inherit lispm-ui-list :weight bold)))
+           (t (plist-get session :title)))
      (if (member id running-ids)
          (lispm-desktop-agent-list--running-label (lispm-agents-session-buffer id))
        (lispm-agents-age (plist-get session :time) now))
@@ -269,11 +282,14 @@ DIRECTORY is its directory."
     (setq lispm-desktop-agent-list--show-archived (not lispm-desktop-agent-list--show-archived)))
   (lispm-desktop-agent-list--redraw))
 
-(defun lispm-desktop-agent-list--info (sessions running reading)
+(defun lispm-desktop-agent-list--info (sessions running reading &optional waiting)
   "Return the count on the sidebar's bottom edge: SESSIONS listed, RUNNING
-terminals, and, when READING, that sessions are still being read."
+terminals, WAITING of them waiting for the user, and, when READING, that
+sessions are still being read."
   (seq-reduce (lambda (shown detail) (lispm-desktop-tr "%s, %s" shown detail))
-              (delq nil (list (when (> running 0)
+              (delq nil (list (when (and waiting (> waiting 0))
+                                (lispm-desktop-tr-n "%d waiting" "%d waiting" waiting))
+                              (when (> running 0)
                                 (lispm-desktop-tr-n "%d running" "%d running" running))
                               (when reading (lispm-desktop-tr "still reading…"))))
               (lispm-desktop-tr-n "%d session" "%d sessions" sessions)))
@@ -320,7 +336,8 @@ sessions are still being read."
              (lispm-desktop-tr "Show archived sessions"))
           ,lispm-desktop-agent-list--show-archived))))
     (setq lispm-desktop-platinum-info
-          (lispm-desktop-agent-list--info (length sessions) (length running) reading))
+          (lispm-desktop-agent-list--info (length sessions) (length running) reading
+                                          (seq-count #'lispm-agents-buffer-waiting-p running)))
     (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
     (dolist (group (lispm-agents-group-by-directory sessions running))
       (lispm-desktop-agent-list--insert-project group now running-ids))))
