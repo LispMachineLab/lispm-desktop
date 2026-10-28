@@ -88,6 +88,12 @@ does; users rarely need to."
   "Face of a list's row: a lit line atop it parts it from the row above."
   :group 'lispm-desktop-platinum)
 
+(defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))
+  "Face of a list's row naming what is being worked on elsewhere, as the
+agent sidebar's row of the session at work: the selection's colour faded
+into the list, as a selection in a list without the keyboard."
+  :group 'lispm-desktop-platinum)
+
 (defface lispm-desktop-platinum-sorted nil
   "Face of the column a list is sorted by: shaded down its length, as in
 Finder's list view."

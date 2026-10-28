@@ -387,7 +387,18 @@ faces this function never sets, so re-running it is idempotent."
                         :foreground (lispm-ui-grey lispm-ui-current-palette #xFF))
     (set-face-attribute 'window-divider-last-pixel nil
                         :foreground (lispm-ui-color :outline))
-    (lispm-desktop-platinum-apply-look-faces lispm-ui-current-palette)))
+    (lispm-desktop-platinum-apply-look-faces lispm-ui-current-palette)
+    ;; The row of what is being worked on elsewhere: the selection's
+    ;; colour faded a third of the way into the list's, as the look drew
+    ;; the list, plainly paler than the selection yet plain to see.
+    ;; Where colours cannot be blended, as on a text terminal, the
+    ;; secondary selection stands in.
+    (let ((faded (lispm-ui-blend (face-background 'region nil t)
+                                 (face-background 'lispm-desktop-platinum-list-body nil t)
+                                 0.3)))
+      (set-face-attribute 'lispm-desktop-platinum-row-current nil
+                          :inherit (if faded 'unspecified 'secondary-selection)
+                          :background (or faded 'unspecified)))))
 
 ;; Before LispM UI draws its forms again, at 90: they are measured in the
 ;; fonts set here.
