@@ -154,7 +154,7 @@ and darker, as Mac OS 9 drew the column a list was sorted by."
         (lispm-ui-svg-content svg label (+ x (or x-in label-x 8)) 1 (- h 3)
                                               (plist-get palette :text) 'lispm-ui-list))
       (setq x (+ x w)))
-    (lispm-desktop-platinum-svg-pixel-map svg (- width 12) 7 lispm-desktop-platinum--sort-glyph
+    (lispm-ui-svg-pixel-map svg (- width 12) 7 lispm-desktop-platinum--sort-glyph
                                       `((?# . ,(plist-get palette :text))))
     svg))
 

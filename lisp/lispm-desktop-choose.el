@@ -287,12 +287,12 @@ beside it, and the buttons at the bottom right, the default
          (right (- w 15))
          (buttons-y (+ list-y list-h 16))
          (labels (list (lispm-desktop-tr "Cancel") (lispm-desktop-tr "Open") (lispm-desktop-tr "Choose")))
-         (choose-w (max (lispm-desktop-platinum-push-button-width (nth 1 labels))
-                        (lispm-desktop-platinum-push-button-width (nth 2 labels))))
-         (cancel-w (lispm-desktop-platinum-push-button-width (nth 0 labels)))
+         (choose-w (max (lispm-ui-push-button-width (nth 1 labels))
+                        (lispm-ui-push-button-width (nth 2 labels))))
+         (cancel-w (lispm-ui-push-button-width (nth 0 labels)))
          (choose-x (- right 3 choose-w)))
-    (list :width w :height (+ buttons-y lispm-desktop-platinum-button-height 15)
-          :location (list 17 (+ body 13) 193 lispm-desktop-platinum-button-height)
+    (list :width w :height (+ buttons-y lispm-ui-button-height 15)
+          :location (list 17 (+ body 13) 193 lispm-ui-button-height)
           :shortcuts (list (- right 31 4 31) (+ body 10) 31 27)
           :recent (list (- right 31) (+ body 10) 31 27)
           :list (list 15 list-y list-w list-h)
@@ -303,8 +303,8 @@ beside it, and the buttons at the bottom right, the default
                         lispm-desktop-platinum-scroll-width (1+ rows-h))
           :preview (list pane-x list-y (- right pane-x) list-h)
           :cancel (list (- choose-x 3 lispm-desktop-popup-button-gap cancel-w) buttons-y cancel-w
-                        lispm-desktop-platinum-button-height)
-          :choose (list choose-x buttons-y choose-w lispm-desktop-platinum-button-height))))
+                        lispm-ui-button-height)
+          :choose (list choose-x buttons-y choose-w lispm-ui-button-height))))
 
 (defun lispm-desktop-choose--hit (dialog layout x y)
   "Return what of DIALOG, laid out as LAYOUT says, is at X, Y: `location',
@@ -420,10 +420,10 @@ folder's icon and name, and the menu's arrows."
                               (lispm-desktop-platinum-fit
                                (propertize (if (string-empty-p name) "/" name) 'face 'lispm-ui-title)
                                (- w 52)))))
-    (lispm-ui-svg-embed svg (lispm-desktop-platinum-draw-popup-button palette "" w :state state)
-                        x y w lispm-desktop-platinum-button-height)
-    (lispm-ui-svg-content svg label (+ x 8) y lispm-desktop-platinum-button-height
-                          (plist-get (lispm-desktop-platinum--push-button-colors palette state) :label)
+    (lispm-ui-svg-embed svg (lispm-ui-draw-popup-button palette "" w :state state)
+                        x y w lispm-ui-button-height)
+    (lispm-ui-svg-content svg label (+ x 8) y lispm-ui-button-height
+                          (plist-get (lispm-ui-push-button-colors palette state) :label)
                           'lispm-ui-title)))
 
 (defun lispm-desktop-choose--draw-place-button (svg rect palette state kind)
@@ -434,7 +434,7 @@ and the small arrow of a button popping up a menu."
                (ink (if (eq state 'disabled)
                         (lispm-ui-grey palette #x99)
                       (plist-get palette :outline))))
-    (lispm-ui-svg-embed svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state)
+    (lispm-ui-svg-embed svg (lispm-ui-draw-bevel-button palette w h :state state)
                         x y w h)
     (if (eq kind 'shortcuts)
         (lispm-ui-svg-icon svg (lispm-desktop-platinum-icon-file "disk") (+ x 5) (+ y 5) 16)
@@ -542,7 +542,7 @@ and right; the controls as Navigation Services drew them."
       (lispm-desktop-choose--draw-picture svg dialog (list (+ x 8) (+ y 8) (- pw 16) (- ph 16)) palette))
     (pcase-dolist (`(,part ,label ,default) `((:cancel ,(car labels) nil) (:choose ,(cdr labels) t)))
       (pcase-let ((`(,x ,y ,bw ,_) (plist-get layout part)))
-        (lispm-desktop-platinum-svg-push-button
+        (lispm-ui-svg-push-button
          svg x y palette label bw
          :default default
          :state (cond ((eq pressed (intern (substring (symbol-name part) 1))) 'pressed)

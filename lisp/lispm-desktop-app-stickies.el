@@ -331,7 +331,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   "Draw the box of ROWS on SVG at X, Y in PAPER and INK; PRESSED fills it
 with the paper's edge colour instead."
   (lispm-ui-svg-fill svg x y (length (car rows)) (length rows) (or pressed paper))
-  (lispm-desktop-platinum-svg-pixel-map svg x y rows `((?x . ,ink))))
+  (lispm-ui-svg-pixel-map svg x y rows `((?x . ,ink))))
 
 (defun lispm-desktop-app-stickies-draw-title-bar (colors width height active
                                                          &optional pressed label insets)
@@ -396,8 +396,8 @@ Stickies drew it."
     (lispm-ui-svg-fill svg (1- width) 0 1 height edge)
     (lispm-ui-svg-fill svg 0 (1- height) width 1 edge)
     (when active
-      (lispm-desktop-platinum-svg-pixel-map svg (- width 8) 0 lispm-desktop-app-stickies--grow-box
-                                            `((?x . ,ink))))
+      (lispm-ui-svg-pixel-map svg (- width 8) 0 lispm-desktop-app-stickies--grow-box
+                              `((?x . ,ink))))
     svg))
 
 (defun lispm-desktop-app-stickies--window-width (window)
@@ -494,7 +494,7 @@ ones always, the bottom ones too on a note rolled up."
                      (lispm-desktop-app-stickies--rolled-height frame)
                    lispm-desktop-app-stickies-title-height))
          (label (and rolled (lispm-stickies-note-title (current-buffer))))
-         (pressed (and active (window-parameter window 'lispm-desktop-platinum-pressed)))
+         (pressed (and active (window-parameter window 'lispm-ui-pressed)))
          (colors (lispm-desktop-app-stickies--colors (lispm-stickies-note-color (current-buffer))))
          (insets (lispm-desktop-app-stickies--box-insets frame height))
          (left (car insets))

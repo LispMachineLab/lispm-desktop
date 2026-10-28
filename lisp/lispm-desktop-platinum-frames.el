@@ -142,7 +142,7 @@ PALETTE's greys, centred in HEIGHT pixels."
     (lispm-ui-svg-fill svg 0 0 s height (plist-get palette :chrome))
     (lispm-ui-svg-fill svg 0 y s s (plist-get palette :outline))
     (lispm-ui-svg-fill svg 1 (1+ y) (1- s) (1- s) (lispm-ui-grey palette #xCC))
-    (lispm-desktop-platinum-svg-pixel-map svg 1 (1+ y) lispm-desktop-platinum--grow-ridges
+    (lispm-ui-svg-pixel-map svg 1 (1+ y) lispm-desktop-platinum--grow-ridges
                                       `((?w . ,(lispm-ui-grey palette #xFF))
                                         (?h . ,(lispm-ui-grey palette #x77))
                                         (?i . ,(lispm-ui-grey palette #xAA))))

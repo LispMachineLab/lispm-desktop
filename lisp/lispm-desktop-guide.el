@@ -331,7 +331,7 @@ the desktop, as an alert stands."
 words between the sequences dimmed."
   (let* ((caps (mapcar (lambda (sequence)
                          (mapconcat (lambda (key)
-                                      (lispm-desktop-platinum-bevel-button key nil 18 'lispm-ui-small))
+                                      (lispm-ui-bevel-button key nil 18 'lispm-ui-small))
                                     (split-string sequence " " t)
                                     (propertize " " 'display '(space :width (3)))))
                        (split-string keys ", *" t)))
@@ -355,27 +355,27 @@ words between the sequences dimmed."
 step, and Show Me, when STEP shows something; at the right Back, but on
 the FIRST step, and Next, or Done on the LAST, which Return presses."
   (unless last
-    (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Skip") #'lispm-desktop-guide-skip
-                                               :help (lispm-desktop-tr "Leave the guide; C-c ? starts it over"))
+    (lispm-ui-insert-push-button (lispm-desktop-tr "Skip") #'lispm-desktop-guide-skip
+                                 :help (lispm-desktop-tr "Leave the guide; C-c ? starts it over"))
     (insert (propertize " " 'display '(space :width (6)))))
   (when (plist-get (cdr step) :show)
-    (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Show Me") #'lispm-desktop-guide-show-me
-                                               :help (lispm-desktop-tr "Do what this step shows")))
+    (lispm-ui-insert-push-button (lispm-desktop-tr "Show Me") #'lispm-desktop-guide-show-me
+                                 :help (lispm-desktop-tr "Do what this step shows")))
   (let* ((back (lispm-desktop-tr "Back"))
          (forward (if last (lispm-desktop-tr "Done") (lispm-desktop-tr "Next")))
          ;; The buttons' images: room for a focus ring about Back, for
-         ;; the default ring about Next, see `lispm-desktop-platinum-push-button'.
-         (width (+ (lispm-desktop-platinum-push-button-width back) 4
+         ;; the default ring about Next, see `lispm-ui-push-button'.
+         (width (+ (lispm-ui-push-button-width back) 4
                    6
-                   (lispm-desktop-platinum-push-button-width forward) 10)))
+                   (lispm-ui-push-button-width forward) 10)))
     (insert (propertize " " 'display `(space :align-to (- right (,(+ width 14))))))
-    (lispm-desktop-platinum-insert-push-button back #'lispm-desktop-guide-previous
-                                               :help (lispm-desktop-tr "The step before") :disabled first)
+    (lispm-ui-insert-push-button back #'lispm-desktop-guide-previous
+                                 :help (lispm-desktop-tr "The step before") :disabled first)
     (insert (propertize " " 'display '(space :width (6))))
-    (lispm-desktop-platinum-insert-push-button forward #'lispm-desktop-guide-next :default t
-                                               :help (if last
-                                                         (lispm-desktop-tr "Put the guide away")
-                                                       (lispm-desktop-tr "The next step")))
+    (lispm-ui-insert-push-button forward #'lispm-desktop-guide-next :default t
+                                 :help (if last
+                                           (lispm-desktop-tr "Put the guide away")
+                                         (lispm-desktop-tr "The next step")))
     (insert "\n")))
 
 (defun lispm-desktop-guide--insert-step (step first last &optional lift)
@@ -435,9 +435,9 @@ window's bottom, as Apple Guide kept its own."
           (erase-buffer)
           (lispm-desktop-guide--insert-step step first last spare))
         (goto-char (point-min))
-        (setq lispm-desktop-platinum-focus nil
+        (setq lispm-ui-focus nil
               lispm-desktop-platinum-info (lispm-desktop-tr "Step %d of %d" (1+ index) (length steps)))
-        (lispm-desktop-platinum-show-focus)
+        (lispm-ui-show-focus)
         (force-mode-line-update)))))
 
 (defun lispm-desktop-guide--fit (frame)
@@ -542,7 +542,7 @@ keeps the keyboard, so that the steps go on as they did."
 button does."
   (interactive)
   (if (button-at (point))
-      (lispm-desktop-platinum-push)
+      (lispm-ui-push)
     (lispm-desktop-guide-next)))
 
 ;;;; Showing
@@ -679,7 +679,7 @@ collapse box does."
               right-margin-width 2)
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list-body)
   (add-hook 'window-size-change-functions #'lispm-desktop-guide--render nil t)
-  (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t))
+  (add-hook 'post-command-hook #'lispm-ui-show-focus nil t))
 
 (defun lispm-desktop-guide--buffer ()
   "Return the guide's buffer, made when missing."

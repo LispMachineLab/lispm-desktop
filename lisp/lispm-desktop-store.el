@@ -2408,7 +2408,7 @@ enough for the list of CATEGORIES, a count, beside them."
 (defun lispm-desktop-store--button-box (x width label)
   "Return where the button reading LABEL of the item drawn at X, WIDTH
 pixels wide, stands: (X Y WIDTH), Y from the top of the item's line."
-  (let ((w (lispm-desktop-platinum-push-button-width label)))
+  (let ((w (lispm-ui-push-button-width label)))
     (list (+ x (/ (- width w) 2)) 84 w)))
 
 (defun lispm-desktop-store--category-hit (x y categories)
@@ -2437,7 +2437,7 @@ nil.  The progress bar standing in place of a button is the item's."
                                        (+ gx (* column tw)) tw
                                        (car (lispm-desktop-store--action (car item) (cdr item))))))
             (if (and (not (lispm-desktop-store--busy-p (car item)))
-                     (lispm-ui-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y))
+                     (lispm-ui-modal-inside-p (list bx by bw lispm-ui-button-height) x y))
                 (cons 'button (car item))
               (cons 'item (car item))))))))))
 
@@ -2551,7 +2551,7 @@ drawn; the subtitle says what it is doing, or that it failed."
 stands, in place of its button: (X Y WIDTH), Y from the top of the line."
   (let ((w (min 120 (- width 20))))
     (list (+ x (/ (- width w) 2))
-          (+ 84 (/ (- lispm-desktop-platinum-button-height lispm-desktop-platinum-progress-height) 2))
+          (+ 84 (/ (- lispm-ui-button-height lispm-desktop-platinum-progress-height) 2))
           w)))
 
 (defun lispm-desktop-store--draw-icon (svg file x y size &optional darkened)
@@ -2593,7 +2593,7 @@ when selected, its subtitle and its button, or its progress bar."
         (pcase-let ((`(,px ,py ,pw) (lispm-desktop-store--progress-box x width)))
           (lispm-desktop-platinum-svg-progress-bar svg px py pw progress palette))
       (pcase-let ((`(,bx ,by ,bw) (lispm-desktop-store--button-box x width (plist-get tile :label))))
-        (lispm-desktop-platinum-svg-push-button svg bx by palette (plist-get tile :label) bw
+        (lispm-ui-svg-push-button svg bx by palette (plist-get tile :label) bw
                                                   :state (cond ((not (plist-get tile :enabled)) 'disabled)
                                                                ((plist-get tile :pressed) 'pressed)))))))
 
@@ -2681,7 +2681,7 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                                       (lispm-desktop-platinum-icon (plist-get tile :icon))))))
                   (button (if-let* ((progress (plist-get tile :progress)))
                               (lispm-desktop-store--text-progress progress)
-                            (lispm-desktop-platinum-text-button
+                            (lispm-ui-text-button
                              (concat " " (plist-get tile :label) " ")
                              (cond ((not (plist-get tile :enabled)) 'disabled)
                                    ((plist-get tile :pressed) 'pressed)))))
@@ -2754,12 +2754,12 @@ WIDTH by HEIGHT pixels, see `lispm-desktop-store--insert-grid'."
 its rings' room included: the default button's ring too when DEFAULT.
 On a text terminal, the cells it takes."
   (or (and (lispm-desktop-tty-p)
-           (string-width (lispm-desktop-platinum-image-of (lispm-desktop-platinum-push-button label))))
+           (string-width (lispm-ui-image-of (lispm-ui-push-button label))))
       (ignore-errors
-        (car (image-size (lispm-desktop-platinum-image-of
-                          (lispm-desktop-platinum-push-button label :default default))
+        (car (image-size (lispm-ui-image-of
+                          (lispm-ui-push-button label :default default))
                          t)))
-      (+ (lispm-desktop-platinum-push-button-width label) (if default 16 10))))
+      (+ (lispm-ui-push-button-width label) (if default 16 10))))
 
 ;;;;; The rows over and under the grid
 
@@ -2787,14 +2787,14 @@ page Go Back; and Check for Updates.  Return where the field's text is, as
     (setq field (lispm-desktop-store--insert-field))
     (insert (propertize " " 'display `(space :align-to (,gx))))
     (if (eq lispm-desktop-store--view 'item)
-        (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Go Back") #'lispm-desktop-store-back
-                                                   :help (lispm-desktop-tr "Go back to the items"))
+        (lispm-ui-insert-push-button (lispm-desktop-tr "Go Back") #'lispm-desktop-store-back
+                                     :help (lispm-desktop-tr "Go back to the items"))
       (insert (lispm-desktop-store--fit (lispm-desktop-store--title) (- width gx right (lispm-desktop-px 12))
                                         '(:inherit lispm-ui-list :weight bold))))
     (insert (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right right))))
-    (lispm-desktop-platinum-insert-push-button label #'lispm-desktop-store-check-for-updates
-                                               :help (lispm-desktop-tr "Fetch the catalogs again")
-                                               :disabled lispm-desktop-store--checking)
+    (lispm-ui-insert-push-button label #'lispm-desktop-store-check-for-updates
+                                 :help (lispm-desktop-tr "Fetch the catalogs again")
+                                 :disabled lispm-desktop-store--checking)
     (insert "\n" (if (lispm-desktop-tty-p) "" (concat (propertize " " 'display '(space :height (8))) "\n")))
     field))
 
@@ -2822,8 +2822,8 @@ RIGHT goes on a line of its own under LEFT."
                (pcase button
                  ((pred stringp) (insert (propertize button 'face face)))
                  (`(,label ,command ,disabled . ,default)
-                  (lispm-desktop-platinum-insert-push-button label (lambda () (call-interactively command))
-                                                             :disabled disabled :default (car default)))))
+                  (lispm-ui-insert-push-button label (lambda () (call-interactively command))
+                                               :disabled disabled :default (car default)))))
              buttons))))
     (unless (lispm-desktop-tty-p)
       (insert (propertize " " 'display '(space :height (6))) "\n"))
@@ -3657,7 +3657,7 @@ the composing ends."
                (width (if window (window-body-width window t) 640))
                (height (if window (window-body-height window t) 600))
                (here (if window (window-point window) (point)))
-               (button (get-text-property here 'lispm-desktop-platinum-label))
+               (button (get-text-property here 'lispm-ui-label))
                (bounds (lispm-desktop-store--field-bounds))
                (in-field (and bounds (<= (car bounds) here (cdr bounds))
                               (list (- here (car bounds))
@@ -3695,8 +3695,8 @@ the composing ends."
                 (set-marker (mark-marker) (min to (+ from mark))))))
            ((and button same)
             (let ((position (point-min)))
-              (while (and (setq position (next-single-property-change position 'lispm-desktop-platinum-label))
-                          (not (equal (get-text-property position 'lispm-desktop-platinum-label) button))))
+              (while (and (setq position (next-single-property-change position 'lispm-ui-label))
+                          (not (equal (get-text-property position 'lispm-ui-label) button))))
               (goto-char (or position (point-min)))))
            (same
             (goto-char (min here (point-max)))))
@@ -3708,8 +3708,8 @@ the composing ends."
           ;; Icons as images where the terminal shows them.
           (when (and window (lispm-desktop-tty-p))
             (lispm-desktop-tty-images-show-marked window))
-          (setq lispm-desktop-platinum-focus nil)
-          (lispm-desktop-platinum-show-focus)
+          (setq lispm-ui-focus nil)
+          (lispm-ui-show-focus)
           (force-mode-line-update)
           (when (and window (eq lispm-desktop-store--view 'grid))
             (lispm-desktop-store--measure window height)))))))
@@ -4379,7 +4379,7 @@ under its icon on its page."
                                               lispm-desktop-store--selected
                                               (cdr (assq lispm-desktop-store--selected (lispm-desktop-store-items))))))))
              (lispm-desktop-popup-menu (lispm-desktop-store--item-items)
-                                       (+ x bx) (+ y by lispm-desktop-platinum-button-height))))))))))
+                                       (+ x bx) (+ y by lispm-ui-button-height))))))))))
 
 (defvar-keymap lispm-desktop-store-grid-map
   :doc "Keymap of the App Store's grid, for the mouse.  The second click of
@@ -4476,7 +4476,7 @@ a grid of icons in pages, or an item's page in its place.
   (add-hook 'window-selection-change-functions #'lispm-desktop-store--follow-focus nil t)
   (add-hook 'after-change-functions #'lispm-desktop-store--field-changed nil t)
   (add-hook 'pre-command-hook #'lispm-desktop-store--replace-marked nil t)
-  (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
+  (add-hook 'post-command-hook #'lispm-ui-show-focus nil t)
   (add-hook 'post-command-hook #'lispm-desktop-store--follow-focus nil t)
   ;; The window holds what it shows whole: the wheel turns nothing, and
   ;; what a command scrolled goes back.

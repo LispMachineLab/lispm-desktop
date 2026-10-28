@@ -145,17 +145,17 @@ windows and the menu bar are left as they are, which
 (defun lispm-desktop-platinum-press (position pressed-p command)
   "Hold a button down from the press at POSITION until the mouse button rises.
 The button is drawn pushed in, through the window parameter
-`lispm-desktop-platinum-pressed' that the drawing reads, until the release;
+`lispm-ui-pressed' that the drawing reads, until the release;
 COMMAND then runs, with no arguments, only when PRESSED-P accepts the
 release's position: as on Mac OS 9, moving off a button before letting go
 cancels."
   (let ((window (posn-window position))
         (target (lispm-desktop-platinum--press-target position)))
-    (set-window-parameter window 'lispm-desktop-platinum-pressed target)
+    (set-window-parameter window 'lispm-ui-pressed target)
     (with-current-buffer (window-buffer window) (force-mode-line-update))
     (redisplay t)
     (let ((release (let ((echo-keystrokes 0)) (lispm-ui-modal-read-event))))
-      (set-window-parameter window 'lispm-desktop-platinum-pressed nil)
+      (set-window-parameter window 'lispm-ui-pressed nil)
       (with-current-buffer (window-buffer window) (force-mode-line-update))
       (when (and (consp release)
                  (eq (event-basic-type release) 'mouse-1)
@@ -180,7 +180,7 @@ That is the text property `lispm-desktop-platinum-target'."
 
 (defun lispm-desktop-platinum-pressed-p (target)
   "Return non-nil while TARGET is held down in the window being drawn."
-  (equal (window-parameter (selected-window) 'lispm-desktop-platinum-pressed) target))
+  (equal (window-parameter (selected-window) 'lispm-ui-pressed) target))
 
 (defun lispm-desktop-platinum-box-button (string kind command help)
   "Return STRING as title bar box KIND, which runs COMMAND with its window.
@@ -400,7 +400,7 @@ collapses; a window collapses only when another shares its column."
                      (when-let* ((active (buffer-local-value 'lispm-desktop-platinum-active-function
                                                              buffer)))
                        (funcall active window))))
-         (pressed (window-parameter window 'lispm-desktop-platinum-pressed))
+         (pressed (window-parameter window 'lispm-ui-pressed))
          (width (- (window-pixel-width window)
                    (window-right-divider-width window)
                    (window-scroll-bar-width window)))
