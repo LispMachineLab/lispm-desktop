@@ -448,6 +448,26 @@ row's text."
   "Draw the row from BEG to END as a list's row, a lit line atop it."
   (add-face-text-property beg end 'lispm-desktop-platinum-row t))
 
+(defvar-local lispm-desktop-sidebar--current nil
+  "The overlay marking the row of what is being worked on elsewhere, or nil.")
+
+(defun lispm-desktop-sidebar-mark-current (position)
+  "Mark the row at POSITION as naming what is being worked on elsewhere,
+see `lispm-desktop-platinum-row-current', or no row when POSITION is nil.
+The mark lies under the highlight of the row at point, the selection
+while the list has the keyboard.  A list drawn anew is marked again."
+  (if (null position)
+      (when lispm-desktop-sidebar--current
+        (delete-overlay lispm-desktop-sidebar--current))
+    (let ((beg (save-excursion (goto-char position) (line-beginning-position)))
+          (end (save-excursion (goto-char position) (line-beginning-position 2))))
+      (unless lispm-desktop-sidebar--current
+        (setq lispm-desktop-sidebar--current (make-overlay beg end))
+        (overlay-put lispm-desktop-sidebar--current 'face 'lispm-desktop-platinum-row-current)
+        ;; Below `hl-line-overlay-priority', -50.
+        (overlay-put lispm-desktop-sidebar--current 'priority -60))
+      (move-overlay lispm-desktop-sidebar--current beg end))))
+
 (defun lispm-desktop-sidebar-insert-group (open name meta action help &optional directory)
   "Insert a group's row: a disclosure triangle, OPEN or not, a folder and NAME.
 The folder is badged when DIRECTORY is a git repository.  META sits in

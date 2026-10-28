@@ -7775,6 +7775,81 @@ report themselves through the same functions as terminals."
         (kill-buffer terminal)
         (delete-file lispm-agents-state-file)))))
 
+(ert-deftest lispm-desktop-test-agent-list-marks-the-session-at-work ()
+  "The row of the agent buffer being worked on stands out in the agent
+sidebar, under the highlight of the row at point: a running session's
+row, else its terminal's.  The mark follows the user to another agent
+buffer, stays while a buffer of no agent beside it has the keyboard, and
+goes when no agent buffer is shown."
+  (lispm-desktop-test--with-agents
+      `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
+               :sessions ,(lambda ()
+                            (let ((now (float-time)))
+                              (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
+                                          :title "Fix the build" :time (- now 30))
+                                    (list :agent 'codex :id "0200" :cwd "/tmp/project/"
+                                          :title "Ship it" :time (- now 10)))))))
+    (let ((lispm-agents--session-readers nil)
+          (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
+          (lispm-agents--archived 'unloaded)
+          (lispm-agents-terminal-live-p-function #'buffer-live-p)
+          (session (get-buffer-create "*codex:project:0199*"))
+          (fresh (get-buffer-create "*codex:project:new*"))
+          (notes (get-buffer-create "*lispm-desktop-test-notes*"))
+          (sidebar (get-buffer-create lispm-desktop-agent-list-buffer-name)))
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+            (dolist (terminal (list session fresh))
+              (with-current-buffer terminal
+                (setq major-mode 'lispm-desktop-term-mode
+                      default-directory "/tmp/project/")))
+            (with-current-buffer session
+              (setq lispm-agents-buffer-session-id "0199"))
+            (with-current-buffer sidebar
+              (lispm-desktop-agent-list-mode))
+            (save-window-excursion
+              (delete-other-windows)
+              (cl-flet ((marked ()
+                          (with-current-buffer sidebar
+                            (when-let* ((overlay lispm-desktop-sidebar--current)
+                                        ((overlay-buffer overlay)))
+                              (buffer-substring-no-properties (overlay-start overlay)
+                                                              (overlay-end overlay)))))
+                        (follow (buffer)
+                          (switch-to-buffer buffer)
+                          (lispm-desktop-agent-list--follow-work))
+                        (render ()
+                          (with-current-buffer sidebar
+                            (lispm-desktop-agent-list--render))))
+                (switch-to-buffer session)
+                (render)
+                ;; The session's row, the whole line, under `hl-line''s.
+                (should (string-search "Fix the build" (marked)))
+                (should (string-suffix-p "\n" (marked)))
+                (with-current-buffer sidebar
+                  (should (eq (overlay-get lispm-desktop-sidebar--current 'face)
+                              'lispm-desktop-platinum-row-current))
+                  (should (< (overlay-get lispm-desktop-sidebar--current 'priority) -50)))
+                ;; A terminal without a recorded session: its own row.
+                (follow fresh)
+                (should (string-search "new" (marked)))
+                (should-not (string-search "Fix the build" (marked)))
+                ;; A buffer of no agent beside the session leaves it marked.
+                (follow session)
+                (select-window (split-window))
+                (follow notes)
+                (should (string-search "Fix the build" (marked)))
+                ;; No agent buffer shown, no row marked.
+                (delete-other-windows)
+                (follow notes)
+                (should-not (marked))
+                ;; Drawn anew, the list marks the row again.
+                (follow session)
+                (render)
+                (should (string-search "Fix the build" (marked))))))
+        (mapc #'kill-buffer (list session fresh notes sidebar))
+        (delete-file lispm-agents-state-file)))))
+
 (ert-deftest lispm-desktop-test-agent-list-hides-archived-running-sessions ()
   "An archived session is hidden with the terminal still running it, which
 runs on; showing archived sessions shows it as running again."
