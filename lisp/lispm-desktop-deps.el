@@ -233,6 +233,10 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
     (unless (locate-library file t)
       (if-let* ((directory (lispm-desktop-deps--checkout checkout)))
           (add-to-list 'load-path directory)
+        ;; An Emacs that has not read which packages are installed, as one
+        ;; run with -Q, reads it: else it would install one again.
+        (unless package-alist
+          (package-load-all-descriptors))
         (unless (assq feature package-alist)
           (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
                               (or (lispm-desktop-deps--release-tag url) :last-release)))

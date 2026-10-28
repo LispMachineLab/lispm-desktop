@@ -47,7 +47,7 @@
 (require 'svg)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
-(require 'lispm-desktop-modal)
+(require 'lispm-ui-modal)
 (require 'lispm-desktop-editor)
 (require 'lispm-desktop-i18n)
 
@@ -352,7 +352,7 @@ enough for its buttons and its keys too."
 (defun lispm-desktop-workspaces--target (event frame)
   "Return what EVENT is over in panel FRAME: (workspace . INDEX), (action .
 COMMAND), or nil."
-  (when-let* ((position (lispm-desktop-modal-over event frame))
+  (when-let* ((position (lispm-ui-modal-over event frame))
               (point (posn-point position)))
     (with-current-buffer (window-buffer (posn-window position))
       (cond ((get-text-property point 'lispm-desktop-workspace)
@@ -374,7 +374,7 @@ X, Y of the screen frame, or stands over its upper middle."
                           tabs))
          (current (lispm-desktop-editor--current-workspace))
          (count (length names))
-         (selected (lispm-desktop-modal-cycle (or (seq-position names current) 0) (or step 0)
+         (selected (lispm-ui-modal-cycle (or (seq-position names current) 0) (or step 0)
                                               (max 1 count)))
          (columns (min lispm-desktop-workspaces-columns (max 1 count)))
          (width (lispm-desktop-workspaces--width columns))
@@ -396,8 +396,8 @@ X, Y of the screen frame, or stands over its upper middle."
             (track-mouse
               (catch 'done
                 (while t
-                  (let* ((event (lispm-desktop-modal-read))
-                         (role (lispm-desktop-modal-role event))
+                  (let* ((event (lispm-ui-modal-read))
+                         (role (lispm-ui-modal-role event))
                          ;; Places to move the ring: along a row, or a row
                          ;; down or up.  C-Tab and Command-` step as the
                          ;; system's window switchers do.
@@ -417,7 +417,7 @@ X, Y of the screen frame, or stands over its upper middle."
                      ((and lispm-desktop-popup-menu-bar-step (eq role 'left))
                       (throw 'lispm-desktop-popup-menu-bar-step -1))
                      (move
-                      (setq selected (lispm-desktop-modal-cycle selected move count)) (redraw))
+                      (setq selected (lispm-ui-modal-cycle selected move count)) (redraw))
                      ((and (characterp event) (<= ?1 event ?9) (<= (- event ?0) count))
                       (setq choice (cons 'workspace (nth (- event ?1) names)))
                       (throw 'done nil))
@@ -426,10 +426,10 @@ X, Y of the screen frame, or stands over its upper middle."
                         (`(workspace . ,index)
                          (unless (= index selected)
                            (setq selected index) (redraw)))))
-                     ((lispm-desktop-modal-mouse-down-p event)
-                      (unless (lispm-desktop-modal-over event popup)
+                     ((lispm-ui-modal-mouse-down-p event)
+                      (unless (lispm-ui-modal-over event popup)
                         (throw 'done nil)))
-                     ((lispm-desktop-modal-mouse-up-p event)
+                     ((lispm-ui-modal-mouse-up-p event)
                       (pcase (lispm-desktop-workspaces--target event popup)
                         (`(workspace . ,index)
                          (setq choice (cons 'workspace (nth index names)))

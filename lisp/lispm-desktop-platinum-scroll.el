@@ -364,7 +364,7 @@ THUMB is its (TOP . LENGTH) when the drag began; FRAME holds the bar."
          (track (plist-get layout :track-length))
          (length (cdr thumb)))
     (track-mouse
-      (while (mouse-movement-p (let ((echo-keystrokes 0)) (lispm-desktop-modal-read-event)))
+      (while (mouse-movement-p (let ((echo-keystrokes 0)) (lispm-ui-modal-read-event)))
         (let* ((top (max from (min (+ from (- track length))
                                    (- (lispm-desktop-platinum--scroll-mouse-y frame) grab))))
                (fraction (/ (float (- top from)) (max 1 (- track length)))))

@@ -974,6 +974,7 @@ release from its repository, lisp/ holding its sources."
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) found))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (setq found "/elsewhere/lispm-browser.el")
       (lispm-desktop-deps-ensure 'lispm-browser)
@@ -993,7 +994,8 @@ release from its repository, lisp/ holding its sources."
   "A project package-vc installs that package.el leaves inactive, as it
 leaves one requiring another the desktop has as a checkout, LispM UI
 requiring lispm-kit, is activated without its requirements; installed
-already, inactive, it is activated, not installed again."
+already, inactive, it is activated, not installed again, though this
+Emacs has not read which packages are installed."
   (let* ((desc (package-desc-create :name 'lispm-ui :kind 'vc :dir "/elpa/lispm-ui/"))
          (package-alist nil)
          (installed nil)
@@ -1009,13 +1011,22 @@ already, inactive, it is activated, not installed again."
                  (push (list spec rev) installed)
                  (push (list 'lispm-ui desc) package-alist)))
               ((symbol-function 'package-activate-1)
-               (lambda (pkg &rest _) (push pkg active))))
+               (lambda (pkg &rest _) (push pkg active)))
+              ((symbol-function 'package-load-all-descriptors) #'ignore))
       (lispm-desktop-deps-ensure 'lispm-ui)
       (should (equal installed '(((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui") "v0.1.0"))))
       (should (equal active (list desc)))
       ;; The next start: installed, left inactive again.
       (setq active nil)
       (lispm-desktop-deps-ensure 'lispm-ui)
+      (should (= (length installed) 1))
+      (should (equal active (list desc)))
+      ;; An Emacs run with -Q, which has not read which packages are
+      ;; installed: it reads it, and installs nothing again.
+      (setq active nil package-alist nil)
+      (cl-letf (((symbol-function 'package-load-all-descriptors)
+                 (lambda () (push (list 'lispm-ui desc) package-alist))))
+        (lispm-desktop-deps-ensure 'lispm-ui))
       (should (= (length installed) 1))
       (should (equal active (list desc))))))
 
@@ -1039,6 +1050,7 @@ sources at the top of its repository."
               ((symbol-function 'lispm-desktop-deps--checkout) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) "v0.2.0"))
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (lispm-desktop-deps-ensure 'lispm-kit))
     (should (equal installed '(((lispm-kit :url "https://github.com/LispMachineLab/lispm-kit") "v0.2.0"))))))
@@ -1085,6 +1097,7 @@ newest tag, or what package-vc takes for it before the first."
     (cl-letf (((symbol-function 'locate-library) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) release))
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
                  (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
@@ -1126,6 +1139,7 @@ when package-vc installed it, else an error says what to update."
                                                    (and (equal file "lispm-desktop-test-lib.el") main)))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       ;; Beside the desktop, the checkout itself joins `load-path'.
       (should (equal (lispm-desktop-deps--checkout "lispm-desktop-test-lib") beside))
@@ -1175,16 +1189,17 @@ a whole symbol wherever written, or every symbol starting with a prefix,
 never a longer name a renamed one starts."
   (load (expand-file-name "scripts/lispm-ui-rename.el" lispm-desktop-directory) nil t)
   (with-temp-buffer
-    (insert "(lispm-desktop-modal-read) (lispm-desktop-modal-role ?a)\n"
-            ";; `lispm-desktop-modal-read' reads \"lispm-desktop-popup-alert\".\n"
-            "(lispm-desktop-popup-alert-width x-lispm-desktop-popup-alert lispm-desktop-popup-alert)\n")
-    (should (= (lispm-desktop-rename-buffer '((:prefix "lispm-desktop-modal-" . "lispm-ui-modal-")
-                                              ("lispm-desktop-popup-alert" . "lispm-ui-alert")))
+    ;; Names no move renames, so that the table never renames them here.
+    (insert "(lispm-desktop-sample-read) (lispm-desktop-sample-role ?a)\n"
+            ";; `lispm-desktop-sample-read' reads \"lispm-desktop-example\".\n"
+            "(lispm-desktop-example-width x-lispm-desktop-example lispm-desktop-example)\n")
+    (should (= (lispm-desktop-rename-buffer '((:prefix "lispm-desktop-sample-" . "lispm-ui-sample-")
+                                              ("lispm-desktop-example" . "lispm-ui-example")))
                5))
     (should (equal (buffer-string)
-                   (concat "(lispm-ui-modal-read) (lispm-ui-modal-role ?a)\n"
-                           ";; `lispm-ui-modal-read' reads \"lispm-ui-alert\".\n"
-                           "(lispm-desktop-popup-alert-width x-lispm-desktop-popup-alert lispm-ui-alert)\n"))))
+                   (concat "(lispm-ui-sample-read) (lispm-ui-sample-role ?a)\n"
+                           ";; `lispm-ui-sample-read' reads \"lispm-ui-example\".\n"
+                           "(lispm-desktop-example-width x-lispm-desktop-example lispm-ui-example)\n"))))
   ;; The table reads, and has been applied: none of its old names is left.
   (let ((renames (lispm-desktop-rename-read)))
     (should (listp renames))
@@ -4901,7 +4916,7 @@ from the edge."
       (should (= dont (- lispm-desktop-popup-alert-text-x 4)))
       (should (= (+ save save-width 3) (- w 12)))
       (should (= (- (- save 3) (+ cancel cancel-width)) lispm-desktop-popup-button-gap)))
-    (cl-letf (((symbol-function 'lispm-desktop-modal-over)
+    (cl-letf (((symbol-function 'lispm-ui-modal-over)
                (lambda (event _frame) (event-start event)))
               ((symbol-function 'frame-parameter) (lambda (&rest _) buttons)))
       (pcase-let ((`(,_ ,_ ,_ ,x ,y ,_) (nth 1 buttons)))
@@ -4934,105 +4949,13 @@ of Cancel; one whose words fit keeps the width."
           (should (= (- cancel (+ apart apart-width)) (* 2 lispm-desktop-popup-button-gap)))
           (should (= (+ default default-width 3) (- w 12))))))))
 
-;;;; lispm-desktop-modal
-
-(ert-deftest lispm-desktop-test-modal-key-roles ()
-  "Every role of a key in a modal panel has a key the HHKB types: C-i for
-Tab, C-m for Return, C-[ and C-g for Escape, DEL for Back, and C-f, C-b,
-C-n and C-p for the arrows, which stay as well."
-  (should (eq (lispm-desktop-modal-role ?\C-i) 'next))
-  (should (eq (lispm-desktop-modal-role 'backtab) 'previous))
-  (should (eq (lispm-desktop-modal-role ?\C-m) 'confirm))
-  (should (eq (lispm-desktop-modal-role ?\C-\[) 'cancel))
-  (should (eq (lispm-desktop-modal-role ?\C-g) 'cancel))
-  (should (eq (lispm-desktop-modal-role ?\M-.) 'cancel))
-  (should (eq (lispm-desktop-modal-role ?\d) 'back))
-  (should (eq (lispm-desktop-modal-role ?\s) 'press))
-  (should (equal (mapcar #'lispm-desktop-modal-step '(?\C-f ?\C-n tab right ?\C-b ?\C-p backtab up ?a))
-                 '(1 1 1 1 -1 -1 -1 -1 nil)))
-  (should-not (lispm-desktop-modal-role ?a)))
-
-(ert-deftest lispm-desktop-test-modal-cycle ()
-  "A focus ring wraps around; from no control it goes to the first or the
-last, and it passes over the controls it is told to."
-  (should (= (lispm-desktop-modal-cycle 2 1 3) 0))
-  (should (= (lispm-desktop-modal-cycle 0 -1 3) 2))
-  (should (= (lispm-desktop-modal-cycle nil 1 3) 0))
-  (should (= (lispm-desktop-modal-cycle nil -1 3) 2))
-  (should (= (lispm-desktop-modal-cycle 1 4 6) 5))
-  (should (= (lispm-desktop-modal-cycle 0 1 4 (lambda (index) (/= index 1))) 2))
-  (should-not (lispm-desktop-modal-cycle 0 1 4 #'ignore))
-  (should-not (lispm-desktop-modal-cycle nil 1 0)))
-
-(ert-deftest lispm-desktop-test-modal-hit ()
-  "A click is on a control when it lies in its rectangle, the left and top
-edges in, the right and bottom out."
-  (let ((layout '((a 10 10 20 10) (b 30 10 20 10) (c 0 0 0 0))))
-    (should (eq (lispm-desktop-modal-hit layout 10 10) 'a))
-    (should (eq (lispm-desktop-modal-hit layout 29 19) 'a))
-    (should (eq (lispm-desktop-modal-hit layout 30 10) 'b))
-    (should-not (lispm-desktop-modal-hit layout 50 10))
-    (should-not (lispm-desktop-modal-hit layout 20 20))
-    (should-not (lispm-desktop-modal-hit layout 0 0))
-    (should-not (lispm-desktop-modal-inside-p nil 0 0))))
-
-(ert-deftest lispm-desktop-test-modal-flash ()
-  "A control chosen blinks for its kind's time: a button eight ticks, a
-menu item three, drawn back as it was when asked."
-  (let ((log nil))
-    (cl-letf (((symbol-function 'sit-for) (lambda (seconds) (push (list 'wait seconds) log)))
-              ((symbol-function 'redisplay) #'ignore))
-      (lispm-desktop-modal-flash 'button (lambda () (push 'pressed log)))
-      (should (equal (reverse log) '(pressed (wait 0.133))))
-      (setq log nil)
-      (lispm-desktop-modal-flash 'menu-item (lambda () (push 'off log)) (lambda () (push 'on log)))
-      (should (equal (reverse log) '(off (wait 0.05) on))))))
-
-(ert-deftest lispm-desktop-test-modal-needs-no-platinum ()
-  "The modal kit stands on its own: it loads none of the desktop's files."
-  (with-temp-buffer
-    (insert-file-contents (expand-file-name "lisp/lispm-desktop-modal.el" lispm-desktop-directory))
-    (should-not (re-search-forward "(require 'lispm-desktop" nil t))))
-
-(ert-deftest lispm-desktop-test-modal-hold ()
-  "A control held with the mouse is drawn pushed in only while the mouse
-is over it, and chosen only when the button rises over it; Escape gives
-up."
-  (let ((draws nil))
-    (cl-flet ((hold (events)
-                (setq draws nil)
-                (let ((unread-command-events events))
-                  (lispm-desktop-modal-hold (lambda (event) (eq (cadr event) 'on))
-                                            (lambda (in) (push in draws))))))
-      (should (hold '((mouse-movement off) (mouse-movement on) (mouse-1 on))))
-      (should (equal (reverse draws) '(t nil t nil)))
-      (should-not (hold '((mouse-movement off) (mouse-1 off))))
-      (should (equal (reverse draws) '(t nil)))
-      (should-not (hold '(escape)))
-      (should (equal (reverse draws) '(t nil))))))
+;;;; The desktop's modal panels, on LispM UI's lispm-ui-modal
 
 (ert-deftest lispm-desktop-test-store-grid-buttons-press-on-release ()
   "The App Store's grid buttons are held pushed in from the press, as
 Mac OS 9's buttons were, and pressed as the mouse rises over them."
   (should (eq (keymap-lookup lispm-desktop-store-grid-map "<down-mouse-1>")
               #'lispm-desktop-store--grid-press)))
-
-(ert-deftest lispm-desktop-test-modal-moved-p ()
-  "A move of the mouse by more than `double-click-fuzz' is a drag; less is
-a hand's jitter in a click.  In a text terminal's cells, of which Emacs
-reads the fuzz as eighths, a cell is a drag."
-  (let ((double-click-fuzz 3))
-    (should-not (lispm-desktop-modal-moved-p '(3 . -3)))
-    (should (lispm-desktop-modal-moved-p '(4 . 0)))
-    (should (lispm-desktop-modal-moved-p '(0 . -4)))
-    (should-not (lispm-desktop-modal-moved-p nil))
-    (should (lispm-desktop-modal-moved-p '(1 . 0) t))
-    (should (lispm-desktop-modal-moved-p '(0 . -1) t))
-    (should-not (lispm-desktop-modal-moved-p '(0 . 0) t))
-    (should-not (lispm-desktop-modal-moved-p nil t)))
-  (let ((double-click-fuzz 16))
-    (should-not (lispm-desktop-modal-moved-p '(2 . 0) t))
-    (should (lispm-desktop-modal-moved-p '(3 . 0) t))))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
@@ -16599,7 +16522,7 @@ holds each state of the dialog drawn, the latest first."
   `(let ((shown nil))
      (cl-letf (((symbol-function 'lispm-desktop-popup-graphic-p) (lambda () t))
                ;; The events queued, and no waiting for more.
-               ((symbol-function 'lispm-desktop-modal-read-event)
+               ((symbol-function 'lispm-ui-modal-read-event)
                 (lambda (&optional _timeout)
                   (or (pop unread-command-events) (error "The dialog waits for more events"))))
                ((symbol-function 'lispm-desktop-popup-make-frame) (lambda (&rest _) 'dialog))
@@ -16687,7 +16610,7 @@ scroll bar's arrows and track scroll the list."
       (lispm-desktop-choose--go dialog folder)
       (cl-flet ((click (part &optional dx dy double)
                   (pcase-let ((`(,x ,y ,_ ,_) (plist-get layout part)))
-                    (cl-letf (((symbol-function 'lispm-desktop-modal-over)
+                    (cl-letf (((symbol-function 'lispm-ui-modal-over)
                                (lambda (event _frame) (event-start event))))
                       (lispm-desktop-choose--click
                        'dialog dialog
