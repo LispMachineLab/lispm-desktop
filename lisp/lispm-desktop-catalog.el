@@ -64,7 +64,10 @@
 ;; :package is absent for a part of Emacs, the name of a package of the
 ;; package archives, or (NAME :url URL :rev SHA), a git repository
 ;; pinned to a commit, :lisp-dir naming its Lisp's directory when it is
-;; not at the top.  Nothing builds with a command: no :make nor
+;; not at the top, :assets the files its releases build, as a secret kept
+;; out of its source: ((FILE :url URL :sha256 SHA) ...), each downloaded
+;; from URL beside the package as FILE, a plain file name, and kept only
+;; when its SHA-256 is SHA.  Nothing builds with a command: no :make nor
 ;; :shell-command anywhere.  An application opens with :command, a
 ;; command its package autoloads, which the App Store runs in the
 ;; application's window; or, running windows of its own, as Stickies,
@@ -163,7 +166,7 @@ NAME, formatted with each FORMAT.")
 (defconst lispm-desktop-catalog-forbidden '(:make :shell-command)
   "Properties no item holds anywhere: they would build with a command.")
 
-(defconst lispm-desktop-catalog-package-properties '(:url :rev :lisp-dir)
+(defconst lispm-desktop-catalog-package-properties '(:url :rev :lisp-dir :assets)
   "The properties of a package pinned to a commit of its repository.")
 
 (defconst lispm-desktop-catalog-need-kinds '(program library application)
@@ -307,6 +310,33 @@ a name Homebrew would not give is an error."
 
 ;;;; Items
 
+(defun lispm-desktop-catalog--assets-problems (assets)
+  "Return what is wrong with ASSETS, the :assets of a package from git."
+  (lispm-desktop-catalog--saying
+    (cond
+     ((null assets))
+     ((not (and (proper-list-p assets) (seq-every-p #'consp assets)))
+      (wrong ":assets is a list of (FILE :url URL :sha256 SHA)"))
+     (t
+      (let ((seen nil))
+        (pcase-dolist (`(,file . ,props) assets)
+          (cond ((not (and (stringp file) (string-match-p "\\`[A-Za-z0-9][A-Za-z0-9._-]*\\'" file)))
+                 (wrong ":assets' %S is not a plain file name" file))
+                ((member file seen) (wrong ":assets names %s twice" file))
+                ((not (lispm-desktop-catalog--plist-p props))
+                 (wrong ":assets' %s is (FILE :url URL :sha256 SHA)" file))
+                (t
+                 (let ((url (plist-get props :url))
+                       (sha256 (plist-get props :sha256)))
+                   (unless (and (stringp url) (string-match-p "\\`https://[^ ]+\\'" url))
+                     (wrong ":assets' %s needs :url, an https URL" file))
+                   (unless (and (stringp sha256) (string-match-p "\\`[0-9a-f]\\{64\\}\\'" sha256))
+                     (wrong ":assets' %s needs :sha256, its SHA-256 in 64 hexadecimal digits" file))
+                   (dolist (key (lispm-desktop-catalog--keys props))
+                     (unless (memq key '(:url :sha256))
+                       (short ":assets' %s has %s; only :url and :sha256 are allowed" file key))))))
+          (push file seen)))))))
+
 (defun lispm-desktop-catalog--package-problems (package kind)
   "Return what is wrong with PACKAGE, the :package of an item of KIND."
   (lispm-desktop-catalog--saying
@@ -325,7 +355,7 @@ a name Homebrew would not give is an error."
            (wrong ":package is a package's name or (NAME :url URL :rev SHA)")
          (dolist (key (lispm-desktop-catalog--keys spec))
            (unless (memq key lispm-desktop-catalog-package-properties)
-             (short ":package has %s; only :url, :rev and :lisp-dir are allowed" key)))
+             (short ":package has %s; only :url, :rev, :lisp-dir and :assets are allowed" key)))
          (let ((url (plist-get spec :url))
                (rev (plist-get spec :rev))
                (dir (plist-get spec :lisp-dir)))
@@ -336,7 +366,10 @@ a name Homebrew would not give is an error."
                  ((not (string-match-p "\\`[0-9a-f]\\{40\\}\\'" rev))
                   (short ":package's :rev is a full 40-character commit SHA")))
            (when (and dir (not (lispm-desktop-catalog-safe-file-p dir)))
-             (wrong ":lisp-dir is a directory inside the package")))))
+             (wrong ":lisp-dir is a directory inside the package"))
+           (pcase-dolist (`(,severity . ,text)
+                          (lispm-desktop-catalog--assets-problems (plist-get spec :assets)))
+             (if (eq severity 'error) (wrong "%s" text) (short "%s" text))))))
       (_ (wrong ":package is a package's name or (NAME :url URL :rev SHA)")))))
 
 (defun lispm-desktop-catalog-category-problems (kind category)

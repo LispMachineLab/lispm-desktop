@@ -9355,6 +9355,89 @@ whose :emacs this Emacs is installs as any other."
     (should-error (lispm-desktop-store--check-program newer) :type 'user-error)
     (should-not (lispm-desktop-store--check-program here))))
 
+(ert-deftest lispm-desktop-test-catalog-assets ()
+  "A package's :assets are files with plain names, each from an https URL
+and pinned by its SHA-256; anything else keeps the item out."
+  (let* ((sha (make-string 64 ?a))
+         (item (lambda (assets)
+                 (cons 'elfeed
+                       (append (lispm-desktop-store--plist-without (cdr lispm-desktop-test--listed-app) :package)
+                               `(:package (elfeed :url "https://github.com/skeeto/elfeed"
+                                                  :rev "acbb86e342d2b8f85dfb30dce9df01db9a829c77"
+                                                  :assets ,assets)))))))
+    (should-not (lispm-desktop-test--problems
+                 (funcall item `(("elfeed-secrets.eld" :url "https://example.org/s.eld" :sha256 ,sha)))))
+    (dolist (case `(((("../x" :url "https://example.org/x" :sha256 ,sha)) "not a plain file name")
+                    ((("a/x" :url "https://example.org/x" :sha256 ,sha)) "not a plain file name")
+                    (((".x" :url "https://example.org/x" :sha256 ,sha)) "not a plain file name")
+                    ((("x" :url "http://example.org/x" :sha256 ,sha)) "https URL")
+                    ((("x" :url "https://example.org/x" :sha256 "abc")) "64 hexadecimal digits")
+                    ((("x" :url "https://example.org/x")) "64 hexadecimal digits")
+                    ((("x" :url "https://example.org/x" :sha256 ,sha)
+                      ("x" :url "https://example.org/y" :sha256 ,sha))
+                     "twice")
+                    ("x" ":assets is a list")))
+      (pcase-let ((`(,assets ,said) case))
+        (should (equal (list assets (and (seq-find (lambda (text) (string-search said text))
+                                                   (lispm-desktop-test--problems (funcall item assets) 'error))
+                                         t))
+                       (list assets t)))))
+    (should (seq-find (lambda (text) (string-search "only :url and :sha256" text))
+                      (lispm-desktop-test--problems
+                       (funcall item `(("x" :url "https://example.org/x" :sha256 ,sha :mode "600")))
+                       'warning)))))
+
+(ert-deftest lispm-desktop-test-store-fetch-assets ()
+  "A package's :assets are downloaded beside it, each kept only when its
+SHA-256 is the one pinned; a package installed already gets them too,
+and package-vc is never given them."
+  (let* ((directory (make-temp-file "lispm-desktop-assets" t))
+         (package-alist (list (list 'mailpkg (package-desc-create :name 'mailpkg :dir directory))))
+         (data "((google :client-secret \"s\"))\n")
+         (sha (secure-hash 'sha256 data))
+         (asked nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-store--download)
+                   (lambda (url) (push url asked) data)))
+          (lispm-desktop-store--fetch-assets
+           'mailpkg `(("mailpkg-secrets.eld" :url "https://example.org/s.eld" :sha256 ,sha)))
+          (should (equal asked '("https://example.org/s.eld")))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents-literally (expand-file-name "mailpkg-secrets.eld" directory))
+                           (buffer-string))
+                         data))
+          ;; Not the file pinned: the one there is kept, nothing else left.
+          (should (string-search "not the file the catalog pins"
+                                 (cadr (should-error (lispm-desktop-store--fetch-assets
+                                                      'mailpkg `(("mailpkg-secrets.eld" :url "https://example.org/t"
+                                                                  :sha256 ,(make-string 64 ?0))))))))
+          (should (equal (directory-files directory nil "\\`[^.]\\|\\`\\.[^.]") '("mailpkg-secrets.eld")))
+          (should-error (lispm-desktop-store--fetch-assets
+                         'mailpkg `(("../out" :url "https://example.org/s.eld" :sha256 ,sha))))
+          (should-not (file-exists-p (expand-file-name "out" (file-name-directory directory))))
+          ;; Installed now, or already: the assets come beside it.
+          (let ((installed nil) (fetched nil) (present nil))
+            (cl-letf (((symbol-function 'package-installed-p) (lambda (_) present))
+                      ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed)))
+                      ((symbol-function 'lispm-desktop-store--fetch-assets)
+                       (lambda (name assets) (push (cons name assets) fetched))))
+              (let ((package `(mailpkg :url "https://example.org/mailpkg" :rev "r1"
+                                       :assets (("f" :url "https://example.org/f" :sha256 ,sha)))))
+                (should (equal (lispm-desktop-store--install-package package) "r1"))
+                (should (equal installed '(((mailpkg :url "https://example.org/mailpkg") "r1"))))
+                (setq present t)
+                (lispm-desktop-store--install-package package)
+                (should (= (length installed) 1))
+                (should (equal fetched (make-list 2 (cons 'mailpkg (plist-get (cdr package) :assets))))))))
+          ;; An update in the background passes them on.
+          (let ((repinned nil))
+            (cl-letf (((symbol-function 'lispm-desktop-store--repin)
+                       (lambda (&rest args) (setq repinned args))))
+              (should (equal (lispm-desktop-store-installer--update 'mailpkg "r2" "r1" '(("f")))
+                             "r2"))
+              (should (equal repinned '(mailpkg "r2" (("f"))))))))
+      (delete-directory directory t))))
+
 (ert-deftest lispm-desktop-test-catalog-item-problems ()
   "The format of a catalog's item is said once: an item listed with
 everything is well; one the App Store cannot list, unsafe or short of
@@ -9784,7 +9867,7 @@ without anything else to do, for one with a package with its update."
                              (lispm-desktop-store--changes (lispm-desktop-store--installed 'elfeed)
                                                            (cdr (assq 'elfeed (lispm-desktop-store-items)))
                                                            'elfeed)))
-      (cl-letf (((symbol-function 'lispm-desktop-store--repin) (lambda (name rev) (setq repinned (list name rev))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--repin) (lambda (name rev &optional _assets) (setq repinned (list name rev))))
                 ((symbol-function 'lispm-desktop-store--register) #'ignore))
         (lispm-desktop-store-update 'elfeed t))
       (should (equal repinned '(elfeed "bbb")))
@@ -10690,7 +10773,7 @@ ready."
                      '("Update" . update)))
       (let ((repinned nil))
         (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
-                  ((symbol-function 'lispm-desktop-store--repin) (lambda (name rev) (push (cons name rev) repinned))))
+                  ((symbol-function 'lispm-desktop-store--repin) (lambda (name rev &optional _assets) (push (cons name rev) repinned))))
           (lispm-desktop-store-update 'elfeed)
           (lispm-desktop-store-act 'ext)
           (should (equal repinned '((lispm-desktop-test-ext . "new") (elfeed . "new"))))
@@ -14307,7 +14390,7 @@ the commit its catalog pins now, and is kept as installed so."
       (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
                  (lambda (&rest _) (error "Asked")))
                 ((symbol-function 'lispm-desktop-store--repin)
-                 (lambda (name rev) (setq repinned (list name rev))))
+                 (lambda (name rev &optional _assets) (setq repinned (list name rev))))
                 ((symbol-function 'lispm-desktop-store--register) #'ignore))
         (lispm-desktop-store-update 'elfeed t))
       (should (equal repinned '(elfeed "bbb")))

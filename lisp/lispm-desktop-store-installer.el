@@ -50,6 +50,11 @@
 ;;
 ;; Everything else it says, on its standard error, is the job's log.
 ;;
+;; A package from git may come with files its releases build, as a secret
+;; kept out of its source: its :assets, downloaded beside it once it is
+;; installed or checked out, each kept only when its SHA-256 is the one
+;; the catalog pins, see `lispm-desktop-store--fetch-assets'.
+;;
 ;; A package may require one of LispM's libraries that no package archive
 ;; holds, as lispm-gl requires lispm-prebuilt: it is installed first, from
 ;; git at its latest release, see `lispm-desktop-store-installer-libraries'.
@@ -69,6 +74,9 @@
 
 (declare-function package-vc-install "package-vc" (package &optional rev backend name))
 (declare-function package-vc-rebuild "package-vc" (pkg-desc))
+(declare-function url-retrieve-synchronously "url" (url &optional silent inhibit-cookies timeout))
+(defvar url-http-response-status)
+(defvar lispm-desktop-store-installer--reporting)
 
 ;;;; Git
 
@@ -124,7 +132,8 @@ inherited GIT_DIR would name, and no prompt for a password."
 (defun lispm-desktop-store--install-package (package)
   "Install PACKAGE, an item's :package; return what is installed: the
 commit of a package from git, the version of one from the archives, or
-\"built-in\".  A package installed already is left as it is."
+\"built-in\".  A package installed already is left as it is, but for
+the :assets of one from git, downloaded again."
   (pcase package
     ('nil "built-in")
     ((pred symbolp)
@@ -141,12 +150,54 @@ commit of a package from git, the version of one from the archives, or
              (user-error "%s is in the way of %s; move it away first"
                          (abbreviate-file-name directory) name)))
          (require 'package-vc)
-         (package-vc-install (cons name (lispm-desktop-store--plist-without spec :rev)) rev))
+         (package-vc-install (cons name (lispm-desktop-store--plist-without spec :rev :assets)) rev))
+       (lispm-desktop-store--fetch-assets name (plist-get spec :assets))
        rev))))
 
-(defun lispm-desktop-store--repin (name rev)
+(defun lispm-desktop-store--download (url)
+  "Return what is at URL, unibyte, or signal why it was not got."
+  (require 'url)
+  (let ((buffer (or (url-retrieve-synchronously url t t 120)
+                    (error "%s did not answer" url))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((status (bound-and-true-p url-http-response-status)))
+            (unless (eql status 200)
+              (error "%s answered %s" url status)))
+          (set-buffer-multibyte nil)
+          ;; The headers end at the first empty line.
+          (goto-char (point-min))
+          (re-search-forward "^\r?\n")
+          (buffer-substring-no-properties (point) (point-max)))
+      (kill-buffer buffer))))
+
+(defun lispm-desktop-store--fetch-assets (name assets)
+  "Put ASSETS, the :assets of a package from git, beside the package NAME:
+each (FILE :url URL :sha256 SHA) is downloaded from URL into the
+package's directory as FILE, and kept only when its SHA-256 is SHA."
+  (when assets
+    (let ((directory (package-desc-dir (or (cadr (assq name package-alist))
+                                           (error "%s is not installed" name)))))
+      (when lispm-desktop-store-installer--reporting
+        (lispm-desktop-store-installer--stage 'download))
+      (pcase-dolist (`(,file . ,props) assets)
+        (unless (and (stringp file) (equal file (file-name-nondirectory file))
+                     (not (member file '("" "." ".."))))
+          (error "%S is not a file's name" file))
+        (let* ((url (plist-get props :url))
+               (data (lispm-desktop-store--download url))
+               (sha256 (secure-hash 'sha256 data)))
+          (unless (equal sha256 (plist-get props :sha256))
+            (error "%s is not the file the catalog pins: its SHA-256 is %s" url sha256))
+          (let ((temporary (make-temp-file (expand-file-name (concat "." file) directory)))
+                (coding-system-for-write 'no-conversion))
+            (write-region data nil temporary nil 'silent)
+            (rename-file temporary (expand-file-name file directory) t)))))))
+
+(defun lispm-desktop-store--repin (name rev &optional assets)
   "Check the package NAME, installed from git, out at commit REV, and build
-it again, as `package-vc-upgrade' would build it."
+it again, as `package-vc-upgrade' would build it; then download ASSETS,
+its :assets, beside it."
   (let* ((desc (or (cadr (assq name package-alist)) (user-error "%s is not installed" name)))
          (directory (package-desc-dir desc))
          (present (lambda ()
@@ -159,7 +210,8 @@ it again, as `package-vc-upgrade' would build it."
         (lispm-desktop-store-installer--fetch directory "origin" rev)))
     (lispm-desktop-store--git directory "checkout" "--quiet" "--detach" rev)
     (require 'package-vc)
-    (package-vc-rebuild desc)))
+    (package-vc-rebuild desc)
+    (lispm-desktop-store--fetch-assets name assets)))
 
 ;;;; In an Emacs of its own
 
@@ -409,11 +461,12 @@ leaves the one installed as it was."
       (package-delete old 'force 'dont-unselect))
     (package-version-join (package-desc-version new))))
 
-(defun lispm-desktop-store-installer--update (name rev former)
-  "Check the package NAME out at commit REV and build it again; return REV.
-When that fails, it is checked out at FORMER again."
+(defun lispm-desktop-store-installer--update (name rev former &optional assets)
+  "Check the package NAME out at commit REV, build it again and download
+ASSETS, its :assets, beside it; return REV.  When that fails, it is
+checked out at FORMER again."
   (condition-case err
-      (progn (lispm-desktop-store--repin name rev)
+      (progn (lispm-desktop-store--repin name rev assets)
              rev)
     (error
      (when-let* ((desc (cadr (assq name package-alist))))
@@ -424,7 +477,8 @@ When that fails, it is checked out at FORMER again."
 (defun lispm-desktop-store-installer-run (job)
   "Do JOB for the App Store, in this Emacs run in batch, then exit.
 JOB is (install PACKAGE), PACKAGE an item's :package; (update NAME REV
-FORMER), the package NAME from git to go from commit FORMER to REV; or
+FORMER ASSETS), the package NAME from git to go from commit FORMER to
+REV, with ASSETS, its :assets, beside it; or
 \(upgrade NAME), the package NAME to the package archives' newest.
 How far it is is said on the standard output; Emacs exits with 0 once
 done, else with 1."
@@ -438,9 +492,9 @@ done, else with 1."
                          (`(install ,package)
                           (package-initialize t)
                           (lispm-desktop-store--install-package package))
-                         (`(update ,name ,rev ,former)
+                         (`(update ,name ,rev ,former . ,assets)
                           (package-initialize t)
-                          (lispm-desktop-store-installer--update name rev former))
+                          (lispm-desktop-store-installer--update name rev former (car assets)))
                          (`(upgrade ,name)
                           (package-initialize t)
                           (lispm-desktop-store-installer--upgrade name))
