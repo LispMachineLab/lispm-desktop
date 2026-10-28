@@ -40,15 +40,24 @@
 ;;                              NEW instead
 ;;
 ;; A symbol is renamed wherever its whole name is written: in code, in
-;; quoted names of docstrings and comments, in strings.
+;; quoted names of docstrings and comments, in strings.  A line of code
+;; indented as Emacs Lisp indents it is indented so again, as a name
+;; renamed before it on the line above moves where it lines up.  The
+;; files of `lispm-desktop-rename-kept' keep the old names: they alias
+;; them to the new.
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'seq)
 
 (defconst lispm-desktop-rename-table
   (expand-file-name "lispm-ui-renames.eld" (file-name-directory (or load-file-name buffer-file-name)))
   "The table of renames, beside this file.")
+
+(defconst lispm-desktop-rename-kept '("lispm-desktop-ui-compat.el")
+  "Files the renames leave as they are, by name: those defining the old
+names as aliases of the new.")
 
 (defconst lispm-desktop-rename--constituents "-[:alnum:]_*+/<>=!?$%&:~^"
   "The characters of a symbol's name, as `skip-chars-forward' takes them.")
@@ -82,16 +91,59 @@ Return how many names were renamed."
                   (setq count (1+ count)))))))))
     count))
 
+(defun lispm-desktop-rename--indentation (&optional indent)
+  "Return the indentation of the current buffer's lines, a vector; with
+INDENT, the indentation Emacs Lisp would give them."
+  (let ((text (buffer-string)))
+    (with-temp-buffer
+      (insert text)
+      (when indent
+        (delay-mode-hooks (emacs-lisp-mode))
+        (let ((indent-tabs-mode nil)
+              (inhibit-message t))
+          (indent-region (point-min) (point-max))))
+      (goto-char (point-min))
+      (let ((indents nil))
+        (while (not (eobp))
+          (push (current-indentation) indents)
+          (forward-line 1))
+        (vconcat (nreverse indents))))))
+
+(defun lispm-desktop-rename--indented ()
+  "Return which lines of the current buffer are indented as Emacs Lisp
+indents them, a vector of booleans."
+  (cl-map 'vector #'= (lispm-desktop-rename--indentation) (lispm-desktop-rename--indentation t)))
+
+(defun lispm-desktop-rename--indent-again (indented)
+  "Indent the lines INDENTED says were indented as Emacs Lisp indents
+them, see `lispm-desktop-rename--indented', as it now indents them."
+  (let ((now (lispm-desktop-rename--indentation))
+        (wanted (lispm-desktop-rename--indentation t))
+        (indent-tabs-mode nil))
+    (save-excursion
+      (goto-char (point-min))
+      (dotimes (line (length now))
+        (when (and (aref indented line) (/= (aref now line) (aref wanted line)))
+          (indent-line-to (aref wanted line)))
+        (forward-line 1)))))
+
+(defun lispm-desktop-rename-kept-p (file)
+  "Return non-nil when FILE keeps the old names, see `lispm-desktop-rename-kept'."
+  (member (file-name-nondirectory file) lispm-desktop-rename-kept))
+
 (defun lispm-desktop-rename-files (files &optional renames)
-  "Apply RENAMES, by default the table's, to FILES, saving each changed.
+  "Apply RENAMES, by default the table's, to FILES, saving each changed,
+but for those of `lispm-desktop-rename-kept'.
 Return how many names were renamed."
   (let ((renames (or renames (lispm-desktop-rename-read)))
         (count 0))
-    (dolist (file files)
+    (dolist (file (seq-remove #'lispm-desktop-rename-kept-p files))
       (with-temp-buffer
         (insert-file-contents file)
-        (let ((renamed (lispm-desktop-rename-buffer renames)))
+        (let* ((indented (lispm-desktop-rename--indented))
+               (renamed (lispm-desktop-rename-buffer renames)))
           (when (> renamed 0)
+            (lispm-desktop-rename--indent-again indented)
             (write-region nil nil file nil 'silent)
             (setq count (+ count renamed))))))
     count))

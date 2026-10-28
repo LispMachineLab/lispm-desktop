@@ -1200,11 +1200,33 @@ never a longer name a renamed one starts."
                    (concat "(lispm-ui-sample-read) (lispm-ui-sample-role ?a)\n"
                            ";; `lispm-ui-sample-read' reads \"lispm-ui-example\".\n"
                            "(lispm-desktop-example-width x-lispm-desktop-example lispm-ui-example)\n"))))
-  ;; The table reads, and has been applied: none of its old names is left.
+  ;; A file renamed keeps its code indented as Emacs Lisp indents it, and
+  ;; what was lined up otherwise as it was.
+  (let ((file (make-temp-file "lispm-desktop-rename" nil ".el")))
+    (unwind-protect
+        (progn
+          (with-temp-file file
+            (insert "(setq x (lispm-desktop-sample-blend a\n"
+                    "                                    b)\n"
+                    "      y (lispm-desktop-sample-blend c\n"
+                    "              d))\n"))
+          (should (= (lispm-desktop-rename-files
+                      (list file) '((:prefix "lispm-desktop-sample-" . "lispm-ui-sample-")))
+                     2))
+          (should (equal (with-temp-buffer (insert-file-contents file) (buffer-string))
+                         (concat "(setq x (lispm-ui-sample-blend a\n"
+                                 "                               b)\n"
+                                 "      y (lispm-ui-sample-blend c\n"
+                                 "              d))\n"))))
+      (delete-file file)))
+  ;; The table reads, and has been applied: none of its old names is left,
+  ;; but in the aliases of them.
   (let ((renames (lispm-desktop-rename-read)))
     (should (listp renames))
-    (dolist (file (append (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'")
-                          (directory-files (expand-file-name "test" lispm-desktop-directory) t "\\.el\\'")))
+    (should (lispm-desktop-rename-kept-p "lisp/lispm-desktop-ui-compat.el"))
+    (dolist (file (seq-remove #'lispm-desktop-rename-kept-p
+                              (append (directory-files (expand-file-name "lisp" lispm-desktop-directory) t "\\.el\\'")
+                                      (directory-files (expand-file-name "test" lispm-desktop-directory) t "\\.el\\'"))))
       (with-temp-buffer
         (insert-file-contents file)
         (should-not (and (> (lispm-desktop-rename-buffer renames) 0) file))))))
