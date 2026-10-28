@@ -7850,6 +7850,111 @@ goes when no agent buffer is shown."
         (mapc #'kill-buffer (list session fresh notes sidebar))
         (delete-file lispm-agents-state-file)))))
 
+(ert-deftest lispm-desktop-test-agent-list-hides-archived-running-sessions ()
+  "An archived session is hidden with the terminal still running it, which
+runs on; showing archived sessions shows it as running again."
+  (lispm-desktop-test--with-agents
+      `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
+               :sessions ,(lambda ()
+                            (let ((now (float-time)))
+                              (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
+                                          :title "Fix the build" :time (- now 30))
+                                    (list :agent 'codex :id "0200" :cwd "/tmp/project/"
+                                          :title "Ship it" :time (- now 10)))))))
+    (let ((lispm-agents--session-readers nil)
+          (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
+          (lispm-agents--archived 'unloaded)
+          (lispm-agents-terminal-live-p-function #'buffer-live-p)
+          (terminal (get-buffer-create "*codex:project:0199*")))
+      (unwind-protect
+          (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+            (with-current-buffer terminal
+              (setq major-mode 'lispm-desktop-term-mode
+                    default-directory "/tmp/project/"
+                    lispm-agents-buffer-session-id "0199"))
+            (lispm-agents--set-archived '(:agent codex :id "0199") t)
+            (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
+              (unwind-protect
+                  (cl-flet ((text () (buffer-substring-no-properties (point-min) (point-max))))
+                    (lispm-desktop-agent-list-mode)
+                    (lispm-desktop-agent-list--render)
+                    (should-not (string-search "Fix the build" (text)))
+                    (should (string-search "Ship it" (text)))
+                    (should (equal lispm-desktop-platinum-info "1 session"))
+                    ;; Hidden, not stopped.
+                    (should (lispm-agents-running-p terminal))
+                    (should (eq (lispm-agents-session-buffer "0199") terminal))
+                    (setq lispm-desktop-agent-list--show-archived t)
+                    (lispm-desktop-agent-list--render)
+                    (should (string-search "Fix the build" (text)))
+                    (should (equal lispm-desktop-platinum-info "2 sessions, 1 running")))
+                (kill-buffer))))
+        (kill-buffer terminal)
+        (delete-file lispm-agents-state-file)))))
+
+(ert-deftest lispm-desktop-test-agent-list-idle-agents-are-not-running ()
+  "A session of an agent inside Emacs whose buffer is open but idle is
+labelled idle and not counted as running; once the agent works, it is."
+  (let* ((chat (generate-new-buffer "*lispm chat*"))
+         (state 'idle)
+         (lispm-agents-status-functions
+          (list (lambda (buffer) (and (eq buffer chat) (list :state state))))))
+    (lispm-desktop-test--with-agents
+        `((lispm :name "LispM" :new ignore :icon (identity "λ" nil)
+                 :buffer-p ,(lambda (buffer) (eq buffer chat))
+                 :sessions ,(lambda ()
+                              (list (list :agent 'lispm :id "0300" :cwd "/tmp/project/"
+                                          :title "Plan the week" :time (- (float-time) 30))))))
+      (let ((lispm-agents--session-readers nil)
+            (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
+            (lispm-agents--archived 'unloaded))
+        (with-current-buffer chat
+          (setq default-directory "/tmp/project/"
+                lispm-agents-buffer-session-id "0300"))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+              (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
+                (unwind-protect
+                    (cl-flet ((text () (buffer-substring-no-properties (point-min) (point-max))))
+                      (lispm-desktop-agent-list-mode)
+                      (lispm-desktop-agent-list--render)
+                      (should (string-search "Plan the week" (text)))
+                      (should (equal (lispm-desktop-agent-list--running-label chat) "idle"))
+                      (should (equal lispm-desktop-platinum-info "1 session"))
+                      (setq state 'working)
+                      (lispm-desktop-agent-list--render)
+                      (should (equal (lispm-desktop-agent-list--running-label chat) "working"))
+                      (should (equal lispm-desktop-platinum-info "1 session, 1 running")))
+                  (kill-buffer))))
+          (kill-buffer chat)
+          (delete-file lispm-agents-state-file))))))
+
+(ert-deftest lispm-desktop-test-lispm-user-turn-unarchives ()
+  "A turn the user begins in an archived LispM session takes it out of the
+archive; the agent idling, as one resumed to be looked at, or working
+on another agent's message, leaves it archived."
+  (let ((lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
+        (lispm-agents--archived 'unloaded)
+        (session '(:agent lispm :id "0300"))
+        (busy nil)
+        (attended nil))
+    (unwind-protect
+        (dlet ((lispm-agents-changed-hook nil))
+          (cl-letf (((symbol-function 'lispm-agent-view) (lambda (_agent) nil))
+                    ((symbol-function 'lispm-agent-id) (lambda (_agent) "0300"))
+                    ((symbol-function 'lispm-agent-busy-p) (lambda (_agent) busy))
+                    ((symbol-function 'lispm-agent-attended) (lambda (_agent) attended)))
+            (lispm-agents--set-archived session t)
+            (lispm-desktop-lispm--changed 'agent)
+            (should (lispm-agents-archived-p session))
+            (setq busy t)
+            (lispm-desktop-lispm--changed 'agent)
+            (should (lispm-agents-archived-p session))
+            (setq attended t)
+            (lispm-desktop-lispm--changed 'agent)
+            (should-not (lispm-agents-archived-p session))))
+      (delete-file lispm-agents-state-file))))
+
 (ert-deftest lispm-desktop-test-agent-list-refreshes-on-status-changes ()
   "An agent terminal's status refreshes the agent sidebar, once Emacs is
 idle, when its label there changes; progress alone does not."
