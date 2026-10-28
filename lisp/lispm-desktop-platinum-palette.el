@@ -88,6 +88,12 @@ does; users rarely need to."
   "Face of a list's row: a lit line atop it parts it from the row above."
   :group 'lispm-desktop-platinum)
 
+(defface lispm-desktop-platinum-row-selected '((t :inherit region :extend t))
+  "Face of a list's selected row at point.
+A stronger accent tint than `lispm-desktop-platinum-row-current', so
+selection stands apart from the session being worked on elsewhere."
+  :group 'lispm-desktop-platinum)
+
 (defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))
   "Face of a list's row naming what is being worked on elsewhere, as the
 agent sidebar's row of the session at work: the list tinted with the

@@ -394,12 +394,25 @@ faces this function never sets, so re-running it is idempotent."
     ;; theme's, as Dracula's, is barely lighter than its list.  Where
     ;; colours cannot be blended, as on a text terminal, the secondary
     ;; selection stands in.
-    (let ((tinted (lispm-ui-blend (face-background 'lispm-desktop-platinum-list-body nil t)
-                                  (lispm-ui-color :accent)
-                                  0.25)))
+    (let* ((body (face-background 'lispm-desktop-platinum-list-body nil t))
+           (accent (lispm-ui-color :accent))
+           (tinted (lispm-ui-blend body accent 0.25))
+           (selected (lispm-ui-blend body accent 0.60)))
       (set-face-attribute 'lispm-desktop-platinum-row-current nil
                           :inherit (if tinted 'unspecified 'secondary-selection)
-                          :background (or tinted 'unspecified)))))
+                          :background (or tinted 'unspecified))
+      ;; Point must stand out more than the current-session mark, even
+      ;; when the theme's region is almost the colour of the list body.
+      ;; Use the final body's colour, after the PC or glow look sets it.
+      (set-face-attribute 'lispm-desktop-platinum-row-selected nil
+                          :inherit (if selected 'unspecified 'region)
+                          :background (or selected 'unspecified)
+                          :foreground (if selected
+                                          (lispm-ui-legible selected
+                                                            (lispm-ui-color :text)
+                                                            (lispm-ui-color :content))
+                                        'unspecified)
+                          :extend t))))
 
 ;; Before LispM UI draws its forms again, at 90: they are measured in the
 ;; fonts set here.
