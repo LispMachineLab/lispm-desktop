@@ -4935,105 +4935,13 @@ of Cancel; one whose words fit keeps the width."
           (should (= (- cancel (+ apart apart-width)) (* 2 lispm-desktop-popup-button-gap)))
           (should (= (+ default default-width 3) (- w 12))))))))
 
-;;;; lispm-ui-modal
-
-(ert-deftest lispm-desktop-test-modal-key-roles ()
-  "Every role of a key in a modal panel has a key the HHKB types: C-i for
-Tab, C-m for Return, C-[ and C-g for Escape, DEL for Back, and C-f, C-b,
-C-n and C-p for the arrows, which stay as well."
-  (should (eq (lispm-ui-modal-role ?\C-i) 'next))
-  (should (eq (lispm-ui-modal-role 'backtab) 'previous))
-  (should (eq (lispm-ui-modal-role ?\C-m) 'confirm))
-  (should (eq (lispm-ui-modal-role ?\C-\[) 'cancel))
-  (should (eq (lispm-ui-modal-role ?\C-g) 'cancel))
-  (should (eq (lispm-ui-modal-role ?\M-.) 'cancel))
-  (should (eq (lispm-ui-modal-role ?\d) 'back))
-  (should (eq (lispm-ui-modal-role ?\s) 'press))
-  (should (equal (mapcar #'lispm-ui-modal-step '(?\C-f ?\C-n tab right ?\C-b ?\C-p backtab up ?a))
-                 '(1 1 1 1 -1 -1 -1 -1 nil)))
-  (should-not (lispm-ui-modal-role ?a)))
-
-(ert-deftest lispm-desktop-test-modal-cycle ()
-  "A focus ring wraps around; from no control it goes to the first or the
-last, and it passes over the controls it is told to."
-  (should (= (lispm-ui-modal-cycle 2 1 3) 0))
-  (should (= (lispm-ui-modal-cycle 0 -1 3) 2))
-  (should (= (lispm-ui-modal-cycle nil 1 3) 0))
-  (should (= (lispm-ui-modal-cycle nil -1 3) 2))
-  (should (= (lispm-ui-modal-cycle 1 4 6) 5))
-  (should (= (lispm-ui-modal-cycle 0 1 4 (lambda (index) (/= index 1))) 2))
-  (should-not (lispm-ui-modal-cycle 0 1 4 #'ignore))
-  (should-not (lispm-ui-modal-cycle nil 1 0)))
-
-(ert-deftest lispm-desktop-test-modal-hit ()
-  "A click is on a control when it lies in its rectangle, the left and top
-edges in, the right and bottom out."
-  (let ((layout '((a 10 10 20 10) (b 30 10 20 10) (c 0 0 0 0))))
-    (should (eq (lispm-ui-modal-hit layout 10 10) 'a))
-    (should (eq (lispm-ui-modal-hit layout 29 19) 'a))
-    (should (eq (lispm-ui-modal-hit layout 30 10) 'b))
-    (should-not (lispm-ui-modal-hit layout 50 10))
-    (should-not (lispm-ui-modal-hit layout 20 20))
-    (should-not (lispm-ui-modal-hit layout 0 0))
-    (should-not (lispm-ui-modal-inside-p nil 0 0))))
-
-(ert-deftest lispm-desktop-test-modal-flash ()
-  "A control chosen blinks for its kind's time: a button eight ticks, a
-menu item three, drawn back as it was when asked."
-  (let ((log nil))
-    (cl-letf (((symbol-function 'sit-for) (lambda (seconds) (push (list 'wait seconds) log)))
-              ((symbol-function 'redisplay) #'ignore))
-      (lispm-ui-modal-flash 'button (lambda () (push 'pressed log)))
-      (should (equal (reverse log) '(pressed (wait 0.133))))
-      (setq log nil)
-      (lispm-ui-modal-flash 'menu-item (lambda () (push 'off log)) (lambda () (push 'on log)))
-      (should (equal (reverse log) '(off (wait 0.05) on))))))
-
-(ert-deftest lispm-desktop-test-modal-needs-no-platinum ()
-  "The modal kit stands on its own: it loads none of the desktop's files."
-  (with-temp-buffer
-    (insert-file-contents (expand-file-name "lisp/lispm-desktop-modal.el" lispm-desktop-directory))
-    (should-not (re-search-forward "(require 'lispm-desktop" nil t))))
-
-(ert-deftest lispm-desktop-test-modal-hold ()
-  "A control held with the mouse is drawn pushed in only while the mouse
-is over it, and chosen only when the button rises over it; Escape gives
-up."
-  (let ((draws nil))
-    (cl-flet ((hold (events)
-                (setq draws nil)
-                (let ((unread-command-events events))
-                  (lispm-ui-modal-hold (lambda (event) (eq (cadr event) 'on))
-                                            (lambda (in) (push in draws))))))
-      (should (hold '((mouse-movement off) (mouse-movement on) (mouse-1 on))))
-      (should (equal (reverse draws) '(t nil t nil)))
-      (should-not (hold '((mouse-movement off) (mouse-1 off))))
-      (should (equal (reverse draws) '(t nil)))
-      (should-not (hold '(escape)))
-      (should (equal (reverse draws) '(t nil))))))
+;;;; The desktop's modal panels, on LispM UI's lispm-ui-modal
 
 (ert-deftest lispm-desktop-test-store-grid-buttons-press-on-release ()
   "The App Store's grid buttons are held pushed in from the press, as
 Mac OS 9's buttons were, and pressed as the mouse rises over them."
   (should (eq (keymap-lookup lispm-desktop-store-grid-map "<down-mouse-1>")
               #'lispm-desktop-store--grid-press)))
-
-(ert-deftest lispm-desktop-test-modal-moved-p ()
-  "A move of the mouse by more than `double-click-fuzz' is a drag; less is
-a hand's jitter in a click.  In a text terminal's cells, of which Emacs
-reads the fuzz as eighths, a cell is a drag."
-  (let ((double-click-fuzz 3))
-    (should-not (lispm-ui-modal-moved-p '(3 . -3)))
-    (should (lispm-ui-modal-moved-p '(4 . 0)))
-    (should (lispm-ui-modal-moved-p '(0 . -4)))
-    (should-not (lispm-ui-modal-moved-p nil))
-    (should (lispm-ui-modal-moved-p '(1 . 0) t))
-    (should (lispm-ui-modal-moved-p '(0 . -1) t))
-    (should-not (lispm-ui-modal-moved-p '(0 . 0) t))
-    (should-not (lispm-ui-modal-moved-p nil t)))
-  (let ((double-click-fuzz 16))
-    (should-not (lispm-ui-modal-moved-p '(2 . 0) t))
-    (should (lispm-ui-modal-moved-p '(3 . 0) t))))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
