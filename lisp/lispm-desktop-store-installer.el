@@ -50,6 +50,12 @@
 ;;
 ;; Everything else it says, on its standard error, is the job's log.
 ;;
+;; A package from git is cloned shallow, its commit's files without the
+;; history before it, which a package checked out at a commit or a
+;; release does not need: a repository's history, the old images and
+;; films in it too, may be many times its files.  What does need it gets
+;; it then, see `lispm-desktop-store-installer--whole-history'.
+;;
 ;; A package from git may come with files its releases build, as a secret
 ;; kept out of its source: its :assets, downloaded beside it once it is
 ;; installed or checked out, each kept only when its SHA-256 is the one
@@ -74,6 +80,7 @@
 
 (declare-function package-vc-install "package-vc" (package &optional rev backend name))
 (declare-function package-vc-rebuild "package-vc" (pkg-desc))
+(declare-function package-vc--main-file "package-vc" (pkg-desc))
 (declare-function url-retrieve-synchronously "url" (url &optional silent inhibit-cookies timeout))
 (defvar url-http-response-status)
 (defvar lispm-desktop-store-installer--reporting)
@@ -108,6 +115,17 @@ inherited GIT_DIR would name, and no prompt for a password."
         (unless (eql status 0)
           (error "git %s failed: %s" (car args) (string-trim (buffer-string))))
         (string-trim (buffer-string))))))
+
+(defun lispm-desktop-store--shallow-p (directory)
+  "Return non-nil when the git clone DIRECTORY lacks history, cloned shallow."
+  (equal (ignore-errors (lispm-desktop-store--git directory "rev-parse" "--is-shallow-repository"))
+         "true"))
+
+(defun lispm-desktop-store--has-commit-p (directory rev)
+  "Return non-nil when the git clone DIRECTORY has the commit REV."
+  (ignore-errors
+    (lispm-desktop-store--git directory "cat-file" "-e" (concat rev "^{commit}"))
+    t))
 
 ;;;; Packages
 
@@ -199,15 +217,11 @@ package's directory as FILE, and kept only when its SHA-256 is SHA."
 it again, as `package-vc-upgrade' would build it; then download ASSETS,
 its :assets, beside it."
   (let* ((desc (or (cadr (assq name package-alist)) (user-error "%s is not installed" name)))
-         (directory (package-desc-dir desc))
-         (present (lambda ()
-                    (ignore-errors
-                      (lispm-desktop-store--git directory "cat-file" "-e" (concat rev "^{commit}"))
-                      t))))
-    (unless (funcall present)
+         (directory (package-desc-dir desc)))
+    (unless (lispm-desktop-store--has-commit-p directory rev)
       (lispm-desktop-store-installer--fetch directory "origin")
-      (unless (funcall present)
-        (lispm-desktop-store-installer--fetch directory "origin" rev)))
+      (unless (lispm-desktop-store--has-commit-p directory rev)
+        (lispm-desktop-store-installer--fetch-commit directory rev)))
     (lispm-desktop-store--git directory "checkout" "--quiet" "--detach" rev)
     (require 'package-vc)
     (package-vc-rebuild desc)
@@ -358,21 +372,60 @@ how far the download it makes is, from what git prints with --progress."
                     directory "fetch" "--progress" args))
     (apply #'lispm-desktop-store--git directory "fetch" "--quiet" args)))
 
+(defun lispm-desktop-store-installer--fetch-commit (directory rev)
+  "Fetch the commit REV into the clone DIRECTORY.  Into a shallow one, REV
+alone is fetched, not the history before it; when the remote gives no
+commit by its name, as for an abbreviated one, all the history is."
+  (if (not (lispm-desktop-store--shallow-p directory))
+      (lispm-desktop-store-installer--fetch directory "origin" rev)
+    (condition-case nil
+        (lispm-desktop-store-installer--fetch directory "--depth" "1" "origin" rev)
+      (error (lispm-desktop-store-installer--fetch
+              directory "--unshallow" "origin" "+refs/heads/*:refs/remotes/origin/*")))))
+
+(defun lispm-desktop-store-installer--follow-default-branch (directory)
+  "Make the clone DIRECTORY, of a tag, follow its origin's default branch
+as origin/HEAD, as a clone of the whole repository does, Software Update
+reading a package's releases on it: the branch is fetched down to the
+tag only.  A clone of a branch is left as it is, and so is one whose
+origin names no default branch."
+  (unless (ignore-errors (lispm-desktop-store--git directory "symbolic-ref" "--quiet" "HEAD"))
+    (when-let* ((head (ignore-errors
+                        (lispm-desktop-store--git directory "ls-remote" "--symref" "origin" "HEAD")))
+                ((string-match "^ref: refs/heads/\\([^\t\n]+\\)\tHEAD$" head))
+                (branch (match-string 1 head)))
+      (lispm-desktop-store--git directory "remote" "set-branches" "origin" branch)
+      (lispm-desktop-store-installer--fetch directory "origin")
+      (lispm-desktop-store--git directory "remote" "set-head" "origin" branch))))
+
 (defun lispm-desktop-store-installer--clone (remote directory rev)
   "Clone REMOTE into DIRECTORY at REV, as `vc-git-clone' does, saying how
 far the download is; return DIRECTORY.  REV, a commit, is checked out
-after the clone; any other is tried as the branch to clone first."
+after the clone; any other is tried as the branch or tag to clone first.
+The clone is shallow: REV's files without the history before it."
   (lispm-desktop-store-installer--stage 'download)
   (let ((parent (file-name-directory (directory-file-name directory))))
     (cl-flet ((clone (&rest args)
                 (apply #'lispm-desktop-store-installer--git-with-progress
-                       parent "clone" "--progress" (append args (list remote directory)))))
+                       parent "clone" "--progress" "--depth" "1" (append args (list remote directory)))))
       (cond ((null rev) (clone))
             ((and (not (string-match-p "\\`[0-9a-f]\\{7,40\\}\\'" rev))
-                  (ignore-errors (clone "--branch" rev) t)))
+                  (ignore-errors (clone "--branch" rev) t))
+             (lispm-desktop-store-installer--follow-default-branch directory))
             (t (clone)
+               (unless (lispm-desktop-store--has-commit-p directory rev)
+                 (lispm-desktop-store-installer--fetch-commit directory rev))
                (lispm-desktop-store--git directory "checkout" "--quiet" rev)))))
   directory)
+
+(defun lispm-desktop-store-installer--whole-history (desc)
+  "Fetch the history the clone of DESC, a package, lacks, cloned shallow:
+package-vc reads the package's last release from it, the commit that
+last changed its Version header.
+This is before `package-vc--release-rev' in the App Store's Emacs."
+  (let ((directory (file-name-directory (package-vc--main-file desc))))
+    (when (lispm-desktop-store--shallow-p directory)
+      (lispm-desktop-store-installer--fetch directory "--unshallow" "origin"))))
 
 (defun lispm-desktop-store-installer--compile (compile desc)
   "Call COMPILE on DESC, a package, saying how many of its files are done:
@@ -439,6 +492,7 @@ nothing, and keep no customization, which the App Store's Emacs keeps."
   (dolist (asking '(yes-or-no-p y-or-n-p read-string read-from-minibuffer completing-read))
     (advice-add asking :override #'lispm-desktop-store-installer--refuse))
   (advice-add 'vc-git-clone :override #'lispm-desktop-store-installer--clone)
+  (advice-add 'package-vc--release-rev :before #'lispm-desktop-store-installer--whole-history)
   (dolist (refresh '(package-refresh-contents package-vc--download-and-read-archives))
     (advice-add refresh :before (lambda (&rest _) (lispm-desktop-store-installer--stage 'archives))))
   (advice-add 'package-install-from-archive :before
