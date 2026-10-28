@@ -1225,7 +1225,9 @@ is there already, or that has none, is installed at once."
                       (lispm-desktop-store--update-here job))
                      ((consp package)
                       (lispm-desktop-store--spawn
-                       job `(update ,(car package) ,(plist-get (cdr package) :rev) ,former)))
+                       job `(update ,(car package) ,(plist-get (cdr package) :rev) ,former
+                                    ,@(when-let* ((assets (plist-get (cdr package) :assets)))
+                                        (list assets)))))
                      (t (lispm-desktop-store--spawn job `(upgrade ,package))))))))
       (error (lispm-desktop-store--fail job (error-message-string err))))))
 
@@ -1426,7 +1428,7 @@ again."
         (unless (assq name package-vc-selected-packages)
           (customize-save-variable
            'package-vc-selected-packages
-           (cons (cons name (lispm-desktop-store--plist-without (cdr package) :rev))
+           (cons (cons name (lispm-desktop-store--plist-without (cdr package) :rev :assets))
                  package-vc-selected-packages)))
         (when (bound-and-true-p package-vc-register-as-project)
           (require 'project)
@@ -1793,7 +1795,7 @@ catalog pins, or the package archives' newest installed."
                      (if (consp package)
                          (let ((rev (plist-get (cdr package) :rev)))
                            (lispm-desktop-store--quietly
-                             (lispm-desktop-store--repin (car package) rev))
+                             (lispm-desktop-store--repin (car package) rev (plist-get (cdr package) :assets)))
                            rev)
                        (lispm-desktop-store--quietly
                          (package-upgrade package))
