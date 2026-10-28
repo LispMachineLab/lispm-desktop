@@ -331,7 +331,7 @@ look's :alert-gap apart and :alert-bottom over the border."
                  (setq x (+ x width gap))))
              ordered widths)
     (list :width w
-          :height (+ top lispm-desktop-platinum-button-height (lispm-ui-look-metric :alert-bottom) border)
+          :height (+ top lispm-ui-button-height (lispm-ui-look-metric :alert-bottom) border)
           :message lines :detail details
           :buttons (seq-sort-by (lambda (button) (seq-position buttons (nth 1 button)
                                                                (lambda (b value) (equal (nth 1 b) value))))
@@ -376,17 +376,17 @@ keyboard."
 
 ;;;; Controls
 
-(cl-defmethod lispm-desktop-platinum-svg-focus-ring (svg x y width height _radius palette
-                                                         &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-svg-focus-ring (svg x y width height _radius palette
+                                           &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Mark on SVG the control in the WIDTH by HEIGHT box at X, Y as Windows
 and OS/2 marked the one the keyboard was on: a dotted rectangle just
 inside it."
   (lispm-ui-svg-dotted svg (+ x 3) (+ y 3) (- width 6) (- height 6)
                        (plist-get palette :text)))
 
-(cl-defmethod lispm-desktop-platinum-svg-push-button (svg x y palette label width
-                                                          &context (lispm-desktop-look (lispm-ui-look-family pc))
-                                                          &key state default focused font)
+(cl-defmethod lispm-ui-svg-push-button (svg x y palette label width
+                                            &context (lispm-ui-look (lispm-ui-look-family pc))
+                                            &key state default focused font)
   "Draw on SVG at X, Y a PC push button WIDTH pixels wide.
 Outlined in black, its corners cut where the look's :button-cut says,
 framed inside in its :button bevel; the label centred in FONT, the
@@ -394,7 +394,7 @@ system font's by default.  DEFAULT doubles its outline; FOCUSED dots a
 rectangle round the label, :button-focus in; STATE `pressed' frames it
 in :button-pushed and moves the label a pixel down and right,
 `disabled' greys the label."
-  (let* ((h lispm-desktop-platinum-button-height)
+  (let* ((h lispm-ui-button-height)
          (outline (plist-get palette :outline))
          (shadow (lispm-desktop-pc-shadow palette))
          (pressed (eq state 'pressed))
@@ -420,9 +420,9 @@ in :button-pushed and moves the label a pixel down and right,
           (lispm-ui-svg-dotted svg (+ x (/ (- width text) 2) shift) (+ y inset shift)
                                text (- h inset inset) (plist-get palette :text)))))))
 
-(cl-defmethod lispm-desktop-platinum--draw-bevel-button (svg x y palette width height
-                                                             &context (lispm-desktop-look (lispm-ui-look-family pc))
-                                                             &key state label face)
+(cl-defmethod lispm-ui-svg-bevel-button (svg x y palette width height
+                                             &context (lispm-ui-look (lispm-ui-look-family pc))
+                                             &key state label face)
   "Draw on SVG at X, Y a PC toolbar button WIDTH by HEIGHT pixels, :raised,
 or :pushed when STATE is `pressed', its label greyed when `disabled'.
 LABEL is shown as Emacs would show it in FACE."
@@ -467,8 +467,8 @@ pixels of opening before it."
                               (plist-get palette :text) 'lispm-ui-small)))
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-group-side (palette height
-                                                              &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-draw-group-side (palette height
+                                                &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a side of a PC group box: the lines of the look's :group-side."
   (pcase-let ((svg (svg-create 2 height))
               (`(,line ,pane) (lispm-desktop-pc-colors palette (lispm-ui-look-metric :group-side))))
@@ -505,9 +505,9 @@ inactive window (STATE `inactive') as on the active one, as Windows'."
                             (plist-get palette :text) font)))
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-radio (palette on
-                                                         &context (lispm-desktop-look (lispm-ui-look-family pc))
-                                                         &key state focused pad)
+(cl-defmethod lispm-ui-draw-radio (palette on
+                                           &context (lispm-ui-look (lispm-ui-look-family pc))
+                                           &key state focused pad)
   "Return a PC option button: a white circle outlined in black, in a grey
 ring where the look's :radio-sunk says, a black dot of :radio-dot when
 ON; grey when STATE is `disabled', the circle's inside grey when
@@ -574,8 +574,8 @@ Platinum's take them."
           (lispm-desktop-pc-svg-raise svg x 0 13 h palette :tab)
           (dotimes (i 4)
             (lispm-ui-svg-paint svg (+ x 4) (+ 6 (* 3 i)) 5 1 shadow)))
-      (lispm-desktop-platinum--draw-bevel-button svg 0 0 palette w h
-                                                 :state (and (memq state '(pressed disabled)) state))
+      (lispm-ui-svg-bevel-button svg 0 0 palette w h
+                                 :state (and (memq state '(pressed disabled)) state))
       (pcase kind
         ('collapse (lispm-ui-svg-paint svg 4 11 7 2 ink))
         ((or 'left 'right)

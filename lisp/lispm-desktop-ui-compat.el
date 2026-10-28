@@ -27,8 +27,9 @@
 ;; now, throughout the desktop (scripts/lispm-ui-renames.eld).  For what
 ;; was written against the desktop's names, a theme's, an application's
 ;; or a person's own personal.el, the names it was known by stay aliases
-;; of LispM UI's: its variables, its faces, and the functions of the
-;; looks it documented.  The renames leave this file as it is.
+;; of LispM UI's: its variables, its faces, and the functions it
+;; documented, of the looks and of controls in buffers.  The renames
+;; leave this file as it is.
 ;;
 ;; Generic functions are never aliased: a method defined on an alias
 ;; would make a generic function of its own.  A look's methods are
@@ -39,6 +40,7 @@
 (require 'lispm-ui-palette)
 (require 'lispm-ui-look)
 (require 'lispm-ui-draw)
+(require 'lispm-ui-controls)
 (require 'lispm-ui-form)
 
 ;;;; Variables
@@ -47,6 +49,12 @@
 (defvaralias 'lispm-desktop-platinum-generation 'lispm-ui-palette-generation)
 (defvaralias 'lispm-desktop-looks 'lispm-ui-looks)
 (defvaralias 'lispm-desktop-form-control-properties 'lispm-ui-form-control-properties)
+;; The toolkit's controls.
+(defvaralias 'lispm-desktop-platinum-button-height 'lispm-ui-button-height)
+(defvaralias 'lispm-desktop-platinum-bevel-padding 'lispm-ui-bevel-padding)
+(defvaralias 'lispm-desktop-platinum-group-title-height 'lispm-ui-group-title-height)
+(defvaralias 'lispm-desktop-platinum-push-button-map 'lispm-ui-push-button-map)
+(defvaralias 'lispm-desktop-platinum-focus 'lispm-ui-focus)
 ;; The title a buffer's window shows, which had the name of the face of
 ;; titles.
 (defvaralias 'lispm-desktop-platinum-title 'lispm-desktop-platinum-window-title)
@@ -78,6 +86,13 @@
 (defalias 'lispm-desktop-look-svg-arrow #'lispm-ui-svg-arrow)
 (defalias 'lispm-desktop-look-svg-dotted #'lispm-ui-svg-dotted)
 (defalias 'lispm-desktop-look-svg-pixels #'lispm-ui-svg-pixels)
+
+;;;; Controls in buffers
+
+(defalias 'lispm-desktop-platinum-insert-push-button #'lispm-ui-insert-push-button)
+(defalias 'lispm-desktop-platinum-insert-radio-button #'lispm-ui-insert-radio-button)
+(defalias 'lispm-desktop-platinum-insert-check-box #'lispm-ui-insert-check-box)
+(defalias 'lispm-desktop-platinum-insert-popup-button #'lispm-ui-insert-popup-button)
 
 (provide 'lispm-desktop-ui-compat)
 ;;; lispm-desktop-ui-compat.el ends here

@@ -311,7 +311,7 @@ group box's sides; THIN makes it a gap of a few pixels."
   (let* ((side (or (lispm-ui-form-group 'side)
                    ;; No palette yet, as on a terminal without a theme's
                    ;; colours: the group box's side as text.
-                   (lispm-desktop-platinum-group-side 1)))
+                   (lispm-ui-group-side 1)))
          (margin (lispm-desktop-px 12))
          (face (and thin '(:height 40))))
     (insert (propertize " " 'display `(space :align-to (,margin)) 'face face) side
@@ -362,7 +362,7 @@ what it is told to be, what it thinks with, its conversations, its days."
                                             'help-echo (lispm-desktop-tr "Return opens the conversation"))
                               text)))))))
     (insert (propertize " " 'display `(space :align-to (,margin)))
-            (lispm-desktop-platinum-group-edge width (lispm-character-title* character))
+            (lispm-ui-group-edge width (lispm-character-title* character))
             "\n")
     (lispm-desktop-characters--card-row #'ignore t)
     ;; Its picture in a well, beside who it is; on a text terminal, who it
@@ -403,7 +403,7 @@ what it is told to be, what it thinks with, its conversations, its days."
           (funcall line (lispm-desktop-characters--day-line day (- width (lispm-desktop-px 48)))))))
     (lispm-desktop-characters--card-row #'ignore t)
     (insert (propertize " " 'display `(space :align-to (,margin)))
-            (lispm-desktop-platinum-group-edge width nil t)
+            (lispm-ui-group-edge width nil t)
             "\n")))
 
 (defun lispm-desktop-characters--day-line (day width)

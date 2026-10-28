@@ -313,7 +313,7 @@ control, 16 or 18 pixels wide with the room for its ring."
 (defun lispm-desktop-settings--radio-button (label on action help)
   "Insert a radio button named LABEL, ON or off, calling ACTION when pressed.
 HELP describes it."
-  (lispm-desktop-platinum-insert-radio-button
+  (lispm-ui-insert-radio-button
    label on (lambda () (funcall action) (lispm-desktop-settings--render)) :help help))
 
 (defun lispm-desktop-settings--radio (label on action &optional note)
@@ -329,7 +329,7 @@ NOTE after it in the dimmed text."
   "Insert a check box named LABEL, checked when ON, running ACTION when
 pressed, NOTE after it in the dimmed text."
   (insert (lispm-desktop-settings--indent))
-  (lispm-desktop-platinum-insert-check-box
+  (lispm-ui-insert-check-box
    label on (lambda () (funcall action) (lispm-desktop-settings--render))
    :help (if on (lispm-desktop-tr "Turn off: %s" label) (lispm-desktop-tr "Turn on: %s" label)))
   (when note
@@ -354,7 +354,7 @@ Return, Space and the mouse press it as a push button."
 (defun lispm-desktop-settings--button (label action &optional help)
   "Insert a push button named LABEL running ACTION when pressed; HELP
 describes it."
-  (lispm-desktop-platinum-insert-push-button
+  (lispm-ui-insert-push-button
    label (lambda () (funcall action) (lispm-desktop-settings--render))
    :help (or help label)))
 
@@ -394,7 +394,7 @@ line, and its bottom edge closes it, a gap after it."
       (pcase-dolist (`(,start . ,title) headings)
         (save-excursion
           (goto-char end)
-          (insert outside (lispm-desktop-platinum-group-edge box nil t) "\n"
+          (insert outside (lispm-ui-group-edge box nil t) "\n"
                   (if tty "" (concat (propertize " " 'display '(space :height (8))) "\n")))
           (goto-char start)
           (forward-line 1)
@@ -406,12 +406,12 @@ line, and its bottom edge closes it, a gap after it."
                                                                    (min (1+ (line-end-position))
                                                                         (point-max)))))
                              16))
-                   (left (concat outside (lispm-desktop-platinum-group-side height)))
+                   (left (concat outside (lispm-ui-group-side height)))
                    (right (concat (propertize " " 'display
                                               (if tty
                                                   `(space :align-to ,(+ margin box -1))
                                                 `(space :align-to (- right (,(+ margin 2))))))
-                                  (lispm-desktop-platinum-group-side height))))
+                                  (lispm-ui-group-side height))))
               (put-text-property (line-beginning-position) (min (1+ (line-end-position)) (point-max))
                                  'line-prefix left)
               (end-of-line)
@@ -422,8 +422,8 @@ line, and its bottom edge closes it, a gap after it."
               (forward-line 1)))
           (goto-char start)
           (delete-region start (line-end-position))
-          (insert outside (propertize (lispm-desktop-platinum-group-edge box title)
-                                      'lispm-desktop-platinum-label title)))
+          (insert outside (propertize (lispm-ui-group-edge box title)
+                                      'lispm-ui-label title)))
         (setq end start)))))
 
 (defun lispm-desktop-settings--note (text)
@@ -774,7 +774,7 @@ them use it, now and at later starts."
                       (posn-point (event-start last-input-event))
                     (point))))
     (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
-      (lispm-desktop-popup-menu items x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-desktop-platinum-button-height 2)))))))
+      (lispm-desktop-popup-menu items x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-ui-button-height 2)))))))
 
 (defun lispm-desktop-settings--choose-model ()
   "Pop up the models to choose from under the button pressed, and have
@@ -1815,8 +1815,8 @@ kept; with none of its panels showing here, leave it empty."
             ;; The keyboard stays on the control it was on.
             (dotimes (_ (1+ control)) (forward-button 1 nil nil t))
           (forward-line (1- line))))
-      (setq lispm-desktop-platinum-focus nil)
-      (lispm-desktop-platinum-show-focus)
+      (setq lispm-ui-focus nil)
+      (lispm-ui-show-focus)
       (force-mode-line-update))))
 
 (defun lispm-desktop-settings--render ()
@@ -1898,7 +1898,7 @@ window opened in needs it.  This is one of
   "<left>" #'lispm-desktop-settings-previous-panel
   "C-f" #'lispm-desktop-settings-next-panel
   "C-b" #'lispm-desktop-settings-previous-panel
-  "SPC" #'lispm-desktop-platinum-push
+  "SPC" #'lispm-ui-push
   "q" #'lispm-desktop-settings-close
   "M-w" #'lispm-desktop-settings-close)
 
@@ -1919,7 +1919,7 @@ window opened in needs it.  This is one of
   (add-hook 'window-size-change-functions #'lispm-desktop-settings--refit nil t)
   ;; The tabs fill the header line, their pane's edge under them.
   (face-remap-add-relative 'header-line '(:box nil :underline nil :overline nil))
-  (add-hook 'post-command-hook #'lispm-desktop-platinum-show-focus nil t)
+  (add-hook 'post-command-hook #'lispm-ui-show-focus nil t)
   (hl-line-mode -1))
 
 (defun lispm-desktop-settings--buffer-name (category)

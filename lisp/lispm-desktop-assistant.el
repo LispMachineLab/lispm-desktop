@@ -223,7 +223,7 @@ Go Back button at the bottom right, when PAGE goes back."
                               lispm-desktop-assistant-card-height))
                ;; The pixels left over widen the gaps, so both margins match.
                (gap (if (> columns 1) (/ (- cw (* 2 margin) (* columns card-width)) (1- columns)) 0))
-               (back-width (lispm-desktop-platinum-push-button-width (lispm-desktop-tr "Go Back"))))
+               (back-width (lispm-ui-push-button-width (lispm-desktop-tr "Go Back"))))
     (list :window (list x y w h)
           :content (list cx cy cw ch)
           :cards (mapcar (lambda (index)
@@ -233,8 +233,8 @@ Go Back button at the bottom right, when PAGE goes back."
                          (number-sequence 0 (1- count)))
           :back (and (plist-get page :back)
                      (list (- (+ cx cw) margin back-width)
-                           (- (+ cy ch) 14 lispm-desktop-platinum-button-height)
-                           back-width lispm-desktop-platinum-button-height)))))
+                           (- (+ cy ch) 14 lispm-ui-button-height)
+                           back-width lispm-ui-button-height)))))
 
 (defun lispm-desktop-assistant--target-at (layout x y)
   "Return what the page of LAYOUT has at X, Y: a choice's index, `back' or nil."
@@ -293,22 +293,22 @@ before the key cap, CAP pixels wide, at the right."
 (defun lispm-desktop-assistant--draw-card (svg palette rect choice state focused)
   "Draw on SVG the button of CHOICE, (VALUE . PROPERTIES), filling RECT.
 It is a bevel button in PALETTE, in STATE as
-`lispm-desktop-platinum-draw-bevel-button' takes it, ringed when
+`lispm-ui-draw-bevel-button' takes it, ringed when
 FOCUSED.  It holds the picture of CHOICE's appearance, if any, its label
 and its text, and its key as a key cap in its top right corner; a button
 too short for that, one of a column, holds its label and text on one
 line, the key cap at its right."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (properties (cdr choice))
-               (ink (plist-get (lispm-desktop-platinum-bevel-button-colors palette state) :label))
+               (ink (plist-get (lispm-ui-bevel-button-colors palette state) :label))
                (row (< h 60))
                (cap 20))
     (when focused
-      (lispm-desktop-platinum-svg-focus-ring svg x y w h 1 palette))
+      (lispm-ui-svg-focus-ring svg x y w h 1 palette))
     (lispm-ui-svg-embed
-     svg (lispm-desktop-platinum-draw-bevel-button palette w h :state state) x y w h)
+     svg (lispm-ui-draw-bevel-button palette w h :state state) x y w h)
     (lispm-ui-svg-embed
-     svg (lispm-desktop-platinum-draw-bevel-button
+     svg (lispm-ui-draw-bevel-button
           palette cap cap :label (upcase (char-to-string (plist-get properties :key)))
           :face 'lispm-ui-title)
      (- (+ x w) cap 8) (if row (+ y (/ (- h cap) 2)) (+ y 8)) cap cap)
@@ -421,11 +421,11 @@ page with a :picture shows LispM's λ instead of choices, and its
            (+ cy 92 lispm-desktop-assistant-card-height 10) 16
            (lispm-ui-grey palette #x55) 'lispm-ui-small))
         (lispm-ui-svg-content
-         svg (plist-get page :step) (+ cx 20) (- (+ cy ch) 14 lispm-desktop-platinum-button-height)
-         lispm-desktop-platinum-button-height text 'lispm-ui-list)
+         svg (plist-get page :step) (+ cx 20) (- (+ cy ch) 14 lispm-ui-button-height)
+         lispm-ui-button-height text 'lispm-ui-list)
         (pcase (plist-get layout :back)
           (`(,bx ,by ,bw ,_)
-           (lispm-desktop-platinum-svg-push-button svg bx by palette (lispm-desktop-tr "Go Back") bw
+           (lispm-ui-svg-push-button svg bx by palette (lispm-desktop-tr "Go Back") bw
                                                      :state (and (eq pressed 'back) 'pressed))))))
     svg))
 

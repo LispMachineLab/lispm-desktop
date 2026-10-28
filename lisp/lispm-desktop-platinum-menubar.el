@@ -117,8 +117,8 @@ coach mark, see lispm-desktop-platinum-coach.el."
         (if (eq corner 'left)
             (progn
               (lispm-ui-svg-column svg 0 8 (- h 3) (funcall grey #xFF))
-              (lispm-desktop-platinum-svg-pixel-map svg 0 0 lispm-desktop-platinum--screen-corner colors))
-          (lispm-desktop-platinum-svg-pixel-map
+              (lispm-ui-svg-pixel-map svg 0 0 lispm-desktop-platinum--screen-corner colors))
+          (lispm-ui-svg-pixel-map
            svg (- width 9) 0
            (mapcar (lambda (row) (reverse (concat row (make-string (- 9 (length row)) ?\s))))
                    lispm-desktop-platinum--screen-corner)
@@ -137,7 +137,7 @@ title.  The title is drawn as an image, so the bar's lines run under it;
 CORNER rounds the screen's corner over it, see
 `lispm-desktop-platinum-draw-menu-title'; a coach mark circles it while
 it is what the mark circles, (menu . KEY).  The title string keeps LABEL
-in its `lispm-desktop-platinum-label' property."
+in its `lispm-ui-label' property."
   (let* ((width (+ (lispm-ui-text-width label 'lispm-desktop-platinum-menu-title)
                    (* 2 lispm-desktop-platinum-menu-padding)))
          (marked (lispm-desktop-platinum-coach-marked-p (cons 'menu key)))
@@ -151,7 +151,7 @@ in its `lispm-desktop-platinum-label' property."
                                  (lispm-desktop-platinum-draw-menu-title lispm-ui-current-palette width
                                                                          :label label :highlighted active
                                                                          :corner corner :marked marked)))
-                              'lispm-desktop-platinum-label label
+                              'lispm-ui-label label
                               'lispm-desktop-platinum-highlighted active))))
     `(,key menu-item ,title ,command :help ,help)))
 
@@ -164,7 +164,7 @@ bar either side of it; ACTIVE highlights it all, as an open menu's."
                               'lispm-desktop-platinum-menu-title)
                             t title)
     (propertize title
-                'lispm-desktop-platinum-label label
+                'lispm-ui-label label
                 'lispm-desktop-platinum-highlighted active)))
 
 (defun lispm-desktop-platinum--menu-filler (width)

@@ -261,13 +261,13 @@ holding a blue i or a black exclamation mark."
 
 ;;;; Controls
 
-(cl-defmethod lispm-desktop-platinum-draw-group-edge (palette width
-                                                              &context (lispm-desktop-look (eql win3))
-                                                              &optional title bottom)
+(cl-defmethod lispm-ui-draw-group-edge (palette width
+                                                &context (lispm-ui-look (eql win3))
+                                                &optional title bottom)
   "Return an edge of Windows 3.2's group box WIDTH pixels wide: a black
 line, TITLE breaking the top one near its left end; BOTTOM draws the
 bottom edge instead."
-  (let* ((h (if bottom (default-line-height) lispm-desktop-platinum-group-title-height))
+  (let* ((h (if bottom (default-line-height) lispm-ui-group-title-height))
          (y (if bottom 1 (/ h 2)))
          (svg (svg-create width h))
          (ink (plist-get palette :text)))
@@ -318,9 +318,9 @@ stands on the pane's lit edge."
      (plist-get palette :text) face)
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-check-box (palette on
-                                                             &context (lispm-desktop-look (eql win3))
-                                                             &key state focused pad)
+(cl-defmethod lispm-ui-draw-check-box (palette on
+                                               &context (lispm-ui-look (eql win3))
+                                               &key state focused pad)
   "Return Windows 3.2's check box: a white square outlined in black, crossed
 when ON; grey when STATE is `disabled', its inside grey when `pressed'.
 FOCUSED dots a ring round it.  It stands where Platinum's does, at the
@@ -340,8 +340,8 @@ bottom left of fourteen pixels."
       (svg-line svg (+ x 11.5) (+ y 1.5) (+ x 1.5) (+ y 11.5) :stroke ink :stroke-width 1))
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-list-check-box (palette state
-                                                                  &context (lispm-desktop-look (eql win3)))
+(cl-defmethod lispm-ui-draw-list-check-box (palette state
+                                                    &context (lispm-ui-look (eql win3)))
   "Return a list's twelve-pixel check box in Windows 3.2's form, crossed
 when STATE is `on', a bar across it when `mixed'."
   (let ((svg (svg-create 12 12))
@@ -376,7 +376,7 @@ drawn pushed in.  LABEL-X places labels, by default eight pixels in."
          (svg (svg-create width h))
          (x 0))
     (pcase-dolist (`(,label ,w ,sorted ,x-in) (append columns '((nil 16 nil))))
-      (lispm-desktop-platinum--draw-bevel-button svg x 0 palette w h :state (and sorted 'pressed))
+      (lispm-ui-svg-bevel-button svg x 0 palette w h :state (and sorted 'pressed))
       (when label
         (lispm-ui-svg-content svg label (+ x (or x-in label-x 8) (if sorted 1 0)) 0 h
                               (plist-get palette :text) 'lispm-ui-list))

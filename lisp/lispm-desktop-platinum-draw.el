@@ -227,8 +227,5 @@ On a text terminal it is a character, a cell wide."
                               (list 'triangle open)
                               (lambda () (lispm-desktop-platinum-draw-triangle lispm-ui-current-palette open))))))
 
-(defconst lispm-desktop-platinum-bevel-padding 8
-  "Pixels between a bevel button's sides and its label.")
-
 (provide 'lispm-desktop-platinum-draw)
 ;;; lispm-desktop-platinum-draw.el ends here

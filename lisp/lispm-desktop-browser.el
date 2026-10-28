@@ -245,7 +245,7 @@ Extensions is among them where pages can run Chrome extensions."
 ;; system's own forms, and its progress bar the look's; on Mac OS 9,
 ;; Netscape's own.
 
-(declare-function lispm-desktop-platinum--draw-bevel-button "lispm-desktop-platinum-controls"
+(declare-function lispm-ui-svg-bevel-button "lispm-desktop-platinum-controls"
                   (svg x y palette width height &rest options))
 (declare-function lispm-desktop-platinum-draw-progress-bar "lispm-desktop-platinum-controls"
                   (palette width fraction))
@@ -332,10 +332,10 @@ V20.5 H4.5 Z' fill='%f' stroke='%i' stroke-linejoin='round'/>"))
 
 (cl-defgeneric lispm-desktop-browser--bevel (width height pressed)
   "Return SVG of a WIDTH by HEIGHT bevel, pushed in when PRESSED: the
-look's bevel button, see `lispm-desktop-platinum--draw-bevel-button'."
+look's bevel button, see `lispm-ui-svg-bevel-button'."
   (let ((svg (svg-create width height)))
-    (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-ui-current-palette width height
-                                               :state (and pressed 'pressed))
+    (lispm-ui-svg-bevel-button svg 0 0 lispm-ui-current-palette width height
+                               :state (and pressed 'pressed))
     (with-temp-buffer (svg-print svg) (buffer-string))))
 
 (cl-defmethod lispm-desktop-browser--bevel (width height pressed &context (lispm-desktop-look (eql platinum)))

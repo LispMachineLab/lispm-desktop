@@ -744,7 +744,7 @@ the whole list in sight, without a bottom saying where in it point is."
   "Insert KEYS, a value of `lispm-desktop-app-ui-key-list', as rows of key
 caps and what they do, the caps right-aligned in a column of their own."
   (let* ((caps (mapcar (lambda (entry)
-                         (mapconcat (lambda (key) (lispm-desktop-platinum-bevel-button
+                         (mapconcat (lambda (key) (lispm-ui-bevel-button
                                                    key nil 18 'lispm-ui-small))
                                     (split-string (car entry) "  ") " "))
                        keys))
@@ -868,7 +868,7 @@ This is one of `lispm-desktop-app-board-resized-functions'."
                (lispm-desktop-app-ui-call (posn-window (event-start event)) command))))
     (keymap-set map "<down-mouse-1>" #'ignore)
     (keymap-set map "<mouse-1>" run)
-    (propertize (lispm-desktop-platinum-push-button label) 'keymap map 'mouse-face nil
+    (propertize (lispm-ui-push-button label) 'keymap map 'mouse-face nil
                 'help-echo (let ((keys (where-is-internal command nil t)))
                              (if keys (lispm-desktop-tr "%s (%s)" label (key-description keys)) label)))))
 

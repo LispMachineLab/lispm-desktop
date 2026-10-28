@@ -251,13 +251,13 @@ yellow triangle, `stop' a white cross on a red disc."
 
 ;;;; Controls
 
-(cl-defmethod lispm-desktop-platinum-draw-group-edge (palette width
-                                                              &context (lispm-desktop-look (eql os2))
-                                                              &optional title bottom)
+(cl-defmethod lispm-ui-draw-group-edge (palette width
+                                                &context (lispm-ui-look (eql os2))
+                                                &optional title bottom)
   "Return an edge of OS/2 2.0's group box WIDTH pixels wide, grooved: a
 grey line beside a lit one, TITLE breaking the top near its left end;
 BOTTOM draws the bottom edge instead."
-  (let* ((h (if bottom (default-line-height) lispm-desktop-platinum-group-title-height))
+  (let* ((h (if bottom (default-line-height) lispm-ui-group-title-height))
          (y (if bottom 1 (/ h 2)))
          (svg (svg-create width h))
          (shadow (lispm-desktop-pc-shadow palette))
@@ -311,9 +311,9 @@ the page's lit edge."
      (plist-get palette :text) face)
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-check-box (palette on
-                                                             &context (lispm-desktop-look (eql os2))
-                                                             &key state focused pad)
+(cl-defmethod lispm-ui-draw-check-box (palette on
+                                               &context (lispm-ui-look (eql os2))
+                                               &key state focused pad)
   "Return OS/2 2.0's check box: a white square sunk into the grey, ticked
 when ON; grey when STATE is `disabled', its inside grey when `pressed'.
 FOCUSED dots a ring round it.  It stands where Platinum's does, at the
@@ -334,8 +334,8 @@ bottom left of fourteen pixels."
                     :fill "none" :stroke ink :stroke-width 2))
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-list-check-box (palette state
-                                                                  &context (lispm-desktop-look (eql os2)))
+(cl-defmethod lispm-ui-draw-list-check-box (palette state
+                                                    &context (lispm-ui-look (eql os2)))
   "Return a list's twelve-pixel check box in OS/2 2.0's form: ticked when
 STATE is `on', a bar across it when `mixed'."
   (let ((svg (svg-create 12 12))

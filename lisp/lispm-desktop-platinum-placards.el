@@ -134,8 +134,8 @@ MENU adds the pop-up arrow after CONTENT."
     (add-face-text-property 0 (length content) face t content)
     (lispm-ui-svg-content svg content pad 0 height ink 'lispm-ui-list)
     (when menu
-      (lispm-desktop-platinum-svg-pixel-map svg (- width pad (- arrow 6)) (/ (- height 4) 2)
-                                            lispm-desktop-platinum--popup-arrow `((?# . ,ink))))
+      (lispm-ui-svg-pixel-map svg (- width pad (- arrow 6)) (/ (- height 4) 2)
+                              lispm-desktop-platinum--popup-arrow `((?# . ,ink))))
     svg))
 
 (defun lispm-desktop-platinum--text-placard (text active menu)
@@ -159,7 +159,7 @@ its `lispm-desktop-platinum-kind' property, says which placard of a
 document's it is, see `lispm-desktop-platinum-fit-placards'.  Where placards
 are not drawn, see `lispm-desktop-platinum-drawn-placards-p', it is
 CONTENT in an outlined face; a drawn one keeps CONTENT's text in its
-`lispm-desktop-platinum-label' property."
+`lispm-ui-label' property."
   (let ((placard
          (if (lispm-desktop-platinum-drawn-placards-p)
              (propertize " " 'display
@@ -168,7 +168,7 @@ CONTENT in an outlined face; a drawn one keeps CONTENT's text in its
                           (lambda ()
                             (lispm-desktop-platinum-draw-window-placard
                              lispm-ui-current-palette content :active active :menu menu)))
-                         'lispm-desktop-platinum-label (substring-no-properties content))
+                         'lispm-ui-label (substring-no-properties content))
            ;; A mode line reads % as a construct.
            (lispm-desktop-platinum--text-placard (string-replace "%" "%%" content) active menu))))
     (when keymap
@@ -182,7 +182,7 @@ CONTENT in an outlined face; a drawn one keeps CONTENT's text in its
 (defun lispm-desktop-platinum-placard-label (placard)
   "Return the text PLACARD, a string `lispm-desktop-platinum-placard'
 returned, shows."
-  (or (get-text-property 0 'lispm-desktop-platinum-label placard)
+  (or (get-text-property 0 'lispm-ui-label placard)
       (string-trim (substring-no-properties placard))))
 
 ;;;; Icons
@@ -221,7 +221,7 @@ pixel, at most twelve square."
                       "#.#......" "###......")
                      (?# . ,ink)))))
                (svg (svg-create (length (car rows)) (length rows))))
-    (lispm-desktop-platinum-svg-pixel-map svg 0 0 rows colors)
+    (lispm-ui-svg-pixel-map svg 0 0 rows colors)
     svg))
 
 (defun lispm-desktop-platinum-placard-icon (kind)

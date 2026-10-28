@@ -41,7 +41,7 @@
 ;; to `read-multiple-choice'.
 ;;
 ;; Drawing (the text of menus and alerts; push buttons are
-;; `lispm-desktop-platinum-draw-push-button') is separate from the modal
+;; `lispm-ui-draw-push-button') is separate from the modal
 ;; loops, which only read events and redraw.
 
 ;;; Code:
@@ -446,7 +446,7 @@ variation colour, light on dark, its edges lit and shaded in it too."
                                                    (+ (lispm-desktop-popup--label-x) icons)
                                                    top h ink face)
              (cond ((plist-get item :submenu)
-                    (lispm-desktop-platinum-svg-pixel-map
+                    (lispm-ui-svg-pixel-map
                      svg (- width 12) (+ top 2)
                      '("#" "##" "###" "####" "#####" "######" "#####" "####" "###" "##" "#")
                      `((?# . ,ink))))
@@ -1050,7 +1050,7 @@ buttons standing apart come too close to the others, if any."
       (dolist (index (number-sequence (1- (length buttons)) 0 -1))
         (unless (funcall apart index)
           (pcase-let* ((`(,label ,value ,role) (nth index buttons))
-                       (width (lispm-desktop-platinum-push-button-width label))
+                       (width (lispm-ui-push-button-width label))
                        (ring (if (eq role 'default) 3 0)))
             (when previous
               (setq right (- right lispm-desktop-popup-button-gap 1)))
@@ -1063,12 +1063,12 @@ buttons standing apart come too close to the others, if any."
        (lambda (button index)
          (when (funcall apart index)
            (pcase-let* ((`(,label ,value ,role) button)
-                        (width (lispm-desktop-platinum-push-button-width label)))
+                        (width (lispm-ui-push-button-width label)))
              (push (list label value role left top width) placed)
              (setq apart-end (+ left width)
                    left (+ left width lispm-desktop-popup-button-gap)))))
        buttons))
-    (list :height (+ top lispm-desktop-platinum-button-height 15)
+    (list :height (+ top lispm-ui-button-height 15)
           ;; Those apart keep twice the gap between buttons from Cancel.
           :overlap (if (> apart-end 0) (- (+ apart-end (* 2 lispm-desktop-popup-button-gap)) right-start) 0)
           :message lines :detail details
@@ -1092,10 +1092,10 @@ holding the keyboard."
                             'lispm-ui-list)
       (setq y (+ y 16))))
   (pcase-dolist (`(,label ,value ,role ,x ,top ,width) (plist-get layout :buttons))
-    (lispm-desktop-platinum-svg-push-button svg x top palette label width
-                                            :state (and (equal pressed value) 'pressed)
-                                            :default (eq role 'default)
-                                            :focused (and focused (equal focused value)))))
+    (lispm-ui-svg-push-button svg x top palette label width
+                              :state (and (equal pressed value) 'pressed)
+                              :default (eq role 'default)
+                              :focused (and focused (equal focused value)))))
 
 (cl-defgeneric lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused)
   "Return an SVG of an alert of ICON, MESSAGE, DETAIL and BUTTONS, in PALETTE.
@@ -1135,7 +1135,7 @@ cell.")
 
 (defun lispm-desktop-popup--text-button-width (label)
   "Return the width in cells of a push button reading LABEL on a text terminal."
-  (string-width (lispm-desktop-platinum-text-button (concat " " label " "))))
+  (string-width (lispm-ui-text-button (concat " " label " "))))
 
 (defun lispm-desktop-popup--text-alert-layout (message detail buttons)
   "Return where an alert of MESSAGE, DETAIL and BUTTONS draws its parts on a
@@ -1213,7 +1213,7 @@ takes them."
           (put row x line)
           (setq row (1+ row))))
       (pcase-dolist (`(,label ,value ,role ,left ,top ,_) (plist-get layout :buttons))
-        (let ((button (lispm-desktop-platinum-text-button
+        (let ((button (lispm-ui-text-button
                        (concat " " label " ") (and (equal pressed value) 'pressed) (eq role 'default))))
           (when (and focused (equal focused value))
             (add-face-text-property 0 (length button) '(:underline t) t button))
@@ -1259,7 +1259,7 @@ On a text terminal the alert is text, see `lispm-desktop-popup--text-alert'."
     (lispm-ui-modal-hit (mapcar (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
                                        (list value left top width
                                              (if (lispm-desktop-tty-p frame) 1
-                                               lispm-desktop-platinum-button-height)))
+                                               lispm-ui-button-height)))
                                      (frame-parameter frame 'lispm-desktop-popup-buttons))
                              (car xy) (cdr xy))))
 

@@ -117,7 +117,7 @@ Netscape toolbars draw theirs.  The button is pressed rather than
 clicked: drawn pushed in while held, and run on release over it, see
 `lispm-desktop-platinum-press'.  Built while its line is drawn, as
 toolbars are, it shows itself pushed in from the window's
-`lispm-desktop-platinum-pressed'."
+`lispm-ui-pressed'."
   (let* ((face (and (facep state) state))
          (label (if face label (lispm-desktop-sidebar--trim label)))
          ;; The command tells buttons apart: `equal' ignores text
@@ -131,7 +131,7 @@ toolbars are, it shows itself pushed in from the window's
                                                (if pressed 'lispm-ui-button-pressed face)
                                                t styled)
                        styled)
-                   (lispm-desktop-platinum-bevel-button label (if pressed 'pressed state)))))
+                   (lispm-ui-bevel-button label (if pressed 'pressed state)))))
     (if (eq state 'disabled)
         button
       (propertize button

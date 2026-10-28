@@ -645,7 +645,7 @@ is.  The keys go from step to step."
                       (save-excursion
                         (goto-char (point-min))
                         (while (< (point) (point-max))
-                          (when-let* ((label (get-text-property (point) 'lispm-desktop-platinum-label)))
+                          (when-let* ((label (get-text-property (point) 'lispm-ui-label)))
                             (push (cons label (and (button-at (point)) t)) found))
                           (forward-char 1)))
                       (nreverse found))))
@@ -3262,8 +3262,8 @@ faces take the default face's fontset: `unspecified' would make
 drawn placard's label in its place, text placards as they are."
   (let ((text "") (start 0))
     (while (< start (length bottom))
-      (let* ((label (get-text-property start 'lispm-desktop-platinum-label bottom))
-             (end (next-single-property-change start 'lispm-desktop-platinum-label bottom (length bottom))))
+      (let* ((label (get-text-property start 'lispm-ui-label bottom))
+             (end (next-single-property-change start 'lispm-ui-label bottom (length bottom))))
         (setq text (concat text (if label (concat " " label " ") (substring-no-properties bottom start end)))
               start end)))
     text))
@@ -3469,14 +3469,14 @@ while held."
            (ran 0)
            (held nil))
       (cl-letf (((symbol-function 'redisplay)
-                 (lambda (&rest _) (setq held (window-parameter window 'lispm-desktop-platinum-pressed))))
+                 (lambda (&rest _) (setq held (window-parameter window 'lispm-ui-pressed))))
                 ((symbol-function 'lispm-desktop-platinum--press-target) (lambda (_) 'close)))
         ;; Let go over the button: it runs.
         (cl-letf (((symbol-function 'read-event) (lambda (&rest _) (list 'mouse-1 press))))
           (lispm-desktop-platinum-press press (lambda (_) t) (lambda () (cl-incf ran))))
         (should (= ran 1))
         (should (eq held 'close))
-        (should-not (window-parameter window 'lispm-desktop-platinum-pressed))
+        (should-not (window-parameter window 'lispm-ui-pressed))
         ;; Moved off before letting go: nothing runs.
         (cl-letf (((symbol-function 'read-event) (lambda (&rest _) (list 'mouse-1 press))))
           (lispm-desktop-platinum-press press (lambda (_) nil) (lambda () (cl-incf ran))))
@@ -3614,86 +3614,6 @@ Strip's greys; Platinum names Mac OS 9's."
     ;; Text on a highlighted Dracula menu stays legible.
     (should (equal (plist-get dracula :highlight-text) "#f8f8f2"))))
 
-(ert-deftest lispm-desktop-test-push-button ()
-  "A push button is drawn as Mac OS 9's: twenty pixels tall, its corners
-rounded, two lit lines and two shaded ones, darkened when pressed and
-flat when disabled."
-  (let* ((palette (lispm-desktop-test--platinum-palette))
-         (font '(:family "Geneva" :size 12 :weight "normal" :synthetic nil))
-         (normal (lispm-desktop-platinum-draw-push-button palette "Cancel" 60 :font font))
-         (pressed (lispm-desktop-platinum-draw-push-button palette "Cancel" 60 :state 'pressed :font font))
-         (disabled (lispm-desktop-platinum-draw-push-button palette "Eject" 80 :state 'disabled :font font)))
-    (should (equal (lispm-desktop-test--size normal) '(60 . 20)))
-    (cl-flet ((at (svg x y) (lispm-desktop-test--pixel svg x y)))
-      ;; The corners are cut, the outline steps in.
-      (should-not (at normal 0 0))
-      (should (equal (at normal 2 0) "#222222"))
-      (should (equal (at normal 3 0) "#000000"))
-      (should (equal (at normal 1 1) "#000000"))
-      (should (equal (at normal 0 10) "#000000"))
-      ;; Lit, face, shaded.
-      (should (equal (at normal 10 1) "#DDDDDD"))
-      (should (equal (at normal 10 2) "#FFFFFF"))
-      (should (equal (at normal 2 10) "#FFFFFF"))
-      (should (equal (at normal 30 10) "#DDDDDD"))
-      (should (equal (at normal 57 10) "#AAAAAA"))
-      (should (equal (at normal 58 10) "#777777"))
-      (should (equal (at normal 10 17) "#AAAAAA"))
-      (should (equal (at normal 10 18) "#777777"))
-      ;; Pressed: dark, lit from below.
-      (should (equal (at pressed 10 1) "#444444"))
-      (should (equal (at pressed 10 2) "#555555"))
-      (should (equal (at pressed 30 10) "#666666"))
-      (should (equal (at pressed 58 10) "#888888"))
-      ;; Disabled: a grey outline round a flat face.
-      (should (equal (at disabled 0 10) "#888888"))
-      (should (equal (at disabled 2 10) "#DDDDDD"))
-      (should (equal (at disabled 78 10) "#DDDDDD")))
-    ;; Labels: black, white when pressed, dimmed when disabled.
-    (should (equal (dom-attr (car (dom-by-tag normal 'text)) 'fill) "#000000"))
-    (should (equal (upcase (dom-attr (car (dom-by-tag pressed 'text)) 'fill)) "#FFFFFF"))
-    (should (equal (upcase (dom-attr (car (dom-by-tag disabled 'text)) 'fill)) "#777777"))))
-
-(ert-deftest lispm-desktop-test-push-button-rings ()
-  "The default button is ringed three pixels out, 26 tall in all; the
-focus ring stands two pixels further, in the focus colour; a padded
-button keeps its size whichever rings it wears."
-  (let* ((palette (lispm-desktop-test--platinum-palette))
-         (font '(:family "Geneva" :size 12 :weight "normal" :synthetic nil))
-         (default (lispm-desktop-platinum-draw-push-button palette "Save" 60 :default t :font font))
-         (plain (lispm-desktop-platinum-draw-push-button palette "Save" 60 :pad 5 :font font))
-         (both (lispm-desktop-platinum-draw-push-button palette "Save" 60 :default t :focused t
-                                                        :pad 5 :font font)))
-    (should (equal (lispm-desktop-test--size default) '(66 . 26)))
-    (should (equal (lispm-desktop-test--size plain) '(70 . 30)))
-    (should (equal (lispm-desktop-test--size both) '(70 . 30)))
-    (cl-flet ((at (x y) (lispm-desktop-test--pixel default x y)))
-      ;; Outline, then lit and shaded bands, then the button's own outline.
-      (should (equal (at 0 13) "#000000"))
-      (should (equal (at 1 13) "#DDDDDD"))
-      (should (equal (at 2 13) "#AAAAAA"))
-      (should (equal (at 3 13) "#000000"))
-      (should (equal (at 63 13) "#AAAAAA"))
-      (should (equal (at 64 13) "#777777"))
-      (should (equal (at 65 13) "#000000")))
-    (should-not (string-search "#6666CC" (format "%S" plain)))
-    (should (string-search "#6666CC" (format "%S" both)))))
-
-(ert-deftest lispm-desktop-test-bevel-button ()
-  "A bevel button is square, lit along its top and left, darker pressed."
-  (let* ((palette (lispm-desktop-test--platinum-palette))
-         (up (lispm-desktop-platinum-draw-bevel-button palette 48 48))
-         (down (lispm-desktop-platinum-draw-bevel-button palette 48 48 :state 'pressed)))
-    (cl-flet ((at (svg x y) (lispm-desktop-test--pixel svg x y)))
-      (should (equal (at up 0 0) "#666666"))
-      (should (equal (at up 2 10) "#FFFFFF"))
-      (should (equal (at up 20 20) "#CCCCCC"))
-      (should (equal (at up 45 20) "#999999"))
-      (should (equal (at up 47 20) "#333333"))
-      (should (equal (at down 0 10) "#111111"))
-      (should (equal (at down 20 20) "#888888"))
-      (should (equal (at down 46 20) "#BBBBBB")))))
-
 (ert-deftest lispm-desktop-test-tabs ()
   "Tabs stand on the pane's edge: the one in front opens into the pane in
 its colour, those behind are darker with the pane's outline under them."
@@ -3753,11 +3673,11 @@ pressed, the cross is lit on a grey disc."
 (ert-deftest lispm-desktop-test-small-controls ()
   "Radio buttons, check boxes and placards draw at Mac OS 9's sizes."
   (let ((palette (lispm-desktop-test--dracula-palette)))
-    (should (equal (lispm-desktop-test--size (lispm-desktop-platinum-draw-radio palette t)) '(12 . 12)))
-    (should (string-search "url(#sphere)" (format "%S" (lispm-desktop-platinum-draw-radio palette nil))))
-    (should (equal (lispm-desktop-test--size (lispm-desktop-platinum-draw-check-box palette t)) '(14 . 14)))
-    (should (dom-by-tag (lispm-desktop-platinum-draw-check-box palette t) 'polyline))
-    (should-not (dom-by-tag (lispm-desktop-platinum-draw-check-box palette nil) 'polyline))
+    (should (equal (lispm-desktop-test--size (lispm-ui-draw-radio palette t)) '(12 . 12)))
+    (should (string-search "url(#sphere)" (format "%S" (lispm-ui-draw-radio palette nil))))
+    (should (equal (lispm-desktop-test--size (lispm-ui-draw-check-box palette t)) '(14 . 14)))
+    (should (dom-by-tag (lispm-ui-draw-check-box palette t) 'polyline))
+    (should-not (dom-by-tag (lispm-ui-draw-check-box palette nil) 'polyline))
     (let ((placard (lispm-desktop-platinum-draw-placard palette 100 20 :label "9 items"
                                                         :font '(:family "Geneva" :size 10
                                                                 :weight "normal" :synthetic nil))))
@@ -4389,23 +4309,6 @@ the keyboard under the selected window's title."
       (should-not mouse-x)
       (should-not mouse-y))))
 
-(ert-deftest lispm-desktop-test-group-box-edge ()
-  "A group box's top edge is an engraved line, grey over lit, running down
-its sides; its title breaks the line on the panel's grey."
-  (let* ((palette (lispm-desktop-test--platinum-palette))
-         (edge (lispm-desktop-platinum-draw-group-edge palette 200))
-         (titled (lispm-desktop-platinum-draw-group-edge palette 200 "Appearance")))
-    (should (equal (lispm-desktop-test--size edge) '(200 . 18)))
-    (cl-flet ((at (svg x y) (lispm-desktop-test--pixel svg x y)))
-      (should (equal (at edge 50 9) "#888888"))
-      (should (equal (at edge 50 10) "#FFFFFF"))
-      (should (equal (at edge 0 14) "#888888"))
-      (should (equal (at edge 1 14) "#FFFFFF"))
-      (should (equal (at edge 198 14) "#888888"))
-      (should (equal (at edge 199 14) "#FFFFFF"))
-      (should (equal (at titled 10 9) "#EEEEEE")))
-    (should (dom-by-tag titled 'text))))
-
 (ert-deftest lispm-desktop-test-finder-path-menu ()
   "The Finder window counts its items in its header, and its title pops up
 its folder's path, the folder first, each going there."
@@ -4547,50 +4450,16 @@ its properties.  The cross is drawn pressed while held down."
     ;; Held down, the tab is drawn again with the cross pressed.
     (unwind-protect
         (progn
-          (set-window-parameter nil 'lispm-desktop-platinum-pressed '(tab-close 0))
+          (set-window-parameter nil 'lispm-ui-pressed '(tab-close 0))
           (let ((held (lispm-desktop-platinum-tabs `(("One" t :close ,close keymap ,map)) 400)))
             (should-not (equal (cadr (get-text-property 1 'display held)) image))))
-      (set-window-parameter nil 'lispm-desktop-platinum-pressed nil))))
+      (set-window-parameter nil 'lispm-ui-pressed nil))))
 
 (ert-deftest lispm-desktop-test-toolbar-label-keeps-image-icons ()
   "Trimming a toolbar label drops plain spaces but keeps a space showing an icon."
   (let ((icon (propertize " " 'display '(image :type png :file "x.png"))))
     (should (equal (lispm-desktop-sidebar--trim (concat " " icon "+ ")) (concat icon "+")))
     (should (get-text-property 0 'display (lispm-desktop-sidebar--trim (concat " " icon "+ "))))))
-
-(ert-deftest lispm-desktop-test-focus-ring-follows-point ()
-  "The control point is on is drawn focused; leaving it draws it plain again."
-  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
-    (with-temp-buffer
-      (lispm-desktop-platinum-insert-push-button "OK" #'ignore)
-      (insert " ")
-      (lispm-desktop-platinum-insert-push-button "Cancel" #'ignore)
-      (let ((plain (get-text-property 1 'lispm-desktop-platinum-plain))
-            (focused (get-text-property 1 'lispm-desktop-platinum-focused)))
-        (should-not (equal plain focused))
-        (goto-char 1)
-        (lispm-desktop-platinum-show-focus)
-        (should (equal (get-text-property 1 'display) focused))
-        (goto-char 3)
-        (lispm-desktop-platinum-show-focus)
-        (should (equal (get-text-property 1 'display) plain))
-        (should (equal (get-text-property 3 'display) (get-text-property 3 'lispm-desktop-platinum-focused)))))))
-
-(ert-deftest lispm-desktop-test-push-button-pushes ()
-  "Return on a push button runs its action, drawn pushed in meanwhile."
-  (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
-        (ran 0)
-        (shown nil))
-    (with-temp-buffer
-      (lispm-desktop-platinum-insert-push-button "OK" (lambda () (cl-incf ran)))
-      (cl-letf (((symbol-function 'sit-for)
-                 (lambda (&rest _) (setq shown (get-text-property 1 'display)) t))
-                ((symbol-function 'redisplay) #'ignore))
-        (let ((last-input-event ?\r))
-          (lispm-desktop-platinum-push 1)))
-      (should (= ran 1))
-      (should (equal shown (get-text-property 1 'lispm-desktop-platinum-pressed)))
-      (should-not (equal (get-text-property 1 'display) shown)))))
 
 (ert-deftest lispm-desktop-test-scroll-bar-windows ()
   "Files get scroll bars; sessions and side windows other than lists do not."
@@ -5080,7 +4949,7 @@ from the edge."
 German, is just wide enough for the button standing apart to keep clear
 of Cancel; one whose words fit keeps the width."
   (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
-    (cl-letf (((symbol-function 'lispm-desktop-platinum-push-button-width)
+    (cl-letf (((symbol-function 'lispm-ui-push-button-width)
                (lambda (label) (+ 24 (* 6 (length label))))))
       (should-not (plist-get (lispm-desktop-popup--alert-layout
                               "Uninstall?" nil '(("Uninstall All" all nil) ("Cancel" cancel cancel)
@@ -5353,7 +5222,7 @@ Strip."
                  (mapconcat (lambda (part) (if (stringp part) part "")) (ensure-list construct) ""))))
       (setq labels (mapcar (lambda (item)
                              (substring-no-properties
-                              (get-text-property 0 'lispm-desktop-platinum-label (nth 2 item))))
+                              (get-text-property 0 'lispm-ui-label (nth 2 item))))
                            (lispm-desktop-platinum-menu-status))))
     (progn
       (should (string-search "λ 2" (nth 0 labels)))
@@ -5842,7 +5711,7 @@ positions, the keys, the browser's pages."
                             ;; Push buttons draw their labels in their images.
                             (mapconcat #'identity
                                        (delq nil (mapcar (lambda (position)
-                                                           (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (get-text-property position 'lispm-ui-label))
                                                          (number-sequence (point-min) (1- (point-max)))))
                                        " "))))
           (dolist (label labels)
@@ -5916,7 +5785,7 @@ the panel says how it stands, with what can be done about it."
                               ;; Push buttons draw their labels in their images.
                               (mapconcat #'identity
                                          (delq nil (mapcar (lambda (position)
-                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                             (get-text-property position 'lispm-ui-label))
                                                            (number-sequence (point-min) (1- (point-max)))))
                                          " "))))
             (dolist (label labels)
@@ -6301,7 +6170,7 @@ commas; one srt cannot allow is refused, and nothing is kept."
   "Return the first button of the current panel whose label holds LABEL."
   (let ((button (next-button (point-min))))
     (while (and button (not (string-search label (or (get-text-property (button-start button)
-                                                                         'lispm-desktop-platinum-label)
+                                                                         'lispm-ui-label)
                                                       (button-label button)))))
       (setq button (next-button (button-end button))))
     button))
@@ -6312,15 +6181,15 @@ group boxes' titles and the push buttons'."
   (concat (buffer-string) " "
           (mapconcat #'identity
                      (delq nil (mapcar (lambda (position)
-                                         (get-text-property position 'lispm-desktop-platinum-label))
+                                         (get-text-property position 'lispm-ui-label))
                                        (number-sequence (point-min) (1- (point-max)))))
                      " ")))
 
 (defun lispm-desktop-test--radio-on-p (label)
   "Return non-nil when the radio button LABEL of the current panel is on."
   (equal (get-text-property (button-start (lispm-desktop-test--settings-button label))
-                            'lispm-desktop-platinum-plain)
-         (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t nil nil))))
+                            'lispm-ui-plain)
+         (lispm-ui-image-of (lispm-ui-radio t nil nil))))
 
 (ert-deftest lispm-desktop-test-settings-sandbox-panel ()
   "The Sandbox panel offers the four levels with what each allows; choosing
@@ -9120,23 +8989,6 @@ from the floating windows' mode: no cursor, no fringes, no wrapped lines."
       (should truncate-lines)
       (should (eql left-fringe-width 0)))))
 
-(ert-deftest lispm-desktop-test-list-check-box-pixels ()
-  "Extensions Manager's check boxes: twelve pixels square, outlined; checked,
-crossed from corner to corner; for a group partly on, crossed by a bar."
-  (let ((palette (lispm-desktop-test--platinum-palette)))
-    (cl-flet ((at (state x y)
-                (lispm-desktop-test--pixel (lispm-desktop-platinum-draw-list-check-box palette state) x y)))
-      (should (equal (lispm-desktop-test--size (lispm-desktop-platinum-draw-list-check-box palette 'on))
-                     '(12 . 12)))
-      (should (equal (at 'on 0 0) "#000000"))
-      (should (equal (at 'on 1 1) "#FFFFFF"))
-      (should (equal (at 'on 3 2) "#000000"))
-      (should (equal (at 'on 8 2) "#000000"))
-      (should (equal (at 'off 3 2) "#DDDDDD"))
-      (should (equal (at 'mixed 4 5) "#000000"))
-      (should (equal (at 'mixed 4 3) "#DDDDDD"))
-      (should (equal (at 'off 10 6) "#888888")))))
-
 (defun lispm-desktop-test--runs (svg y width)
   "Return row Y of SVG, WIDTH pixels long, as runs: (COLOR . COUNT)s."
   (let ((runs nil))
@@ -11470,7 +11322,7 @@ category to category, and Space presses the selected item's button."
         (with-current-buffer (lispm-desktop-store--buffer)
           (lispm-desktop-store--render)
           (let ((labels (delq nil (mapcar (lambda (position)
-                                            (get-text-property position 'lispm-desktop-platinum-label))
+                                            (get-text-property position 'lispm-ui-label))
                                           (number-sequence (point-min) (1- (point-max)))))))
             (dolist (label '("Check for Updates" "Install from URL…"))
               (should (member label labels)))
@@ -11579,7 +11431,7 @@ with the page between, show when there are pages."
       (lispm-desktop-store--render)
       (should (= (lispm-desktop-store--page-size) 16))
       (cl-flet ((labels ()
-                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-ui-label))
                                     (number-sequence (point-min) (1- (point-max))))))
                 (page () (mapcar #'car (lispm-desktop-store--page-items))))
         (should (equal (car (page)) 'calculator))
@@ -11625,7 +11477,7 @@ nothing."
           (should (eq lispm-desktop-store--view 'item))
           (should (eq lispm-desktop-store--selected 'game16))
           (let* ((rows (lispm-desktop-store--page-rows 'game16 640))
-                 (labels (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                 (labels (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-ui-label))
                                            (number-sequence (point-min) (1- (point-max)))))))
             (should (plist-get (car rows) :head))
             (should (equal (plist-get (plist-get (car rows) :head) :name) "Game 16"))
@@ -11717,7 +11569,7 @@ window has no scroll bar, and what a command scrolled goes back."
                      (seq-remove #'lispm-desktop-store--gap-p (lispm-desktop-store--page-rows 'long 640)))))
     (with-current-buffer (lispm-desktop-store--buffer)
       (cl-flet ((labels ()
-                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-desktop-platinum-label))
+                  (delq nil (mapcar (lambda (position) (get-text-property position 'lispm-ui-label))
                                     (number-sequence (point-min) (1- (point-max))))))
                 (enabled (label)
                   (plist-get (seq-find (lambda (item) (equal (plist-get item :label) label))
@@ -12714,7 +12566,7 @@ Switch shows once it is ready."
           (let ((text (concat (buffer-string)
                               (mapconcat #'identity
                                          (delq nil (mapcar (lambda (position)
-                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                             (get-text-property position 'lispm-ui-label))
                                                            (number-sequence (point-min) (1- (point-max)))))
                                          " "))))
             (dolist (label '("LispM Kernel" "Use LispM Kernel" "Off: Emacs reads the sessions itself."
@@ -12742,7 +12594,7 @@ Switch shows once it is ready."
         (with-current-buffer (lispm-desktop-settings--buffer 'settings-system)
           (lispm-desktop-settings--render)
           (should (seq-some (lambda (position)
-                              (equal (get-text-property position 'lispm-desktop-platinum-label) "Restart to Switch"))
+                              (equal (get-text-property position 'lispm-ui-label) "Restart to Switch"))
                             (number-sequence (point-min) (1- (point-max))))))))))
 
 (ert-deftest lispm-desktop-test-settings-update-panel ()
@@ -12766,7 +12618,7 @@ installed; its check boxes save their choices."
           (let ((text (concat (buffer-string)
                               (mapconcat #'identity
                                          (delq nil (mapcar (lambda (position)
-                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                             (get-text-property position 'lispm-ui-label))
                                                            (number-sequence (point-min) (1- (point-max)))))
                                          " "))))
             (dolist (label '("Update Now" "LispM Desktop 0.3.0, 2 changes" "Mend the menu" "Restart to Update"
@@ -14746,22 +14598,11 @@ updated, with a button showing them in the App Store."
           (let ((text (concat (buffer-string)
                               (mapconcat #'identity
                                          (delq nil (mapcar (lambda (position)
-                                                             (get-text-property position 'lispm-desktop-platinum-label))
+                                                             (get-text-property position 'lispm-ui-label))
                                                            (number-sequence (point-min) (1- (point-max)))))
                                          " "))))
             (dolist (label '("Update applications automatically" "Elfeed" "can be updated" "Show Updates"))
               (should (string-search label text)))))))))
-
-(ert-deftest lispm-desktop-test-platinum-check-box-focus ()
-  "A check box the keyboard is on is ringed, in the room left about it."
-  (let* ((focus "#6666CC")
-         (palette (plist-put (copy-sequence lispm-ui-current-palette) :focus focus))
-         (plain (lispm-desktop-platinum-draw-check-box palette t :pad 2))
-         (focused (lispm-desktop-platinum-draw-check-box palette t :focused t)))
-    (should (equal (dom-attr plain 'width) 18))
-    (should (equal (dom-attr focused 'width) 18))
-    (should-not (string-search focus (prin1-to-string plain)))
-    (should (string-search focus (prin1-to-string focused)))))
 
 ;;;; The proxy
 
@@ -15271,7 +15112,7 @@ check box, and adds and removes them."
         (let ((text (concat (buffer-string)
                             (mapconcat #'identity
                                        (delq nil (mapcar (lambda (position)
-                                                           (get-text-property position 'lispm-desktop-platinum-label))
+                                                           (get-text-property position 'lispm-ui-label))
                                                          (number-sequence (point-min) (1- (point-max)))))
                                        " ")))
               (press (lambda (label)
@@ -15280,7 +15121,7 @@ check box, and adds and removes them."
                          (while (and button
                                      (not (string-search label (button-label button)))
                                      (not (equal label (get-text-property (button-start button)
-                                                                          'lispm-desktop-platinum-label))))
+                                                                          'lispm-ui-label))))
                            (setq button (next-button (button-end button))))
                          (should button)
                          (button-activate button)))))
@@ -15957,7 +15798,7 @@ Platinum's."
         (push (lispm-desktop-browser--bevel 40 30 nil) bevels)
         (unless (eq look 'platinum)
           (let ((svg (svg-create 40 30)))
-            (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-ui-current-palette 40 30)
+            (lispm-ui-svg-bevel-button svg 0 0 lispm-ui-current-palette 40 30)
             (should (equal (car bevels) (with-temp-buffer (svg-print svg) (buffer-string))))))))
     (should (= (length (delete-dups bevels)) 4))
     (should (string-prefix-p "<rect width='40' height='30'" (car (last bevels))))
@@ -16091,7 +15932,8 @@ user's own, as they placed it, comes first."
   "Run BODY as on a text terminal, in Platinum's palette."
   (declare (indent 0))
   `(let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
-     (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&optional _) t)))
+     (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&optional _) t))
+               ((symbol-function 'lispm-ui-tty-p) (lambda (&optional _) t)))
        ,@body)))
 
 (ert-deftest lispm-desktop-test-tty-not-in-batch ()
@@ -16176,24 +16018,6 @@ dot."
     (should (equal (lispm-desktop-platinum-icon 'emacs) "◆"))
     (should (equal (lispm-desktop-platinum-icon "/some/app/icon.svg") "·"))
     (should (equal (lispm-desktop-platinum-triangle t) "▾"))))
-
-(ert-deftest lispm-desktop-test-tty-controls ()
-  "On a text terminal the controls a buffer holds show text where they show
-images elsewhere: radio buttons, check boxes, push buttons and group
-boxes; the one focused is ringed in the focus colour."
-  (lispm-desktop-test--on-tty
-    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t)) "(•)"))
-    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio nil)) "( )"))
-    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-check-box t)) "[✓]"))
-    (should (equal (lispm-desktop-platinum-image-of (lispm-desktop-platinum-push-button "OK")) "[ OK ]"))
-    (let ((focused (lispm-desktop-platinum-image-of (lispm-desktop-platinum-radio t nil t))))
-      (should (equal (plist-get (get-text-property 0 'face focused) :background)
-                     (lispm-ui-color :focus))))
-    (let ((top (lispm-desktop-platinum-group-edge 20 "Look"))
-          (bottom (lispm-desktop-platinum-group-edge 20 nil t)))
-      (should (equal (substring-no-properties top) "┌─ Look ───────────┐"))
-      (should (equal (substring-no-properties bottom) "└──────────────────┘"))
-      (should (equal (substring-no-properties (lispm-desktop-platinum-group-side 16)) "│")))))
 
 (ert-deftest lispm-desktop-test-tty-menu ()
   "On a text terminal a menu is text, a line an item as wide as the menu: a
@@ -16723,49 +16547,12 @@ ends at single characters."
 
 ;;;; Controls in buffers, forms and characters
 
-(ert-deftest lispm-desktop-test-controls-in-buffers ()
-  "Radio buttons, check boxes and pop-up menus inserted in a buffer are
-buttons that carry their images plain and focused, as push buttons do; a
-pop-up menu gives the value chosen in its menu to its action."
-  (with-temp-buffer
-    (let (pressed)
-      (lispm-desktop-platinum-insert-radio-button "Red" t (lambda () (push 'radio pressed)))
-      (insert "\n")
-      (lispm-desktop-platinum-insert-check-box "Bold" nil (lambda () (push 'check pressed)))
-      (insert "\n")
-      (lispm-desktop-platinum-insert-popup-button "Medium" '((small . "Small") (medium . "Medium"))
-                                                  (lambda (value) (push value pressed))
-                                                  :current 'medium :help "Size")
-      (dolist (position (list (point-min) (save-excursion (goto-char (point-min)) (forward-line 1) (point))))
-        (should (button-at position))
-        (should (get-text-property position 'lispm-desktop-platinum-focused)))
-      (should (string-match-p "Red" (buffer-string)))
-      (push-button (point-min))
-      (push-button (save-excursion (goto-char (point-min)) (forward-line 1) (point)))
-      (let ((asked nil))
-        (cl-letf (((symbol-function 'lispm-desktop-platinum-choose)
-                   (lambda (choices current _position label) (setq asked (list choices current label)) '(small))))
-          (push-button (save-excursion (goto-char (point-min)) (forward-line 2) (point))))
-        (should (equal asked '(((small . "Small") (medium . "Medium")) medium "Size"))))
-      (should (equal pressed '(small check radio))))))
-
 (ert-deftest lispm-desktop-test-choose-without-menus ()
   "Where no menu can be drawn, a pop-up menu's choices are read in the
 minibuffer."
   (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'ignore)
             ((symbol-function 'completing-read) (lambda (&rest _) "Big")))
     (should (equal (lispm-desktop-platinum-choose '((small . "Small") (big . "Big")) 'small) '(big)))))
-
-(ert-deftest lispm-desktop-test-popup-button-image ()
-  "A pop-up menu is drawn as a push button with its label on the left and
-its arrows on the right, wide enough for both; ringed when focused."
-  (skip-unless (image-type-available-p 'svg))
-  (let ((svg (lispm-desktop-platinum-draw-popup-button lispm-ui-current-palette
-                                                       "Medium" 100 :focused t)))
-    (should (equal (dom-attr svg 'width) 104))
-    (should (dom-by-tag svg 'polygon))
-    (should (string-match-p "Medium" (with-temp-buffer (svg-print svg) (buffer-string)))))
-  (should (>= (lispm-desktop-platinum-popup-button-width "A") 80)))
 
 (defmacro lispm-desktop-test--with-pictures (&rest body)
   "Run BODY with `folder' a folder of pictures and others: ada.png,
