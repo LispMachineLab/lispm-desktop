@@ -1175,16 +1175,17 @@ a whole symbol wherever written, or every symbol starting with a prefix,
 never a longer name a renamed one starts."
   (load (expand-file-name "scripts/lispm-ui-rename.el" lispm-desktop-directory) nil t)
   (with-temp-buffer
-    (insert "(lispm-desktop-modal-read) (lispm-desktop-modal-role ?a)\n"
-            ";; `lispm-desktop-modal-read' reads \"lispm-desktop-popup-alert\".\n"
-            "(lispm-desktop-popup-alert-width x-lispm-desktop-popup-alert lispm-desktop-popup-alert)\n")
-    (should (= (lispm-desktop-rename-buffer '((:prefix "lispm-desktop-modal-" . "lispm-ui-modal-")
-                                              ("lispm-desktop-popup-alert" . "lispm-ui-alert")))
+    ;; Names no move renames, so that the table never renames them here.
+    (insert "(lispm-desktop-sample-read) (lispm-desktop-sample-role ?a)\n"
+            ";; `lispm-desktop-sample-read' reads \"lispm-desktop-example\".\n"
+            "(lispm-desktop-example-width x-lispm-desktop-example lispm-desktop-example)\n")
+    (should (= (lispm-desktop-rename-buffer '((:prefix "lispm-desktop-sample-" . "lispm-ui-sample-")
+                                              ("lispm-desktop-example" . "lispm-ui-example")))
                5))
     (should (equal (buffer-string)
-                   (concat "(lispm-ui-modal-read) (lispm-ui-modal-role ?a)\n"
-                           ";; `lispm-ui-modal-read' reads \"lispm-ui-alert\".\n"
-                           "(lispm-desktop-popup-alert-width x-lispm-desktop-popup-alert lispm-ui-alert)\n"))))
+                   (concat "(lispm-ui-sample-read) (lispm-ui-sample-role ?a)\n"
+                           ";; `lispm-ui-sample-read' reads \"lispm-ui-example\".\n"
+                           "(lispm-desktop-example-width x-lispm-desktop-example lispm-ui-example)\n"))))
   ;; The table reads, and has been applied: none of its old names is left.
   (let ((renames (lispm-desktop-rename-read)))
     (should (listp renames))
