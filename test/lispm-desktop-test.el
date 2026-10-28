@@ -15760,51 +15760,75 @@ Marked as an application's own, it is no screen of the desktop's."
       (disable-theme theme))))
 
 (ert-deftest lispm-desktop-test-sidebar-selection-contrast ()
-  "Point is a stronger accent tint than the current session in every look
-and palette, independent of region, and uses the look's final list body."
-  (dolist (palette (list (lispm-desktop-test--dracula-palette)
-                         (lispm-desktop-test--platinum-palette)
-                         (lispm-desktop-test--theme-palette 'win3)
-                         (lispm-desktop-test--theme-palette 'os2)
-                         (lispm-desktop-test--theme-palette 'phosphor)
-                         (lispm-desktop-test--theme-palette 'neon)))
+  "Keep visible theme highlights and row text colours in every look.
+Only weak region backgrounds need the stronger accent tint."
+  (dolist (theme '(dracula platinum win3 os2 phosphor neon))
+    (let* ((palette (pcase theme
+                      ('dracula (lispm-desktop-test--dracula-palette))
+                      ('platinum (lispm-desktop-test--platinum-palette))
+                      (_ (lispm-desktop-test--theme-palette theme))))
+           (text (pcase theme
+                   ('dracula "#f8f8f2") ('platinum "#000000")
+                   ('win3 "#000000") ('os2 "#000000")
+                   ('phosphor "#00ff41") ('neon "#eceaff")))
+           (region (if (eq theme 'dracula) "#44475a"
+                     (let ((custom-theme-load-path
+                            (cons (expand-file-name "themes/" lispm-desktop-directory)
+                                  custom-theme-load-path)))
+                       (unwind-protect
+                           (progn (load-theme theme t) (face-background 'region nil t))
+                         (disable-theme theme))))))
     (dolist (lispm-desktop-look '(platinum win3 os2 phosphor neon))
       (let ((lispm-ui-current-palette palette)
             (faces (make-hash-table))
-            (background (symbol-function 'face-background)))
+            (background (symbol-function 'face-background))
+            (foreground (symbol-function 'face-foreground)))
         ;; Record face changes without changing the test runner's faces.
         (cl-letf (((symbol-function 'display-graphic-p) #'ignore)
+                  ((symbol-function 'face-foreground)
+                   (lambda (face &optional frame inherit)
+                     (if (eq face 'default) text
+                       (funcall foreground face frame inherit))))
                   ((symbol-function 'set-face-attribute)
                    (lambda (face _frame &rest attributes)
                      (puthash face (append attributes (gethash face faces)) faces)))
                   ((symbol-function 'face-background)
                    (lambda (face &optional frame inherit)
-                     (if (eq face 'lispm-desktop-platinum-list-body)
-                         (plist-get (gethash face faces) :background)
-                       (funcall background face frame inherit)))))
+                     (pcase face
+                       ('lispm-desktop-platinum-list-body
+                        (plist-get (gethash face faces) :background))
+                       ('region region)
+                       (_ (funcall background face frame inherit))))))
           (lispm-desktop-platinum-apply-faces)
           (let* ((body (plist-get (gethash 'lispm-desktop-platinum-list-body faces) :background))
                  (current (plist-get (gethash 'lispm-desktop-platinum-row-current faces) :background))
                  (selection (gethash 'lispm-desktop-platinum-row-selected faces))
                  (selected (plist-get selection :background)))
-            (should (equal selected (lispm-ui-blend body (plist-get palette :accent) 0.60)))
             (should (equal current (lispm-ui-blend body (plist-get palette :accent) 0.25)))
-            (cl-flet ((distance (color)
-                        (apply #'+ (cl-mapcar (lambda (a b) (expt (- a b) 2))
-                                              (lispm-ui-rgb body) (lispm-ui-rgb color)))))
-              (should (> (distance selected) (* 4 (distance current)))))
-            (should (equal (plist-get selection :foreground)
-                           (lispm-ui-legible selected (plist-get palette :text)
-                                             (plist-get palette :content))))
+            (let ((region-distance (lispm-desktop-platinum--color-distance body region))
+                  (current-distance (lispm-desktop-platinum--color-distance body current)))
+              (when (and (>= region-distance (max 20 current-distance))
+                         (>= (lispm-desktop-platinum--text-contrast text region) 4.5))
+                (should (equal selected region)))
+              (should (>= (lispm-desktop-platinum--color-distance body selected)
+                          (max 20 current-distance))))
+            (should (>= (lispm-desktop-platinum--text-contrast text selected) 4.5))
+            (when (and (eq theme 'platinum) (eq lispm-desktop-look 'platinum))
+              (should (equal (downcase selected) "#ceceff")))
+            (when (and (eq theme 'dracula) (eq lispm-desktop-look 'platinum))
+              (should-not (equal selected region)))
+            ;; Neither an explicit nor an inherited foreground may mask
+            ;; the row's agent icons and coloured running label.
+            (should-not (plist-member selection :foreground))
+            (should (eq (plist-get selection :inherit) 'unspecified))
             (should (eq (plist-get selection :extend) t)))
-          ;; A display unable to resolve colours keeps region's fallback,
-          ;; not a foreground left over from the previous palette.
+          ;; Even without blending, copy only region's background.
           (cl-letf (((symbol-function 'lispm-ui-blend) #'ignore))
             (lispm-desktop-platinum-apply-faces))
           (let ((selection (gethash 'lispm-desktop-platinum-row-selected faces)))
-            (should (eq (plist-get selection :inherit) 'region))
-            (should (eq (plist-get selection :background) 'unspecified))
-            (should (eq (plist-get selection :foreground) 'unspecified)))))))
+            (should (equal (plist-get selection :background) region))
+            (should (eq (plist-get selection :inherit) 'unspecified))
+            (should-not (plist-member selection :foreground))))))))
   (with-temp-buffer
     (lispm-desktop-sidebar-setup-buffer)
     (should (memq 'lispm-desktop-platinum-row-selected

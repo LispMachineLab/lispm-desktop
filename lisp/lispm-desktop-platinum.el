@@ -75,6 +75,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'svg)
+(require 'color)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum-palette)
@@ -281,6 +282,53 @@ then looks that up as a fontset's name and fails."
   (when (display-graphic-p)
     (list :fontset (or (lispm-desktop-platinum--cjk-fontset family) 'reset))))
 
+(defun lispm-desktop-platinum--color-distance (a b)
+  "Return the perceptual CIE76 distance between colours A and B, or nil.
+Unlike raw RGB distance, this accounts for the chroma of Platinum's
+lavender selection as well as its lightness against the list body."
+  (when-let* ((rgb-a (lispm-ui-rgb a))
+              (rgb-b (lispm-ui-rgb b)))
+    (sqrt (apply #'+
+                 (cl-mapcar (lambda (x y) (expt (- x y) 2))
+                            (apply #'color-srgb-to-lab rgb-a)
+                            (apply #'color-srgb-to-lab rgb-b))))))
+
+(defun lispm-desktop-platinum--text-contrast (a b)
+  "Return the WCAG contrast ratio of colours A and B, or nil."
+  (when-let* ((rgb-a (lispm-ui-rgb a)) (rgb-b (lispm-ui-rgb b)))
+    (cl-flet ((luminance (rgb)
+                (apply #'+
+                       (cl-mapcar
+                        (lambda (component weight)
+                          (* weight (if (<= component 0.04045)
+                                        (/ component 12.92)
+                                      (expt (/ (+ component 0.055) 1.055) 2.4))))
+                        rgb '(0.2126 0.7152 0.0722)))))
+      (let ((x (luminance rgb-a)) (y (luminance rgb-b)))
+        (/ (+ (max x y) 0.05) (+ (min x y) 0.05))))))
+
+(defun lispm-desktop-platinum--selection-background (body accent region text current)
+  "Choose a visible selection on BODY preserving TEXT, given ACCENT.
+Prefer REGION when suitable; otherwise try an accent tint, then adjust
+its lightness until text has 4.5:1 contrast.  CURRENT is the working-row
+background, whose perceptual prominence the selection must match."
+  (let* ((tint (lispm-ui-blend body accent 0.60))
+         (distance (lispm-desktop-platinum--color-distance body current))
+         (minimum (and distance (max 20 distance)))
+         (candidates (list region tint)))
+    (dolist (step (number-sequence 1 100))
+      (dolist (end '("#000000" "#ffffff"))
+        (setq candidates
+              (append candidates (list (lispm-ui-blend tint end (/ step 100.0)))))))
+    (or (seq-find
+         (lambda (candidate)
+           (when-let* ((contrast (lispm-desktop-platinum--text-contrast text candidate))
+                       (difference (lispm-desktop-platinum--color-distance body candidate)))
+             (and minimum (>= contrast 4.5) (>= difference minimum))))
+         candidates)
+        ;; Unresolved terminal colours retain the theme's background.
+        region)))
+
 (defun lispm-desktop-platinum-apply-faces ()
   "Set every chrome face in the palette just derived from the active theme,
 and the look's fonts, LispM UI's faces' too, whose colours LispM UI has
@@ -397,21 +445,17 @@ faces this function never sets, so re-running it is idempotent."
     (let* ((body (face-background 'lispm-desktop-platinum-list-body nil t))
            (accent (lispm-ui-color :accent))
            (tinted (lispm-ui-blend body accent 0.25))
-           (selected (lispm-ui-blend body accent 0.60)))
+           (region (face-background 'region nil t))
+           (selected (lispm-desktop-platinum--selection-background
+                      body accent region text tinted)))
       (set-face-attribute 'lispm-desktop-platinum-row-current nil
                           :inherit (if tinted 'unspecified 'secondary-selection)
                           :background (or tinted 'unspecified))
-      ;; Point must stand out more than the current-session mark, even
-      ;; when the theme's region is almost the colour of the list body.
-      ;; Use the final body's colour, after the PC or glow look sets it.
+      ;; Only copy region's background: inheriting its foreground through
+      ;; hl-line would erase the icons' and status labels' own colours.
       (set-face-attribute 'lispm-desktop-platinum-row-selected nil
-                          :inherit (if selected 'unspecified 'region)
+                          :inherit 'unspecified
                           :background (or selected 'unspecified)
-                          :foreground (if selected
-                                          (lispm-ui-legible selected
-                                                            (lispm-ui-color :text)
-                                                            (lispm-ui-color :content))
-                                        'unspecified)
                           :extend t))))
 
 ;; Before LispM UI draws its forms again, at 90: they are measured in the

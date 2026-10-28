@@ -88,10 +88,11 @@ does; users rarely need to."
   "Face of a list's row: a lit line atop it parts it from the row above."
   :group 'lispm-desktop-platinum)
 
-(defface lispm-desktop-platinum-row-selected '((t :inherit region :extend t))
-  "Face of a list's selected row at point.
-A stronger accent tint than `lispm-desktop-platinum-row-current', so
-selection stands apart from the session being worked on elsewhere."
+(defface lispm-desktop-platinum-row-selected '((t :extend t))
+  "Background of a list's selected row at point, leaving text colours alone.
+The theme's region where it stands out plainly from the list and at least
+as much as `lispm-desktop-platinum-row-current', with readable default
+text; an accent tint adjusted for text contrast otherwise."
   :group 'lispm-desktop-platinum)
 
 (defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))
