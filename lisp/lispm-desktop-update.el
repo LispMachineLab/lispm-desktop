@@ -112,6 +112,7 @@ first, and installs when told to."
     ("LispM Agent" . "lispm.el")
     ("LispM Browser" . "lispm-browser.el")
     ("LispM Kit" . "lispm-kit-i18n.el")
+    ("LispM UI" . "lispm-ui.el")
     ("LispM Kernel" . "lispm-kernel.el"))
   "The LispM projects Software Update keeps up to date: (NAME . FILE), FILE
 a file of the project's sources, in its lisp/ directory or at its top,

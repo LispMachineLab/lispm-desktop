@@ -989,6 +989,36 @@ release from its repository, lisp/ holding its sources."
                                                  :lisp-dir "lisp")
                                   :last-release)))))))
 
+(ert-deftest lispm-desktop-test-deps-inactive-package ()
+  "A project package-vc installs that package.el leaves inactive, as it
+leaves one requiring another the desktop has as a checkout, LispM UI
+requiring lispm-kit, is activated without its requirements; installed
+already, inactive, it is activated, not installed again."
+  (let* ((desc (package-desc-create :name 'lispm-ui :kind 'vc :dir "/elpa/lispm-ui/"))
+         (package-alist nil)
+         (installed nil)
+         (active nil))
+    (cl-letf (((symbol-function 'locate-library)
+               (lambda (&rest _) (and active "/elpa/lispm-ui/lispm-ui.el")))
+              ((symbol-function 'lispm-desktop-deps--checkout) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--behind) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) "v0.1.0"))
+              ((symbol-function 'package-vc-install)
+               (lambda (spec rev)
+                 (push (list spec rev) installed)
+                 (push (list 'lispm-ui desc) package-alist)))
+              ((symbol-function 'package-activate-1)
+               (lambda (pkg &rest _) (push pkg active))))
+      (lispm-desktop-deps-ensure 'lispm-ui)
+      (should (equal installed '(((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui") "v0.1.0"))))
+      (should (equal active (list desc)))
+      ;; The next start: installed, left inactive again.
+      (setq active nil)
+      (lispm-desktop-deps-ensure 'lispm-ui)
+      (should (= (length installed) 1))
+      (should (equal active (list desc))))))
+
 (ert-deftest lispm-desktop-test-deps-kit-first ()
   "LispM Kit, which translates the desktop's words, is found or installed
 before any of them is shown: lispm-desktop-deps.el loads without the
@@ -12645,14 +12675,14 @@ name."
       (lispm-desktop-test-app-mode)
       (lispm-desktop-app-ui-mode)
       (should (equal (lispm-desktop-platinum-title-text) (buffer-name))))
-    (when (require 'lispm-form nil t)
-      (let ((lispm-form-glyph-function nil)
-            (lispm-form-choose-function #'lispm-form-choose)
-            (lispm-form-drawn-hook nil)
+    (when (require 'lispm-ui-form nil t)
+      (let ((lispm-ui-form-glyph-function nil)
+            (lispm-ui-form-choose-function #'lispm-ui-form-choose)
+            (lispm-ui-form-drawn-hook nil)
             (enable-theme-functions nil)
             (lispm-desktop-language-changed-hook nil))
         (lispm-desktop-form-setup)
-        (let ((buffer (lispm-form "Pet" '((name :type text :label "Name")))))
+        (let ((buffer (lispm-ui-form "Pet" '((name :type text :label "Name")))))
           (unwind-protect
               (with-current-buffer buffer
                 (lispm-desktop-app-ui-mode)
@@ -15167,7 +15197,7 @@ once the turn that asked is over and saved: then only, and once."
   '(lispm-desktop-setup-proxy lispm-desktop-setup-common-packages lispm-desktop-setup-clipboard
     lispm-desktop-setup-keymapping lispm-desktop-setup-plain-interface lispm-desktop-setup-update
     lispm-desktop-setup-emacs lispm-desktop-setup-startup lispm-desktop-setup-i18n
-    lispm-desktop-setup-langs lispm-desktop-setup-lispm lispm-desktop-form-setup
+    lispm-desktop-setup-langs lispm-desktop-form-setup lispm-desktop-setup-lispm
     lispm-desktop-setup-kernel)
   "What LispM's terminal sets up, in its order.")
 
@@ -16482,16 +16512,16 @@ its arrows on the right, wide enough for both; ringed when focused."
   "LispM's forms are dressed in the desktop's look: their controls are the
 desktop's, the one point is on drawn focused, plain again once it leaves;
 the text field point is in is framed in the focus colour."
-  (skip-unless (and (require 'lispm-form nil t) (image-type-available-p 'svg)))
-  (let ((lispm-form-glyph-function #'lispm-desktop-form-glyph)
-        (lispm-form-choose-function #'lispm-desktop-form-choose)
-        (lispm-form-drawn-hook (list #'lispm-desktop-form-dress))
+  (skip-unless (and (require 'lispm-ui-form nil t) (image-type-available-p 'svg)))
+  (let ((lispm-ui-form-glyph-function #'lispm-desktop-form-glyph)
+        (lispm-ui-form-choose-function #'lispm-desktop-form-choose)
+        (lispm-ui-form-drawn-hook (list #'lispm-desktop-form-dress))
         (buffer nil))
     ;; A batch Emacs shows no images, which widgets then leave out.
     (cl-letf (((symbol-function 'widget-image-find)
                (lambda (image) (and (eq (car-safe image) 'image) image))))
       (unwind-protect
-          (with-current-buffer (setq buffer (lispm-form "Pet" '((name :type text :label "Name")
+          (with-current-buffer (setq buffer (lispm-ui-form "Pet" '((name :type text :label "Name")
                                                                 (barks :type check :text "Barks"))
                                                         :submit "Adopt"))
             (should (equal (lispm-desktop-form-glyph 'button 'default "Adopt")
@@ -16534,9 +16564,9 @@ panels; LispM's own forms take their faces before they are drawn."
       (should (equal (overlay-get (widget-get area :field-overlay) 'line-prefix) "  "))
       (should (assq 'widget-field face-remapping-alist))
       (should (memq #'lispm-desktop-form--follow post-command-hook))))
-  (when (require 'lispm-form nil t)
+  (when (require 'lispm-ui-form nil t)
     (with-temp-buffer
-      (lispm-form-mode)
+      (lispm-ui-form-mode)
       (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
         (lispm-desktop-form--faces)
         (setq face-remapping-alist nil)
@@ -16731,23 +16761,51 @@ in the system's own panel, among the files the dialog would list."
                        (expand-file-name "ada.png" folder)))
         (should (equal asked `((,folder nil nil t))))))))
 
+(ert-deftest lispm-desktop-test-ui-asks-on-the-desktop ()
+  "What LispM UI asks a person, it asks in the desktop's alerts, menus and
+Choose a File dialog, and it speaks the desktop's language before
+LispM's agent's, which follows the desktop's too; told when it changes."
+  (let ((lispm-ui-alert-function nil)
+        (lispm-ui-choose-function nil)
+        (lispm-ui-choose-file-function nil)
+        (lispm-ui-language-functions (list (lambda () 'fr)))
+        (lispm-ui-language nil)
+        (lispm-ui-form-glyph-function nil)
+        (lispm-ui-form-group-function nil)
+        (lispm-ui-form-choose-function #'lispm-ui-form-choose)
+        (lispm-ui-form-choose-file-function nil)
+        (lispm-ui-form-mode-hook nil)
+        (lispm-ui-form-drawn-hook nil)
+        (enable-theme-functions nil)
+        (lispm-desktop-language-changed-hook nil)
+        (lispm-desktop-language 'de)
+        (changed 0))
+    (lispm-desktop-form-setup)
+    (should (eq lispm-ui-alert-function #'lispm-desktop-popup-alert))
+    (should (eq lispm-ui-choose-function #'lispm-desktop-platinum-choose))
+    (should (eq lispm-ui-choose-file-function #'lispm-desktop-choose-file))
+    (should (eq (lispm-ui-current-language) 'de))
+    (let ((lispm-ui-language-changed-hook (list (lambda () (setq changed (1+ changed))))))
+      (run-hooks 'lispm-desktop-language-changed-hook)
+      (should (= changed 1)))))
+
 (ert-deftest lispm-desktop-test-form-chooses-pictures ()
   "A form's picture is chosen in the desktop's dialog, titled so, the
 picture selected previewed."
-  (skip-unless (require 'lispm-form nil t))
-  (let ((lispm-form-choose-file-function nil)
-        (lispm-form-glyph-function nil)
-        (lispm-form-group-function nil)
-        (lispm-form-choose-function #'lispm-form-choose)
-        (lispm-form-mode-hook nil)
-        (lispm-form-drawn-hook nil)
+  (skip-unless (require 'lispm-ui-form nil t))
+  (let ((lispm-ui-form-choose-file-function nil)
+        (lispm-ui-form-glyph-function nil)
+        (lispm-ui-form-group-function nil)
+        (lispm-ui-form-choose-function #'lispm-ui-form-choose)
+        (lispm-ui-form-mode-hook nil)
+        (lispm-ui-form-drawn-hook nil)
         (enable-theme-functions nil)
         (lispm-desktop-language-changed-hook nil)
         (asked nil))
     (cl-letf (((symbol-function 'lispm-desktop-choose-file) (lambda (&rest args) (push args asked) "/tmp/ada.png")))
       (lispm-desktop-form-setup)
-      (should (eq lispm-form-choose-file-function #'lispm-desktop-form-choose-file))
-      (should (equal (funcall lispm-form-choose-file-function 'picture "Picture" "/tmp/bob.png" #'ignore)
+      (should (eq lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file))
+      (should (equal (funcall lispm-ui-form-choose-file-function 'picture "Picture" "/tmp/bob.png" #'ignore)
                      "/tmp/ada.png"))
       (should (equal (car asked) (list :title "Choose a Picture" :file "/tmp/bob.png" :predicate #'ignore
                                        :preview t))))))
