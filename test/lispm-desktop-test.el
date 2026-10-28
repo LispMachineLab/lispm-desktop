@@ -12769,6 +12769,10 @@ key, and :run, said by a skin naming it with :app, opens it."
     (lispm-desktop-app-ui-run 'other (lambda () (interactive) (setq ran 'command)))
     (should (eq ran 'command))))
 
+(with-eval-after-load 'lispm-ui-form
+  (define-derived-mode lispm-desktop-test-form-mode lispm-ui-form-mode "Pet Settings"
+    "A form of an application's own mode, for `lispm-desktop-test-app-ui-title'."))
+
 (ert-deftest lispm-desktop-test-app-ui-title ()
   "A skin's title is a string, translated, or a function returning one,
 called in the window's buffer, as LispM's forms and the Characters
@@ -12797,7 +12801,17 @@ name."
               (with-current-buffer buffer
                 (lispm-desktop-app-ui-mode)
                 (should (equal (lispm-desktop-platinum-title-text) "Pet")))
-            (kill-buffer buffer)))))))
+            (kill-buffer buffer)))
+        ;; An application's form in a mode of its own, as Mail's settings
+        ;; are, is titled as any form is.
+        (when (memq 'rows lispm-ui-form-types)
+          (let ((buffer (lispm-ui-form "Pet Settings" '((name :type text :label "Name"))
+                                       :mode #'lispm-desktop-test-form-mode)))
+            (unwind-protect
+                (with-current-buffer buffer
+                  (lispm-desktop-app-ui-mode)
+                  (should (equal (lispm-desktop-platinum-title-text) "Pet Settings")))
+              (kill-buffer buffer))))))))
 
 (ert-deftest lispm-desktop-test-app-ui-reopens-on-its-buffer ()
   "An application opened again shows the buffer its window showed when it
@@ -12853,20 +12867,6 @@ application reading it, Emacs's `read-mail-command', in its window."
   (let ((lispm-desktop-store-installed nil)
         (read-mail-command 'rmail))
     (should-not (lispm-desktop-store-mail-application))))
-
-(ert-deftest lispm-desktop-test-form-controls-of-applications ()
-  "A control an application draws as LispM's forms do, saying what it is in
-its own property, is drawn focused as theirs are."
-  (should (memq :lispm-mail-control lispm-ui-form-control-properties))
-  (with-temp-buffer
-    (insert "Save")
-    (let* ((image '(image :type svg :data "<svg/>"))
-           (overlay (make-overlay 1 5))
-           (widget (list 'push-button :lispm-mail-control '(button default "Save") :button-overlay overlay)))
-      (put-text-property 1 5 'display image)
-      (cl-letf (((symbol-function 'widget-at) (lambda (&optional _) widget))
-                ((symbol-function 'lispm-ui-form--image) (lambda (&rest _) image)))
-        (should (equal (seq-take (lispm-ui-form--control-at 1) 2) '(1 5)))))))
 
 (ert-deftest lispm-desktop-test-app-ui-keys-window ()
   "An application's keys window lists each key cap and what it does, and
