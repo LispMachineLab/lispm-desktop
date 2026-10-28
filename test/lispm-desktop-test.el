@@ -974,6 +974,7 @@ release from its repository, lisp/ holding its sources."
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) found))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (setq found "/elsewhere/lispm-browser.el")
       (lispm-desktop-deps-ensure 'lispm-browser)
@@ -993,7 +994,8 @@ release from its repository, lisp/ holding its sources."
   "A project package-vc installs that package.el leaves inactive, as it
 leaves one requiring another the desktop has as a checkout, LispM UI
 requiring lispm-kit, is activated without its requirements; installed
-already, inactive, it is activated, not installed again."
+already, inactive, it is activated, not installed again, though this
+Emacs has not read which packages are installed."
   (let* ((desc (package-desc-create :name 'lispm-ui :kind 'vc :dir "/elpa/lispm-ui/"))
          (package-alist nil)
          (installed nil)
@@ -1009,13 +1011,22 @@ already, inactive, it is activated, not installed again."
                  (push (list spec rev) installed)
                  (push (list 'lispm-ui desc) package-alist)))
               ((symbol-function 'package-activate-1)
-               (lambda (pkg &rest _) (push pkg active))))
+               (lambda (pkg &rest _) (push pkg active)))
+              ((symbol-function 'package-load-all-descriptors) #'ignore))
       (lispm-desktop-deps-ensure 'lispm-ui)
       (should (equal installed '(((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui") "v0.1.0"))))
       (should (equal active (list desc)))
       ;; The next start: installed, left inactive again.
       (setq active nil)
       (lispm-desktop-deps-ensure 'lispm-ui)
+      (should (= (length installed) 1))
+      (should (equal active (list desc)))
+      ;; An Emacs run with -Q, which has not read which packages are
+      ;; installed: it reads it, and installs nothing again.
+      (setq active nil package-alist nil)
+      (cl-letf (((symbol-function 'package-load-all-descriptors)
+                 (lambda () (push (list 'lispm-ui desc) package-alist))))
+        (lispm-desktop-deps-ensure 'lispm-ui))
       (should (= (length installed) 1))
       (should (equal active (list desc))))))
 
@@ -1039,6 +1050,7 @@ sources at the top of its repository."
               ((symbol-function 'lispm-desktop-deps--checkout) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) "v0.2.0"))
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (lispm-desktop-deps-ensure 'lispm-kit))
     (should (equal installed '(((lispm-kit :url "https://github.com/LispMachineLab/lispm-kit") "v0.2.0"))))))
@@ -1085,6 +1097,7 @@ newest tag, or what package-vc takes for it before the first."
     (cl-letf (((symbol-function 'locate-library) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) release))
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       (cl-letf (((symbol-function 'lispm-desktop-deps--checkout)
                  (lambda (name) (and (equal name "lispm-kernel") "/beside/lispm-kernel/lisp"))))
@@ -1126,6 +1139,7 @@ when package-vc installed it, else an error says what to update."
                                                    (and (equal file "lispm-desktop-test-lib.el") main)))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release-tag) #'ignore)
+              ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
       ;; Beside the desktop, the checkout itself joins `load-path'.
       (should (equal (lispm-desktop-deps--checkout "lispm-desktop-test-lib") beside))

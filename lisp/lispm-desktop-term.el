@@ -69,6 +69,16 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-frame)
+
+(declare-function lispm-desktop-deps-ensure "lispm-desktop-deps" (feature))
+
+;; LispM UI, whose modal kit reads the mouse a terminal is dragged with,
+;; is loadable once the desktop runs; this file also loads on its own,
+;; as install.sh fetches the terminals' module with it, and then makes
+;; it loadable itself.
+(unless (locate-library "lispm-ui-modal")
+  (require 'lispm-desktop-deps)
+  (lispm-desktop-deps-ensure 'lispm-ui))
 (require 'lispm-ui-modal)
 
 (declare-function lispm-desktop-term-module-init-channel "lispm-desktop-term-module" (process))
