@@ -33,6 +33,7 @@
   ("Show archived sessions" . "Afficher les sessions archivées")
   ("%d session" "%d session" "%d sessions")
   ("%s, %s" . "%s, %s")
+  ("%d waiting" "%d en attente" "%d en attente")
   ("%d running" "%d en exécution" "%d en exécution")
   ("still reading…" . "lecture en cours…")
   ("Modified" . "Modification")

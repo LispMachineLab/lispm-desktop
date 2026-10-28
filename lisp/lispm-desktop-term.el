@@ -613,6 +613,9 @@ The record's message, if any, is the label's `help-echo'."
              (_ 'shadow))
      'help-echo (plist-get record :msg))))
 
+;; Lists of the agents' sessions ask what a terminal's program does.
+(add-hook 'lispm-agents-status-functions #'lispm-desktop-term-status)
+
 (defun lispm-desktop-term-waiting-buffers ()
   "Return the terminals whose programs wait for the user, most urgent first:
 blocked on an answer, then failed, then done.  Terminals of a state are in

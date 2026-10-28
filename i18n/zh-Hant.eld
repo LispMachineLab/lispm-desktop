@@ -33,6 +33,7 @@
   ("Show archived sessions" . "顯示已封存的工作階段")
   ("%d session" "%d 個工作階段")
   ("%s, %s" . "%s，%s")
+  ("%d waiting" "%d 個在等你")
   ("%d running" "%d 個執行中")
   ("still reading…" . "仍在讀取…")
   ("Modified" . "修改日期")

@@ -33,6 +33,7 @@
   ("Show archived sessions" . "显示已归档的会话")
   ("%d session" "%d 个会话")
   ("%s, %s" . "%s，%s")
+  ("%d waiting" "%d 个在等你")
   ("%d running" "%d 个正在运行")
   ("still reading…" . "仍在读取…")
   ("Modified" . "修改日期")
