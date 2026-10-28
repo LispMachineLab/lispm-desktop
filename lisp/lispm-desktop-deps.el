@@ -222,10 +222,10 @@ A copy already on `load-path' is used as it is; else a checkout beside the
 desktop's joins it, see `lispm-desktop-deps--checkout'; else the latest
 release of the project is installed from its repository with package-vc,
 its newest tag vX.Y.Z, or the commit that last changed its Version header
-before it has one.  The packages its main file requires, and lacks, are
-installed.  A copy lacking the library the desktop needs of it, its
-:needs, or older than its :version, is brought up to date, see
-`lispm-desktop-deps--catch-up'."
+before it has one, unless it is installed already, inactive.  The
+packages its main file requires, and lacks, are installed.  A copy
+lacking the library the desktop needs of it, its :needs, or older than
+its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
   (pcase-let* ((spec (alist-get feature lispm-desktop-deps))
                (`(,url ,checkout ,lisp) (list (plist-get spec :url) (plist-get spec :checkout)
                                               (plist-get spec :lisp-dir)))
@@ -233,8 +233,17 @@ installed.  A copy lacking the library the desktop needs of it, its
     (unless (locate-library file t)
       (if-let* ((directory (lispm-desktop-deps--checkout checkout)))
           (add-to-list 'load-path directory)
-        (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
-                            (or (lispm-desktop-deps--release-tag url) :last-release))))
+        (unless (assq feature package-alist)
+          (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
+                              (or (lispm-desktop-deps--release-tag url) :last-release)))
+        ;; package.el activates a package only once each package it
+        ;; requires is installed as one, and so leaves inactive a project
+        ;; requiring another the desktop has as a checkout, as LispM UI
+        ;; requires lispm-kit: it is activated here, its requirements
+        ;; being here already.
+        (when-let* (((not (locate-library file t)))
+                    (desc (cadr (assq feature package-alist))))
+          (package-activate-1 desc))))
     (when-let* ((main (locate-library file t)))
       (when (lispm-desktop-deps--behind main spec)
         (lispm-desktop-deps--catch-up main spec))

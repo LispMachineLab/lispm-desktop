@@ -989,6 +989,36 @@ release from its repository, lisp/ holding its sources."
                                                  :lisp-dir "lisp")
                                   :last-release)))))))
 
+(ert-deftest lispm-desktop-test-deps-inactive-package ()
+  "A project package-vc installs that package.el leaves inactive, as it
+leaves one requiring another the desktop has as a checkout, LispM UI
+requiring lispm-kit, is activated without its requirements; installed
+already, inactive, it is activated, not installed again."
+  (let* ((desc (package-desc-create :name 'lispm-ui :kind 'vc :dir "/elpa/lispm-ui/"))
+         (package-alist nil)
+         (installed nil)
+         (active nil))
+    (cl-letf (((symbol-function 'locate-library)
+               (lambda (&rest _) (and active "/elpa/lispm-ui/lispm-ui.el")))
+              ((symbol-function 'lispm-desktop-deps--checkout) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--behind) #'ignore)
+              ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) "v0.1.0"))
+              ((symbol-function 'package-vc-install)
+               (lambda (spec rev)
+                 (push (list spec rev) installed)
+                 (push (list 'lispm-ui desc) package-alist)))
+              ((symbol-function 'package-activate-1)
+               (lambda (pkg &rest _) (push pkg active))))
+      (lispm-desktop-deps-ensure 'lispm-ui)
+      (should (equal installed '(((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui") "v0.1.0"))))
+      (should (equal active (list desc)))
+      ;; The next start: installed, left inactive again.
+      (setq active nil)
+      (lispm-desktop-deps-ensure 'lispm-ui)
+      (should (= (length installed) 1))
+      (should (equal active (list desc))))))
+
 (ert-deftest lispm-desktop-test-deps-kit-first ()
   "LispM Kit, which translates the desktop's words, is found or installed
 before any of them is shown: lispm-desktop-deps.el loads without the
