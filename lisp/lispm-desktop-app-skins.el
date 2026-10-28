@@ -594,28 +594,14 @@ buttons and keys window show them.")
 
 ;;;; Mail
 
-(defvar lispm-mail-settings-glyph-function)
-(defvar lispm-mail-settings-choose-function)
-(defvar lispm-mail-settings-drawn-hook)
 (defvar lispm-desktop-platinum-check-mail-functions)
 (declare-function lispm-mail "lispm-mail" ())
 (declare-function lispm-mail-check "lispm-mail-data" (&optional id))
-(declare-function lispm-mail-settings-refresh "lispm-mail-settings" ())
 (declare-function lispm-mail-list-title "lispm-mail" ())
 (declare-function lispm-mail-message-title "lispm-mail" ())
 (declare-function lispm-mail-list-status "lispm-mail" ())
 (declare-function lispm-mail-search-label "lispm-mail" ())
 (declare-function lispm-mail-compose-title "lispm-mail-compose" ())
-
-(defun lispm-desktop-app-skins--mail-choose (title choices value)
-  "Open the desktop's menu of CHOICES of a pop-up menu TITLE of Mail's
-settings, VALUE checked, as `lispm-mail-settings-choose-function' asks."
-  (lispm-desktop-form-choose title choices value nil))
-
-(defun lispm-desktop-app-skins--mail-redraw (&rest _)
-  "Draw Mail's settings again, in the look now in use."
-  (when (fboundp 'lispm-mail-settings-refresh)
-    (lispm-mail-settings-refresh)))
 
 (defun lispm-desktop-app-skins--mail-message-setup ()
   "Give the box of a message's headers the platinum of a list's header."
@@ -639,14 +625,6 @@ settings, VALUE checked, as `lispm-mail-settings-choose-function' asks."
   :title (lambda () (lispm-mail-compose-title))
   :bottom nil)
 
-(lispm-desktop-app-ui-define 'lispm-mail-settings-mode
-  :buttons nil
-  :bottom nil)
-
-(lispm-desktop-app-ui-define 'lispm-mail-account-mode
-  :buttons nil
-  :bottom nil)
-
 (lispm-desktop-app-ui-define 'lispm-mail-mode
   :app 'mail
   :list t
@@ -657,17 +635,8 @@ settings, VALUE checked, as `lispm-mail-settings-choose-function' asks."
   :restore (lambda () (lispm-mail))
   :cursor nil)
 
-;; Mail's settings are drawn with Emacs's widgets as LispM UI's forms are,
-;; each control saying what it is in a property of Mail's own, and dressed
-;; by LispM UI as they are.
-(add-to-list 'lispm-ui-form-control-properties :lispm-mail-control t)
-
-(with-eval-after-load 'lispm-mail-settings
-  (setq lispm-mail-settings-glyph-function #'lispm-ui-form-glyph
-        lispm-mail-settings-choose-function #'lispm-desktop-app-skins--mail-choose)
-  (add-hook 'lispm-mail-settings-drawn-hook #'lispm-ui-form-dress)
-  (add-hook 'enable-theme-functions #'lispm-desktop-app-skins--mail-redraw)
-  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-skins--mail-redraw))
+;; Mail's settings and its account form are LispM UI's forms, in modes of
+;; their own: dressed, titled and drawn again as any form is.
 
 (with-eval-after-load 'lispm-mail-data
   (add-hook 'lispm-desktop-platinum-check-mail-functions #'lispm-mail-check))
