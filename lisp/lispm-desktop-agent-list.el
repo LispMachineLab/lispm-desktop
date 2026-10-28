@@ -24,8 +24,9 @@
 ;;; Commentary:
 
 ;; The agents view of the left sidebar: the recorded and running sessions
-;; of the agents (`lispm-agents-define'), grouped by project, with
-;; per-session actions.  The agents and their sessions are
+;; of the agents (`lispm-agents-define'), grouped by project, a session
+;; an agent started under the session that started it, with per-session
+;; actions.  The agents and their sessions are
 ;; lispm-desktop-ai.el's; this file only lists them.
 
 ;;; Code:
@@ -88,6 +89,27 @@ Groups without running terminals and idle for
           (cons directory lispm-desktop-agent-list--expanded)))
   (lispm-desktop-agent-list--redraw))
 
+(defvar-local lispm-desktop-agent-list--opened nil
+  "The sessions whose sub sessions are shown, as (AGENT . ID).
+A session's sub sessions, those it started, see
+`lispm-agents-session-tree', are hidden under it until the user opens
+it.")
+
+(defun lispm-desktop-agent-list--opened-p (session)
+  "Return non-nil when SESSION's sub sessions are shown."
+  (member (cons (plist-get session :agent) (plist-get session :id))
+          lispm-desktop-agent-list--opened))
+
+(defun lispm-desktop-agent-list--set-opened (session open)
+  "Show SESSION's sub sessions when OPEN, else hide them, in the sidebar
+drawn again."
+  (let ((key (cons (plist-get session :agent) (plist-get session :id))))
+    (setq lispm-desktop-agent-list--opened
+          (if open
+              (cons key (delete key lispm-desktop-agent-list--opened))
+            (delete key lispm-desktop-agent-list--opened))))
+  (lispm-desktop-agent-list--redraw))
+
 (defun lispm-desktop-agent-list--running-label (buffer)
   "Return the label of running agent terminal BUFFER in the sidebar: what
 its program says it is doing, see `lispm-desktop-term-status', else
@@ -138,48 +160,104 @@ Finder list; its sessions are rows one level in, newest first."
          (apply-partially #'lispm-agents-show buffer)
          (lispm-desktop-tr "Show this terminal")
          nil 1))
+      ;; The sessions are a tree: one a session started goes under it,
+      ;; and the preview counts the sessions nobody started.
       (let* ((expanded (member (plist-get group :key) lispm-desktop-agent-list--expanded))
-             (shown (if expanded sessions
-                      (seq-take sessions lispm-desktop-agent-list-project-preview))))
-        (dolist (session shown)
-          (let* ((id (plist-get session :id))
-                 (archived (lispm-agents-archived-p session))
-                 (location (lispm-agents-location-label
-                            (plist-get session :cwd)
-                            (if chats 'chats (expand-file-name directory)))))
-            (lispm-desktop-sidebar-insert-entry
-             (lispm-agents-icon (plist-get session :agent))
-             (if archived
-                 (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-ui-list)))
-               (plist-get session :title))
-             (if (member id running-ids)
-                 (lispm-desktop-agent-list--running-label (lispm-agents-session-buffer id))
-               (lispm-agents-age (plist-get session :time) now))
-             (apply-partially #'lispm-agents-resume-session session)
-             (let ((agent (plist-get session :agent)))
-               (cond ((and location archived)
-                      (lispm-desktop-tr "Resume %s session %s, in %s, archived (right-click for more)"
-                                        agent id location))
-                     (location
-                      (lispm-desktop-tr "Resume %s session %s, in %s (right-click for more)"
-                                        agent id location))
-                     (archived
-                      (lispm-desktop-tr "Resume %s session %s, archived (right-click for more)" agent id))
-                     (t (lispm-desktop-tr "Resume %s session %s (right-click for more)" agent id))))
-             (list 'lispm-agents-session session 'keymap lispm-desktop-agent-list-entry-map)
-             1)))
-        (when (or expanded (> (length sessions) (length shown)))
+             (trees (lispm-agents-session-tree sessions))
+             (shown (if expanded trees
+                      (seq-take trees lispm-desktop-agent-list-project-preview))))
+        (dolist (tree shown)
+          (lispm-desktop-agent-list--insert-session tree 1 now running-ids chats directory))
+        (when (or expanded (> (length trees) (length shown)))
           (lispm-desktop-sidebar-insert-entry
            ""
            (propertize (if expanded
                            (lispm-desktop-tr "Fewer")
-                         (let ((more (- (length sessions) (length shown))))
+                         (let ((more (- (length trees) (length shown))))
                            (lispm-desktop-tr-n "%d more…" "%d more…" more)))
                        'face '(:inherit (shadow lispm-ui-list)))
            nil
            (apply-partially #'lispm-desktop-agent-list--toggle-expanded (plist-get group :key))
            (lispm-desktop-tr "Toggle the full session list of this project")
            nil 1))))))
+
+(defun lispm-desktop-agent-list--session-help (session resumable location archived)
+  "Return what the row of SESSION says of itself: that it is resumed, or
+opened as its transcript when not RESUMABLE, in LOCATION when that is
+non-nil, and ARCHIVED or not."
+  (let ((agent (plist-get session :agent))
+        (id (plist-get session :id)))
+    (cond ((and resumable location archived)
+           (lispm-desktop-tr "Resume %s session %s, in %s, archived (right-click for more)"
+                             agent id location))
+          ((and resumable location)
+           (lispm-desktop-tr "Resume %s session %s, in %s (right-click for more)"
+                             agent id location))
+          ((and resumable archived)
+           (lispm-desktop-tr "Resume %s session %s, archived (right-click for more)" agent id))
+          (resumable
+           (lispm-desktop-tr "Resume %s session %s (right-click for more)" agent id))
+          ((and location archived)
+           (lispm-desktop-tr "Open the transcript of %s session %s, in %s, archived (right-click for more)"
+                             agent id location))
+          (location
+           (lispm-desktop-tr "Open the transcript of %s session %s, in %s (right-click for more)"
+                             agent id location))
+          (archived
+           (lispm-desktop-tr "Open the transcript of %s session %s, archived (right-click for more)"
+                             agent id))
+          (t (lispm-desktop-tr "Open the transcript of %s session %s (right-click for more)"
+                               agent id)))))
+
+(defun lispm-desktop-agent-list--insert-session (tree depth now running-ids chats directory)
+  "Insert the row of the session heading TREE, (SESSION . SUBTREES) as
+`lispm-agents-session-tree' makes it, DEPTH levels in, and under it,
+when the session is opened, see `lispm-desktop-agent-list--opened', the
+rows of the sessions it started, a level further in.  A session that
+started sessions has a disclosure triangle before its icon, in the
+place of a level's indentation, which opens and closes it, as a
+project's does.  NOW dates the sessions; RUNNING-IDS are the ids of
+sessions live terminals run; CHATS says the project groups chats, else
+DIRECTORY is its directory."
+  (pcase-let* ((`(,session . ,subtrees) tree)
+               (id (plist-get session :id))
+               (archived (lispm-agents-archived-p session))
+               (opened (and subtrees (lispm-desktop-agent-list--opened-p session) t))
+               (resumable (lispm-agents-session-resumable-p session))
+               (location (lispm-agents-location-label
+                          (plist-get session :cwd)
+                          (if chats 'chats (expand-file-name directory))))
+               (icon (lispm-agents-icon (plist-get session :agent)))
+               (beg (point)))
+    (lispm-desktop-sidebar-insert-entry
+     (if subtrees
+         (concat (propertize (lispm-desktop-platinum-triangle opened)
+                             'lispm-desktop-agent-list-triangle t)
+                 (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
+                 icon)
+       icon)
+     (if archived
+         (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-ui-list)))
+       (plist-get session :title))
+     (if (member id running-ids)
+         (lispm-desktop-agent-list--running-label (lispm-agents-session-buffer id))
+       (lispm-agents-age (plist-get session :time) now))
+     (apply-partially #'lispm-agents-resume-session session)
+     (lispm-desktop-agent-list--session-help session resumable location archived)
+     (list 'lispm-agents-session session 'keymap lispm-desktop-agent-list-entry-map)
+     (if subtrees (1- depth) depth))
+    ;; The triangle is a button of its own within the row's.
+    (when subtrees
+      (let ((triangle (text-property-any beg (point) 'lispm-desktop-agent-list-triangle t)))
+        (add-text-properties
+         triangle (1+ triangle)
+         (list 'action (lambda (_) (lispm-desktop-agent-list--set-opened session (not opened)))
+               'help-echo (if opened
+                              (lispm-desktop-tr "Hide the sessions it started")
+                            (lispm-desktop-tr "Show the sessions it started"))))))
+    (when opened
+      (dolist (subtree subtrees)
+        (lispm-desktop-agent-list--insert-session subtree (1+ depth) now running-ids chats directory)))))
 
 (defvar-local lispm-desktop-agent-list--show-archived nil
   "Non-nil when this sidebar lists archived sessions too.")
@@ -219,7 +297,9 @@ sessions are still being read."
          (archived (seq-count #'lispm-agents-archived-p all))
          (sessions (if lispm-desktop-agent-list--show-archived all
                      (seq-remove #'lispm-agents-archived-p all))))
-    (require 'nerd-icons)
+    ;; The agents' icons are Nerd Font glyphs where nerd-icons is; text
+    ;; icons stand in elsewhere, see `lispm-agents-icon'.
+    (require 'nerd-icons nil t)
     (erase-buffer)
     (lispm-desktop-sidebar-set-toolbar
      'agents #'lispm-desktop-agent-list-refresh
@@ -313,7 +393,8 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
                        entry
                      (list :label (car entry)
                            :action (lambda () (lispm-agents-session-act (cdr entry) session)))))
-                 `((,(lispm-desktop-tr "Resume") . resume)
+                 `(,@(when (lispm-agents-session-resumable-p session)
+                       `((,(lispm-desktop-tr "Resume") . resume)))
                    (,(lispm-desktop-tr "Rename…") . rename)
                    (,(if (lispm-agents-archived-p session)
                          (lispm-desktop-tr "Unarchive")
@@ -351,6 +432,26 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
   (interactive)
   (lispm-agents-session-act 'copy (lispm-desktop-agent-list--session-at-point)))
 
+(defun lispm-desktop-agent-list--open-at-point (open)
+  "Show the sessions the session at point started when OPEN, else hide them.
+A session that started none is said to have."
+  (let ((session (lispm-desktop-agent-list--session-at-point)))
+    (unless (save-excursion
+              (beginning-of-line)
+              (text-property-any (point) (line-end-position) 'lispm-desktop-agent-list-triangle t))
+      (user-error (lispm-desktop-tr "The session at point started no sessions")))
+    (lispm-desktop-agent-list--set-opened session open)))
+
+(defun lispm-desktop-agent-list-open-sub-sessions ()
+  "Show the sessions the session at point started, under it."
+  (interactive)
+  (lispm-desktop-agent-list--open-at-point t))
+
+(defun lispm-desktop-agent-list-close-sub-sessions ()
+  "Hide the sessions the session at point started."
+  (interactive)
+  (lispm-desktop-agent-list--open-at-point nil))
+
 (defvar-keymap lispm-desktop-agent-list-mode-map
   :doc "Keymap for the agent sidebar."
   :parent special-mode-map
@@ -360,6 +461,8 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
   "A" #'lispm-desktop-agent-list-toggle-show-archived
   "D" #'lispm-desktop-agent-list-delete
   "w" #'lispm-desktop-agent-list-copy-id
+  "<right>" #'lispm-desktop-agent-list-open-sub-sessions
+  "<left>" #'lispm-desktop-agent-list-close-sub-sessions
   "n" #'forward-button
   "p" #'backward-button
   "TAB" #'forward-button

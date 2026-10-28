@@ -95,7 +95,9 @@
         :cwd (plist-get session :root)
         :title (plist-get session :title)
         :time (plist-get session :time)
-        :file (plist-get session :file)))
+        :file (plist-get session :file)
+        ;; One started for another agent is listed under that agent's.
+        :parent (plist-get session :parent)))
 
 (defun lispm-desktop-lispm-sessions ()
   "Return every recorded LispM session as lispm-desktop-ai session plists."

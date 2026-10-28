@@ -7663,6 +7663,74 @@ first, then those failed or done, and round again."
             (should (eq (car shown) (nth 2 buffers)))))
       (mapc #'kill-buffer buffers))))
 
+(ert-deftest lispm-desktop-test-agent-list-trees-sessions ()
+  "A session an agent started is drawn under the session that started it,
+once that one is opened by its triangle or the right arrow, and hidden
+again by the left arrow; one that cannot be resumed says it is opened as
+its transcript, and gets no Resume in its menu."
+  (lispm-desktop-test--with-agents
+      `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
+               :resumable ,(lambda (session) (not (plist-get session :parent)))
+               :sessions ,(lambda ()
+                            (let ((now (float-time)))
+                              (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
+                                          :title "Fix the build" :time (- now 30))
+                                    (list :agent 'codex :id "0200" :cwd "/tmp/project/"
+                                          :title "Find the failing test" :time (- now 20)
+                                          :parent "0199")
+                                    (list :agent 'codex :id "0201" :cwd "/tmp/project/"
+                                          :title "Ship it" :time (- now 10)))))))
+    (let ((lispm-agents--session-readers nil)
+          (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
+          (lispm-agents--archived 'unloaded))
+      (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
+        (unwind-protect
+            ;; Drawn wide enough for whole titles: a batch Emacs has no window.
+            (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+             (cl-flet ((text () (buffer-substring-no-properties (point-min) (point-max)))
+                      (triangle () (text-property-any (point-min) (point-max)
+                                                      'lispm-desktop-agent-list-triangle t)))
+              (lispm-desktop-agent-list-mode)
+              (lispm-desktop-agent-list--render)
+              (should (string-search "Fix the build" (text)))
+              (should (string-search "Ship it" (text)))
+              (should-not (string-search "Find the failing test" (text)))
+              ;; The session that started one has the triangle; the others none.
+              (should (triangle))
+              (should (equal (get-text-property (triangle) 'help-echo) "Show the sessions it started"))
+              (should (= (count-lines (point-min) (point-max)) 4))
+              (funcall (get-text-property (triangle) 'action) (triangle))
+              (should (string-search "Find the failing test" (text)))
+              (should (equal (get-text-property (triangle) 'help-echo) "Hide the sessions it started"))
+              (should (= (count-lines (point-min) (point-max)) 5))
+              ;; The child is a level deeper than its parent, right under it.
+              (let ((parent (text-property-any (point-min) (point-max) 'lispm-agents-session
+                                               (car (seq-filter
+                                                     (lambda (s) (equal (plist-get s :id) "0199"))
+                                                     (mapcar (lambda (position)
+                                                               (get-text-property position 'lispm-agents-session))
+                                                             (number-sequence (point-min) (1- (point-max))))))))
+                    (child (save-excursion
+                             (goto-char (point-min))
+                             (search-forward "Find the failing test")
+                             (line-beginning-position))))
+                (should (= (line-number-at-pos child) (1+ (line-number-at-pos parent))))
+                (should (string-match-p "Open the transcript of codex session 0200"
+                                        (get-text-property child 'help-echo)))
+                (should (string-match-p "Resume codex session 0199"
+                                        (get-text-property parent 'help-echo)))
+                ;; The arrows close and open it at point.
+                (goto-char parent)
+                (lispm-desktop-agent-list-close-sub-sessions)
+                (should-not (string-search "Find the failing test" (text)))
+                (lispm-desktop-agent-list-open-sub-sessions)
+                (should (string-search "Find the failing test" (text)))
+                (goto-char (save-excursion (goto-char (point-min)) (search-forward "Ship it")
+                                           (line-beginning-position)))
+                (should-error (lispm-desktop-agent-list-open-sub-sessions) :type 'user-error))))
+          (kill-buffer)
+          (delete-file lispm-agents-state-file))))))
+
 (ert-deftest lispm-desktop-test-agent-list-refreshes-on-status-changes ()
   "An agent terminal's status refreshes the agent sidebar, once Emacs is
 idle, when its label there changes; progress alone does not."
