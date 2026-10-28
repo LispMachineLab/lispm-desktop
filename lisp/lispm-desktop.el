@@ -93,6 +93,9 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-deps)
+;; LispM UI, which draws the forms and asks what LispM and its
+;; applications ask; LispM's agent requires it too.
+(lispm-desktop-deps-ensure 'lispm-ui)
 ;; The browser is lispm-browser, which the desktop's browser files require.
 (lispm-desktop-deps-ensure 'lispm-browser)
 ;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
@@ -266,9 +269,9 @@ boxes.  A download that fails, as offline, is only reported."
   ;; LispM is set up first, so its agent comes first; but the
   ;; others are set up even when it cannot be, as offline at a
   ;; first start that would install it.
+  (lispm-desktop-form-setup)
   (condition-case err
       (progn (lispm-desktop-setup-lispm)
-             (lispm-desktop-form-setup)
              (lispm-desktop-setup-characters))
     (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
   (lispm-agents-setup-claude)
@@ -300,9 +303,9 @@ are set up as there; then the first frame becomes the terminal, see
   (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
   (lispm-desktop-setup-i18n)
   (lispm-desktop-setup-langs)
+  (lispm-desktop-form-setup)
   (condition-case err
-      (progn (lispm-desktop-setup-lispm)
-             (lispm-desktop-form-setup))
+      (lispm-desktop-setup-lispm)
     (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
   (lispm-desktop-setup-kernel)
   (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
