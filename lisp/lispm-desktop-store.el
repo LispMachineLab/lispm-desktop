@@ -1867,7 +1867,11 @@ install by themselves."
              (not lispm-desktop-store--update-timer)
              (lispm-desktop-store-updates))
     (setq lispm-desktop-store--update-timer
-          (run-with-idle-timer 60 nil #'lispm-desktop-store--install-updates))))
+          ;; Made while LispM has been idle longer, a timer of 60 idle
+          ;; seconds would run at once, find the application still open
+          ;; and make itself again, round and round: it waits a minute more.
+          (run-with-idle-timer (+ 60 (if-let* ((idle (current-idle-time))) (float-time idle) 0))
+                               nil #'lispm-desktop-store--install-updates))))
 
 (defun lispm-desktop-store--checked-updates ()
   "Once the catalogs were checked: install the updates found later, by

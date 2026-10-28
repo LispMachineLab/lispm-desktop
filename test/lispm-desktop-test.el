@@ -14564,6 +14564,21 @@ installs and the updates wait."
         (should-not updated)
         (should-not scheduled)))))
 
+(ert-deftest lispm-desktop-test-store-updates-wait-another-idle-minute ()
+  "Updates waiting for an application's window, looked at again while
+LispM has been idle a while, wait another idle minute rather than being
+looked at again at once, round and round."
+  (lispm-desktop-test--with-store
+    (let ((scheduled nil) (lispm-desktop-store--update-timer nil)
+          (lispm-desktop-store-update-automatically t))
+      (cl-letf (((symbol-function 'lispm-desktop-store-updates) (lambda () '(elfeed)))
+                ((symbol-function 'lispm-desktop-app-window-open-p) (lambda (_id) t))
+                ((symbol-function 'current-idle-time) (lambda () (seconds-to-time 300)))
+                ((symbol-function 'run-with-idle-timer)
+                 (lambda (seconds _repeat function) (setq scheduled (list seconds function)) 'timer)))
+        (lispm-desktop-store--install-updates)
+        (should (equal scheduled '(360.0 lispm-desktop-store--install-updates)))))))
+
 (ert-deftest lispm-desktop-test-store-checks-along-software-update ()
   "The App Store looks for updates whenever Software Update checks, unless
 it is checking already."
