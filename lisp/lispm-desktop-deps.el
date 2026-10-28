@@ -139,11 +139,23 @@ or nil when it failed."
       (when (eql 0 (apply #'call-process "git" nil '(t nil) nil args))
         (string-trim (buffer-string))))))
 
+(defun lispm-desktop-deps--shallow-exclude (directory)
+  "Return what git fetch takes to keep the git checkout DIRECTORY shallow,
+when it was cloned so, see `lispm-desktop-store--shallow-exclude'."
+  (when-let* (((equal (lispm-desktop-deps--git directory "rev-parse" "--is-shallow-repository") "true"))
+              (own (apply #'lispm-desktop-deps--git directory lispm-desktop-store--own-release))
+              (listed (lispm-desktop-deps--git directory "ls-remote" "--tags" "--refs" "origin")))
+    (lispm-desktop-store--shallow-exclude own listed)))
+
 (defun lispm-desktop-deps--release (directory)
   "Return the commit of the latest release of the git checkout DIRECTORY,
-its tags fetched first: of the highest vX.Y.Z tag on its origin's main
-branch.  Return nil when there is none, or the fetch failed."
-  (when-let* (((lispm-desktop-deps--git directory "fetch" "--quiet" "--tags" "origin"))
+its origin's main branch fetched first, with the tags of its commits: of
+the highest vX.Y.Z tag on that branch.  Not every tag is fetched, the
+history of each, and a checkout cloned shallow stays so, see
+`lispm-desktop-deps--shallow-exclude'.  Return nil when there is none,
+or the fetch failed."
+  (when-let* (((apply #'lispm-desktop-deps--git directory "fetch" "--quiet"
+                      (append (lispm-desktop-deps--shallow-exclude directory) '("origin"))))
               (tags (lispm-desktop-deps--git directory "tag" "--list" "v*" "--sort=-v:refname"
                                              "--merged" "origin/HEAD"))
               (tag (seq-find (lambda (tag) (string-match-p "\\`v[0-9]+\\.[0-9]+\\.[0-9]+\\'" tag))

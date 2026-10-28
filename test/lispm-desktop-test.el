@@ -12111,6 +12111,84 @@ a pull request branched before the release brings no older history in."
                 (should (equal (lispm-desktop-update-version installed) "0.2.1")))))
         (delete-directory root t)))))
 
+(defun lispm-desktop-test--update-shallow-package (root tag)
+  "Return the package bar of ROOT's origin, as the App Store clones one in
+ROOT's elpa/: shallow at the release TAG, following origin's main."
+  (let ((package (concat root "elpa/bar/")))
+    (lispm-desktop-test--git root "clone" "--quiet" "--depth" "1" "--branch" tag
+                             (concat "file://" root "origin.git") package)
+    (lispm-desktop-test--git package "remote" "set-branches" "origin" "main")
+    (lispm-desktop-test--git package "fetch" "--quiet" "origin")
+    (lispm-desktop-test--git package "remote" "set-head" "origin" "main")
+    (file-name-as-directory (file-truename package))))
+
+(ert-deftest lispm-desktop-test-update-keeps-shallow-checkouts-shallow ()
+  "A check finding a new release fetches into a checkout cloned shallow, as
+install.sh and the App Store clone them, only what the update needs: not
+the history of every older release, nor the history behind a pull
+request branched before the checkout's release, a film deleted long ago
+in it.  The checkout stays shallow, and the update is found and
+installed as in a whole clone; the desktop's own check of a package's
+latest release fetches as little."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-update
+    (pcase-let ((`(,root ,_checkout ,work) (lispm-desktop-test--update-repositories)))
+      (unwind-protect
+          (let* ((package-user-dir (concat root "elpa/"))
+                 (branch (lispm-desktop-update--git work "rev-parse" "--abbrev-ref" "HEAD"))
+                 (film (progn (lispm-desktop-test--update-push work "demo.gif" "A film")
+                              (lispm-desktop-update--git work "rev-parse" "HEAD:demo.gif")))
+                 (old (lispm-desktop-update--git work "rev-parse" "HEAD"))
+                 (fork (progn (lispm-desktop-test--git work "rm" "--quiet" "demo.gif")
+                              (lispm-desktop-test--git work "commit" "--quiet" "-m" "No films")
+                              (lispm-desktop-test--git work "push" "--quiet" "origin" "HEAD:main")
+                              (lispm-desktop-test--update-release work "v0.1.0")
+                              (lispm-desktop-update--git work "rev-parse" "HEAD"))))
+            (lispm-desktop-test--update-push work "b.txt" "Second")
+            (lispm-desktop-test--update-release work "v0.2.0")
+            (let ((installed (lispm-desktop-test--update-install root "v0.2.0"))
+                  (package (lispm-desktop-test--update-shallow-package root "v0.2.0")))
+              (cl-flet ((shallow-p (directory)
+                          (should (equal (lispm-desktop-update--git directory "rev-parse" "--is-shallow-repository")
+                                         "true"))
+                          (should-not (lispm-desktop-update--git directory "cat-file" "-e" film))
+                          (should-not (lispm-desktop-update--git directory "cat-file" "-e" old))
+                          t))
+                (should (shallow-p installed))
+                (should (shallow-p package))
+                ;; A pull request branched before the release, merged after.
+                (lispm-desktop-test--git work "checkout" "--quiet" "-b" "fix" fork)
+                (lispm-desktop-test--update-commit work "fix.txt" "Mend the box")
+                (lispm-desktop-test--git work "checkout" "--quiet" branch)
+                (lispm-desktop-test--git work "merge" "--quiet" "--no-ff" "fix"
+                                         "-m" "Merge pull request #26 from LispMachineLab/fix"
+                                         "-m" "Stand the boxes clear of the corners")
+                (lispm-desktop-test--update-push work "c.txt" "Straight to main")
+                (lispm-desktop-test--update-release work "v0.3.0")
+                (let ((result (lispm-desktop-test--update-check installed))
+                      (release (lispm-desktop-update--git work "rev-parse" "v0.3.0^{commit}")))
+                  (should (eq (plist-get result :state) 'update))
+                  (should (equal (plist-get result :release) "v0.3.0"))
+                  (should (equal (plist-get result :to) release))
+                  (should (equal (plist-get result :changes)
+                                 '("Straight to main" "Stand the boxes clear of the corners (#26)")))
+                  (should (shallow-p installed))
+                  (should (lispm-desktop-update-install (list result)))
+                  (should (equal (lispm-desktop-update-version installed) "0.3.0"))
+                  (let ((result (lispm-desktop-test--update-check installed)))
+                    (should (eq (plist-get result :state) 'current))
+                    (should (equal (plist-get result :release) "v0.3.0")))
+                  (should (shallow-p installed))
+                  ;; A package, as Software Update checks one and as the
+                  ;; desktop finds the release it needs.
+                  (let ((result (lispm-desktop-test--update-check package)))
+                    (should (eq (plist-get result :state) 'update))
+                    (should (eq (plist-get result :package) 'bar))
+                    (should (equal (plist-get result :to) release)))
+                  (should (equal (lispm-desktop-deps--release package) release))
+                  (should (shallow-p package))))))
+        (delete-directory root t)))))
+
 (ert-deftest lispm-desktop-test-update-leaves-checkouts-alone ()
   "A checkout with changes of its own, commits of its own, or on no branch
 is left as it is; an update found is not installed once the checkout has

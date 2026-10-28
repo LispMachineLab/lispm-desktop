@@ -93,6 +93,15 @@ inherited GIT_DIR would name, and no prompt for a password."
   (append '("GIT_DIR" "GIT_WORK_TREE" "GIT_INDEX_FILE" "GIT_TERMINAL_PROMPT=0")
           process-environment))
 
+(defun lispm-desktop-store--releases (listed)
+  "Return the tags of the releases LISTED names, what `git ls-remote --tags'
+printed, the latest first: vX.Y.Z each, as v0.2.0."
+  (sort (seq-keep (lambda (line)
+                    (and (string-match "refs/tags/\\(v[0-9]+\\.[0-9]+\\.[0-9]+\\)\\'" line)
+                         (match-string 1 line)))
+                  (split-string (or listed "") "\n" t))
+        (lambda (a b) (version< (substring b 1) (substring a 1)))))
+
 (defun lispm-desktop-store--release-tag (url)
   "Return the tag of the latest release of the repository at URL, as
 \"v0.2.0\", or nil when it has none or cannot be reached."
@@ -100,11 +109,25 @@ inherited GIT_DIR would name, and no prompt for a password."
     (let ((process-environment (lispm-desktop-store--git-environment)))
       (when (eql 0 (ignore-errors
                      (call-process "git" nil '(t nil) nil "ls-remote" "--tags" "--refs" url "v*")))
-        (car (sort (seq-keep (lambda (line)
-                               (and (string-match "refs/tags/\\(v[0-9]+\\.[0-9]+\\.[0-9]+\\)\\'" line)
-                                    (match-string 1 line)))
-                             (split-string (buffer-string) "\n" t))
-                   (lambda (a b) (version< (substring b 1) (substring a 1)))))))))
+        (car (lispm-desktop-store--releases (buffer-string)))))))
+
+(defconst lispm-desktop-store--own-release
+  '("describe" "--tags" "--abbrev=0" "--match" "v[0-9]*" "--exclude" "*-*")
+  "How git tells the latest release a clone's commit holds, its tag.")
+
+(defun lispm-desktop-store--shallow-exclude (own listed)
+  "Return what git fetch takes to keep a shallow clone shallow: the clone
+holds the release OWN, LISTED is what `git ls-remote --tags' printed of
+its remote.  Fetching into a shallow clone, git counts the commits
+before the clone's own as missing, so that a branch merged since that
+forked before them brings in all the history behind the fork, the old
+images and films in it too.  Leaving out what the release before OWN
+holds cuts such a branch at its own commits; the commits since that
+release are fetched, the clone's own on to the latest, which is what
+the merge base, the releases merged and the changes are read from.
+Return nil when OWN is the first release, or not one of LISTED."
+  (when-let* ((before (cadr (member own (lispm-desktop-store--releases listed)))))
+    (list (concat "--shallow-exclude=" before))))
 
 (defun lispm-desktop-store--git (directory &rest args)
   "Run git with ARGS in DIRECTORY; return what it printed, or signal it."

@@ -32,9 +32,11 @@
 ;; on, and Software Update keeps each at the latest release, as running
 ;; install.sh again does:
 ;;
-;;   checking    fetches each checkout's branch and its tags in the
-;;               background and lists what the latest release brings;
-;;               nothing changes yet
+;;   checking    fetches each checkout's branch, with the tags of its
+;;               commits, in the background and lists what the latest
+;;               release brings; nothing changes yet.  A checkout cloned
+;;               shallow stays so: only the commits since the release
+;;               before its own are fetched
 ;;   installing  moves each checkout on to its latest release, as LispM
 ;;               quits, so that the code running never mixes old files
 ;;               and new; restarting LispM installs at once.  A package
@@ -209,20 +211,23 @@ lispm-kernel runs it when it runs, see `lispm-exec'."
 (defun lispm-desktop-update--git-steps (directory steps callback)
   "Run STEPS of git in DIRECTORY in the background, one after another.
 Each step is (ARGS . NEXT): ARGS, or a function returning them once the
-steps before have run; NEXT is called with what git printed, or nil when
-it failed, and what it said then, and returns t to go on with the steps,
-or a result to stop with.  CALLBACK is called with the result, or nil
-when every step went on."
+steps before have run, or nil when the step is not needed then; NEXT is
+called with what git printed, or nil when it failed, and what it said
+then, and returns t to go on with the steps, or a result to stop with.
+CALLBACK is called with the result, or nil when every step went on."
   (if (null steps)
       (funcall callback nil)
-    (pcase-let ((`(,args . ,next) (car steps)))
-      (lispm-desktop-update--git-async
-       directory (if (functionp args) (funcall args) args)
-       (lambda (output errors)
-         (let ((result (funcall next output errors)))
-           (if (eq result t)
-               (lispm-desktop-update--git-steps directory (cdr steps) callback)
-             (funcall callback result))))))))
+    (pcase-let* ((`(,args . ,next) (car steps))
+                 (args (if (functionp args) (funcall args) args)))
+      (if (null args)
+          (lispm-desktop-update--git-steps directory (cdr steps) callback)
+        (lispm-desktop-update--git-async
+         directory args
+         (lambda (output errors)
+           (let ((result (funcall next output errors)))
+             (if (eq result t)
+                 (lispm-desktop-update--git-steps directory (cdr steps) callback)
+               (funcall callback result)))))))))
 
 ;;;; Checkouts
 
@@ -416,8 +421,8 @@ its launcher and icon.")
 
 (defun lispm-desktop-update--check-checkout (name directory callback)
   "Fetch the branch the checkout DIRECTORY of the project NAME follows, and
-its tags, in the background, then call CALLBACK with what was found, a
-plist:
+the tags of its commits, in the background, then call CALLBACK with what
+was found, a plist:
 
   :name       NAME
   :directory  DIRECTORY
@@ -436,10 +441,19 @@ The latest release is the tag of the highest version on the branch, see
 `lispm-desktop-update-release-regexp'.  A checkout holding it, or newer
 commits of the branch, is current, and so is one of a branch with no
 release yet.  A package on no branch, as one updated before is, follows
-its origin's main."
+its origin's main.
+
+Only what the check needs is fetched: not the tags of every release, the
+history of each, which in a checkout cloned shallow, as install.sh and
+the App Store clone them, would be most of the repository's history.
+Such a checkout is fetched down to the release before its own, see
+`lispm-desktop-store--shallow-exclude'."
   (let* ((package (lispm-desktop-update--package directory))
          (result (list :name name :directory directory :state 'current :package package))
          (branch "@{upstream}")
+         (shallow nil)
+         (own nil)
+         (exclude nil)
          (release nil))
     (cl-flet ((stop (state reason)
                 (plist-put (plist-put result :state state) :reason reason)))
@@ -450,7 +464,16 @@ its origin's main."
                (cond (output t)
                      (package (setq branch "origin/HEAD") t)
                      (t (stop 'kept (lispm-desktop-tr-noop "follows no branch"))))))
-         (,(lambda () (if package '("fetch" "--quiet" "--tags" "origin") '("fetch" "--quiet" "--tags")))
+         (("rev-parse" "--is-shallow-repository")
+          . ,(lambda (output _errors) (setq shallow (equal output "true")) t))
+         (,(lambda () (and shallow lispm-desktop-store--own-release))
+          . ,(lambda (output _errors) (setq own output) t))
+         (,(lambda () (and own `("ls-remote" "--tags" "--refs" ,@(and package '("origin")))))
+          . ,(lambda (output _errors)
+               (setq exclude (and output (lispm-desktop-store--shallow-exclude own output)))
+               t))
+         ;; Tags come along with the commits they name.
+         (,(lambda () `("fetch" "--quiet" ,@exclude ,@(and package '("origin"))))
           . ,(lambda (output errors)
                (or (and output t)
                    (stop 'failed (string-remove-prefix "fatal: " (car (split-string errors "\n")))))))

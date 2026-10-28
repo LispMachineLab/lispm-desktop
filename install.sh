@@ -297,13 +297,34 @@ choose_emacs() {
   fi
 }
 
-# Print the tag of the latest release of the repository NAME, as v0.2.0,
-# or nothing before its first.  A release is a tag vX.Y.Z of its main
-# branch; Software Update follows them too.
-latest_release() {
+# Print the tags of the releases of the repository NAME, the latest
+# first.  A release is a tag vX.Y.Z of its main branch; Software Update
+# follows them too.
+releases() {
   git ls-remote --tags --refs --sort=-v:refname "$REPOSITORIES/$1.git" 'v*' |
-    sed -n 's|.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' |
-    head -n 1
+    sed -n 's|.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p'
+}
+
+# Print the tag of the latest release of the repository NAME, as v0.2.0,
+# or nothing before its first.
+latest_release() {
+  releases "$1" | head -n 1
+}
+
+# Fetch the branch the checkout DIR of the repository NAME follows, with
+# the tags of its commits, not every tag and the history of each.  A
+# checkout cloned shallow stays so: fetching into one, git counts the
+# commits before its own as missing, so that a branch merged since that
+# forked before them would bring in all the history behind the fork.
+# Leaving out what the release before the checkout's own holds cuts such
+# a branch at its own commits, as Software Update does.
+fetch_branch() {
+  before=
+  if [ "$(git -C "$2" rev-parse --is-shallow-repository)" = true ] &&
+    own=$(git -C "$2" describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' 2>/dev/null); then
+    before=$(releases "$1" | awk -v own="$own" 'found { print; exit } $0 == own { found = 1 }')
+  fi
+  git -C "$2" fetch -q ${before:+"--shallow-exclude=$before"}
 }
 
 # Check out the latest release of the repository NAME in LISPM_HOME, on
@@ -320,7 +341,7 @@ fetch_project() {
       git -C "$dir" pull -q --ff-only ||
         note "$1 has changes of its own, so it was left as it is"
     else
-      git -C "$dir" fetch -q --tags &&
+      fetch_branch "$1" "$dir" &&
         { git -C "$dir" merge-base --is-ancestor "$release" HEAD ||
             git -C "$dir" merge -q --ff-only "$release" 2>/dev/null; } ||
         note "$1 has changes of its own, so it was left as it is"
@@ -331,10 +352,11 @@ fetch_project() {
     git clone -q --depth 1 "$REPOSITORIES/$1.git" "$dir"
   else
     # The release, as main following origin's main, as Software Update
-    # needs it; the commits since are fetched down to the release only.
+    # needs it; the commits since are fetched down to the release before
+    # it only.
     git clone -q --depth 1 --branch "$release" "$REPOSITORIES/$1.git" "$dir" 2>/dev/null
     git -C "$dir" remote set-branches origin main
-    git -C "$dir" fetch -q origin
+    fetch_branch "$1" "$dir"
     git -C "$dir" checkout -q -B main
     git -C "$dir" branch -q --set-upstream-to=origin/main main
   fi
