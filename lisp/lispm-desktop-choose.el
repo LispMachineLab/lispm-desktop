@@ -38,7 +38,7 @@
 ;;
 ;; It is drawn as one image in a child frame and reads events in a loop
 ;; of its own until a file is chosen or it is cancelled, as the desktop's
-;; alerts do (lispm-desktop-modal.el): it waits for the answer as
+;; alerts do (lispm-ui-modal.el): it waits for the answer as
 ;; `read-file-name' does, and never hands the choice to the system's own
 ;; panel, which an application shown on its own would hide.
 ;;
@@ -61,7 +61,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
-(require 'lispm-desktop-modal)
+(require 'lispm-ui-modal)
 (require 'lispm-desktop-i18n)
 
 (defconst lispm-desktop-choose-width 450
@@ -236,7 +236,7 @@ for each that is there."
 Return the file chosen, `cancel', or nil while the dialog stays."
   (let ((rows lispm-desktop-choose-rows)
         (selected (or (lispm-desktop-choose--dialog-selected dialog) -1)))
-    (pcase (lispm-desktop-modal-role event)
+    (pcase (lispm-ui-modal-role event)
       ('cancel 'cancel)
       ('confirm (lispm-desktop-choose--open dialog))
       ('down (lispm-desktop-choose--select dialog (1+ selected)) nil)
@@ -311,7 +311,7 @@ beside it, and the buttons at the bottom right, the default
 `shortcuts', `recent', `cancel' or `choose'; (header . COLUMN), COLUMN
 `name', `date' or `direction'; (row . INDEX) of an item; (scroll .
 PART), PART `up', `down', `page-up', `page-down' or `thumb'; or nil."
-  (cl-flet ((in (part) (lispm-desktop-modal-inside-p (plist-get layout part) x y)))
+  (cl-flet ((in (part) (lispm-ui-modal-inside-p (plist-get layout part) x y)))
     (cond
      ((in :location) 'location)
      ((in :shortcuts) 'shortcuts)
@@ -561,14 +561,14 @@ and right; the controls as Navigation Services drew them."
 (defun lispm-desktop-choose--at (event frame dialog)
   "Return what of DIALOG, shown in FRAME, mouse EVENT is over, see
 `lispm-desktop-choose--hit'; nil when it is not over FRAME."
-  (when-let* ((position (lispm-desktop-modal-over event frame))
+  (when-let* ((position (lispm-ui-modal-over event frame))
               (xy (posn-x-y position)))
     (lispm-desktop-choose--hit dialog (lispm-desktop-choose--layout) (car xy) (cdr xy))))
 
 (defun lispm-desktop-choose--hold (frame dialog part)
   "Hold PART of DIALOG, shown in FRAME, pressed while the mouse stays down
 over it; return non-nil when it rose over it."
-  (lispm-desktop-modal-hold
+  (lispm-ui-modal-hold
    (lambda (event) (equal (lispm-desktop-choose--at event frame dialog) part))
    (lambda (down)
      (setf (lispm-desktop-choose--dialog-pressed dialog) (and down part))
@@ -628,11 +628,11 @@ the list following it, until the mouse rises."
                (room (- count lispm-desktop-choose-rows)))
     (catch 'done
       (while t
-        (let ((event (lispm-desktop-modal-read)))
-          (cond ((or (lispm-desktop-modal-mouse-up-p event) (lispm-desktop-modal-cancel-p event))
+        (let ((event (lispm-ui-modal-read)))
+          (cond ((or (lispm-ui-modal-mouse-up-p event) (lispm-ui-modal-cancel-p event))
                  (throw 'done nil))
                 ((mouse-movement-p event)
-                 (when-let* ((position (lispm-desktop-modal-over event frame))
+                 (when-let* ((position (lispm-ui-modal-over event frame))
                              (y (cdr (posn-x-y position)))
                              (thumb (lispm-desktop-choose--thumb dialog height)))
                    (let ((free (max 1 (- track (cdr thumb)))))
@@ -701,22 +701,22 @@ cancelled; return the file, or nil."
   (track-mouse
     (catch 'done
       (while t
-        (let* ((event (lispm-desktop-modal-read))
+        (let* ((event (lispm-ui-modal-read))
                (result
                 (cond
-                 ((lispm-desktop-modal-mouse-down-p event)
+                 ((lispm-ui-modal-mouse-down-p event)
                   (lispm-desktop-choose--click frame dialog event))
                  ((memq (event-basic-type event) '(wheel-up wheel-down mouse-4 mouse-5))
-                  (when (lispm-desktop-modal-over event frame)
+                  (when (lispm-ui-modal-over event frame)
                     (lispm-desktop-choose--scroll-to
                      dialog (+ (lispm-desktop-choose--dialog-top dialog)
                                (if (memq (event-basic-type event) '(wheel-down mouse-5)) 3 -3))))
                   nil)
                  ((or (mouse-event-p event) (mouse-movement-p event)) 'ignore)
                  ((eq event ?/) (lispm-desktop-choose--shortcut frame dialog t) nil)
-                 ((and (lispm-desktop-modal-confirm-p event) (lispm-desktop-choose--item dialog))
+                 ((and (lispm-ui-modal-confirm-p event) (lispm-desktop-choose--item dialog))
                   ;; Return presses the default button, which blinks.
-                  (lispm-desktop-modal-flash 'button
+                  (lispm-ui-modal-flash 'button
                                              (lambda ()
                                                (setf (lispm-desktop-choose--dialog-pressed dialog) 'choose)
                                                (lispm-desktop-choose--show frame dialog)))

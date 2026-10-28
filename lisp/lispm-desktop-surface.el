@@ -65,7 +65,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum)
-(require 'lispm-desktop-modal)
+(require 'lispm-ui-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-tty-images)
@@ -953,7 +953,7 @@ Where images cannot be shown, it is drawn in text, see
 
 (defun lispm-desktop--key-at (x y)
   "Return the key of the desktop icon drawn at X, Y, or nil."
-  (lispm-desktop-modal-hit (mapcar (pcase-lambda (`(,key ,left ,top ,right ,bottom))
+  (lispm-ui-modal-hit (mapcar (pcase-lambda (`(,key ,left ,top ,right ,bottom))
                                      (list key left top (- right left) (- bottom top)))
                                    (buffer-local-value 'lispm-desktop--hits (lispm-desktop-buffer)))
                            x y))
@@ -1407,7 +1407,7 @@ desktop in front."
   (let* ((keys (mapcar #'car (lispm-desktop--items)))
          (index (seq-position keys lispm-desktop--selected)))
     (when keys
-      (lispm-desktop--select (nth (lispm-desktop-modal-cycle index direction (length keys)) keys)))))
+      (lispm-desktop--select (nth (lispm-ui-modal-cycle index direction (length keys)) keys)))))
 
 (defun lispm-desktop-select-next ()
   "Select the next desktop icon down."

@@ -7,4 +7,7 @@
 
 ;; LispM UI 0.1.0: LispM's forms, which moved there from LispM Agent.
 ((:prefix "lispm-form-" . "lispm-ui-form-")
- ("lispm-form" . "lispm-ui-form"))
+ ("lispm-form" . "lispm-ui-form")
+ ;; LispM UI 0.1.0: what the modal panels share, from lispm-desktop-modal.el.
+ (:prefix "lispm-desktop-modal-" . "lispm-ui-modal-")
+ ("lispm-desktop-modal" . "lispm-ui-modal"))

@@ -35,7 +35,7 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-controls)
 (require 'lispm-desktop-platinum-icons)
-(require 'lispm-desktop-modal)
+(require 'lispm-ui-modal)
 
 
 ;;;; A window's title, its moves and rolling it up
@@ -1072,7 +1072,7 @@ Other keys and the window system's own events change nothing."
           (while (not done)
             ;; A terminal's keys and mouse reports are sequences, which a
             ;; read given up halfway would lose: there it waits for them.
-            (setq event (lispm-desktop-modal-read-event (unless tty lispm-desktop-platinum-drag-interval)))
+            (setq event (lispm-ui-modal-read-event (unless tty lispm-desktop-platinum-drag-interval)))
             (cond ((memq event '(escape ?\e ?\C-g))
                    (setq done t event nil))
                   ((and event (not (mouse-movement-p event))
@@ -1101,7 +1101,7 @@ Other keys and the window system's own events change nothing."
   "Return non-nil when DELTA, as `lispm-desktop-platinum-track' returns it,
 is a move rather than a hand's jitter in a click; CELLS non-nil when it
 counts a text terminal's cells."
-  (lispm-desktop-modal-moved-p delta cells))
+  (lispm-ui-modal-moved-p delta cells))
 
 (defconst lispm-desktop-platinum-window-min-size '(200 . 100)
   "The least a window grows to: (WIDTH . HEIGHT) of its text, in pixels.")

@@ -132,7 +132,7 @@
 (require 'delsel)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
-(require 'lispm-desktop-modal)
+(require 'lispm-ui-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-app-ui)
@@ -2437,7 +2437,7 @@ nil.  The progress bar standing in place of a button is the item's."
                                        (+ gx (* column tw)) tw
                                        (car (lispm-desktop-store--action (car item) (cdr item))))))
             (if (and (not (lispm-desktop-store--busy-p (car item)))
-                     (lispm-desktop-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y))
+                     (lispm-ui-modal-inside-p (list bx by bw lispm-desktop-platinum-button-height) x y))
                 (cons 'button (car item))
               (cons 'item (car item))))))))))
 
@@ -4279,7 +4279,7 @@ for its click."
     ((and `(button . ,id) target)
      (let ((buffer (window-buffer (posn-window (event-start event)))))
        (lispm-desktop-store--select id)
-       (when (lispm-desktop-modal-hold
+       (when (lispm-ui-modal-hold
               (lambda (moved) (and (windowp (posn-window (event-start moved)))
                                    (equal (lispm-desktop-store--grid-event moved) target)))
               (lambda (in)

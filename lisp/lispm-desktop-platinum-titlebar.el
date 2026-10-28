@@ -154,7 +154,7 @@ cancels."
     (set-window-parameter window 'lispm-desktop-platinum-pressed target)
     (with-current-buffer (window-buffer window) (force-mode-line-update))
     (redisplay t)
-    (let ((release (let ((echo-keystrokes 0)) (lispm-desktop-modal-read-event))))
+    (let ((release (let ((echo-keystrokes 0)) (lispm-ui-modal-read-event))))
       (set-window-parameter window 'lispm-desktop-platinum-pressed nil)
       (with-current-buffer (window-buffer window) (force-mode-line-update))
       (when (and (consp release)

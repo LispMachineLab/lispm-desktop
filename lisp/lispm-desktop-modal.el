@@ -1,4 +1,4 @@
-;;; lispm-desktop-modal.el --- What the desktop's modal panels share  -*- lexical-binding: t; -*-
+;;; lispm-ui-modal.el --- What the desktop's modal panels share  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
@@ -41,7 +41,7 @@
 (require 'cl-lib)
 (require 'seq)
 
-(defun lispm-desktop-modal-read-event (&optional timeout)
+(defun lispm-ui-modal-read-event (&optional timeout)
   "Read the next event, as `read-event' does; with TIMEOUT, return nil after
 that many seconds without one.  A text terminal sends arrows and the
 mouse as sequences of characters, which are read there as the keys and
@@ -53,18 +53,18 @@ it is typed twice, as Emacs's own menus take it."
         (read-key))
     (read-event nil nil timeout)))
 
-(defun lispm-desktop-modal-read (&optional timeout)
+(defun lispm-ui-modal-read (&optional timeout)
   "Read the next event, a quit included, without quitting.
 With TIMEOUT, return nil after that many seconds without one.  The click
 that opened a panel is not echoed as an unfinished key.  On a text
-terminal Escape is typed twice, see `lispm-desktop-modal-read-event'."
+terminal Escape is typed twice, see `lispm-ui-modal-read-event'."
   (let* ((inhibit-quit t)
-         (event (let ((echo-keystrokes 0)) (lispm-desktop-modal-read-event timeout))))
+         (event (let ((echo-keystrokes 0)) (lispm-ui-modal-read-event timeout))))
     (when (eq event ?\C-g)
       (setq quit-flag nil))
     event))
 
-(defconst lispm-desktop-modal-keys
+(defconst lispm-ui-modal-keys
   '((next tab ?\t)
     (previous backtab S-tab S-iso-lefttab)
     (right ?\C-f right)
@@ -81,43 +81,43 @@ terminal Escape is typed twice, see `lispm-desktop-modal-read-event'."
 `press' presses the control ringed, `cancel' gives up and `back' goes
 back.  Escape is ESC, C-g and Command-period, as on Mac OS 9.")
 
-(defun lispm-desktop-modal-role (event)
-  "Return the role of EVENT in a modal panel, see `lispm-desktop-modal-keys'."
-  (car (seq-find (lambda (entry) (memql event (cdr entry))) lispm-desktop-modal-keys)))
+(defun lispm-ui-modal-role (event)
+  "Return the role of EVENT in a modal panel, see `lispm-ui-modal-keys'."
+  (car (seq-find (lambda (entry) (memql event (cdr entry))) lispm-ui-modal-keys)))
 
-(defun lispm-desktop-modal-step (event)
+(defun lispm-ui-modal-step (event)
   "Return 1 when EVENT moves on in a focus ring, -1 when it moves back, else nil:
 Tab, C-f and C-n move on, Shift-Tab, C-b and C-p back."
-  (pcase (lispm-desktop-modal-role event)
+  (pcase (lispm-ui-modal-role event)
     ((or 'next 'right 'down) 1)
     ((or 'previous 'left 'up) -1)))
 
-(defun lispm-desktop-modal-cancel-p (event)
+(defun lispm-ui-modal-cancel-p (event)
   "Return non-nil when EVENT gives up: Escape, C-g or Command-period."
-  (eq (lispm-desktop-modal-role event) 'cancel))
+  (eq (lispm-ui-modal-role event) 'cancel))
 
-(defun lispm-desktop-modal-confirm-p (event)
+(defun lispm-ui-modal-confirm-p (event)
   "Return non-nil when EVENT chooses: Return or Enter."
-  (eq (lispm-desktop-modal-role event) 'confirm))
+  (eq (lispm-ui-modal-role event) 'confirm))
 
-(defun lispm-desktop-modal-mouse-down-p (event)
+(defun lispm-ui-modal-mouse-down-p (event)
   "Return non-nil when EVENT presses the first mouse button down."
   (and (consp event) (eq (event-basic-type event) 'mouse-1)
        (memq 'down (event-modifiers event))))
 
-(defun lispm-desktop-modal-mouse-up-p (event)
+(defun lispm-ui-modal-mouse-up-p (event)
   "Return non-nil when EVENT lets the first mouse button go."
   (and (consp event) (eq (event-basic-type event) 'mouse-1)
        (not (memq 'down (event-modifiers event)))))
 
-(defun lispm-desktop-modal-over (event frame)
+(defun lispm-ui-modal-over (event frame)
   "Return EVENT's position when it is over FRAME, else nil."
   (let ((position (event-end event)))
     (when (and (windowp (posn-window position))
                (eq (window-frame (posn-window position)) frame))
       position)))
 
-(defun lispm-desktop-modal-cycle (index step count &optional ok-p)
+(defun lispm-ui-modal-cycle (index step count &optional ok-p)
   "Return the index STEP places from INDEX among COUNT, wrapping around.
 From no INDEX, a step on goes to the first and a step back to the last.
 With OK-P, indexes it refuses are passed over; nil when it takes none."
@@ -129,36 +129,36 @@ With OK-P, indexes it refuses are passed over; nil when it takes none."
                  do (setq at (mod (+ at (cl-signum step)) count))
                  when (funcall ok-p at) return at)))))
 
-(defconst lispm-desktop-modal-flashes
+(defconst lispm-ui-modal-flashes
   '((button . 0.133) (menu-item . 0.05))
   "How long a control chosen blinks, in seconds: a button pressed from the
 keyboard stays pushed in for eight ticks, as Mac OS 9's did; a menu item
 chosen goes off and on for three ticks each.")
 
-(defun lispm-desktop-modal-flash (kind draw &optional undraw)
-  "Blink a control of KIND, a key of `lispm-desktop-modal-flashes', as it is
+(defun lispm-ui-modal-flash (kind draw &optional undraw)
+  "Blink a control of KIND, a key of `lispm-ui-modal-flashes', as it is
 chosen: call DRAW to draw it pressed, show it for the time KIND blinks,
 then call UNDRAW, when given, and show that."
   (funcall draw)
   (redisplay t)
-  (sit-for (alist-get kind lispm-desktop-modal-flashes))
+  (sit-for (alist-get kind lispm-ui-modal-flashes))
   (when undraw
     (funcall undraw)
     (redisplay t)))
 
-(defun lispm-desktop-modal-inside-p (rect x y)
+(defun lispm-ui-modal-inside-p (rect x y)
   "Return non-nil when X, Y lies in RECT, (LEFT TOP WIDTH HEIGHT) in pixels.
 The rectangle holds its left and top edges, not its right and bottom."
   (pcase-let ((`(,left ,top ,width ,height) rect))
     (and rect (<= left x) (< x (+ left width)) (<= top y) (< y (+ top height)))))
 
-(defun lispm-desktop-modal-hit (layout x y)
+(defun lispm-ui-modal-hit (layout x y)
   "Return the value of what LAYOUT has at X, Y, or nil.
 LAYOUT is a list of (VALUE LEFT TOP WIDTH HEIGHT); the first holding X, Y
 wins."
-  (car (seq-find (lambda (entry) (lispm-desktop-modal-inside-p (cdr entry) x y)) layout)))
+  (car (seq-find (lambda (entry) (lispm-ui-modal-inside-p (cdr entry) x y)) layout)))
 
-(defun lispm-desktop-modal-hold (over-p draw)
+(defun lispm-ui-modal-hold (over-p draw)
   "Hold a control pressed with the mouse until the button rises, as Mac OS
 9's controls were: DRAW is called with t to draw it pushed in while the
 mouse is over it, and with nil to draw it out; OVER-P, called with a
@@ -170,9 +170,9 @@ up."
     (track-mouse
       (catch 'done
         (while t
-          (let ((event (lispm-desktop-modal-read)))
-            (cond ((lispm-desktop-modal-cancel-p event) (throw 'done nil))
-                  ((lispm-desktop-modal-mouse-up-p event)
+          (let ((event (lispm-ui-modal-read)))
+            (cond ((lispm-ui-modal-cancel-p event) (throw 'done nil))
+                  ((lispm-ui-modal-mouse-up-p event)
                    (setq chosen (and (funcall over-p event) t))
                    (throw 'done nil))
                   ((mouse-movement-p event)
@@ -184,7 +184,7 @@ up."
       (funcall draw nil))
     chosen))
 
-(defun lispm-desktop-modal-moved-p (delta &optional cells)
+(defun lispm-ui-modal-moved-p (delta &optional cells)
   "Return non-nil when DELTA, (DX . DY) in pixels, is a move rather than a
 hand's jitter in a click: more than `double-click-fuzz' either way.
 With CELLS, DELTA counts a text terminal's cells, of which Emacs reads
@@ -194,5 +194,5 @@ With CELLS, DELTA counts a text terminal's cells, of which Emacs reads
          (> (max (abs (car delta)) (abs (cdr delta)))
             (if cells (/ fuzz 8) fuzz)))))
 
-(provide 'lispm-desktop-modal)
-;;; lispm-desktop-modal.el ends here
+(provide 'lispm-ui-modal)
+;;; lispm-ui-modal.el ends here

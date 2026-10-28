@@ -4902,7 +4902,7 @@ from the edge."
       (should (= dont (- lispm-desktop-popup-alert-text-x 4)))
       (should (= (+ save save-width 3) (- w 12)))
       (should (= (- (- save 3) (+ cancel cancel-width)) lispm-desktop-popup-button-gap)))
-    (cl-letf (((symbol-function 'lispm-desktop-modal-over)
+    (cl-letf (((symbol-function 'lispm-ui-modal-over)
                (lambda (event _frame) (event-start event)))
               ((symbol-function 'frame-parameter) (lambda (&rest _) buttons)))
       (pcase-let ((`(,_ ,_ ,_ ,x ,y ,_) (nth 1 buttons)))
@@ -4935,47 +4935,47 @@ of Cancel; one whose words fit keeps the width."
           (should (= (- cancel (+ apart apart-width)) (* 2 lispm-desktop-popup-button-gap)))
           (should (= (+ default default-width 3) (- w 12))))))))
 
-;;;; lispm-desktop-modal
+;;;; lispm-ui-modal
 
 (ert-deftest lispm-desktop-test-modal-key-roles ()
   "Every role of a key in a modal panel has a key the HHKB types: C-i for
 Tab, C-m for Return, C-[ and C-g for Escape, DEL for Back, and C-f, C-b,
 C-n and C-p for the arrows, which stay as well."
-  (should (eq (lispm-desktop-modal-role ?\C-i) 'next))
-  (should (eq (lispm-desktop-modal-role 'backtab) 'previous))
-  (should (eq (lispm-desktop-modal-role ?\C-m) 'confirm))
-  (should (eq (lispm-desktop-modal-role ?\C-\[) 'cancel))
-  (should (eq (lispm-desktop-modal-role ?\C-g) 'cancel))
-  (should (eq (lispm-desktop-modal-role ?\M-.) 'cancel))
-  (should (eq (lispm-desktop-modal-role ?\d) 'back))
-  (should (eq (lispm-desktop-modal-role ?\s) 'press))
-  (should (equal (mapcar #'lispm-desktop-modal-step '(?\C-f ?\C-n tab right ?\C-b ?\C-p backtab up ?a))
+  (should (eq (lispm-ui-modal-role ?\C-i) 'next))
+  (should (eq (lispm-ui-modal-role 'backtab) 'previous))
+  (should (eq (lispm-ui-modal-role ?\C-m) 'confirm))
+  (should (eq (lispm-ui-modal-role ?\C-\[) 'cancel))
+  (should (eq (lispm-ui-modal-role ?\C-g) 'cancel))
+  (should (eq (lispm-ui-modal-role ?\M-.) 'cancel))
+  (should (eq (lispm-ui-modal-role ?\d) 'back))
+  (should (eq (lispm-ui-modal-role ?\s) 'press))
+  (should (equal (mapcar #'lispm-ui-modal-step '(?\C-f ?\C-n tab right ?\C-b ?\C-p backtab up ?a))
                  '(1 1 1 1 -1 -1 -1 -1 nil)))
-  (should-not (lispm-desktop-modal-role ?a)))
+  (should-not (lispm-ui-modal-role ?a)))
 
 (ert-deftest lispm-desktop-test-modal-cycle ()
   "A focus ring wraps around; from no control it goes to the first or the
 last, and it passes over the controls it is told to."
-  (should (= (lispm-desktop-modal-cycle 2 1 3) 0))
-  (should (= (lispm-desktop-modal-cycle 0 -1 3) 2))
-  (should (= (lispm-desktop-modal-cycle nil 1 3) 0))
-  (should (= (lispm-desktop-modal-cycle nil -1 3) 2))
-  (should (= (lispm-desktop-modal-cycle 1 4 6) 5))
-  (should (= (lispm-desktop-modal-cycle 0 1 4 (lambda (index) (/= index 1))) 2))
-  (should-not (lispm-desktop-modal-cycle 0 1 4 #'ignore))
-  (should-not (lispm-desktop-modal-cycle nil 1 0)))
+  (should (= (lispm-ui-modal-cycle 2 1 3) 0))
+  (should (= (lispm-ui-modal-cycle 0 -1 3) 2))
+  (should (= (lispm-ui-modal-cycle nil 1 3) 0))
+  (should (= (lispm-ui-modal-cycle nil -1 3) 2))
+  (should (= (lispm-ui-modal-cycle 1 4 6) 5))
+  (should (= (lispm-ui-modal-cycle 0 1 4 (lambda (index) (/= index 1))) 2))
+  (should-not (lispm-ui-modal-cycle 0 1 4 #'ignore))
+  (should-not (lispm-ui-modal-cycle nil 1 0)))
 
 (ert-deftest lispm-desktop-test-modal-hit ()
   "A click is on a control when it lies in its rectangle, the left and top
 edges in, the right and bottom out."
   (let ((layout '((a 10 10 20 10) (b 30 10 20 10) (c 0 0 0 0))))
-    (should (eq (lispm-desktop-modal-hit layout 10 10) 'a))
-    (should (eq (lispm-desktop-modal-hit layout 29 19) 'a))
-    (should (eq (lispm-desktop-modal-hit layout 30 10) 'b))
-    (should-not (lispm-desktop-modal-hit layout 50 10))
-    (should-not (lispm-desktop-modal-hit layout 20 20))
-    (should-not (lispm-desktop-modal-hit layout 0 0))
-    (should-not (lispm-desktop-modal-inside-p nil 0 0))))
+    (should (eq (lispm-ui-modal-hit layout 10 10) 'a))
+    (should (eq (lispm-ui-modal-hit layout 29 19) 'a))
+    (should (eq (lispm-ui-modal-hit layout 30 10) 'b))
+    (should-not (lispm-ui-modal-hit layout 50 10))
+    (should-not (lispm-ui-modal-hit layout 20 20))
+    (should-not (lispm-ui-modal-hit layout 0 0))
+    (should-not (lispm-ui-modal-inside-p nil 0 0))))
 
 (ert-deftest lispm-desktop-test-modal-flash ()
   "A control chosen blinks for its kind's time: a button eight ticks, a
@@ -4983,10 +4983,10 @@ menu item three, drawn back as it was when asked."
   (let ((log nil))
     (cl-letf (((symbol-function 'sit-for) (lambda (seconds) (push (list 'wait seconds) log)))
               ((symbol-function 'redisplay) #'ignore))
-      (lispm-desktop-modal-flash 'button (lambda () (push 'pressed log)))
+      (lispm-ui-modal-flash 'button (lambda () (push 'pressed log)))
       (should (equal (reverse log) '(pressed (wait 0.133))))
       (setq log nil)
-      (lispm-desktop-modal-flash 'menu-item (lambda () (push 'off log)) (lambda () (push 'on log)))
+      (lispm-ui-modal-flash 'menu-item (lambda () (push 'off log)) (lambda () (push 'on log)))
       (should (equal (reverse log) '(off (wait 0.05) on))))))
 
 (ert-deftest lispm-desktop-test-modal-needs-no-platinum ()
@@ -5003,7 +5003,7 @@ up."
     (cl-flet ((hold (events)
                 (setq draws nil)
                 (let ((unread-command-events events))
-                  (lispm-desktop-modal-hold (lambda (event) (eq (cadr event) 'on))
+                  (lispm-ui-modal-hold (lambda (event) (eq (cadr event) 'on))
                                             (lambda (in) (push in draws))))))
       (should (hold '((mouse-movement off) (mouse-movement on) (mouse-1 on))))
       (should (equal (reverse draws) '(t nil t nil)))
@@ -5023,17 +5023,17 @@ Mac OS 9's buttons were, and pressed as the mouse rises over them."
 a hand's jitter in a click.  In a text terminal's cells, of which Emacs
 reads the fuzz as eighths, a cell is a drag."
   (let ((double-click-fuzz 3))
-    (should-not (lispm-desktop-modal-moved-p '(3 . -3)))
-    (should (lispm-desktop-modal-moved-p '(4 . 0)))
-    (should (lispm-desktop-modal-moved-p '(0 . -4)))
-    (should-not (lispm-desktop-modal-moved-p nil))
-    (should (lispm-desktop-modal-moved-p '(1 . 0) t))
-    (should (lispm-desktop-modal-moved-p '(0 . -1) t))
-    (should-not (lispm-desktop-modal-moved-p '(0 . 0) t))
-    (should-not (lispm-desktop-modal-moved-p nil t)))
+    (should-not (lispm-ui-modal-moved-p '(3 . -3)))
+    (should (lispm-ui-modal-moved-p '(4 . 0)))
+    (should (lispm-ui-modal-moved-p '(0 . -4)))
+    (should-not (lispm-ui-modal-moved-p nil))
+    (should (lispm-ui-modal-moved-p '(1 . 0) t))
+    (should (lispm-ui-modal-moved-p '(0 . -1) t))
+    (should-not (lispm-ui-modal-moved-p '(0 . 0) t))
+    (should-not (lispm-ui-modal-moved-p nil t)))
   (let ((double-click-fuzz 16))
-    (should-not (lispm-desktop-modal-moved-p '(2 . 0) t))
-    (should (lispm-desktop-modal-moved-p '(3 . 0) t))))
+    (should-not (lispm-ui-modal-moved-p '(2 . 0) t))
+    (should (lispm-ui-modal-moved-p '(3 . 0) t))))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
   "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
@@ -16600,7 +16600,7 @@ holds each state of the dialog drawn, the latest first."
   `(let ((shown nil))
      (cl-letf (((symbol-function 'lispm-desktop-popup-graphic-p) (lambda () t))
                ;; The events queued, and no waiting for more.
-               ((symbol-function 'lispm-desktop-modal-read-event)
+               ((symbol-function 'lispm-ui-modal-read-event)
                 (lambda (&optional _timeout)
                   (or (pop unread-command-events) (error "The dialog waits for more events"))))
                ((symbol-function 'lispm-desktop-popup-make-frame) (lambda (&rest _) 'dialog))
@@ -16688,7 +16688,7 @@ scroll bar's arrows and track scroll the list."
       (lispm-desktop-choose--go dialog folder)
       (cl-flet ((click (part &optional dx dy double)
                   (pcase-let ((`(,x ,y ,_ ,_) (plist-get layout part)))
-                    (cl-letf (((symbol-function 'lispm-desktop-modal-over)
+                    (cl-letf (((symbol-function 'lispm-ui-modal-over)
                                (lambda (event _frame) (event-start event))))
                       (lispm-desktop-choose--click
                        'dialog dialog

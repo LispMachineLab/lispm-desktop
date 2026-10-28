@@ -52,7 +52,7 @@
 (require 'svg)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
-(require 'lispm-desktop-modal)
+(require 'lispm-ui-modal)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-tty-images)
 
@@ -523,7 +523,7 @@ A submenu given as a function is asked for its items only now."
 
 (defun lispm-desktop-popup--step (items from direction)
   "Return the index of the next enabled item of ITEMS from FROM in DIRECTION."
-  (lispm-desktop-modal-cycle from direction (length items)
+  (lispm-ui-modal-cycle from direction (length items)
                              (lambda (index) (lispm-desktop-popup--enabled-p (nth index items)))))
 
 (defun lispm-desktop-popup--submenu-place (level index submenu room)
@@ -574,7 +574,7 @@ no room on its right, as Mac OS 9 turned a submenu at the screen's edge."
 (defun lispm-desktop-popup--level-index (event level)
   "Return the index of the enabled item of LEVEL under EVENT, or nil."
   (when-let* ((frame (plist-get level :frame))
-              (position (lispm-desktop-modal-over event frame))
+              (position (lispm-ui-modal-over event frame))
               (xy (posn-x-y position)))
     (lispm-desktop-popup--index-at (plist-get level :items) (cdr xy))))
 
@@ -669,7 +669,7 @@ without entering it."
              (setq focus inner)
              (highlight inner (lispm-desktop-popup--step (plist-get inner :items) nil 1))))
          (under (event)
-           (seq-find (lambda (level) (lispm-desktop-modal-over event (plist-get level :frame)))
+           (seq-find (lambda (level) (lispm-ui-modal-over event (plist-get level :frame)))
                      (levels))))
       ;; A menu opened from the keyboard starts on its first item, so
       ;; Return chooses at once.
@@ -678,8 +678,8 @@ without entering it."
       (track-mouse
         (catch 'done
           (while t
-            (let* ((event (lispm-desktop-modal-read))
-                   (role (lispm-desktop-modal-role event)))
+            (let* ((event (lispm-ui-modal-read))
+                   (role (lispm-ui-modal-role event)))
               (cond
                ((eq role 'cancel) (throw 'done nil))
                ((eq role 'down)
@@ -713,19 +713,19 @@ without entering it."
                 (when-let* ((level (under event)))
                   (setq focus level)
                   (highlight level (lispm-desktop-popup--level-index event level))))
-               ((lispm-desktop-modal-mouse-down-p event)
+               ((lispm-ui-modal-mouse-down-p event)
                 (unless (under event)
                   (throw 'done nil)))
-               ((lispm-desktop-modal-mouse-up-p event)
+               ((lispm-ui-modal-mouse-up-p event)
                 (when-let* ((level (under event))
                             (index (lispm-desktop-popup--level-index event level))
                             (chosen (nth index (plist-get level :items))))
                   (unless (lispm-desktop-popup--submenu chosen)
                     ;; As Mac OS 9 did, the chosen item blinks once.
-                    (lispm-desktop-modal-flash 'menu-item
+                    (lispm-ui-modal-flash 'menu-item
                                                (lambda () (plist-put level :highlight nil) (redraw level))
                                                (lambda () (plist-put level :highlight index) (redraw level)))
-                    (sit-for (alist-get 'menu-item lispm-desktop-modal-flashes))
+                    (sit-for (alist-get 'menu-item lispm-ui-modal-flashes))
                     (throw 'done chosen))))))))))))
 
 (defun lispm-desktop-popup--run (item)
@@ -1251,9 +1251,9 @@ On a text terminal the alert is text, see `lispm-desktop-popup--text-alert'."
 
 (defun lispm-desktop-popup--button-at (event frame)
   "Return the value of the alert button under EVENT in FRAME, or nil."
-  (when-let* ((position (lispm-desktop-modal-over event frame))
+  (when-let* ((position (lispm-ui-modal-over event frame))
               (xy (posn-x-y position)))
-    (lispm-desktop-modal-hit (mapcar (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
+    (lispm-ui-modal-hit (mapcar (pcase-lambda (`(,_ ,value ,_ ,left ,top ,width))
                                        (list value left top width
                                              (if (lispm-desktop-tty-p frame) 1
                                                lispm-desktop-platinum-button-height)))
@@ -1297,14 +1297,14 @@ are events pressing a button too, as Command-D pressed Don't Save."
                        (press (value)
                          ;; A button pressed from the keyboard blinks, as
                          ;; Mac OS 9's did, and is chosen.
-                         (lispm-desktop-modal-flash 'button (lambda () (setq pressed value) (redraw)))
+                         (lispm-ui-modal-flash 'button (lambda () (setq pressed value) (redraw)))
                          (setq choice value) (throw 'done nil)))
               (track-mouse
                 (catch 'done
                   (while t
-                    (let* ((event (lispm-desktop-modal-read))
-                           (role (lispm-desktop-modal-role event))
-                           (step (lispm-desktop-modal-step event)))
+                    (let* ((event (lispm-ui-modal-read))
+                           (role (lispm-ui-modal-role event))
+                           (step (lispm-ui-modal-step event)))
                       (cond
                        ((seq-find (lambda (button) (memql event (nthcdr 3 button))) buttons)
                         (press (nth 1 (seq-find (lambda (button) (memql event (nthcdr 3 button)))
@@ -1317,21 +1317,21 @@ are events pressing a button too, as Command-D pressed Don't Save."
                        (step
                         ;; Tab goes from no button to the first, as from the
                         ;; message to the controls.
-                        (setq focused (nth (lispm-desktop-modal-cycle (seq-position values focused) step
+                        (setq focused (nth (lispm-ui-modal-cycle (seq-position values focused) step
                                                                       (length values))
                                            values))
                         (redraw))
                        ((and focused (eq role 'press))
                         ;; Space presses the button the keyboard is on.
                         (press focused))
-                       ((lispm-desktop-modal-mouse-down-p event)
+                       ((lispm-ui-modal-mouse-down-p event)
                         (when (setq held (lispm-desktop-popup--button-at event popup))
                           (setq pressed held) (redraw)))
                        ((and held (mouse-movement-p event))
                         (let ((over (equal (lispm-desktop-popup--button-at event popup) held)))
                           (unless (eq over (and pressed t))
                             (setq pressed (and over held)) (redraw))))
-                       ((lispm-desktop-modal-mouse-up-p event)
+                       ((lispm-ui-modal-mouse-up-p event)
                         (when (and held (equal (lispm-desktop-popup--button-at event popup) held))
                           (setq choice held) (throw 'done nil))
                         (setq held nil pressed nil) (redraw))))))))
