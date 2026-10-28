@@ -24,7 +24,8 @@
 ;;; Commentary:
 
 ;; LispM Desktop runs other LispM projects, each a repository of its own:
-;; lispm-agent, LispM's agents, lispm-browser, its browser, and, unless
+;; lispm-kit, the engine its words are translated with, lispm-agent,
+;; LispM's agents, lispm-browser, its browser, and, unless
 ;; `lispm-desktop-kernel' is nil, lispm-kernel, its runtime for
 ;; background work.  Each is found where it already is, else in a checkout
 ;; beside the desktop's, else its latest release is installed from its
@@ -55,18 +56,37 @@
 ;; A batch Emacs installing packages, as LispM.app's installer runs one,
 ;; can say each it installs, and how many there are, with
 ;; `lispm-desktop-deps-batch-progress'.
+;;
+;; lispm-desktop-i18n.el finds LispM Kit with this file before the desktop
+;; has words to show, so it requires nothing that shows them: what it
+;; says is in English until they are loaded.
 
 ;;; Code:
 
 (require 'package)
 (require 'seq)
 (require 'subr-x)
-(require 'lispm-desktop-core)
-(require 'lispm-desktop-i18n)
 (require 'lispm-desktop-store-installer)
 
+(declare-function lispm-desktop-tr "lispm-desktop-i18n" (message &rest args))
+
+(defun lispm-desktop-deps--tr (message &rest args)
+  "Return MESSAGE formatted with ARGS, translated as `lispm-desktop-tr'
+translates it once the desktop's words are loaded, else as written: as
+while LispM Kit, which translates them, is being installed."
+  (apply (if (fboundp 'lispm-desktop-tr) #'lispm-desktop-tr #'format) message args))
+
+(defconst lispm-desktop-deps--directory
+  (file-name-directory
+   (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
+  "The desktop's directory, a checkout of lispm-desktop, as
+`lispm-desktop-directory' says once the desktop's core is loaded.")
+
 (defconst lispm-desktop-deps
-  '((lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
+  '((lispm-kit :url "https://github.com/LispMachineLab/lispm-kit" :checkout "lispm-kit"
+               ;; Newer than 0.1.0, whose engine translates nothing.
+               :needs "lispm-kit-i18n")
+    (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Newer than lispm-agents, which the desktop needs too.
            :needs "lispm-exec")
@@ -89,7 +109,7 @@ its :lisp-dir in `lispm-desktop-deps', or nil when there is none."
                               lispm-desktop-deps)))
          (lisp (plist-get spec :lisp-dir))
          (directory (expand-file-name (concat "../" name (and lisp (concat "/" lisp)))
-                                      lispm-desktop-directory)))
+                                      lispm-desktop-deps--directory)))
     (and (file-directory-p directory) directory)))
 
 (defun lispm-desktop-deps--requirements (file)
@@ -167,13 +187,13 @@ message saying what to update."
         (version (plist-get spec :version))
         (where (abbreviate-file-name (file-name-directory main))))
     (cond ((and needs (not (locate-library needs)))
-           (format (lispm-desktop-tr "%s lacks %s, which this LispM Desktop needs; update it to its latest release")
-                   where needs))
+           (lispm-desktop-deps--tr "%s lacks %s, which this LispM Desktop needs; update it to its latest release"
+                                   where needs))
           ((when-let* ((version)
                        (has (lispm-desktop-deps--version main)))
              (version-list-< has (version-to-list version)))
-           (format (lispm-desktop-tr "%s is older than %s, which this LispM Desktop needs; update it to its latest release")
-                   where version)))))
+           (lispm-desktop-deps--tr "%s is older than %s, which this LispM Desktop needs; update it to its latest release"
+                                   where version)))))
 
 (defun lispm-desktop-deps--catch-up (main spec)
   "Make the project whose main file is MAIN have what the desktop needs of
@@ -185,8 +205,8 @@ else is an error saying what to update."
          (release (and directory (lispm-desktop-deps--release directory))))
     (unless release
       (error "%s" (lispm-desktop-deps--behind main spec)))
-    (message (lispm-desktop-tr "Updating %s to its latest release, which this LispM Desktop needs…")
-             (abbreviate-file-name directory))
+    (message "%s" (lispm-desktop-deps--tr "Updating %s to its latest release, which this LispM Desktop needs…"
+                                          (abbreviate-file-name directory)))
     (lispm-desktop-store-installer-call
      `(update ,(package-desc-name desc) ,release ,(lispm-desktop-deps--git directory "rev-parse" "HEAD")))
     ;; Built again: what it autoloads now.

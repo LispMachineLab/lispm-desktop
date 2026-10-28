@@ -4,6 +4,8 @@ EMACS ?= emacs
 LISPM_BROWSER ?= ../lispm-browser/lisp
 # lisp/ of lispm-agent, whose editor's agents the desktop draws.
 LISPM_AGENT ?= ../lispm-agent/lisp
+# lispm-kit, whose engine translates the desktop's words.
+LISPM_KIT ?= ../lispm-kit
 # lispm-stickies, whose notes the desktop shows: with a checkout beside this
 # one, the tests of Stickies on the desktop run too.
 LISPM_STICKIES ?= ../lispm-stickies
@@ -17,18 +19,18 @@ STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICK
 test:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
+	  -L lisp -L $(LISPM_KIT) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el -f ert-run-tests-batch-and-exit
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code
 # no longer gives; the tests fail on either.
 i18n:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
-	  -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el -f lispm-desktop-test-report-catalogs
+	  -L lisp -L $(LISPM_KIT) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el -f lispm-desktop-test-report-catalogs
 
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_BROWSER) -L $(LISPM_AGENT) \
+	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) \
 	  -f batch-byte-compile lisp/*.el; \
 	status=$$?; rm -f lisp/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 

@@ -243,7 +243,9 @@ speaks, or of =LANGUAGE=, =LC_ALL=, =LC_MESSAGES= and =LANG=; else American Engl
 #+end_src
 
 The code writes its words in English through ~lispm-desktop-tr~ and its kin (see
-=lisp/lispm-desktop-i18n.el=); =i18n/= holds a catalog per language.
+=lisp/lispm-desktop-i18n.el=); =i18n/= holds a catalog per language, and the engine of
+[[https://github.com/LispMachineLab/lispm-kit][LispM Kit]], which every LispM program shares, translates them.  The desktop installs LispM Kit
+at its first start, as it does the agents and the browser.
 
 ** A proxy
 
@@ -458,7 +460,8 @@ desktop's in one way, the App Store's, at its install and at every start.
 =make test= runs the ERT tests, among them that every catalog of =i18n/= translates every message
 the code gives (=make i18n= lists what each lacks), and =make compile= checks for byte-compiler
 warnings; both need
-LispM Browser, beside this checkout or named by =LISPM_BROWSER= (its =lisp/=).
+LispM Browser, beside this checkout or named by =LISPM_BROWSER= (its =lisp/=), LispM Agent
+(=LISPM_AGENT=, its =lisp/=) and LispM Kit (=LISPM_KIT=), beside it too by default.
 
 The terminal module is downloaded, never built, unless you ask for it:
 
