@@ -16735,6 +16735,8 @@ in the system's own panel, among the files the dialog would list."
   "A form's picture is chosen in the desktop's dialog, titled so, the
 picture selected previewed."
   (skip-unless (require 'lispm-form nil t))
+  ;; LispM Agent 0.11.0 and later ask for files through it.
+  (skip-unless (special-variable-p 'lispm-form-choose-file-function))
   (let ((lispm-form-choose-file-function nil)
         (lispm-form-glyph-function nil)
         (lispm-form-group-function nil)
