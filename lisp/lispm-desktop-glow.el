@@ -732,9 +732,11 @@ window's body above, the pane's glowing line, the pane below."
 
 (cl-defmethod lispm-desktop-platinum-draw-placard (palette width height
                                                            &context (lispm-desktop-look (lispm-desktop-look-family glow))
-                                                           &key label font)
+                                                           &key label font state)
   "Return a glowing placard WIDTH by HEIGHT pixels: the header colour,
-outlined dimly, its corners cut, LABEL centred."
+outlined dimly, its corners cut, LABEL centred.  It is dim already, so an
+inactive window's (STATE `inactive') is drawn alike."
+  (ignore state)
   (let ((svg (svg-create width height)))
     (lispm-desktop-glow--path svg (lispm-desktop-glow-chamfer 0.5 0.5 (1- width) (1- height) 3 '(tl br))
                               :fill (plist-get palette :header) :stroke (plist-get palette :border-inactive))

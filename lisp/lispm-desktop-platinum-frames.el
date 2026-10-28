@@ -35,6 +35,7 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-controls)
 (require 'lispm-desktop-platinum-icons)
+(require 'lispm-desktop-platinum-placards)
 (require 'lispm-ui-modal)
 
 
@@ -175,67 +176,79 @@ elsewhere windows tile, and the grow box only marks the corner."
                                                                              lispm-desktop-platinum-title-height))))
               'keymap lispm-desktop-platinum--grow-map))
 
-(defun lispm-desktop-platinum--placard (text active)
-  "Return TEXT as a placard, the outlined plate Mac OS 9 showed status in.
-ACTIVE outlines it in black; an inactive window's placards are outlined
-in grey.  The placard's face is layered under TEXT's own, so coloured
-counts survive."
-  (let* ((pad (propertize " " 'display `(space :width (,(lispm-desktop-px 6)))))
-         (placard (concat pad text pad)))
-    (add-face-text-property 0 (length placard)
-                            (if active 'lispm-desktop-platinum-placard 'lispm-desktop-platinum-placard-inactive)
-                            t placard)
-    placard))
-
-(defun lispm-desktop-platinum--mode-line-text (construct)
-  "Return mode line CONSTRUCT formatted, trimmed, and safe to show again.
-It is formatted for the current buffer, the one whose window is drawn."
-  (string-replace "%" "%%" (string-trim (format-mode-line construct nil nil
-                                                          (current-buffer)))))
-
 (defvar evil-mode-line-tag)
-(defvar flymake-mode-line-counters)
+
+(defun lispm-desktop-platinum--titled-p ()
+  "Return non-nil when the window whose bottom edge is drawn, selected while
+it is, shows a title bar, which names its document."
+  (let ((title (window-parameter (selected-window) 'tab-line-format)))
+    (if title (not (eq title 'none)) tab-line-format)))
+
+(defun lispm-desktop-platinum--between-placards ()
+  "Return the gap between two placards: four pixels, a column on a text
+terminal."
+  (if (lispm-desktop-tty-p) 1 4))
+
+(defun lispm-desktop-platinum--placards (placards)
+  "Return PLACARDS, strings `lispm-desktop-platinum-placard' returned, set
+side by side on a window's bottom edge."
+  (mapconcat #'identity placards (if (lispm-desktop-tty-p)
+                                     " "
+                                   (lispm-desktop-platinum-space (lispm-desktop-platinum--between-placards)))))
+
+(defvar lispm-desktop-platinum--left-width nil
+  "The window whose bottom edge was drawn last and the width of its left,
+which its right, drawn next, fits beside.")
 
 (defun lispm-desktop-platinum-mode-line-left ()
-  "The left of a window's bottom edge: its state, buffer and position.
-A list window shows its `lispm-desktop-platinum-info' instead."
-  (let ((active (mode-line-window-selected-p)))
-    (concat
-     (propertize " " 'display (lispm-desktop-platinum--strut 8))
-     (if lispm-desktop-platinum-info
-         (mapconcat (lambda (text) (lispm-desktop-platinum--placard (string-replace "%" "%%" text) active))
-                    (ensure-list (if (functionp lispm-desktop-platinum-info)
-                                     (funcall lispm-desktop-platinum-info)
-                                   lispm-desktop-platinum-info))
-                    " ")
-       (mapconcat
-        (lambda (text) (lispm-desktop-platinum--placard text active))
-        (delq nil
-              (list (when (and (bound-and-true-p evil-local-mode)
-                               (stringp evil-mode-line-tag))
-                      (string-trim (substring-no-properties evil-mode-line-tag) "[ <]+" "[> ]+"))
-                    (concat (string-replace "%" "%%" (or (lispm-desktop-platinum-title-text) (buffer-name)))
-                            (when (and buffer-file-name (buffer-modified-p)) " •"))
-                    (lispm-desktop-platinum--mode-line-text mode-line-position)))
-        " ")))))
+  "The left of a window's bottom edge: the editing state, the document's
+name where no title bar names it, and its placards, see
+`lispm-desktop-platinum-document-placards'.  The title bar's close box
+tells whether the document is saved.  A list window shows its
+`lispm-desktop-platinum-info' instead."
+  (let* ((active (mode-line-window-selected-p))
+         (strut (if (lispm-desktop-tty-p) 1 8))
+         (placards
+          (if lispm-desktop-platinum-info
+              (mapcar (lambda (text) (lispm-desktop-platinum-placard text :active active))
+                      (ensure-list (if (functionp lispm-desktop-platinum-info)
+                                       (funcall lispm-desktop-platinum-info)
+                                     lispm-desktop-platinum-info)))
+            (append
+             (when (and (bound-and-true-p evil-local-mode) (stringp evil-mode-line-tag))
+               (list (lispm-desktop-platinum-placard
+                      (string-trim (substring-no-properties evil-mode-line-tag) "[ <]+" "[> ]+")
+                      :active active)))
+             (unless (lispm-desktop-platinum--titled-p)
+               (list (lispm-desktop-platinum-placard (or (lispm-desktop-platinum-title-text) (buffer-name))
+                                                     :active active)))
+             (lispm-desktop-platinum-document-placards active)))))
+    (setq lispm-desktop-platinum--left-width
+          (cons (selected-window)
+                (+ strut
+                   (apply #'+ (mapcar #'lispm-desktop-platinum-placard-width placards))
+                   (* (lispm-desktop-platinum--between-placards) (length placards)))))
+    (concat (propertize " " 'display (lispm-desktop-platinum--strut 8))
+            (lispm-desktop-platinum--placards placards))))
 
 (defun lispm-desktop-platinum-mode-line-right ()
-  "The right of a window's bottom edge: diagnostics, branch, mode, grow box.
-Only the active window shows the grow box, and only where the window can
-be resized; a side window cannot."
+  "The right of a window's bottom edge: the buffer's placards, see
+`lispm-desktop-platinum-state-placards', those that fit beside the left,
+see `lispm-desktop-platinum-fit-placards', and the grow box.  Only the
+active window shows the grow box, and only where the window can be
+resized; a side window cannot."
   (let* ((active (mode-line-window-selected-p))
+         (gap (lispm-desktop-platinum--between-placards))
+         (left (if (eq (car lispm-desktop-platinum--left-width) (selected-window))
+                   (cdr lispm-desktop-platinum--left-width)
+                 0))
+         ;; The grow box and the blanks about it, and a gap from the left.
+         (corner (if (lispm-desktop-tty-p) 4 (+ 6 16 3 (* 2 gap))))
          (parts (unless lispm-desktop-platinum-info
-                  (delq nil
-                        (list (when (bound-and-true-p flymake-mode)
-                                (let ((counts (lispm-desktop-platinum--mode-line-text
-                                               flymake-mode-line-counters)))
-                                  (unless (string-empty-p counts) counts)))
-                              (when (stringp vc-mode)
-                                (replace-regexp-in-string
-                                 "\\`[A-Za-z]+[-:@!?]" ""
-                                 (string-trim (substring-no-properties vc-mode))))
-                              (lispm-desktop-platinum--mode-line-text mode-name))))))
-    (concat (mapconcat (lambda (text) (lispm-desktop-platinum--placard text active)) parts " ")
+                  (lispm-desktop-platinum-fit-placards
+                   (lispm-desktop-platinum-state-placards active)
+                   (- (window-pixel-width) left corner) gap))))
+    (concat (lispm-desktop-platinum--placards parts)
             (propertize " " 'display `(space :width (,(lispm-desktop-px 6))))
             (if (and active (not (window-parameter (selected-window) 'window-side)))
                 (lispm-desktop-platinum--grow-box)

@@ -796,7 +796,10 @@ entry that is not a menu item, nothing."
                                 (lispm-desktop-popup--eval (plist-get props :enable)))
                             t)
              ,@(when button `(:checked ,(and (lispm-desktop-popup--eval (cdr button)) t)))
-             ,@(when-let* ((keys (plist-get props :keys)))
+             ;; Keys may be a function returning them, as Edit's Cut has.
+             ,@(when-let* ((keys (plist-get props :keys))
+                           (keys (if (functionp keys) (ignore-errors (funcall keys)) keys))
+                           ((stringp keys)))
                  `(:key ,(substitute-command-keys keys)))))))))
     (`(,(and name (pred stringp)) . ,rest)
      (if (string-prefix-p "--" name)
