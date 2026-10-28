@@ -90,8 +90,8 @@ does; users rarely need to."
 
 (defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))
   "Face of a list's row naming what is being worked on elsewhere, as the
-agent sidebar's row of the session at work: the selection's colour faded
-into the list, as a selection in a list without the keyboard."
+agent sidebar's row of the session at work: the list tinted with the
+accent, apart from the selection, which is the row at point."
   :group 'lispm-desktop-platinum)
 
 (defface lispm-desktop-platinum-sorted nil
