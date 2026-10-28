@@ -26,8 +26,9 @@
 ;; The agents view of the left sidebar: the recorded and running sessions
 ;; of the agents (`lispm-agents-define'), grouped by project, a session
 ;; an agent started under the session that started it, with per-session
-;; actions.  The agents and their sessions are
-;; lispm-desktop-ai.el's; this file only lists them.
+;; actions; the row of the session being worked on stands out.  The
+;; agents and their sessions are lispm-desktop-ai.el's; this file only
+;; lists them.
 
 ;;; Code:
 
@@ -158,7 +159,7 @@ Finder list; its sessions are rows one level in, newest first."
          (lispm-desktop-agent-list--running-label buffer)
          (apply-partially #'lispm-agents-show buffer)
          (lispm-desktop-tr "Show this terminal")
-         nil 1))
+         (list 'lispm-desktop-agent-list-buffer buffer) 1))
       ;; The sessions are a tree: one a session started goes under it,
       ;; and the preview counts the sessions nobody started.  Those
       ;; waiting for the user come first.
@@ -233,6 +234,7 @@ DIRECTORY is its directory."
                (archived (lispm-agents-archived-p session))
                (opened (and subtrees (lispm-desktop-agent-list--opened-p session) t))
                (waiting (lispm-desktop-agent-list--waiting-p session running-ids))
+               (buffer (and (member id running-ids) (lispm-agents-session-buffer id)))
                (resumable (lispm-agents-session-resumable-p session))
                (location (lispm-agents-location-label
                           (plist-get session :cwd)
@@ -253,11 +255,12 @@ DIRECTORY is its directory."
             (propertize (plist-get session :title) 'face '(:inherit lispm-ui-list :weight bold)))
            (t (plist-get session :title)))
      (if (member id running-ids)
-         (lispm-desktop-agent-list--running-label (lispm-agents-session-buffer id))
+         (lispm-desktop-agent-list--running-label buffer)
        (lispm-agents-age (plist-get session :time) now))
      (apply-partially #'lispm-agents-resume-session session)
      (lispm-desktop-agent-list--session-help session resumable location archived)
-     (list 'lispm-agents-session session 'keymap lispm-desktop-agent-list-entry-map)
+     (list 'lispm-agents-session session 'keymap lispm-desktop-agent-list-entry-map
+           'lispm-desktop-agent-list-buffer buffer)
      (if subtrees (1- depth) depth))
     ;; The triangle is a button of its own within the row's.
     (when subtrees
@@ -340,7 +343,39 @@ sessions are still being read."
                                           (seq-count #'lispm-agents-buffer-waiting-p running)))
     (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
     (dolist (group (lispm-agents-group-by-directory sessions running))
-      (lispm-desktop-agent-list--insert-project group now running-ids))))
+      (lispm-desktop-agent-list--insert-project group now running-ids))
+    (lispm-desktop-agent-list--mark-working)))
+
+;;;; The session at work
+
+(defun lispm-desktop-agent-list--working-buffer (frame)
+  "Return the agent buffer being worked on in FRAME, or nil: of the agent
+buffers FRAME's windows show, the one selected last.  It stays the one
+while the sidebar, or a file beside it, has the keyboard."
+  (seq-find (lambda (buffer)
+              (and (get-buffer-window buffer frame) (lispm-agents-buffer-p buffer)))
+            (buffer-list frame)))
+
+(defun lispm-desktop-agent-list--mark-working ()
+  "Mark the row of the agent buffer being worked on in this sidebar's
+frame, see `lispm-desktop-agent-list--working-buffer': the running
+session's row, else its terminal's.  A session not listed, as one under
+a folded project or a closed session, marks no row."
+  (let* ((window (or (get-buffer-window) (get-buffer-window nil t)))
+         (buffer (lispm-desktop-agent-list--working-buffer
+                  (if window (window-frame window) (selected-frame)))))
+    (lispm-desktop-sidebar-mark-current
+     (and buffer (text-property-any (point-min) (point-max)
+                                    'lispm-desktop-agent-list-buffer buffer)))))
+
+(defun lispm-desktop-agent-list--follow-work (&rest _)
+  "Mark the row of the agent buffer being worked on anew, in the agent
+sidebar where it exists.  This is a `window-selection-change-functions'
+and `window-buffer-change-functions' function: the mark follows the
+user from one session to another, without drawing the sidebar again."
+  (when-let* ((list (get-buffer lispm-desktop-agent-list-buffer-name)))
+    (with-current-buffer list
+      (lispm-desktop-agent-list--mark-working))))
 
 (defun lispm-desktop-agent-list--redraw ()
   "Re-render the agent sidebar, keeping point on the same line, with the
@@ -516,8 +551,10 @@ shown or not.  This is on `lispm-agents-changed-hook' and
 
 (defun lispm-desktop-setup-agent-list ()
   "Keep the agents sidebar current: as agents and sessions change, as
-session readers get newer sessions, and as agent terminals exit or say
-what they are doing."
+session readers get newer sessions, as agent terminals exit or say
+what they are doing, and as the user turns to another session."
+  (add-hook 'window-selection-change-functions #'lispm-desktop-agent-list--follow-work)
+  (add-hook 'window-buffer-change-functions #'lispm-desktop-agent-list--follow-work)
   (add-hook 'lispm-agents-changed-hook #'lispm-desktop-agent-list--agents-changed)
   (add-hook 'lispm-agents-sessions-arrived-hook #'lispm-desktop-agent-list--agents-changed)
   (add-hook 'lispm-agents-sessions-changed-hook #'lispm-desktop-agent-list-refresh)
