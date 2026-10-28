@@ -442,7 +442,7 @@ the theme chosen."
   (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
   (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
     (load-theme 'platinum t))
-  (lispm-desktop-platinum-apply-faces)
+  (lispm-ui-palette-update)
   (let ((buffer (get-buffer-create lispm-desktop-assistant-buffer-name)))
     ;; What the page leaves bare, the frame's border, the column kept for
     ;; the sign of a truncated line and the echo area's fringes, in the

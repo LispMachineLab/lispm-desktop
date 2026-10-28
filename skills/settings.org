@@ -195,8 +195,8 @@ value, CHOICES a string saying what it takes, SET a function of the
 value, a string, and the item, or nil for one settings_set does not
 change."
   `(("look" themes ,(lambda () lispm-desktop-look)
-     ,(mapconcat (lambda (look) (symbol-name (car look))) lispm-desktop-looks ", ")
-     ,(lambda (value _) (lispm-desktop-set-look (lispm-desktop-skill-choice value (mapcar #'car lispm-desktop-looks)))))
+     ,(mapconcat (lambda (look) (symbol-name (car look))) lispm-ui-looks ", ")
+     ,(lambda (value _) (lispm-desktop-set-look (lispm-desktop-skill-choice value (mapcar #'car lispm-ui-looks)))))
     ("theme" themes ,(lambda () lispm-desktop-theme)
      ,(concat (mapconcat #'symbol-name lispm-desktop-skill-themes ", ") ", or any theme installed")
      ,(lambda (value _)

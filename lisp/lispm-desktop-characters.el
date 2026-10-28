@@ -308,7 +308,10 @@ and below it, who the one point is on is."
 (defun lispm-desktop-characters--card-row (insert &optional thin)
   "Insert a row of the card, what INSERT, a function, inserts, between its
 group box's sides; THIN makes it a gap of a few pixels."
-  (let* ((side (lispm-ui-form-group 'side))
+  (let* ((side (or (lispm-ui-form-group 'side)
+                   ;; No palette yet, as on a terminal without a theme's
+                   ;; colours: the group box's side as text.
+                   (lispm-desktop-platinum-group-side 1)))
          (margin (lispm-desktop-px 12))
          (face (and thin '(:height 40))))
     (insert (propertize " " 'display `(space :align-to (,margin)) 'face face) side

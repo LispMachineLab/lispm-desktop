@@ -657,6 +657,11 @@ settings, VALUE checked, as `lispm-mail-settings-choose-function' asks."
   :restore (lambda () (lispm-mail))
   :cursor nil)
 
+;; Mail's settings are drawn with Emacs's widgets as LispM UI's forms are,
+;; each control saying what it is in a property of Mail's own, and dressed
+;; by LispM UI as they are.
+(add-to-list 'lispm-ui-form-control-properties :lispm-mail-control t)
+
 (with-eval-after-load 'lispm-mail-settings
   (setq lispm-mail-settings-glyph-function #'lispm-ui-form-glyph
         lispm-mail-settings-choose-function #'lispm-desktop-app-skins--mail-choose)

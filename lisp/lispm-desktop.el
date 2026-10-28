@@ -108,6 +108,7 @@
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum)
+(require 'lispm-desktop-ui-compat)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-assistant)
 (require 'lispm-desktop-sidebar)

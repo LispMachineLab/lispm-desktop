@@ -1271,6 +1271,42 @@ alias of a generic has a generic of its own."
                          (symbolp (symbol-function symbol)))
                 (should-not (list symbol 'is-an-alias-with-a-generic))))))
 
+(ert-deftest lispm-desktop-test-palette-from-lispm-ui ()
+  "The chrome is drawn in LispM UI's palette, derived from the theme with
+the colours it names outright, the chrome's faces and fonts set in it
+before LispM UI draws its forms again, measured in them.  LispM UI draws
+in the look chosen, which is the desktop's own variable.  The names the
+desktop knew what moved by are aliases of LispM UI's."
+  (should (memq #'lispm-desktop-platinum-named-colors lispm-ui-palette-functions))
+  (let ((lispm-desktop-platinum-colors '(:chrome "#DDDDDD")))
+    (should (equal (lispm-desktop-platinum-named-colors) '(:chrome "#DDDDDD"))))
+  (should (memq #'lispm-ui-form-redraw-all
+                (memq #'lispm-desktop-platinum-apply-faces lispm-ui-palette-changed-hook)))
+  (should (eq (indirect-variable 'lispm-ui-look) 'lispm-desktop-look))
+  (let ((lispm-desktop-look 'win3))
+    (should (eq lispm-ui-look 'win3)))
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name "lisp/lispm-desktop-ui-compat.el" lispm-desktop-directory))
+    (let ((aliases 0))
+      (condition-case nil
+          (while t
+            (pcase (read (current-buffer))
+              (`(defvaralias ',old ',new)
+               (should (eq (indirect-variable old) (indirect-variable new)))
+               (should (boundp new))
+               (cl-incf aliases))
+              (`(defalias ',old #',new)
+               (should (eq (indirect-function old) (indirect-function new)))
+               (should (fboundp new))
+               (cl-incf aliases))
+              (`(pcase-dolist (,_ ',faces) . ,_)
+               (pcase-dolist (`(,old . ,new) faces)
+                 (should (eq (get old 'face-alias) new))
+                 (should (facep new))
+                 (cl-incf aliases)))))
+        (end-of-file))
+      (should (> aliases 20)))))
+
 (defvar lispm-kernel-sessions-mode)
 (defvar lispm-kernel-package-mode)
 (defvar lispm-kernel-exec-mode)
@@ -1767,16 +1803,6 @@ its pieces filling its width."
     (should (equal (seq-take pieces 2) `((nil . 12) (close . ,s))))
     (should (equal (last pieces 2) `((collapse . ,s) (nil . 15))))))
 
-(ert-deftest lispm-desktop-test-palette-derives-from-theme ()
-  "The chrome is the content darkened; bevels lean to the text and to black."
-  (let ((palette (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
-    (should (equal (plist-get palette :content) "#282a36"))
-    (should (equal (plist-get palette :accent) "#bd93f9"))
-    (cl-flet ((lum (color) (apply #'+ (lispm-ui-rgb color))))
-      (should (< (lum (plist-get palette :chrome)) (lum "#282a36")))
-      (should (> (lum (plist-get palette :light)) (lum (plist-get palette :chrome))))
-      (should (< (lum (plist-get palette :shade)) (lum (plist-get palette :chrome)))))))
-
 (ert-deftest lispm-desktop-test-boxes-draw ()
   "Every box kind draws, plain, modified and pressed, in Dracula too."
   (let ((palette (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9")))
@@ -1826,11 +1852,6 @@ glyphs; the bar is lit along its top, shaded along its bottom."
     (let ((inactive (lispm-desktop-platinum-draw-title-part palette 40)))
       (should (equal (lispm-desktop-test--pixel inactive 10 0) "#DDDDDD"))
       (should (equal (lispm-desktop-test--pixel inactive 10 20) "#555555")))))
-
-(ert-deftest lispm-desktop-test-rgb-reads-hex-without-a-display ()
-  "A #RRGGBB colour is read exactly, even in batch."
-  (should (equal (lispm-ui-rgb "#ff0080") (list 1.0 0.0 (/ 128 255.0))))
-  (should (equal (lispm-ui-blend "#000000" "#ff0080" 1.0) "#ff0080")))
 
 (ert-deftest lispm-desktop-test-window-controls ()
   "A lone window zooms but cannot roll up; a side window only closes."
@@ -3197,16 +3218,6 @@ manager drawn from the last; only the first table is waited for."
       (should (= refreshed 2))
       (should (gethash 9 (lispm-desktop-buffer-manager--processes))))))
 
-(ert-deftest lispm-desktop-test-palette-takes-named-colours ()
-  "Colours a theme names replace the derived ones; the rest stay derived."
-  (let* ((derived (lispm-ui-derive-palette "#282a36" "#f8f8f2" "#6272a4" "#bd93f9"))
-         (palette (lispm-ui-merge-palette derived '(:chrome "#DDDDDD" :accent "#6363CE"))))
-    (should (equal (plist-get palette :chrome) "#DDDDDD"))
-    (should (equal (plist-get palette :accent) "#6363CE"))
-    (should (equal (plist-get palette :shade) (plist-get derived :shade)))
-    ;; The derived palette itself is left untouched.
-    (should (equal (plist-get derived :accent) "#bd93f9"))))
-
 (ert-deftest lispm-desktop-test-packages-all-ensured ()
   "Every package the desktop declares is installed when missing, those
 declared first too: Emacs 30 expands `:ensure' only from the first
@@ -4540,26 +4551,6 @@ its properties.  The cross is drawn pressed while held down."
           (let ((held (lispm-desktop-platinum-tabs `(("One" t :close ,close keymap ,map)) 400)))
             (should-not (equal (cadr (get-text-property 1 'display held)) image))))
       (set-window-parameter nil 'lispm-desktop-platinum-pressed nil))))
-
-(ert-deftest lispm-desktop-test-content-runs ()
-  "A label drawn into a control keeps its runs: words in the system face,
-icon glyphs in their own family and colour, images as images."
-  (let* ((svg (svg-create 100 20))
-         (icon (propertize "x" 'face '((:family "Symbols Nerd Font Mono") (:foreground "#D97757"))
-                           'display '(raise 0.0)))
-         (image (propertize " " 'display (list 'image :type 'svg :width 16 :height 16
-                                               :file (expand-file-name "icons/os9/folder.svg"
-                                                                       lispm-desktop-directory)))))
-    (lispm-ui-svg-content svg (concat icon " New" image) 0 0 20 "#000000"
-                                          'lispm-ui-list)
-    (let ((texts (dom-by-tag svg 'text)))
-      (should (seq-find (lambda (text) (string-prefix-p "Symbols Nerd Font Mono"
-                                                        (dom-attr text 'font-family)))
-                        texts))
-      (should (seq-find (lambda (text) (equal (dom-attr text 'fill) "#D97757")) texts))
-      (should (seq-find (lambda (text) (string-search "New" (dom-text text))) texts)))
-    (when (fboundp 'libxml-parse-xml-region)
-      (should (dom-by-tag svg 'svg)))))
 
 (ert-deftest lispm-desktop-test-toolbar-label-keeps-image-icons ()
   "Trimming a toolbar label drops plain spaces but keeps a space showing an icon."
@@ -11859,23 +11850,6 @@ blank it stands for."
     (should-not (get-text-property 0 'face (nth 1 pieces)))
     (should (eq (get-text-property 1 'face (nth 2 pieces)) 'italic))))
 
-(ert-deftest lispm-desktop-test-svg-content-slant-and-lines ()
-  "Text drawn as SVG is italic, underlined or struck as its faces say."
-  (let ((svg (svg-create 200 20)))
-    (lispm-ui-svg-content
-     svg (concat (propertize "lean" 'face '(:slant italic)) " "
-                 (propertize "under" 'face '(:underline t)) " "
-                 (propertize "struck" 'face '(:strike-through t)) " plain")
-     0 0 20 "#000000" 'default)
-    (let ((texts (dom-by-tag svg 'text)))
-      (cl-flet ((attribute (word name)
-                  (dom-attr (seq-find (lambda (node) (equal (dom-text node) word)) texts) name)))
-        (should (equal (attribute "lean" 'font-style) "italic"))
-        (should (equal (attribute "under" 'text-decoration) "underline"))
-        (should (equal (attribute "struck" 'text-decoration) "line-through"))
-        (should-not (attribute " plain" 'font-style))
-        (should-not (attribute " plain" 'text-decoration))))))
-
 (ert-deftest lispm-desktop-test-store-picture-size ()
   "A banner of pixels is drawn at a whole multiple of its pixels, never
 smaller than its size unless narrower to fit, at most three times them."
@@ -16793,71 +16767,6 @@ its arrows on the right, wide enough for both; ringed when focused."
     (should (string-match-p "Medium" (with-temp-buffer (svg-print svg) (buffer-string)))))
   (should (>= (lispm-desktop-platinum-popup-button-width "A") 80)))
 
-(ert-deftest lispm-desktop-test-form-dressed ()
-  "LispM's forms are dressed in the desktop's look: their controls are the
-desktop's, the one point is on drawn focused, plain again once it leaves;
-the text field point is in is framed in the focus colour."
-  (skip-unless (and (require 'lispm-ui-form nil t) (image-type-available-p 'svg)))
-  (let ((lispm-ui-form-glyph-function #'lispm-ui-form-glyph)
-        (lispm-ui-form-choose-function #'lispm-desktop-form-choose)
-        (lispm-ui-form-drawn-hook (list #'lispm-ui-form-dress))
-        (buffer nil))
-    ;; A batch Emacs shows no images, which widgets then leave out.
-    (cl-letf (((symbol-function 'widget-image-find)
-               (lambda (image) (and (eq (car-safe image) 'image) image))))
-      (unwind-protect
-          (with-current-buffer (setq buffer (lispm-ui-form "Pet" '((name :type text :label "Name")
-                                                                (barks :type check :text "Barks"))
-                                                        :submit "Adopt"))
-            (should (equal (lispm-ui-form-glyph 'button 'default "Adopt")
-                           (lispm-ui-form--image 'button 'default "Adopt")))
-            ;; Point starts in the first field, framed.
-            (lispm-ui-form--follow)
-            (should (eq (car lispm-ui-form--focus) 'field))
-            (should (eq (overlay-get (cdr lispm-ui-form--focus) 'face)
-                        'lispm-ui-field-focused))
-            ;; On the default button, it is drawn focused.
-            (let ((overlay (cdr lispm-ui-form--focus)))
-              (goto-char (point-max))
-              (search-backward "Adopt")
-              (let ((start (point)))
-                (lispm-ui-form--follow)
-                (should (equal (get-text-property start 'display)
-                               (lispm-ui-form--image 'button 'default "Adopt" t)))
-                (should (eq (overlay-get overlay 'face) 'widget-field))
-                ;; Back in the field, the button is plain again.
-                (goto-char (point-min))
-                (search-forward "Name")
-                (forward-line 1)
-                (end-of-line)
-                (lispm-ui-form--follow)
-                (should (equal (get-text-property start 'display)
-                               (lispm-ui-form--image 'button 'default "Adopt"))))))
-        (when (buffer-live-p buffer) (kill-buffer buffer))))))
-
-(ert-deftest lispm-desktop-test-form-dressed-not-lispm ()
-  "A form not LispM's, drawn with Emacs's widgets as LispM Mail's settings
-are, is put in the desktop's look once drawn, its text areas white
-panels; LispM's own forms take their faces before they are drawn."
-  (require 'wid-edit)
-  (with-temp-buffer
-    (let ((area (widget-create 'text :value "Yours,\nAda\n")))
-      (widget-setup)
-      (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
-        (lispm-ui-form-dress))
-      (should (eq (overlay-get (widget-get area :field-overlay) 'face) 'lispm-ui-form-text-area))
-      (should (equal (overlay-get (widget-get area :field-overlay) 'line-prefix) "  "))
-      (should (assq 'widget-field face-remapping-alist))
-      (should (memq #'lispm-ui-form--follow post-command-hook))))
-  (when (require 'lispm-ui-form nil t)
-    (with-temp-buffer
-      (lispm-ui-form-mode)
-      (cl-letf (((symbol-function 'lispm-desktop-tty-p) #'ignore))
-        (lispm-desktop-form--faces)
-        (setq face-remapping-alist nil)
-        (lispm-ui-form-dress))
-      (should-not face-remapping-alist))))
-
 (defmacro lispm-desktop-test--with-pictures (&rest body)
   "Run BODY with `folder' a folder of pictures and others: ada.png,
 bob.jpg, notes.txt, a hidden .secret.png and a folder albums holding
@@ -17301,20 +17210,6 @@ United States, else British; American English when none is spoken."
         (lispm-kit-i18n--system-language '(unread))
         (lispm-desktop-language nil))
     (should (eq (lispm-desktop-current-language) 'zh-Hant))))
-
-(ert-deftest lispm-desktop-test-i18n-words ()
-  "Lines break between words, and between the characters of Chinese and
-Japanese, punctuation kept off a line's start and opening brackets off
-its end."
-  (should (equal (lispm-ui-text-words "Hello  big\nworld") '("Hello" " big" " world")))
-  (should (equal (lispm-ui-text-words "\u4f60\u597d\uff0c\u4e16\u754c\u3002")
-                 '("\u4f60" "\u597d\uff0c" "\u4e16" "\u754c\u3002")))
-  (should (equal (lispm-ui-text-words "\u300cLispM\u300d\u3092")
-                 '("\u300cLispM\u300d" "\u3092")))
-  (should (equal (lispm-ui-text-wrap "one two three four" (lambda (line) (<= (length line) 8)))
-                 '("one two" "three" "four")))
-  (should (equal (lispm-ui-text-wrap "\u4f60\u597d\uff0c\u4e16\u754c" (lambda (line) (<= (length line) 3)))
-                 '("\u4f60\u597d\uff0c" "\u4e16\u754c"))))
 
 (ert-deftest lispm-desktop-test-i18n-format-time ()
   "Times are said in the language spoken, its month names included."
