@@ -10843,6 +10843,7 @@ install it again."
                 (should (plist-get installed :owned)))
               (should (file-exists-p (expand-file-name "lispm-desktop-test-pkg/lispm-desktop-test-pkg.elc"
                                                        package-user-dir)))
+              (should (lispm-desktop-store--shallow-p (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
               (should (assq 'lispm-desktop-test-pkg package-alist))
               (should (memq 'lispm-desktop-test-pkg package-selected-packages))
               (should (equal (assq 'lispm-desktop-test-pkg package-vc-selected-packages)
@@ -10885,6 +10886,129 @@ code loaded here is loaded anew."
                 (should (= (length (cdr (assq 'lispm-desktop-test-pkg package-alist))) 1))
                 (should (equal (lispm-desktop-test-pkg-open) "2.0"))))
           (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-installs-an-older-commit-shallow ()
+  "A package pinned to a commit older than its branch's newest is
+installed at it, that commit fetched alone, and updated to the newest."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-store
+    (lispm-desktop-test--with-packages
+      (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+             (url (concat "file://" source))
+             (old (lispm-desktop-test--package-repository source "1.0"))
+             (new (lispm-desktop-test--package-repository source "2.0"))
+             (directory (expand-file-name "lispm-desktop-test-pkg" package-user-dir)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t)))
+              (lispm-desktop-test--pkg-catalog url old)
+              (lispm-desktop-store-install 'pkg)
+              (lispm-desktop-test--store-wait)
+              (should (equal (lispm-desktop-store--git directory "rev-parse" "HEAD") old))
+              (should (lispm-desktop-store--shallow-p directory))
+              (should (equal (lispm-desktop-store--git directory "rev-list" "--count" "HEAD") "1"))
+              (should (equal (package-desc-version (cadr (assq 'lispm-desktop-test-pkg package-alist)))
+                             '(1 0)))
+              (lispm-desktop-test--pkg-catalog url new)
+              (lispm-desktop-store-update 'pkg)
+              (lispm-desktop-test--store-wait)
+              (should (equal (lispm-desktop-store--git directory "rev-parse" "HEAD") new))
+              (should (equal (package-desc-version (cadr (assq 'lispm-desktop-test-pkg package-alist)))
+                             '(2 0))))
+          (delete-directory source t))))))
+
+(defun lispm-desktop-test--clone-source (directory)
+  "Make DIRECTORY a git repository of three commits, the second tagged
+v1.0.0, and a branch topic at the first; return the commits, oldest
+first."
+  (lispm-desktop-test--git directory "init" "--quiet")
+  (let ((commits (mapcar (lambda (text)
+                           (with-temp-file (expand-file-name "file" directory) (insert text))
+                           (lispm-desktop-test--git directory "add" "file")
+                           (lispm-desktop-test--git directory "commit" "--quiet" "-m" text)
+                           (lispm-desktop-test--git directory "rev-parse" "HEAD"))
+                         '("1" "2" "3"))))
+    (lispm-desktop-test--git directory "tag" "v1.0.0" (nth 1 commits))
+    (lispm-desktop-test--git directory "branch" "topic" (nth 0 commits))
+    commits))
+
+(ert-deftest lispm-desktop-test-store-clones-shallow ()
+  "The App Store clones a package's repository shallow, at the commit, the
+tag or the branch asked for, or at its default branch's newest commit,
+without the history before it.  A tag's clone follows the default branch
+too, the tag a release on it, as Software Update reads it; an abbreviated
+commit, which the remote gives by no name, has the history fetched."
+  (skip-unless (executable-find "git"))
+  (let* ((root (make-temp-file "lispm-desktop-test-clone" t))
+         (source (expand-file-name "source" root))
+         (url (concat "file://" source))
+         (lispm-desktop-store-installer--stage nil))
+    (unwind-protect
+        (pcase-let ((`(,first ,second ,third) (progn (make-directory source)
+                                                      (lispm-desktop-test--clone-source source))))
+          (cl-flet ((clone (rev)
+                      (lispm-desktop-store-installer--clone
+                       url (expand-file-name (concat "clone-" (or rev "newest")) root) rev))
+                    (git (directory &rest args)
+                      (apply #'lispm-desktop-store--git directory args)))
+            (let ((newest (clone nil)))
+              (should (equal (git newest "rev-parse" "HEAD") third))
+              (should (lispm-desktop-store--shallow-p newest))
+              (should (equal (git newest "rev-list" "--count" "HEAD") "1")))
+            (let ((pinned (clone first)))
+              (should (equal (git pinned "rev-parse" "HEAD") first))
+              (should (lispm-desktop-store--shallow-p pinned)))
+            (let ((release (clone "v1.0.0")))
+              (should (equal (git release "rev-parse" "HEAD") second))
+              (should (lispm-desktop-store--shallow-p release))
+              (should (equal (git release "rev-parse" "origin/HEAD") third))
+              (should (equal (git release "rev-list" "--count" "origin/HEAD") "2"))
+              (should (equal (git release "tag" "--list" "v*" "--merged" "origin/HEAD") "v1.0.0")))
+            (let ((topic (clone "topic")))
+              (should (equal (git topic "symbolic-ref" "HEAD") "refs/heads/topic"))
+              (should (equal (git topic "rev-parse" "HEAD") first)))
+            (let ((abbreviated (clone (substring first 0 7))))
+              (should (equal (git abbreviated "rev-parse" "HEAD") first)))))
+      (delete-directory root t))))
+
+(ert-deftest lispm-desktop-test-store-whole-history-when-needed ()
+  "A package cloned shallow has its whole history fetched before package-vc
+reads its last release from it."
+  (skip-unless (executable-find "git"))
+  (let* ((root (make-temp-file "lispm-desktop-test-clone" t))
+         (source (expand-file-name "source" root))
+         (clone (expand-file-name "clone" root))
+         (lispm-desktop-store-installer--stage nil))
+    (unwind-protect
+        (progn
+          (make-directory source)
+          (lispm-desktop-test--clone-source source)
+          (lispm-desktop-store-installer--clone (concat "file://" source) clone nil)
+          (should (lispm-desktop-store--shallow-p clone))
+          (cl-letf (((symbol-function 'package-vc--main-file)
+                     (lambda (_desc) (expand-file-name "file" clone))))
+            (lispm-desktop-store-installer--whole-history 'desc))
+          (should-not (lispm-desktop-store--shallow-p clone))
+          (should (equal (lispm-desktop-store--git clone "rev-list" "--count" "HEAD") "3")))
+      (delete-directory root t))))
+
+(ert-deftest lispm-desktop-test-store-installs-last-release-shallow ()
+  "A package installed at its last release, the commit that last changed its
+Version header, is at that commit, though cloned shallow at a newer one."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-packages
+    (let* ((source (make-temp-file "lispm-desktop-test-pkg" t))
+           (release (lispm-desktop-test--package-repository source "1.0")))
+      (unwind-protect
+          (progn
+            (with-temp-file (expand-file-name "README" source) (insert "Newer.\n"))
+            (lispm-desktop-test--git source "add" "README")
+            (lispm-desktop-test--git source "commit" "--quiet" "-m" "Newer")
+            (lispm-desktop-store-installer-call
+             `(install (lispm-desktop-test-pkg :url ,(concat "file://" source) :rev :last-release)))
+            (should (equal (lispm-desktop-store--git (expand-file-name "lispm-desktop-test-pkg" package-user-dir)
+                                                     "rev-parse" "HEAD")
+                           release)))
+        (delete-directory source t)))))
 
 (ert-deftest lispm-desktop-test-store-failed-install-undone ()
   "An install that fails in the background leaves nothing installed: what
