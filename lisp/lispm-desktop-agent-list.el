@@ -296,7 +296,8 @@ sessions are still being read."
 
 (defun lispm-desktop-agent-list--render ()
   "Render the agent sidebar, grouped by working directory, into this buffer.
-Archived sessions are left out unless `lispm-desktop-agent-list--show-archived'.
+Archived sessions are left out unless `lispm-desktop-agent-list--show-archived',
+the buffers of agents still running them with them: hidden, not stopped.
 The sessions are those known now, see `lispm-agents-sessions-snapshot':
 while a session reader has none yet, the window's bottom edge says the
 sessions are still being read."
@@ -306,13 +307,22 @@ sessions are still being read."
          (all (car snapshot))
          (reading (cdr snapshot))
          ;; Terminals claim their sessions first, so a session a new
-         ;; terminal just claimed already counts as running below.
+         ;; terminal just claimed already counts as live below.
          (_ (lispm-agents-refresh-buffer-titles all))
-         (running (lispm-agents-running-buffers))
-         (running-ids (lispm-agents-running-ids running))
          (archived (seq-count #'lispm-agents-archived-p all))
          (sessions (if lispm-desktop-agent-list--show-archived all
-                     (seq-remove #'lispm-agents-archived-p all))))
+                     (seq-remove #'lispm-agents-archived-p all)))
+         ;; The agents talked to, idle or running; an archived session's
+         ;; is hidden with the session.
+         (live (seq-remove (lambda (buffer)
+                             (and (not lispm-desktop-agent-list--show-archived)
+                                  (lispm-agents-archived-p
+                                   (list :agent (lispm-agents-of-buffer buffer)
+                                         :id (buffer-local-value 'lispm-agents-buffer-session-id
+                                                                 buffer)))))
+                           (lispm-agents-live-buffers)))
+         (live-ids (lispm-agents-running-ids live))
+         (running (seq-filter #'lispm-agents-running-p live)))
     ;; The agents' icons are Nerd Font glyphs where nerd-icons is; text
     ;; icons stand in elsewhere, see `lispm-agents-icon'.
     (require 'nerd-icons nil t)
@@ -339,8 +349,8 @@ sessions are still being read."
           (lispm-desktop-agent-list--info (length sessions) (length running) reading
                                           (seq-count #'lispm-agents-buffer-waiting-p running)))
     (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
-    (dolist (group (lispm-agents-group-by-directory sessions running))
-      (lispm-desktop-agent-list--insert-project group now running-ids))))
+    (dolist (group (lispm-agents-group-by-directory sessions live))
+      (lispm-desktop-agent-list--insert-project group now live-ids))))
 
 (defun lispm-desktop-agent-list--redraw ()
   "Re-render the agent sidebar, keeping point on the same line, with the
