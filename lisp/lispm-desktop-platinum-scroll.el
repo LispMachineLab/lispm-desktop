@@ -97,18 +97,18 @@ value is nil when everything shows, or when the track is too short."
 UP points its arrow up.  An ENABLED box is lit along its top and left
 and shaded along its bottom and right, its arrow black; otherwise it is
 flat, its arrow grey."
-  (let* ((grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+  (let* ((grey (lambda (level) (lispm-ui-grey palette level)))
          (top (1+ y))
          (bottom (+ y lispm-desktop-platinum-scroll-arrow -1)))
-    (lispm-desktop-platinum-svg-row svg 1 14 y (if enabled (plist-get palette :outline) (funcall grey #x88)))
-    (lispm-desktop-platinum-svg-fill svg 1 top 14 (- bottom y) (funcall grey (if enabled #xDD #xEE)))
+    (lispm-ui-svg-row svg 1 14 y (if enabled (plist-get palette :outline) (funcall grey #x88)))
+    (lispm-ui-svg-fill svg 1 top 14 (- bottom y) (funcall grey (if enabled #xDD #xEE)))
     (when enabled
-      (lispm-desktop-platinum-svg-row svg 1 13 top (funcall grey #xFF))
-      (lispm-desktop-platinum-svg-column svg 1 top (1- bottom) (funcall grey #xFF))
-      (lispm-desktop-platinum-svg-row svg 2 14 bottom (funcall grey #xBB))
-      (lispm-desktop-platinum-svg-column svg 14 (1+ top) bottom (funcall grey #xBB)))
+      (lispm-ui-svg-row svg 1 13 top (funcall grey #xFF))
+      (lispm-ui-svg-column svg 1 top (1- bottom) (funcall grey #xFF))
+      (lispm-ui-svg-row svg 2 14 bottom (funcall grey #xBB))
+      (lispm-ui-svg-column svg 14 (1+ top) bottom (funcall grey #xBB)))
     (dotimes (i 4)
-      (lispm-desktop-platinum-svg-row svg (- 7 i) (+ 8 i) (+ top (if up (+ 4 i) (- 7 i)))
+      (lispm-ui-svg-row svg (- 7 i) (+ 8 i) (+ top (if up (+ 4 i) (- 7 i)))
                                    (if enabled (plist-get palette :outline) (funcall grey #x88))))))
 
 (cl-defgeneric lispm-desktop-platinum-draw-scroll-bar (palette height thumb active)
@@ -122,47 +122,47 @@ is nothing to scroll, and the bar lies flat, its arrows grey.  An
 inactive bar, ACTIVE nil, lies flat without its arrows."
   (let* ((w lispm-desktop-platinum-scroll-width)
          (svg (svg-create w height))
-         (grey (lambda (level) (lispm-desktop-platinum-grey palette level)))
+         (grey (lambda (level) (lispm-ui-grey palette level)))
          (outline (plist-get palette :outline))
          (track (lispm-desktop-platinum--scroll-track height))
          (live (and active thumb)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 w height outline)
-    (lispm-desktop-platinum-svg-fill svg 1 0 (- w 2) height (funcall grey #xEE))
+    (lispm-ui-svg-fill svg 0 0 w height outline)
+    (lispm-ui-svg-fill svg 1 0 (- w 2) height (funcall grey #xEE))
     (when live
       ;; The track, recessed: dark along its top and left, lit along its right.
-      (lispm-desktop-platinum-svg-fill svg 1 0 (- w 2) track (funcall grey #xAA))
-      (lispm-desktop-platinum-svg-row svg 1 13 0 (funcall grey #x77))
-      (lispm-desktop-platinum-svg-column svg 1 0 (1- track) (funcall grey #x77))
-      (lispm-desktop-platinum-svg-row svg 2 12 1 (funcall grey #x88))
-      (lispm-desktop-platinum-svg-column svg 2 1 (1- track) (funcall grey #x88))
-      (lispm-desktop-platinum-svg-column svg 13 1 (1- track) (funcall grey #xBB))
-      (lispm-desktop-platinum-svg-column svg 14 0 (1- track) (funcall grey #xCC))
+      (lispm-ui-svg-fill svg 1 0 (- w 2) track (funcall grey #xAA))
+      (lispm-ui-svg-row svg 1 13 0 (funcall grey #x77))
+      (lispm-ui-svg-column svg 1 0 (1- track) (funcall grey #x77))
+      (lispm-ui-svg-row svg 2 12 1 (funcall grey #x88))
+      (lispm-ui-svg-column svg 2 1 (1- track) (funcall grey #x88))
+      (lispm-ui-svg-column svg 13 1 (1- track) (funcall grey #xBB))
+      (lispm-ui-svg-column svg 14 0 (1- track) (funcall grey #xCC))
       ;; The thumb, lit along its top and left, parted from the track
       ;; by a line at either end.
       (let* ((top (car thumb))
              (bottom (+ top (cdr thumb) -1)))
-        (lispm-desktop-platinum-svg-fill svg 1 top 14 (cdr thumb) (plist-get palette :thumb))
-        (lispm-desktop-platinum-svg-row svg 1 13 top (plist-get palette :thumb-light))
-        (lispm-desktop-platinum-svg-column svg 1 top (1- bottom) (plist-get palette :thumb-light))
-        (lispm-desktop-platinum-svg-row svg 2 14 bottom (plist-get palette :thumb-dark))
-        (lispm-desktop-platinum-svg-column svg 14 top bottom (plist-get palette :thumb-dark))
+        (lispm-ui-svg-fill svg 1 top 14 (cdr thumb) (plist-get palette :thumb))
+        (lispm-ui-svg-row svg 1 13 top (plist-get palette :thumb-light))
+        (lispm-ui-svg-column svg 1 top (1- bottom) (plist-get palette :thumb-light))
+        (lispm-ui-svg-row svg 2 14 bottom (plist-get palette :thumb-dark))
+        (lispm-ui-svg-column svg 14 top bottom (plist-get palette :thumb-dark))
         (when (> top 0)
-          (lispm-desktop-platinum-svg-row svg 1 14 (1- top) outline))
+          (lispm-ui-svg-row svg 1 14 (1- top) outline))
         (when (< (1+ bottom) track)
-          (lispm-desktop-platinum-svg-row svg 1 14 (1+ bottom) outline))
+          (lispm-ui-svg-row svg 1 14 (1+ bottom) outline))
         ;; Four grip ridges across its middle, each lit over shaded.
         (when (>= (cdr thumb) 14)
           (let ((first (- (+ top (/ (cdr thumb) 2)) 4)))
             (dotimes (i 4)
               (let ((y (+ first (* 2 i))))
-                (lispm-desktop-platinum--dot svg 4 y (funcall grey #xEE))
-                (lispm-desktop-platinum-svg-row svg 5 10 y (plist-get palette :thumb-light))
-                (lispm-desktop-platinum-svg-row svg 5 11 (1+ y) (plist-get palette :highlight))))))))
+                (lispm-ui-svg-dot svg 4 y (funcall grey #xEE))
+                (lispm-ui-svg-row svg 5 10 y (plist-get palette :thumb-light))
+                (lispm-ui-svg-row svg 5 11 (1+ y) (plist-get palette :highlight))))))))
     (when active
       (lispm-desktop-platinum--draw-scroll-arrow svg track t palette live)
       (lispm-desktop-platinum--draw-scroll-arrow svg (+ track lispm-desktop-platinum-scroll-arrow)
                                                  nil palette live))
-    (lispm-desktop-platinum-svg-row svg 0 (1- w) (1- height) outline)
+    (lispm-ui-svg-row svg 0 (1- w) (1- height) outline)
     svg))
 
 (defvar lispm-desktop-platinum--scroll-bars nil
@@ -219,7 +219,7 @@ It takes no focus and hooks run for new frames do not see it."
                          (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
                          (line-spacing . 0) (cursor-type . nil) (no-special-glyphs . t)
                          (desktop-dont-save . t) (visibility . nil)
-                         (background-color . ,(lispm-desktop-platinum-color :chrome))
+                         (background-color . ,(lispm-ui-color :chrome))
                          (width . 2) (height . 1))))))
         (with-current-buffer buffer
           (setq-local mode-line-format nil
@@ -268,7 +268,7 @@ It takes no focus and hooks run for new frames do not see it."
                                                          (point-min) (point-max))))
            (active (eq window (frame-selected-window (window-frame window))))
            (place (list x y height))
-           (key (list lispm-desktop-platinum-generation height thumb active)))
+           (key (list lispm-ui-palette-generation height thumb active)))
       (unless (equal place (frame-parameter frame 'lispm-desktop-platinum-scroll-place))
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-place place)
         ;; Sized in pixels, below the width of the ten columns a window
@@ -280,14 +280,14 @@ It takes no focus and hooks run for new frames do not see it."
       (unless (equal key (frame-parameter frame 'lispm-desktop-platinum-scroll-key))
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-key key)
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-thumb thumb)
-        (lispm-desktop-platinum-set-background frame (lispm-desktop-platinum-color :chrome))
+        (lispm-desktop-platinum-set-background frame (lispm-ui-color :chrome))
         (let ((root (frame-root-window frame)))
           (with-current-buffer (window-buffer root)
             (let ((inhibit-read-only t))
               (erase-buffer)
               (insert (propertize " " 'display
                                   (svg-image (lispm-desktop-platinum-draw-scroll-bar
-                                              lispm-desktop-platinum-current-palette height thumb active)
+                                              lispm-ui-current-palette height thumb active)
                                              :ascent 100 :scale 1)))))
           (set-window-point root 1)
           (set-window-hscroll root 0)))
@@ -309,7 +309,7 @@ It takes no focus and hooks run for new frames do not see it."
 take the bars of windows gone or no longer wanting one away."
   (setq lispm-desktop-platinum--scroll-timer nil)
   (let ((wanted nil))
-    (when (and lispm-desktop-platinum-scroll-bars lispm-desktop-platinum-current-palette)
+    (when (and lispm-desktop-platinum-scroll-bars lispm-ui-current-palette)
       (dolist (frame (frame-list))
         ;; Floating windows out on the computer's screen go without, as
         ;; they do over the desktop, and so do their frames and outlines.

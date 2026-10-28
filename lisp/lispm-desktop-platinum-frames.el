@@ -42,16 +42,16 @@
 ;;;; A window's title, its moves and rolling it up
 
 
-(defvar-local lispm-desktop-platinum-title nil
+(defvar-local lispm-desktop-platinum-window-title nil
   "Title the window of this buffer shows instead of the buffer's own name:
 a string, or a function returning one when the window is drawn, as a
 title in words of the language LispM speaks is, see
 lispm-desktop-i18n.el.")
 
 (defun lispm-desktop-platinum-title-text (&optional buffer)
-  "Return the title `lispm-desktop-platinum-title' gives BUFFER's window,
+  "Return the title `lispm-desktop-platinum-window-title' gives BUFFER's window,
 by default the current buffer's, or nil."
-  (let ((title (buffer-local-value 'lispm-desktop-platinum-title (or buffer (current-buffer)))))
+  (let ((title (buffer-local-value 'lispm-desktop-platinum-window-title (or buffer (current-buffer)))))
     (if (functionp title)
         (with-current-buffer (or buffer (current-buffer)) (funcall title))
       title)))
@@ -139,13 +139,13 @@ PALETTE's greys, centred in HEIGHT pixels."
   (let* ((s 16)
          (svg (svg-create s height))
          (y (/ (- height s) 2)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 s height (plist-get palette :chrome))
-    (lispm-desktop-platinum-svg-fill svg 0 y s s (plist-get palette :outline))
-    (lispm-desktop-platinum-svg-fill svg 1 (1+ y) (1- s) (1- s) (lispm-desktop-platinum-grey palette #xCC))
+    (lispm-ui-svg-fill svg 0 0 s height (plist-get palette :chrome))
+    (lispm-ui-svg-fill svg 0 y s s (plist-get palette :outline))
+    (lispm-ui-svg-fill svg 1 (1+ y) (1- s) (1- s) (lispm-ui-grey palette #xCC))
     (lispm-desktop-platinum-svg-pixel-map svg 1 (1+ y) lispm-desktop-platinum--grow-ridges
-                                      `((?w . ,(lispm-desktop-platinum-grey palette #xFF))
-                                        (?h . ,(lispm-desktop-platinum-grey palette #x77))
-                                        (?i . ,(lispm-desktop-platinum-grey palette #xAA))))
+                                      `((?w . ,(lispm-ui-grey palette #xFF))
+                                        (?h . ,(lispm-ui-grey palette #x77))
+                                        (?i . ,(lispm-ui-grey palette #xAA))))
     svg))
 
 (defun lispm-desktop-platinum--grow-press (event)
@@ -170,9 +170,9 @@ elsewhere windows tile, and the grow box only marks the corner."
   "Return the grow box as a string, a corner of text on a text terminal."
   (propertize (if (lispm-desktop-tty-p) "◢" " ")
               'display (unless (lispm-desktop-tty-p)
-                         (lispm-desktop-platinum-image
+                         (lispm-ui-image
                             (list 'grow)
-                            (lambda () (lispm-desktop-platinum-draw-grow-box lispm-desktop-platinum-current-palette
+                            (lambda () (lispm-desktop-platinum-draw-grow-box lispm-ui-current-palette
                                                                              lispm-desktop-platinum-title-height))))
               'keymap lispm-desktop-platinum--grow-map))
 
@@ -312,7 +312,7 @@ where its frame is drawn for it, a pixel of outline where it is not."
 A window with the frame parameter `lispm-desktop-platinum-own-frame'
 draws its own, as a Mac OS 9 window whose definition function drew a
 structure of its own: Stickies' notes, an edge of their colour."
-  (and lispm-desktop-platinum-window-frames lispm-desktop-platinum-current-palette
+  (and lispm-desktop-platinum-window-frames lispm-ui-current-palette
        (frame-live-p frame) (display-graphic-p frame)
        (frame-parameter frame 'lispm-desktop-window)
        (not (frame-parameter frame 'lispm-desktop-platinum-own-frame))))
@@ -434,7 +434,7 @@ for new frames do not see it."
                      (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
                      (line-spacing . 0) (cursor-type . nil) (no-special-glyphs . t)
                      (visibility . nil)
-                     (background-color . ,(lispm-desktop-platinum-color :chrome))
+                     (background-color . ,(lispm-ui-color :chrome))
                      (lispm-desktop-platinum-frames . ,frame)
                      ;; Out on the computer's screen, it is the window's.
                      (lispm-desktop-out . ,(frame-parameter frame 'lispm-desktop-out))
@@ -625,7 +625,7 @@ active while FRAME is selected."
            (width (car size))
            (height (cdr size))
            (active (eq frame (selected-frame)))
-           (key (list lispm-desktop-platinum-generation width height active)))
+           (key (list lispm-ui-palette-generation width height active)))
       (unless (and (equal size (frame-parameter outer 'lispm-desktop-platinum-size))
                    ;; Emacs sizes a frame anew to whole lines as its fonts
                    ;; change, as with a theme.
@@ -645,14 +645,14 @@ active while FRAME is selected."
         (set-frame-parameter outer 'lispm-desktop-platinum-font (frame-parameter outer 'font)))
       (unless (equal key (frame-parameter outer 'lispm-desktop-platinum-key))
         (set-frame-parameter outer 'lispm-desktop-platinum-key key)
-        (lispm-desktop-platinum-set-background outer (lispm-desktop-platinum-color :chrome))
+        (lispm-desktop-platinum-set-background outer (lispm-ui-color :chrome))
         (let ((root (frame-root-window outer)))
           (with-current-buffer (window-buffer root)
             (let ((inhibit-read-only t))
               (erase-buffer)
               (insert (lispm-desktop-platinum--frame-text
                        (lispm-desktop-platinum-draw-window-frame
-                        lispm-desktop-platinum-current-palette width height :active active)
+                        lispm-ui-current-palette width height :active active)
                        width height))))
           (set-window-start root 1))))))
 
@@ -882,7 +882,7 @@ Mac OS 9's patterns did, wherever the line is."
 (defun lispm-desktop-platinum--dots-image (width height parity)
   "Return an image of the outline's dots WIDTH by HEIGHT, see
 `lispm-desktop-platinum-dots': the theme's outline over the desktop's colour."
-  (let ((key (list width height parity lispm-desktop-platinum-generation)))
+  (let ((key (list width height parity lispm-ui-palette-generation)))
     (or (gethash key lispm-desktop-platinum--dots)
         (progn
           (when (> (hash-table-count lispm-desktop-platinum--dots) 400)
@@ -890,7 +890,7 @@ Mac OS 9's patterns did, wherever the line is."
           (puthash key
                    (create-image (lispm-desktop-platinum-dots width height parity) 'xbm t
                                  :data-width width :data-height height :ascent 100
-                                 :foreground (lispm-desktop-platinum-color :outline)
+                                 :foreground (lispm-ui-color :outline)
                                  :background (lispm-desktop-platinum-desktop-color))
                    lispm-desktop-platinum--dots)))))
 
@@ -901,7 +901,7 @@ theme's.")
 (defun lispm-desktop-platinum-desktop-color ()
   "Return the desktop's colour: the one it is drawn in, or the theme's."
   (or (funcall lispm-desktop-platinum-desktop-color-function)
-      (lispm-desktop-platinum-color :desktop)))
+      (lispm-ui-color :desktop)))
 
 (defvar lispm-desktop-platinum--outline-frames nil
   "The frames drawing outlines' lines, by what they are drawn over:
@@ -979,7 +979,7 @@ A line with a colour after its five values is drawn solid in it."
                (width (max 1 (if vertical thickness length)))
                (height (max 1 (if vertical length thickness)))
                (parity (mod (+ x y (car origin) (cdr origin)) 2))
-               (size (list width height parity color lispm-desktop-platinum-generation)))
+               (size (list width height parity color lispm-ui-palette-generation)))
     (lispm-desktop-platinum--keep-thin frame)
     (unless (equal size (frame-parameter frame 'lispm-desktop-platinum-line))
       (set-frame-parameter frame 'lispm-desktop-platinum-line size)

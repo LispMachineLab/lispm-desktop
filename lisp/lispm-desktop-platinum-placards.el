@@ -66,7 +66,7 @@
 ;;;; Placards
 
 (defface lispm-desktop-platinum-placard-text
-  '((t :inherit lispm-desktop-platinum-list :height 0.95))
+  '((t :inherit lispm-ui-list :height 0.95))
   "Face of the text drawn on a placard of a window's bottom edge."
   :group 'lispm-desktop-platinum)
 
@@ -81,26 +81,26 @@
 
 (defvar lispm-desktop-platinum--placard-images (make-hash-table :test #'equal)
   "The images of placards, by look, palette and what they show.
-They are kept apart from the chrome's, see `lispm-desktop-platinum-image':
+They are kept apart from the chrome's, see `lispm-ui-image':
 the position's changes with every move, and would crowd the title bars
 out.")
 
 (defun lispm-desktop-platinum-drawn-placards-p ()
   "Return non-nil where placards are drawn, not text in an outlined face."
-  (and lispm-desktop-platinum-current-palette
+  (and lispm-ui-current-palette
        (not (lispm-desktop-tty-p))
        (image-type-available-p 'svg)))
 
 (defun lispm-desktop-platinum--placard-image (key draw)
   "Return the placard image of KEY, calling DRAW to make its SVG the first
 time.  The image keeps the SVG's width as :lispm-desktop-platinum-width."
-  (let ((key (cons (cons lispm-desktop-platinum-generation lispm-desktop-look) key)))
+  (let ((key (cons (cons lispm-ui-palette-generation lispm-desktop-look) key)))
     (or (gethash key lispm-desktop-platinum--placard-images)
         (progn
           (when (> (hash-table-count lispm-desktop-platinum--placard-images) 256)
             (clrhash lispm-desktop-platinum--placard-images))
           (let ((svg (funcall draw)))
-            (puthash key (append (lispm-desktop-platinum--svg-image svg)
+            (puthash key (append (lispm-ui-svg-image svg)
                                  (list :lispm-desktop-platinum-width (dom-attr svg 'width)))
                      lispm-desktop-platinum--placard-images))))))
 
@@ -117,22 +117,22 @@ terminal, about so for a placard of text on a graphical display."
   "Return an SVG of a placard of a window's bottom edge showing CONTENT, in
 PALETTE: the look's placard, see `lispm-desktop-platinum-draw-placard',
 CONTENT drawn in as Emacs would show it, see
-`lispm-desktop-platinum-svg-content', in the text colour.  Unless ACTIVE
+`lispm-ui-svg-content', in the text colour.  Unless ACTIVE
 the placard lies flat and CONTENT is muted, as on an inactive window.
 MENU adds the pop-up arrow after CONTENT."
   (let* ((face 'lispm-desktop-platinum-placard-text)
          (pad lispm-desktop-platinum-placard-padding)
          (arrow (if menu (+ 6 (length (car lispm-desktop-platinum--popup-arrow))) 0))
-         (width (+ pad (lispm-desktop-platinum-content-width content face) arrow pad))
+         (width (+ pad (lispm-ui-text-width content face) arrow pad))
          (height lispm-desktop-platinum-placard-height)
          (ink (plist-get palette (if active :text :muted)))
          (svg (lispm-desktop-platinum-draw-placard palette width height
                                                    :state (unless active 'inactive)))
          (content (copy-sequence content)))
     ;; The face goes on the text, its height relative to the list's,
-    ;; which `lispm-desktop-platinum-svg-content' sizes text from.
+    ;; which `lispm-ui-svg-content' sizes text from.
     (add-face-text-property 0 (length content) face t content)
-    (lispm-desktop-platinum-svg-content svg content pad 0 height ink 'lispm-desktop-platinum-list)
+    (lispm-ui-svg-content svg content pad 0 height ink 'lispm-ui-list)
     (when menu
       (lispm-desktop-platinum-svg-pixel-map svg (- width pad (- arrow 6)) (/ (- height 4) 2)
                                             lispm-desktop-platinum--popup-arrow `((?# . ,ink))))
@@ -164,10 +164,10 @@ CONTENT in an outlined face; a drawn one keeps CONTENT's text in its
          (if (lispm-desktop-platinum-drawn-placards-p)
              (propertize " " 'display
                          (lispm-desktop-platinum--placard-image
-                          (list (lispm-desktop-platinum--content-key content) active menu)
+                          (list (lispm-ui-content-key content) active menu)
                           (lambda ()
                             (lispm-desktop-platinum-draw-window-placard
-                             lispm-desktop-platinum-current-palette content :active active :menu menu)))
+                             lispm-ui-current-palette content :active active :menu menu)))
                          'lispm-desktop-platinum-label (substring-no-properties content))
            ;; A mode line reads % as a construct.
            (lispm-desktop-platinum--text-placard (string-replace "%" "%%" content) active menu))))
@@ -230,10 +230,10 @@ as a string to put in a placard: its image where placards are drawn, else
 letters in the faces of compilation's errors, warnings and notes."
   (if (lispm-desktop-platinum-drawn-placards-p)
       (propertize "*" 'display
-                  (lispm-desktop-platinum-image
+                  (lispm-ui-image
                    (list 'placard-icon kind)
                    (lambda ()
-                     (lispm-desktop-platinum-draw-placard-icon lispm-desktop-platinum-current-palette kind))))
+                     (lispm-desktop-platinum-draw-placard-icon lispm-ui-current-palette kind))))
     (pcase kind
       ('locked "RO")
       ('error (propertize "E" 'face 'compilation-error))

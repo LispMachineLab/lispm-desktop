@@ -330,7 +330,7 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 (defun lispm-desktop-app-stickies--draw-box (svg rows x y paper ink pressed)
   "Draw the box of ROWS on SVG at X, Y in PAPER and INK; PRESSED fills it
 with the paper's edge colour instead."
-  (lispm-desktop-platinum-svg-fill svg x y (length (car rows)) (length rows) (or pressed paper))
+  (lispm-ui-svg-fill svg x y (length (car rows)) (length rows) (or pressed paper))
   (lispm-desktop-platinum-svg-pixel-map svg x y rows `((?x . ,ink))))
 
 (defun lispm-desktop-app-stickies-draw-title-bar (colors width height active
@@ -352,35 +352,35 @@ a rolled-up note's."
                (left (or (car insets) lispm-desktop-app-stickies-box-inset))
                (right (or (cdr insets) lispm-desktop-app-stickies-box-inset))
                (box-top (lispm-desktop-app-stickies--box-top height)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height paper)
+    (lispm-ui-svg-fill svg 0 0 width height paper)
     (if (not active)
-        (progn (lispm-desktop-platinum-svg-fill svg 0 0 (1- width) 1 "#FFFFFF")
-               (lispm-desktop-platinum-svg-fill svg (1- width) 0 1 height edge))
-      (lispm-desktop-platinum-svg-fill svg 0 0 width 1 edge)
+        (progn (lispm-ui-svg-fill svg 0 0 (1- width) 1 "#FFFFFF")
+               (lispm-ui-svg-fill svg (1- width) 0 1 height edge))
+      (lispm-ui-svg-fill svg 0 0 width 1 edge)
       (let ((bottom (if rolled (- height 2) (1- height))))
         (cl-loop for y from 1 to bottom
                  do (cl-loop for x from (if (cl-oddp y) 1 2) below (1- width) by 2
-                             do (lispm-desktop-platinum-svg-fill svg x y 1 1 edge))))
-      (lispm-desktop-platinum-svg-fill svg (1- width) 0 1 height edge)
+                             do (lispm-ui-svg-fill svg x y 1 1 edge))))
+      (lispm-ui-svg-fill svg (1- width) 0 1 height edge)
       (lispm-desktop-app-stickies--draw-box svg lispm-desktop-app-stickies--close-box left box-top
                                             paper ink (and (eq pressed 'close) edge))
       (lispm-desktop-app-stickies--draw-box svg lispm-desktop-app-stickies--zoom-box
                                             (- width right 7) box-top paper ink
                                             (and (eq pressed 'zoom) edge)))
     ;; The left edge goes on down the fringe, in the edge colour.
-    (lispm-desktop-platinum-svg-fill svg 0 (if active 0 1) 1 height edge)
+    (lispm-ui-svg-fill svg 0 (if active 0 1) 1 height edge)
     (when rolled
-      (lispm-desktop-platinum-svg-fill svg 0 (1- height) width 1 edge)
+      (lispm-ui-svg-fill svg 0 (1- height) width 1 edge)
       (when label
         (let* ((room (- width 2 (* 2 (+ (max left right) 7 6))))
                (label (lispm-desktop-platinum-fit label room))
-               (label-width (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title))
+               (label-width (lispm-ui-text-width label 'lispm-ui-title))
                (x (/ (- width label-width) 2)))
           (when (> room 0)
             (when active
-              (lispm-desktop-platinum-svg-fill svg (- x 4) 1 (+ label-width 8) (- height 2) paper))
-            (lispm-desktop-platinum-svg-content svg label x 0 height (if active "#000000" "#555555")
-                                                'lispm-desktop-platinum-title)))))
+              (lispm-ui-svg-fill svg (- x 4) 1 (+ label-width 8) (- height 2) paper))
+            (lispm-ui-svg-content svg label x 0 height (if active "#000000" "#555555")
+                                  'lispm-ui-title)))))
     svg))
 
 (defun lispm-desktop-app-stickies-draw-bottom (colors width active)
@@ -391,10 +391,10 @@ Stickies drew it."
   (pcase-let* ((height lispm-desktop-app-stickies-bottom-height)
                (svg (svg-create width height))
                (`(,paper ,edge ,ink) colors))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height paper)
-    (lispm-desktop-platinum-svg-fill svg 0 0 1 height edge)
-    (lispm-desktop-platinum-svg-fill svg (1- width) 0 1 height edge)
-    (lispm-desktop-platinum-svg-fill svg 0 (1- height) width 1 edge)
+    (lispm-ui-svg-fill svg 0 0 width height paper)
+    (lispm-ui-svg-fill svg 0 0 1 height edge)
+    (lispm-ui-svg-fill svg (1- width) 0 1 height edge)
+    (lispm-ui-svg-fill svg 0 (1- height) width 1 edge)
     (when active
       (lispm-desktop-platinum-svg-pixel-map svg (- width 8) 0 lispm-desktop-app-stickies--grow-box
                                             `((?x . ,ink))))
@@ -499,7 +499,7 @@ ones always, the bottom ones too on a note rolled up."
          (insets (lispm-desktop-app-stickies--box-insets frame height))
          (left (car insets))
          (right (cdr insets))
-         (image (lispm-desktop-platinum-image
+         (image (lispm-ui-image
                  (list 'lispm-desktop-app-stickies-title colors width height active pressed label insets)
                  (lambda () (lispm-desktop-app-stickies-draw-title-bar colors width height active
                                                                        pressed label insets)))))
@@ -539,7 +539,7 @@ GrowWindow did."
          (active (mode-line-window-selected-p))
          (width (lispm-desktop-app-stickies--window-width window))
          (colors (lispm-desktop-app-stickies--colors (lispm-stickies-note-color (current-buffer))))
-         (image (lispm-desktop-platinum-image
+         (image (lispm-ui-image
                  (list 'lispm-desktop-app-stickies-bottom colors width active)
                  (lambda () (lispm-desktop-app-stickies-draw-bottom colors width active)))))
     (if (or (not active) (< width 16))

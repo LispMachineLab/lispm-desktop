@@ -736,7 +736,7 @@ declares, or those of its keymap's commands."
 (define-derived-mode lispm-desktop-app-ui-keys-mode lispm-desktop-app-window-mode "Keys"
   "Major mode of an application's keys window: each key and what it does,
 the whole list in sight, without a bottom saying where in it point is."
-  (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+  (face-remap-add-relative 'default 'lispm-ui-list)
   (setq-local line-spacing 4
               mode-line-format nil))
 
@@ -745,7 +745,7 @@ the whole list in sight, without a bottom saying where in it point is."
 caps and what they do, the caps right-aligned in a column of their own."
   (let* ((caps (mapcar (lambda (entry)
                          (mapconcat (lambda (key) (lispm-desktop-platinum-bevel-button
-                                                   key nil 18 'lispm-desktop-platinum-small))
+                                                   key nil 18 'lispm-ui-small))
                                     (split-string (car entry) "  ") " "))
                        keys))
          (column (+ 12 (seq-reduce #'max (mapcar #'string-pixel-width caps) 0))))
@@ -770,7 +770,7 @@ and what it does, as found out from its keymap."
                                                                (capitalize (symbol-name app)))))))
     (with-current-buffer buffer
       (lispm-desktop-app-ui-keys-mode)
-      (setq-local lispm-desktop-platinum-title
+      (setq-local lispm-desktop-platinum-window-title
                   (lambda () (lispm-desktop-tr "%s Keys" (lispm-desktop-app-ui-name app))))
       (let ((inhibit-read-only t))
         (erase-buffer)
@@ -881,7 +881,7 @@ broken where it says."
                                       `(space :align-to (- center (0.5 . (,(string-pixel-width string))))))
                           string "\n"))))
     (concat (propertize " " 'display '(space :height (60))) "\n"
-            (mapconcat (lambda (line) (funcall centre (propertize line 'face 'lispm-desktop-platinum-list)))
+            (mapconcat (lambda (line) (funcall centre (propertize line 'face 'lispm-ui-list)))
                        (split-string (lispm-desktop-tr text) "\n") "")
             (propertize " " 'display '(space :height (16))) "\n"
             (funcall centre (mapconcat (pcase-lambda (`(,label ,command))
@@ -989,14 +989,14 @@ windows on its first line left there; one printed later prints them."
   "Give the current buffer its application's interface."
   (when (bound-and-true-p display-line-numbers-mode)
     (display-line-numbers-mode -1))
-  (setq-local lispm-desktop-platinum-title (let ((title (lispm-desktop-app-ui-get :title)))
-                                             (lambda ()
-                                               (cond ((functionp title)
-                                                      ;; One failing names the application.
-                                                      (or (lispm-desktop-app-ui--safely title)
-                                                          (lispm-desktop-app-ui-name)))
-                                                     (title (lispm-desktop-tr title))
-                                                     (t (lispm-desktop-app-ui-name)))))
+  (setq-local lispm-desktop-platinum-window-title (let ((title (lispm-desktop-app-ui-get :title)))
+                                                    (lambda ()
+                                                      (cond ((functionp title)
+                                                             ;; One failing names the application.
+                                                             (or (lispm-desktop-app-ui--safely title)
+                                                                 (lispm-desktop-app-ui-name)))
+                                                            (title (lispm-desktop-tr title))
+                                                            (t (lispm-desktop-app-ui-name)))))
               lispm-desktop-platinum-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
                                                              lispm-desktop-app-ui--app :icon)))
                                             (lispm-desktop-platinum-icon icon))
@@ -1017,7 +1017,7 @@ windows on its first line left there; one printed later prints them."
          (visual-line-mode -1)
          (setq-local truncate-lines t)))
   (when (lispm-desktop-app-ui-get :list)
-    (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+    (face-remap-add-relative 'default 'lispm-ui-list)
     (setq-local line-spacing 4)
     (hl-line-mode 1))
   (lispm-desktop-app-ui--list-header)

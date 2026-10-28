@@ -303,9 +303,9 @@ white, black is legible as it is.  Colours come only from faces this
 function never sets, so re-running it is idempotent."
   (require 'ansi-color)
   (when-let* ((background (face-background 'default nil t))
-              (dark (< (apply #'+ (or (lispm-desktop-platinum-rgb background) '(1 1 1))) 1.5))
+              (dark (< (apply #'+ (or (lispm-ui-rgb background) '(1 1 1))) 1.5))
               (dim (face-foreground 'shadow nil t))
-              (black (lispm-desktop-platinum-blend background "#000000" 0.2)))
+              (black (lispm-ui-blend background "#000000" 0.2)))
     (set-face-attribute 'ansi-color-bright-black nil :foreground dim :background dim)
     (set-face-attribute 'ansi-color-black nil :foreground black :background black)))
 

@@ -93,7 +93,7 @@ per bookmark, as Netscape's personal toolbar held them."
                        (concat " " (lispm-desktop-browser--ribbon) " "
                                (truncate-string-to-width name 22 nil nil "…") " ")
                        (lambda () (interactive) (lispm-browser-open-url url))
-                       url 'mode-line 'lispm-desktop-platinum-button))
+                       url 'mode-line 'lispm-ui-button))
                     bookmarks " ")
        (propertize (lispm-desktop-tr "Bookmarks you add show here.") 'face 'lispm-desktop-platinum-toolbar-label)))))
 
@@ -167,10 +167,10 @@ indented lines as wide as the pane."
   (let ((width (- lispm-desktop-browser-places-width 24)))
     (propertize (concat "\n"
                         (mapconcat (lambda (line) (concat "  " line "\n"))
-                                   (lispm-desktop-i18n-wrap
+                                   (lispm-ui-text-wrap
                                     text (lambda (line)
-                                           (<= (lispm-desktop-platinum-content-width
-                                                (concat "  " line) 'lispm-desktop-platinum-list)
+                                           (<= (lispm-ui-text-width
+                                                (concat "  " line) 'lispm-ui-list)
                                                width)))
                                    ""))
                 'face 'shadow)))
@@ -318,10 +318,10 @@ toolbar."
               header-line-format nil
               truncate-lines t
               cursor-type nil
-              lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Bookmarks")))
+              lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "Bookmarks")))
   (visual-line-mode -1)
   (setq-local truncate-lines t)
-  (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+  (face-remap-add-relative 'default 'lispm-ui-list)
   (hl-line-mode 1)
   (when (fboundp 'display-line-numbers-mode)
     (display-line-numbers-mode -1)))

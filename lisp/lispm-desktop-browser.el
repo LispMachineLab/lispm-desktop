@@ -92,7 +92,7 @@
 (defvar xwidget-webkit-mode-map)
 (defvar xwidget-webkit--loading-p)
 (declare-function lispm-desktop-platinum-icon "lispm-desktop-platinum-icons" (name))
-(defvar lispm-desktop-platinum-title)
+(defvar lispm-desktop-platinum-window-title)
 (defvar lispm-desktop-platinum-icon)
 (defvar lispm-desktop-platinum-box-functions)
 
@@ -249,12 +249,12 @@ Extensions is among them where pages can run Chrome extensions."
                   (svg x y palette width height &rest options))
 (declare-function lispm-desktop-platinum-draw-progress-bar "lispm-desktop-platinum-controls"
                   (palette width fraction))
-(defvar lispm-desktop-platinum-current-palette)
+(defvar lispm-ui-current-palette)
 
 (defun lispm-desktop-browser--image (key draw)
   "Return the image of KEY, calling DRAW for its SVG text the first time,
-see `lispm-desktop-look-image'."
-  (lispm-desktop-look-image (cons 'browser key) draw))
+see `lispm-ui-look-image'."
+  (lispm-ui-look-image (cons 'browser key) draw))
 
 (defun lispm-desktop-browser--svg (width height &rest parts)
   "Return an SVG document WIDTH by HEIGHT pixels holding PARTS."
@@ -272,9 +272,9 @@ see `lispm-desktop-look-image'."
 (defun lispm-desktop-browser--font ()
   "Return the toolbar labels' font as (FAMILY SIZE), the size in pixels:
 a size under the list font's, as Netscape's labels were small."
-  (let* ((font (ignore-errors (face-font 'lispm-desktop-platinum-list)))
+  (let* ((font (ignore-errors (face-font 'lispm-ui-list)))
          (info (and font (ignore-errors (font-info font))))
-         (family (face-attribute 'lispm-desktop-platinum-list :family nil t)))
+         (family (face-attribute 'lispm-ui-list :family nil t)))
     (list (if (stringp family) family "Geneva")
           (max 10 (- (if info (aref info 2) 12) 2)))))
 
@@ -289,11 +289,11 @@ fill (f), face (c), the stop sign's red (r) and white (w); greyed unless
 ENABLED."
   (let ((red (or (ignore-errors (face-foreground 'error nil t)) "#CC3333")))
     (if enabled
-        `((?i . ,(lispm-desktop-platinum-color :text)) (?f . ,(lispm-desktop-platinum-color :accent))
-          (?c . ,(lispm-desktop-platinum-color :content)) (?r . ,red) (?w . "#FFFFFF"))
-      `((?i . ,(lispm-desktop-platinum-color :shade)) (?f . ,(lispm-desktop-platinum-color :muted))
-        (?c . ,(lispm-desktop-platinum-color :chrome)) (?r . ,(lispm-desktop-platinum-color :muted))
-        (?w . ,(lispm-desktop-platinum-color :chrome))))))
+        `((?i . ,(lispm-ui-color :text)) (?f . ,(lispm-ui-color :accent))
+          (?c . ,(lispm-ui-color :content)) (?r . ,red) (?w . "#FFFFFF"))
+      `((?i . ,(lispm-ui-color :shade)) (?f . ,(lispm-ui-color :muted))
+        (?c . ,(lispm-ui-color :chrome)) (?r . ,(lispm-ui-color :muted))
+        (?w . ,(lispm-ui-color :chrome))))))
 
 (defconst lispm-desktop-browser--icons
   '((back . "<path d='M2.5 12 L11.5 3.5 L11.5 8 L21.5 8 L21.5 16 L11.5 16 L11.5 20.5 Z' \
@@ -334,19 +334,19 @@ V20.5 H4.5 Z' fill='%f' stroke='%i' stroke-linejoin='round'/>"))
   "Return SVG of a WIDTH by HEIGHT bevel, pushed in when PRESSED: the
 look's bevel button, see `lispm-desktop-platinum--draw-bevel-button'."
   (let ((svg (svg-create width height)))
-    (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-desktop-platinum-current-palette width height
+    (lispm-desktop-platinum--draw-bevel-button svg 0 0 lispm-ui-current-palette width height
                                                :state (and pressed 'pressed))
     (with-temp-buffer (svg-print svg) (buffer-string))))
 
 (cl-defmethod lispm-desktop-browser--bevel (width height pressed &context (lispm-desktop-look (eql platinum)))
   "Return SVG of Netscape's own WIDTH by HEIGHT bevel on Mac OS 9, lighter
 than Platinum's bevel buttons, pushed in when PRESSED."
-  (let ((light (lispm-desktop-platinum-color :light))
-        (shade (lispm-desktop-platinum-color :shade))
-        (chrome (lispm-desktop-platinum-color :chrome)))
+  (let ((light (lispm-ui-color :light))
+        (shade (lispm-ui-color :shade))
+        (chrome (lispm-ui-color :chrome)))
     (concat
      (format "<rect width='%d' height='%d' fill='%s'/>" width height
-             (if pressed (lispm-desktop-platinum-blend chrome shade 0.45) chrome))
+             (if pressed (lispm-ui-blend chrome shade 0.45) chrome))
      (format "<rect width='%d' height='1' fill='%s'/><rect width='1' height='%d' fill='%s'/>"
              width (if pressed shade light) height (if pressed shade light))
      (format "<rect y='%d' width='%d' height='1' fill='%s'/><rect x='%d' width='1' height='%d' fill='%s'/>"
@@ -365,7 +365,7 @@ greyed unless ENABLED, pushed in when PRESSED."
              (format-spec (alist-get icon lispm-desktop-browser--icons) ink))
      (format "<text x='%d' y='%d' font-family='%s' font-size='%d' text-anchor='middle' fill='%s'>%s</text>"
              (/ width 2) (- height 6 (if pressed -1 0)) (lispm-desktop-browser--escape family) size
-             (if enabled (lispm-desktop-platinum-color :text) (lispm-desktop-platinum-color :shade))
+             (if enabled (lispm-ui-color :text) (lispm-ui-color :shade))
              (lispm-desktop-browser--escape label)))))
 
 (defconst lispm-desktop-browser--logo
@@ -422,8 +422,8 @@ meteor shower falling (nil while the page rests), pushed in when PRESSED."
 (defun lispm-desktop-browser--draw-padlock (secure)
   "Return SVG of the status bar's padlock: shut and in the accent colour
 when SECURE, open and grey when not."
-  (let ((ink (lispm-desktop-platinum-color (if secure :text :shade)))
-        (fill (lispm-desktop-platinum-color (if secure :accent :muted))))
+  (let ((ink (lispm-ui-color (if secure :text :shade)))
+        (fill (lispm-ui-color (if secure :accent :muted))))
     (lispm-desktop-browser--svg
      12 14
      (format "<path d='%s' fill='none' stroke='%s' stroke-width='1.6'/>"
@@ -436,7 +436,7 @@ when SECURE, open and grey when not."
   "Return SVG of the status bar's progress bar, FRACTION full: the look's,
 see `lispm-desktop-platinum-draw-progress-bar'."
   (with-temp-buffer
-    (svg-print (lispm-desktop-platinum-draw-progress-bar lispm-desktop-platinum-current-palette 80 fraction))
+    (svg-print (lispm-desktop-platinum-draw-progress-bar lispm-ui-current-palette 80 fraction))
     (buffer-string)))
 
 (cl-defmethod lispm-desktop-browser--draw-progress (fraction &context (lispm-desktop-look (eql platinum)))
@@ -444,11 +444,11 @@ see `lispm-desktop-platinum-draw-progress-bar'."
   (let ((filled (round (* (min 1 (max 0 fraction)) 78))))
     (lispm-desktop-browser--svg
      80 10
-     (format "<rect width='80' height='10' fill='%s'/>" (lispm-desktop-platinum-color :frame))
-     (format "<rect x='1' y='1' width='78' height='8' fill='%s'/>" (lispm-desktop-platinum-color :content))
+     (format "<rect width='80' height='10' fill='%s'/>" (lispm-ui-color :frame))
+     (format "<rect x='1' y='1' width='78' height='8' fill='%s'/>" (lispm-ui-color :content))
      (if (> filled 0)
          (format "<rect x='1' y='1' width='%d' height='8' fill='%s'/>" filled
-                 (lispm-desktop-platinum-color :accent))
+                 (lispm-ui-color :accent))
        ""))))
 
 ;;;;; Navigation toolbar
@@ -627,7 +627,7 @@ width='%d' height='%d' viewBox='0 0 %d %d'>" size size size size)
        ;; No icon: the initial of its name, as Chrome shows.
        (format "<text x='%d' y='%d' font-family='%s' font-size='13' font-weight='bold' text-anchor='middle' fill='%s'>%s</text>"
                (/ size 2) (+ inset 13) (lispm-desktop-browser--escape (car (lispm-desktop-browser--font)))
-               (lispm-desktop-platinum-color (if enabled :text :shade))
+               (lispm-ui-color (if enabled :text :shade))
                (lispm-desktop-browser--escape (upcase (substring (or (plist-get button :name) "?") 0 1)))))
      (if badge
          (lispm-desktop-browser--draw-badge badge (plist-get button :badge-color) (plist-get button :badge-text-color))
@@ -786,9 +786,9 @@ the bookmark ribbon, its name and a menu arrow."
                                                             (format-spec (alist-get 'bookmarks lispm-desktop-browser--icons)
                                                                          (lispm-desktop-browser--ink t)))))))
                        " " (lispm-desktop-tr "Bookmarks") " ▾ ")))
-    (add-face-text-property 0 (length label) 'lispm-desktop-platinum-button t label)
+    (add-face-text-property 0 (length label) 'lispm-ui-button t label)
     (propertize label 'keymap lispm-desktop-browser-bookmarks-button-map 'pointer 'arrow
-                'mouse-face 'lispm-desktop-platinum-button-pressed
+                'mouse-face 'lispm-ui-button-pressed
                 'help-echo (lispm-desktop-tr "Bookmarks: add one, edit them, or go to one"))))
 
 (defun lispm-desktop-browser--render-address (uri)
@@ -826,8 +826,8 @@ right edge, or of the extension buttons that end it; ringed in the focus
 colour while it has the keyboard.  The field grows as the address is
 typed at its end."
   (let ((face (if (eq (selected-window) (get-buffer-window (current-buffer)))
-                  'lispm-desktop-platinum-field-focused
-                'lispm-desktop-platinum-field))
+                  'lispm-ui-field-focused
+                'lispm-ui-field))
         (extensions (lispm-desktop-browser--extension-buttons)))
     (unless lispm-desktop-browser--field
       (setq lispm-desktop-browser--field (make-overlay 1 1 nil nil t)))
@@ -970,7 +970,7 @@ toolbar.
               header-line-format '(:eval (lispm-desktop-browser--toolbar))
               truncate-lines t
               cursor-type 'bar
-              lispm-desktop-platinum-title #'lispm-desktop-browser--no-page-title
+              lispm-desktop-platinum-window-title #'lispm-desktop-browser--no-page-title
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "netscape")
               lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes))
   ;; Its height is the toolbars': a frame growing, as on a tall screen,
@@ -1003,7 +1003,7 @@ toolbar.
 (defun lispm-desktop-browser--no-page-title ()
   "Return the browser window's title while it shows no page: Browser, in
 the language LispM speaks.  This is the address buffer's
-`lispm-desktop-platinum-title' then."
+`lispm-desktop-platinum-window-title' then."
   (lispm-desktop-tr "Browser"))
 
 (defun lispm-desktop-browser--retitle ()
@@ -1012,12 +1012,12 @@ Each tab's window bottom is named after its page too, not after the
 buffer, whose name WebKit prefixes."
   (dolist (buffer (lispm-browser-tabs))
     (with-current-buffer buffer
-      (setq lispm-desktop-platinum-title (lispm-browser-title buffer))))
+      (setq lispm-desktop-platinum-window-title (lispm-browser-title buffer))))
   (when-let* ((buffer (get-buffer lispm-desktop-browser-address-buffer-name)))
     (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
       (with-current-buffer buffer
-        (setq lispm-desktop-platinum-title (if shown (lispm-browser-title shown)
-                                             #'lispm-desktop-browser--no-page-title)
+        (setq lispm-desktop-platinum-window-title (if shown (lispm-browser-title shown)
+                                                    #'lispm-desktop-browser--no-page-title)
               lispm-desktop-platinum-icon (or (and shown (lispm-browser-favicon shown))
                                               (lispm-desktop-platinum-icon "globe")))))))
 

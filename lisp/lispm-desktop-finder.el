@@ -183,7 +183,7 @@ draws an icon of the same name from another.")
   "<mouse-3>" #'ignore)
 
 
-(defface lispm-desktop-finder-label '((t :inherit lispm-desktop-platinum-list))
+(defface lispm-desktop-finder-label '((t :inherit lispm-ui-list))
   "Face of an item's name in the Finder window."
   :group 'lispm-desktop-platinum)
 
@@ -218,7 +218,7 @@ C-c u, New Folder in the File menu."
 and the folder's name, or the arrow alone at the top, where it is dimmed."
   (if-let* ((parent (lispm-desktop-finder--parent lispm-desktop-finder--directory)))
       (concat "▲ " (lispm-desktop-platinum-fit
-                    (propertize (lispm-desktop-finder--title parent) 'face 'lispm-desktop-platinum-small)
+                    (propertize (lispm-desktop-finder--title parent) 'face 'lispm-ui-small)
                     160))
     "▲"))
 
@@ -279,7 +279,7 @@ the columns."
          (lines (cdr picture-size))
          (images (lispm-desktop-tty-images-p))
          (icons nil)
-         (background (face-background 'lispm-desktop-platinum-list nil t))
+         (background (face-background 'lispm-ui-list nil t))
          (columns (max 1 (/ (- (window-body-width window) 3) cell)))
          (width (* columns cell)))
     (insert "\n")
@@ -366,7 +366,7 @@ text terminal as rows of names, see `lispm-desktop-finder--text-items'."
                        (apply #'propertize label (funcall props (car item))))))
            row)
           (insert "\n" (propertize " " 'display '(space :height (14))) "\n"))
-        (setq lispm-desktop-platinum-title (lispm-desktop-finder--title lispm-desktop-finder--directory)
+        (setq lispm-desktop-platinum-window-title (lispm-desktop-finder--title lispm-desktop-finder--directory)
               lispm-desktop-platinum-icon (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
                                               (lispm-desktop-platinum-icon (plist-get folder :icon))
                                             (lispm-desktop-platinum-folder-icon lispm-desktop-finder--directory))
@@ -791,7 +791,7 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :zoom #'lispm-desktop-finder--zoom-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
-  (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+  (face-remap-add-relative 'default 'lispm-ui-list)
   (face-remap-add-relative 'header-line '(:box nil :underline nil :overline nil))
   (add-hook 'window-size-change-functions #'lispm-desktop-finder--render nil t)
   (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop-finder--render))

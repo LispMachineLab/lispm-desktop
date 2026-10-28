@@ -217,7 +217,7 @@ the edge of the windows below, which runs across the strip."
         (dolist (strip (get-buffer-window-list buffer nil t))
           (set-window-point strip (point-min))
           (set-window-hscroll strip 0))
-        (setq lispm-desktop-platinum-title (lispm-desktop-editor--title)
+        (setq lispm-desktop-platinum-window-title (lispm-desktop-editor--title)
               ;; Only a floating window rolls up into its title bar; on
               ;; a text terminal the editor stays full screen.
               lispm-desktop-platinum-box-functions

@@ -160,15 +160,15 @@ showing the number being typed, over its keys."
                (left (+ lispm-desktop-app-board-margin 6))
                (top (+ left lispm-desktop-app-skins-calc-display))
                (svg (svg-create width height))
-               (grey (lambda (level) (lispm-desktop-platinum-grey palette level))))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :content))
+               (grey (lambda (level) (lispm-ui-grey palette level))))
+    (lispm-ui-svg-fill svg 0 0 width height (plist-get palette :content))
     (lispm-desktop-app-board-draw-bevel svg lispm-desktop-app-board-margin lispm-desktop-app-board-margin
                                         (- width (* 2 lispm-desktop-app-board-margin))
                                         (- height (* 2 lispm-desktop-app-board-margin)) (funcall grey #xDD))
     ;; The display: a placard, the number right-aligned in it.
     (lispm-desktop-app-board-draw-well svg (+ left 2) (+ left 2) (- (* 4 key) 4)
                                        (- lispm-desktop-app-skins-calc-display 10) (funcall grey #xF4))
-    (let ((font (lispm-desktop-platinum-svg-font 'lispm-desktop-platinum-list))
+    (let ((font (lispm-ui-svg-font 'lispm-ui-list))
           (entry lispm-desktop-app-skins--calc-entry))
       (svg-text svg (if (string-empty-p entry) "0" entry)
                 :x (- (+ left (* 4 key)) 12) :y (+ left 27) :text-anchor "end"
@@ -178,7 +178,7 @@ showing the number being typed, over its keys."
      (pcase-lambda (`(,label ,what) index)
        (lispm-desktop-app-board-draw-tile
         svg `(:shape key :text ,label
-              :color ,(cond ((eq what 'enter) (lispm-desktop-platinum-blend (plist-get palette :accent) "#ffffff" 0.55))
+              :color ,(cond ((eq what 'enter) (lispm-ui-blend (plist-get palette :accent) "#ffffff" 0.55))
                             ((symbolp what) (funcall grey #xCC))))
         (+ left (* (% index 4) key)) (+ top (* (/ index 4) key)) key palette (funcall grey #xDD)))
      lispm-desktop-app-skins-calc-keys)
@@ -361,9 +361,9 @@ to the months before or after from the arrows."
                (width (+ (* 2 margin) 16 (* 3 month-width) (* 2 gap)))
                (height (+ top title cell-height (* 6 cell-height) margin 8))
                (svg (svg-create width height))
-               (font (lispm-desktop-platinum-svg-font 'lispm-desktop-platinum-list))
+               (font (lispm-ui-svg-font 'lispm-ui-list))
                (text (plist-get palette :text))
-               (muted (lispm-desktop-platinum-grey palette #x88))
+               (muted (lispm-ui-grey palette #x88))
                (red "#c0392b")
                (today (calendar-current-date))
                (cursor (ignore-errors (calendar-cursor-to-date)))
@@ -375,9 +375,9 @@ to the months before or after from the arrows."
                   (cl-loop for (key value) on attributes by #'cddr
                            do (setq all (plist-put all key value)))
                   (apply #'svg-text svg string all))))
-      (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :content))
+      (lispm-ui-svg-fill svg 0 0 width height (plist-get palette :content))
       (lispm-desktop-app-board-draw-bevel svg margin margin (- width (* 2 margin)) (- height (* 2 margin))
-                                          (lispm-desktop-platinum-grey palette #xEE))
+                                          (lispm-ui-grey palette #xEE))
       (seq-do-indexed
        (pcase-lambda (`(,month . ,year) index)
          (let* ((left (+ margin 8 (* index (+ month-width gap))))
@@ -389,7 +389,7 @@ to the months before or after from the arrows."
              (let ((day (mod (+ column calendar-week-start-day) 7)))
                (write (aref calendar-day-header-array day) (+ left (* column cell-width) (/ cell-width 2))
                       (+ top title 13) :fill (if (memq day '(0 6)) red muted) :font-size 11)))
-           (lispm-desktop-platinum-svg-fill svg left (+ top title cell-height -4) month-width 1 muted)
+           (lispm-ui-svg-fill svg left (+ top title cell-height -4) month-width 1 muted)
            (dotimes (day days)
              (let* ((slot (+ first day))
                     (x (+ left (* (% slot 7) cell-width)))
@@ -657,10 +657,15 @@ settings, VALUE checked, as `lispm-mail-settings-choose-function' asks."
   :restore (lambda () (lispm-mail))
   :cursor nil)
 
+;; Mail's settings are drawn with Emacs's widgets as LispM UI's forms are,
+;; each control saying what it is in a property of Mail's own, and dressed
+;; by LispM UI as they are.
+(add-to-list 'lispm-ui-form-control-properties :lispm-mail-control t)
+
 (with-eval-after-load 'lispm-mail-settings
-  (setq lispm-mail-settings-glyph-function #'lispm-desktop-form-glyph
+  (setq lispm-mail-settings-glyph-function #'lispm-ui-form-glyph
         lispm-mail-settings-choose-function #'lispm-desktop-app-skins--mail-choose)
-  (add-hook 'lispm-mail-settings-drawn-hook #'lispm-desktop-form-dress)
+  (add-hook 'lispm-mail-settings-drawn-hook #'lispm-ui-form-dress)
   (add-hook 'enable-theme-functions #'lispm-desktop-app-skins--mail-redraw)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-skins--mail-redraw))
 

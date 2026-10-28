@@ -282,7 +282,7 @@ of buttons that takes the header line's place."
 (defun lispm-desktop-app-telega--setup-chat ()
   "Title the window by the chat it shows."
   (when-let* ((chat (bound-and-true-p telega-chatbuf--chat)))
-    (setq-local lispm-desktop-platinum-title (substring-no-properties (telega-chat-title chat)))))
+    (setq-local lispm-desktop-platinum-window-title (substring-no-properties (telega-chat-title chat)))))
 
 (lispm-desktop-app-ui-define 'telega-root-mode
   :app 'telega

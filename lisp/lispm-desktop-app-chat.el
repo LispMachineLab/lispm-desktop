@@ -129,7 +129,7 @@ unread, in red where some name you, or nil."
 count of messages unread, starts: its width, measured in the list's
 face, and a margin."
   (+ 16 (string-pixel-width (propertize count 'face (list (get-text-property 0 'face count)
-                                                          'lispm-desktop-platinum-list)))))
+                                                          'lispm-ui-list)))))
 
 (defun lispm-desktop-app-chat-conversation ()
   "Return the conversation of the line point is on, or nil."

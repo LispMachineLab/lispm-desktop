@@ -131,10 +131,10 @@ Dragging its tab sets it, for the next start too."
 (defun lispm-desktop-strip--appearance-items ()
   "Return the Appearance module's menu: the looks, the themes, and the panel."
   `(,@(mapcar (lambda (look)
-                (list :label (lispm-desktop-look-title (car look))
+                (list :label (lispm-ui-look-title (car look))
                       :checked (eq lispm-desktop-look (car look))
                       :action (lambda () (lispm-desktop-set-look (car look)))))
-              lispm-desktop-looks)
+              lispm-ui-looks)
     separator
     ,@(mapcar (lambda (theme)
                 (list :label (capitalize (symbol-name theme))
@@ -191,7 +191,7 @@ bookmarks, and the panel."
 
 (defun lispm-desktop-strip--battery-icon ()
   "Return the battery module's icon: the battery, filled to its charge."
-  (lispm-desktop-platinum-draw-battery lispm-desktop-platinum-current-palette
+  (lispm-desktop-platinum-draw-battery lispm-ui-current-palette
                                        (lispm-desktop-platinum-battery-percent)
                                        (lispm-desktop-platinum-battery-charging-p)))
 
@@ -201,7 +201,7 @@ bookmarks, and the panel."
 
 (defun lispm-desktop-strip--load-icon ()
   "Return the load module's icon: the meter, filled to the load."
-  (lispm-desktop-platinum-draw-meter lispm-desktop-platinum-current-palette
+  (lispm-desktop-platinum-draw-meter lispm-ui-current-palette
                                      (lispm-desktop-platinum-load-fraction)))
 
 (defun lispm-desktop-strip--time-p ()
@@ -346,10 +346,10 @@ or the tab alone while the strip is collapsed."
          ;; it, so the tab's end is set off against the desktop's colour.
          (behind (and (eq kind 'tab) (fboundp 'lispm-desktop--color) (lispm-desktop--color)))
          (side (lispm-desktop-strip--side)))
-    (lispm-desktop-platinum-image
+    (lispm-ui-image
      (list 'strip kind state icon focused behind side)
      (lambda ()
-       (lispm-desktop-platinum-draw-strip-segment lispm-desktop-platinum-current-palette kind
+       (lispm-desktop-platinum-draw-strip-segment lispm-ui-current-palette kind
                                                   :state state :icon icon :menu (consp part)
                                                   :focused focused :behind behind :side side)))))
 
@@ -438,7 +438,7 @@ screen, counted as a child frame's position is; nil while it is hidden."
                     (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
                     (line-spacing . 0) (cursor-type . nil) (no-special-glyphs . t)
                     (visibility . nil)
-                    (background-color . ,(lispm-desktop-platinum-color :strip))
+                    (background-color . ,(lispm-ui-color :strip))
                     (width . 20) (height . 1))))))
     (let ((root (frame-root-window frame)))
       (set-window-buffer root (lispm-desktop-strip--buffer))
@@ -482,7 +482,7 @@ above the bottom: (X . Y), kept within the bounds."
     ;; Only a new colour: a strip cleared just before an update of the
     ;; screen shows as an empty bar.
     (lispm-desktop-platinum-set-background lispm-desktop-strip--frame
-                                           (lispm-desktop-platinum-color :strip))
+                                           (lispm-ui-color :strip))
     (lispm-desktop-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
                                lispm-desktop-platinum-strip-height)
     (lispm-desktop-strip--place)))

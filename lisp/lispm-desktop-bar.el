@@ -205,8 +205,8 @@ display, the desktop drawn.  On a text terminal it keeps the minibuffer."
   "Give FRAME, the bar's field or panel, BACKGROUND and the palette's text
 and outline, and the menus' font."
   (modify-frame-parameters frame `((background-color . ,background)
-                                   (foreground-color . ,(lispm-desktop-platinum-color :text))))
-  (set-face-attribute 'child-frame-border frame :background (lispm-desktop-platinum-color :outline))
+                                   (foreground-color . ,(lispm-ui-color :text))))
+  (set-face-attribute 'child-frame-border frame :background (lispm-ui-color :outline))
   (set-face-attribute 'internal-border frame :background background)
   (set-face-attribute 'fringe frame :background background)
   (let ((family (face-attribute 'lispm-desktop-popup-item :family nil 'default)))
@@ -233,12 +233,12 @@ missing, painted in the palette now in use."
   (let ((field lispm-desktop-bar--field)
         (panel lispm-desktop-bar--panel))
     ;; A text field is white, as Mac OS 9's; the panel is a menu.
-    (lispm-desktop-bar--paint field (lispm-desktop-platinum-grey lispm-desktop-platinum-current-palette #xFF))
-    (lispm-desktop-bar--paint panel (lispm-desktop-platinum-color :chrome))
+    (lispm-desktop-bar--paint field (lispm-ui-grey lispm-ui-current-palette #xFF))
+    (lispm-desktop-bar--paint panel (lispm-ui-color :chrome))
     (set-face-attribute 'lispm-bar-selected panel :inherit nil :extend t
-                        :background (lispm-desktop-platinum-color :highlight)
-                        :foreground (lispm-desktop-platinum-color :highlight-text))
-    (set-face-attribute 'lispm-bar-dim panel :inherit nil :foreground (lispm-desktop-platinum-color :dim))
+                        :background (lispm-ui-color :highlight)
+                        :foreground (lispm-ui-color :highlight-text))
+    (set-face-attribute 'lispm-bar-dim panel :inherit nil :foreground (lispm-ui-color :dim))
     (cons field panel)))
 
 (defun lispm-desktop-bar--x (screen)

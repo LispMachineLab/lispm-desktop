@@ -94,7 +94,7 @@
 (defun lispm-desktop-app-yeetube-page-colors ()
   "Return YouTube's colours for the desktop's theme: its dark theme's
 under a dark one, else its light theme's."
-  (let ((content (lispm-desktop-platinum-color :content)))
+  (let ((content (lispm-ui-color :content)))
     (if (ignore-errors (color-dark-p (color-name-to-rgb content)))
         lispm-desktop-app-yeetube-page-dark
       lispm-desktop-app-yeetube-page-light)))

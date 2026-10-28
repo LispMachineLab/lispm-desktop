@@ -171,10 +171,10 @@ columns: as large as the screen's desktop holds, from 10 to 28 pixels."
 
 (defun lispm-desktop-app-games--tile-image (tile size)
   "Return the image of TILE, a cell SIZE pixels square."
-  (let* ((palette lispm-desktop-platinum-current-palette)
+  (let* ((palette lispm-ui-current-palette)
          (svg (svg-create size size))
-         (ground (lispm-desktop-platinum-grey palette #xE6)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 size size ground)
+         (ground (lispm-ui-grey palette #xE6)))
+    (lispm-ui-svg-fill svg 0 0 size size ground)
     (lispm-desktop-app-board-draw-tile svg tile 0 0 size palette ground)
     (lispm-desktop-app-board--image svg)))
 
@@ -630,7 +630,7 @@ with `active' when in the group the pointer is on."
         '(:shape well)
       (let ((color (nth (mod index (length lispm-desktop-app-games--bubble-colors))
                         lispm-desktop-app-games--bubble-colors)))
-        `(:shape ball :color ,(if active (lispm-desktop-platinum-blend color "#ffffff" 0.35) color)
+        `(:shape ball :color ,(if active (lispm-ui-blend color "#ffffff" 0.35) color)
           ,@(when active '(:mark dot)))))))
 
 (defun lispm-desktop-app-games--bubbles-click (row column)

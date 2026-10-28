@@ -87,7 +87,9 @@ while LispM Kit, which translates them, is being installed."
                ;; Newer than 0.1.0, whose engine translates nothing.
                :needs "lispm-kit-i18n")
     (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
-              :version "0.1.0")
+              ;; Its palette, looks and drawing, which the desktop's chrome
+              ;; is drawn with.
+              :version "0.2.1")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Newer than lispm-agents, which the desktop needs too.

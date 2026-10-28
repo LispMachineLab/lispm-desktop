@@ -40,30 +40,45 @@
 ;;   neon       neon over a city at night, lispm-desktop-glow.el: magenta
 ;;              to violet title bars, cyan lines
 ;;
-;; A look is defined with `lispm-desktop-look-define' and chosen with
-;; `lispm-desktop-look', from Control Panels or `lispm-desktop-set-look'.
+;; A look is defined with `lispm-ui-look-define', in LispM UI's registry
+;; of looks (lispm-ui-look.el), and chosen with `lispm-desktop-look', from
+;; Control Panels or `lispm-desktop-set-look'.  LispM UI draws in the look
+;; chosen too: `lispm-ui-look' is an alias of `lispm-desktop-look'.  Beside
+;; the properties LispM UI reads, the desktop reads a look's
+;;
+;;   :theme     the colour theme in that system's own colours
+;;   :icons     directories of icons/ to look for icons in before
+;;              icons/os9, as their names
+;;   :glass     the gain of the look's glass, when its windows let the
+;;              desktop show through, see lispm-desktop-glass.el
+;;   :picture   the look's own desktop picture, a file under the
+;;              package's directory, which `lispm-desktop-picture'
+;;              replaces
+;;
+;; and the PC looks' words, see lispm-desktop-pc.el.
 ;;
 ;; The chrome's drawing functions are generic functions whose default
 ;; methods draw Platinum; a look draws its own forms in methods specialized
-;; on it:
+;; on it, by `lispm-desktop-look' for the desktop's generic functions and
+;; by `lispm-ui-look' for LispM UI's:
 ;;
 ;;   (cl-defmethod lispm-desktop-platinum-draw-grow-box
 ;;     (palette height &context (lispm-desktop-look (eql win3)))
 ;;     ...)
 ;;
 ;; Looks drawn alike make a family, which draws them in methods of its
-;; own, specialized on `lispm-desktop-look-family':
+;; own, specialized on `lispm-ui-look-family':
 ;;
 ;;   pc         win3 and os2, lispm-desktop-pc.el
 ;;   glow       phosphor and neon, lispm-desktop-glow.el
 ;;
 ;;   (cl-defmethod lispm-desktop-platinum-draw-placard
-;;     (palette width height &context (lispm-desktop-look (lispm-desktop-look-family pc))
+;;     (palette width height &context (lispm-desktop-look (lispm-ui-look-family pc))
 ;;      &key label font state)
 ;;     ...)
 ;;
 ;; A family's methods draw each of its looks by the look's metrics, see
-;; `lispm-desktop-look-metric'.  A look's own method, `(eql win3)', comes
+;; `lispm-ui-look-metric'.  A look's own method, `(eql win3)', comes
 ;; before its family's, whichever was defined first, and reaches it with
 ;; `cl-call-next-method'.
 ;;
@@ -77,9 +92,10 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
-(require 'svg)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-look)
+(require 'lispm-ui-text)
 
 (defvar lispm-desktop--set-up)
 
@@ -99,79 +115,15 @@ Emacs is set up, a new value is drawn at once."
                  (symbol :tag "Another look"))
   :group 'lispm-desktop)
 
-(defvar lispm-desktop-looks nil
-  "The looks defined, as (NAME . PROPERTIES), in the order defined.
-See `lispm-desktop-look-define'.")
-
-(defun lispm-desktop-look-define (name &rest properties)
-  "Define the look NAME, the forms of one system's interface.
-PROPERTIES is a plist:
-
-  :title            its name as Control Panels shows it, a proper name
-  :description      a line on what it is, in English, translated where
-                    shown
-  :theme            the colour theme in that system's own colours
-  :icons            directories of icons/ to look for icons in before
-                    icons/os9, as their names
-  :system-families  font families for title bars and menus, the first
-                    installed one winning
-  :list-families    font families for lists and labels
-  :glass            the gain of the look's glass, when its windows let the
-                    desktop show through, see lispm-desktop-glass.el
-  :picture          the look's own desktop picture, a file under the
-                    package's directory, which `lispm-desktop-picture'
-                    replaces
-  :family           the family of looks drawn alike it belongs to, whose
-                    methods draw it, see lispm-desktop-look.el's Commentary
-  :metrics          a plist of the measures and forms its family's methods
-                    draw it by, see `lispm-desktop-look-metric'
-
-A look may hold properties of its own too, as the PC looks' words, see
-lispm-desktop-pc.el.
-
-Return NAME."
-  (if-let* ((look (assq name lispm-desktop-looks)))
-      (setcdr look properties)
-    (setq lispm-desktop-looks (append lispm-desktop-looks (list (cons name properties)))))
-  name)
-
-(defun lispm-desktop-look-get (property &optional look)
-  "Return PROPERTY of LOOK, by default of `lispm-desktop-look'."
-  (plist-get (alist-get (or look lispm-desktop-look) lispm-desktop-looks) property))
-
-(defun lispm-desktop-look-title (&optional look)
-  "Return the name of LOOK, by default of `lispm-desktop-look'."
-  (or (lispm-desktop-look-get :title look)
-      (capitalize (symbol-name (or look lispm-desktop-look)))))
-
-(defun lispm-desktop-look-family (&optional look)
-  "Return the family LOOK belongs to, by default `lispm-desktop-look''s,
-or nil for a look drawn alike no other."
-  (lispm-desktop-look-get :family look))
-
-(defun lispm-desktop-look-metric (key &optional look)
-  "Return the metric KEY of LOOK, by default of `lispm-desktop-look': a
-measure or form its family's methods draw it by, see
-`lispm-desktop-look-define'."
-  (plist-get (lispm-desktop-look-get :metrics look) key))
-
-;; A method specialized on (lispm-desktop-look-family FAMILY) draws every
-;; look of FAMILY.  The family is told by the look itself, so a look's own
-;; `eql' method, of the higher priority, comes first: specializing on the
-;; family through an `&context' expression of its own would put whichever
-;; expression a generic function saw first before the other.
-(cl-generic-define-generalizer lispm-desktop-look--family-generalizer
-  50 (lambda (look &rest _) `(lispm-desktop-look-family ,look))
-  (lambda (family &rest _) (and family `((lispm-desktop-look-family ,family)))))
-
-(cl-defmethod cl-generic-generalizers ((_specializer (head lispm-desktop-look-family)))
-  "Support for (lispm-desktop-look-family FAMILY) specializers, a look of FAMILY."
-  (list lispm-desktop-look--family-generalizer))
-
-(defun lispm-desktop-look-families (property default)
-  "Return the font families PROPERTY of the look, or DEFAULT where the
-look names none."
-  (or (lispm-desktop-look-get property) default))
+;; LispM UI draws in the look chosen here: its variable is this one.  It
+;; becomes an alias only once this one has its value, the one saved or
+;; `platinum': made one before, it would give this one LispM UI's
+;; `classic', which the option would then keep, though the compiler
+;; would have aliases made first.  It takes this one's value first, as
+;; Emacs warns of an alias made of a variable of another value.
+(set-default 'lispm-ui-look lispm-desktop-look)
+(with-no-warnings
+  (defvaralias 'lispm-ui-look 'lispm-desktop-look))
 
 (defvar lispm-desktop-look-changed-hook nil
   "Hook run once the chrome is drawn in another look.")
@@ -180,8 +132,8 @@ look names none."
   "Return the colour theme a switch from look FROM to look TO switches to,
 or nil to keep the theme in use: TO's own theme, while the theme in use
 is FROM's own, or none was chosen yet."
-  (let ((old (lispm-desktop-look-get :theme from))
-        (new (lispm-desktop-look-get :theme to)))
+  (let ((old (lispm-ui-look-get :theme from))
+        (new (lispm-ui-look-get :theme to)))
     (and new (not (eq new lispm-desktop-theme))
          (or (null lispm-desktop-theme) (eq lispm-desktop-theme old))
          new)))
@@ -216,12 +168,12 @@ watcher."
 
 (defun lispm-desktop-set-look (look)
   "Draw the chrome in LOOK now and at every later start.
-LOOK is a name of `lispm-desktop-looks'; interactively, it is asked for."
+LOOK is a name of `lispm-ui-looks'; interactively, it is asked for."
   (interactive (list (intern (completing-read
                               (lispm-desktop-tr "Look: ")
-                              (mapcar (lambda (look) (symbol-name (car look))) lispm-desktop-looks)
+                              (mapcar (lambda (look) (symbol-name (car look))) lispm-ui-looks)
                               nil t))))
-  (unless (assq look lispm-desktop-looks)
+  (unless (assq look lispm-ui-looks)
     (user-error (lispm-desktop-tr "No look named %s") look))
   (let ((from lispm-desktop-look))
     ;; Drawn here, not by the watcher a second time.
@@ -239,13 +191,6 @@ draw the chrome again in a new language as it is chosen."
 ;;;; Parts shared by looks
 
 (defvar lispm-desktop-platinum-box-margin)
-(declare-function lispm-desktop-platinum-content-width "lispm-desktop-platinum-draw" (content face))
-(declare-function lispm-desktop-platinum-image "lispm-desktop-platinum-draw" (key draw))
-
-(defun lispm-desktop-look-image (key draw)
-  "Return the image of KEY drawn by DRAW, kept apart for the look in use,
-see `lispm-desktop-platinum-image'."
-  (lispm-desktop-platinum-image (cons lispm-desktop-look key) draw))
 
 (defun lispm-desktop-look-box-margin (margin)
   "Return how far in from its end a title bar stands its buttons, given
@@ -275,84 +220,7 @@ default first, Cancel last.  Each is (LABEL VALUE ROLE ...)."
 (defun lispm-desktop-look-push-button-width (label)
   "Return the width of a Windows or OS/2 push button reading LABEL: room
 for it in the system font, at least 72 pixels."
-  (max 72 (+ 24 (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title))))
-
-;;;; Drawing shared by looks
-;;
-;; The PC looks build their controls of the same few forms: a rectangle
-;; framed in lines lit along its top and left and shaded along its bottom
-;; and right, and small arrows of pixels.
-
-(defun lispm-desktop-look-svg-fill (svg x y width height color)
-  "Fill the WIDTH by HEIGHT rectangle at X, Y of SVG with COLOR.
-Nothing is drawn for a rectangle without area or a nil COLOR."
-  (when (and color (> width 0) (> height 0))
-    (svg-rectangle svg x y width height :fill color :stroke "none")))
-
-(defun lispm-desktop-look-svg-edges (svg x y width height top-left bottom-right)
-  "Frame the WIDTH by HEIGHT rectangle at X, Y of SVG in lines inside it.
-TOP-LEFT lists the colours of the lines along its top and left,
-outermost first, BOTTOM-RIGHT those along its bottom and right; a nil
-colour leaves its line out.  A line along the bottom and right takes the
-corners it shares with one along the top and left, as Windows and OS/2
-drew their buttons."
-  (dotimes (i (max (length top-left) (length bottom-right)))
-    (let ((lit (nth i top-left))
-          (shade (nth i bottom-right))
-          (left (+ x i))
-          (top (+ y i))
-          (right (- (+ x width) 1 i))
-          (bottom (- (+ y height) 1 i)))
-      (when (and (<= left right) (<= top bottom))
-        (when shade
-          (lispm-desktop-look-svg-fill svg left bottom (1+ (- right left)) 1 shade)
-          (lispm-desktop-look-svg-fill svg right top 1 (1+ (- bottom top)) shade))
-        (when lit
-          (lispm-desktop-look-svg-fill svg left top (- right left) 1 lit)
-          (lispm-desktop-look-svg-fill svg left top 1 (- bottom top) lit))))))
-
-(defun lispm-desktop-look-svg-outline (svg x y width height color)
-  "Outline the WIDTH by HEIGHT rectangle at X, Y of SVG in COLOR, inside it."
-  (lispm-desktop-look-svg-edges svg x y width height (list color) (list color)))
-
-(defun lispm-desktop-look-svg-arrow (svg x y size direction color)
-  "Draw on SVG a solid arrowhead SIZE rows deep pointing in DIRECTION.
-DIRECTION is `up', `down', `left' or `right'; the arrowhead's widest row
-is 2 SIZE - 1 pixels long, and its bounding box's top left is at X, Y."
-  (dotimes (i size)
-    (let ((from i) (length (- (* 2 size) 1 (* 2 i))))
-      (pcase direction
-        ('down (lispm-desktop-look-svg-fill svg (+ x from) (+ y i) length 1 color))
-        ('up (lispm-desktop-look-svg-fill svg (+ x from) (+ y (- size 1 i)) length 1 color))
-        ('right (lispm-desktop-look-svg-fill svg (+ x i) (+ y from) 1 length color))
-        ('left (lispm-desktop-look-svg-fill svg (+ x (- size 1 i)) (+ y from) 1 length color))))))
-
-(defun lispm-desktop-look-svg-dotted (svg x y width height color)
-  "Draw on SVG a dotted rectangle about the WIDTH by HEIGHT box at X, Y,
-every other pixel in COLOR, as Windows and OS/2 marked the control the
-keyboard was on."
-  (cl-flet ((dot (dx dy) (lispm-desktop-look-svg-fill svg (+ x dx) (+ y dy) 1 1 color)))
-    (cl-loop for dx from 0 below width by 2
-             do (dot dx 0) (dot dx (1- height)))
-    (cl-loop for dy from 0 below height by 2
-             do (dot 0 dy) (dot (1- width) dy))))
-
-(defun lispm-desktop-look-svg-pixels (svg x y rows colors)
-  "Draw ROWS, strings of pixels, on SVG from X, Y.
-COLORS maps each character to its colour; a character it leaves out is
-left clear.  A run of one colour along a row is drawn as one rectangle."
-  (seq-do-indexed
-   (lambda (row dy)
-     (let ((start 0))
-       (while (< start (length row))
-         (let* ((char (aref row start))
-                (end start))
-           (while (and (< end (length row)) (eq (aref row end) char))
-             (setq end (1+ end)))
-           (when-let* ((color (alist-get char colors)))
-             (lispm-desktop-look-svg-fill svg (+ x start) (+ y dy) (- end start) 1 color))
-           (setq start end)))))
-   rows))
+  (max 72 (+ 24 (lispm-ui-text-width label 'lispm-ui-title))))
 
 (provide 'lispm-desktop-look)
 ;;; lispm-desktop-look.el ends here

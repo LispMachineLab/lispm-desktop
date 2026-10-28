@@ -418,7 +418,7 @@ collapses; a window collapses only when another shares its column."
                       (not (and framed (window-at-side-p window 'right)))))
          (margins (lispm-desktop-platinum-window-box-margins window))
          (tty (lispm-desktop-tty-p (window-frame window)))
-         (key (list lispm-desktop-platinum-generation width active icon title modified controls
+         (key (list lispm-ui-palette-generation width active icon title modified controls
                     pressed status edges margins tty))
          (cached (window-parameter window 'lispm-desktop-platinum-title-bar)))
     (if (equal (car cached) key)
@@ -446,10 +446,10 @@ images, a stretch each between its boxes, so its lines run under the
 title too."
   (pcase-let* ((label (concat (when icon (concat icon " ")) title
                               (when status (concat "  " status))))
-               (face (if active 'lispm-desktop-platinum-title 'lispm-desktop-platinum-title-inactive))
+               (face (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))
                (`(,close ,zoom ,collapse) controls)
                (layout (lispm-desktop-platinum-title-layout
-                        width (lispm-desktop-platinum-content-width label face) controls margins))
+                        width (lispm-ui-text-width label face) controls margins))
                (`(,lead-margin . ,trail-margin) (plist-get layout :margins))
                (label (let ((label (copy-sequence label)))
                         (add-face-text-property 0 (length label) face t label)
@@ -502,9 +502,9 @@ its title greyed.  The arguments are those of
 `lispm-desktop-platinum-draw-title-bar'; MODIFIED marks the close box
 with a dot, and PRESSED shows its box held down."
   (pcase-let* ((`(,close ,zoom ,collapse) controls)
-               (palette lispm-desktop-platinum-current-palette)
+               (palette lispm-ui-current-palette)
                (rule `(:foreground ,(plist-get palette (if active :text :muted))))
-               (face (if active 'lispm-desktop-platinum-title 'lispm-desktop-platinum-title-inactive))
+               (face (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))
                (title-help (lispm-desktop-platinum-title-help))
                (rules (lambda (n)
                         (propertize (make-string (max 0 n) (if active ?═ ?─))
@@ -776,7 +776,7 @@ the title's left under the title bar."
          (layout (lispm-desktop-platinum-title-layout
                   (- (window-pixel-width window) (window-right-divider-width window)
                      (window-scroll-bar-width window))
-                  (lispm-desktop-platinum-content-width label 'lispm-desktop-platinum-title)
+                  (lispm-ui-text-width label 'lispm-ui-title)
                   (lispm-desktop-platinum-window-controls window)
                   (lispm-desktop-platinum-window-box-margins window)))
          (edges (window-pixel-edges window)))

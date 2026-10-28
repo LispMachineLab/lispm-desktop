@@ -450,7 +450,7 @@ conversations with messages unread."
   (pcase (lispm-desktop-app-slack--buffer-room)
     (`(,room . ,team)
      (when room
-       (setq-local lispm-desktop-platinum-title (lispm-desktop-app-slack--room-name room team))))))
+       (setq-local lispm-desktop-platinum-window-title (lispm-desktop-app-slack--room-name room team))))))
 
 (lispm-desktop-app-ui-define 'slack-mode
   :app 'slack

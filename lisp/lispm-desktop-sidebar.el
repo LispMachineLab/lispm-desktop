@@ -128,7 +128,7 @@ toolbars are, it shows itself pushed in from the window's
          (button (if face
                      (let ((styled (copy-sequence label)))
                        (add-face-text-property 0 (length styled)
-                                               (if pressed 'lispm-desktop-platinum-button-pressed face)
+                                               (if pressed 'lispm-ui-button-pressed face)
                                                t styled)
                        styled)
                    (lispm-desktop-platinum-bevel-button label (if pressed 'pressed state)))))
@@ -194,13 +194,13 @@ TITLE-ACTIONS followed by a button calling REFRESH.  Both action lists
 hold (LABEL COMMAND HELP [PRESSED]) entries, LABEL and HELP in English,
 translated where shown, see `lispm-desktop-sidebar--toolbar-buttons'."
   (let ((spec (alist-get view lispm-desktop-sidebar-views)))
-    (setq-local lispm-desktop-platinum-title
+    (setq-local lispm-desktop-platinum-window-title
                 (lambda () (lispm-desktop-tr (plist-get (alist-get view lispm-desktop-sidebar-views) :title)))
                 lispm-desktop-platinum-icon (lispm-desktop-platinum-icon (plist-get spec :icon))))
   (kill-local-variable 'tab-line-format)
   (unless lispm-desktop-sidebar--faces
     (setq-local lispm-desktop-sidebar--faces
-                (list (face-remap-add-relative 'default 'lispm-desktop-platinum-list)
+                (list (face-remap-add-relative 'default 'lispm-ui-list)
                       (face-remap-add-relative 'header-line 'lispm-desktop-platinum-header))))
   (setq-local lispm-desktop-sidebar--header (list actions refresh title-actions)
               header-line-format '(:eval (lispm-desktop-sidebar--header-line))))
@@ -368,7 +368,7 @@ text terminal but its last two columns, see `lispm-desktop-align-right'."
   "Return a blank displayed as SPEC, in the list's face.
 Every part of a row carries a face of its own: a part without one would
 take the `button' face of the row, underline and all."
-  (propertize " " 'display spec 'face 'lispm-desktop-platinum-list))
+  (propertize " " 'display spec 'face 'lispm-ui-list))
 
 (defun lispm-desktop-sidebar--column-pixels ()
   "Return the width in pixels of a list's right-hand column."
@@ -380,7 +380,7 @@ The column is shaded down its whole length, as Finder shaded the column
 a list was sorted by."
   (let* ((meta (lispm-desktop-platinum-fit (propertize (or meta "") 'face
                                                         (or (get-text-property 0 'face (or meta ""))
-                                                            'lispm-desktop-platinum-list))
+                                                            'lispm-ui-list))
                                             (- (lispm-desktop-sidebar--column-pixels)
                                                (lispm-desktop-px 16))))
          (meta-width (string-pixel-width meta)))
@@ -399,11 +399,11 @@ a list was sorted by."
 LEAD (indentation, a triangle or an icon) keeps its size; META sits in
 the right-hand column, see `lispm-desktop-sidebar--sorted-column'; NAME is
 shortened to fit between them."
-  (let ((room (- width (string-pixel-width (propertize lead 'face 'lispm-desktop-platinum-list))
+  (let ((room (- width (string-pixel-width (propertize lead 'face 'lispm-ui-list))
                  (lispm-desktop-sidebar--column-pixels) (lispm-desktop-px 12))))
     (concat lead
             (lispm-desktop-platinum-fit (propertize name 'face (or (get-text-property 0 'face name)
-                                                                    'lispm-desktop-platinum-list))
+                                                                    'lispm-ui-list))
                                          (max 0 room))
             (lispm-desktop-sidebar--sorted-column meta))))
 
@@ -424,7 +424,7 @@ row's text."
                                                                        (+ 8 lispm-desktop-sidebar-indent
                                                                           (* lispm-desktop-sidebar-indent
                                                                              (or depth 0)))))))
-                     icon (propertize " " 'face 'lispm-desktop-platinum-list))
+                     icon (propertize " " 'face 'lispm-ui-list))
              (lispm-desktop-sidebar-one-line title 200)
              meta
              (lispm-desktop-sidebar--row-width)))
@@ -455,12 +455,12 @@ the right-hand column; clicking the row calls ACTION, described by HELP."
   (let ((beg (point)))
     (insert (lispm-desktop-sidebar--row
              (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
-                     (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-desktop-platinum-list)
+                     (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-ui-list)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                      (lispm-desktop-platinum-folder-icon directory)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6)))))
              (propertize (lispm-desktop-sidebar-one-line name 200)
-                         'face '(:inherit lispm-desktop-platinum-list :weight bold))
+                         'face '(:inherit lispm-ui-list :weight bold))
              (propertize (or meta "") 'face 'shadow)
              (lispm-desktop-sidebar--row-width)))
     (make-text-button beg (point)

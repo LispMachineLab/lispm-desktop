@@ -856,7 +856,7 @@ meanwhile, in a pane of the window, or in a window of its own."
               truncate-lines nil
               word-wrap t)
         (setq-local word-wrap-by-category t
-                    lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "What It Brings"))))
+                    lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "What It Brings"))))
       (unwind-protect
           (if-let* ((frame (lispm-desktop-app-window-frame 'store)))
               (let ((window (split-window (frame-root-window frame) nil 'below)))
@@ -2469,12 +2469,12 @@ selected."
   "Return the colours of what is selected: the light highlight colour, as
 Mac OS 9 drew a selected name, and whichever of the theme's text and
 background colours reads on it, as (:background COLOR :foreground COLOR)."
-  (let ((highlight (or (lispm-desktop-platinum-color :thumb-light)
-                       (lispm-desktop-platinum-color :highlight))))
+  (let ((highlight (or (lispm-ui-color :thumb-light)
+                       (lispm-ui-color :highlight))))
     `(:background ,highlight
-      :foreground ,(lispm-desktop-platinum-legible highlight
-                                                    (lispm-desktop-platinum-color :text)
-                                                    (lispm-desktop-platinum-color :content)))))
+      :foreground ,(lispm-ui-legible highlight
+                                                    (lispm-ui-color :text)
+                                                    (lispm-ui-color :content)))))
 
 (defun lispm-desktop-store--fit (text width face)
   "Return TEXT in FACE, shortened to WIDTH pixels."
@@ -2483,7 +2483,7 @@ background colours reads on it, as (:background COLOR :foreground COLOR)."
 (defun lispm-desktop-store--darkened (file)
   "Return the SVG document of the icon FILE darkened, as Mac OS 9 darkened
 a selected icon."
-  (lispm-desktop-platinum-svg-dom
+  (lispm-ui-svg-dom
    nil (lispm-desktop--darken (with-temp-buffer
                                 (insert-file-contents file)
                                 (buffer-string)))))
@@ -2495,12 +2495,12 @@ up by the lines above, so that together they show it once."
   (let* ((x lispm-desktop-store-margin)
          (w lispm-desktop-store-sidebar-width)
          (rh lispm-desktop-store-category-height)
-         (face 'lispm-desktop-platinum-list)
-         (small 'lispm-desktop-platinum-small)
+         (face 'lispm-ui-list)
+         (small 'lispm-ui-small)
          (selected (lispm-desktop-store--selected-face)))
-    (lispm-desktop-platinum-svg-fill svg x top w (lispm-desktop-store--categories-height (length categories))
+    (lispm-ui-svg-fill svg x top w (lispm-desktop-store--categories-height (length categories))
                                   (plist-get palette :outline))
-    (lispm-desktop-platinum-svg-fill svg (1+ x) (1+ top) (- w 2) (* rh (length categories))
+    (lispm-ui-svg-fill svg (1+ x) (1+ top) (- w 2) (* rh (length categories))
                                   (plist-get palette :content))
     (seq-do-indexed
      (pcase-lambda (`(,category ,name ,count) index)
@@ -2509,14 +2509,14 @@ up by the lines above, so that together they show it once."
               (ink (if on (plist-get selected :foreground) (plist-get palette :text)))
               (number (format "%d" count)))
          (when on
-           (lispm-desktop-platinum-svg-fill svg (1+ x) y (- w 2) rh (plist-get selected :background)))
+           (lispm-ui-svg-fill svg (1+ x) y (- w 2) rh (plist-get selected :background)))
          ;; Shortened to leave room for its count, as a translation may be long.
-         (lispm-desktop-platinum-svg-content
-          svg (lispm-desktop-store--fit name (- w 22 (lispm-desktop-platinum-content-width number small)) face)
+         (lispm-ui-svg-content
+          svg (lispm-desktop-store--fit name (- w 22 (lispm-ui-text-width number small)) face)
           (+ x 8) y rh ink face)
-         (lispm-desktop-platinum-svg-content
-          svg number (- (+ x w) 8 (lispm-desktop-platinum-content-width number small)) y rh
-          (if on ink (lispm-desktop-platinum-grey palette #x77)) small)))
+         (lispm-ui-svg-content
+          svg number (- (+ x w) 8 (lispm-ui-text-width number small)) y rh
+          (if on ink (lispm-ui-grey palette #x77)) small)))
      categories)))
 
 (defun lispm-desktop-store--tile (item)
@@ -2559,11 +2559,11 @@ stands, in place of its button: (X Y WIDTH), Y from the top of the line."
 9 darkened an icon selected."
   (cond ((not (file-readable-p file)))
         ((not (string-suffix-p ".svg" file))
-         (lispm-desktop-platinum-svg-emacs-image svg (create-image file) x y size size))
+         (lispm-ui-svg-emacs-image svg (create-image file) x y size size))
         (darkened
          (when-let* ((dom (lispm-desktop-store--darkened file)))
-           (lispm-desktop-platinum-svg-embed svg dom x y size size)))
-        (t (lispm-desktop-platinum-svg-icon svg file x y size))))
+           (lispm-ui-svg-embed svg dom x y size size)))
+        (t (lispm-ui-svg-icon svg file x y size))))
 
 (defun lispm-desktop-store--draw-tile (svg palette tile x width)
   "Draw TILE, as `lispm-desktop-store--tile' makes it, on SVG at X, WIDTH
@@ -2572,23 +2572,23 @@ when selected, its subtitle and its button, or its progress bar."
   (let* ((center (+ x (/ width 2)))
          (selected (plist-get tile :selected))
          (highlight (lispm-desktop-store--selected-face))
-         (face 'lispm-desktop-platinum-list)
-         (small 'lispm-desktop-platinum-small))
+         (face 'lispm-ui-list)
+         (small 'lispm-ui-small))
     (lispm-desktop-store--draw-icon svg (lispm-desktop-platinum-icon-file (plist-get tile :icon))
                                     (- center 16) 8 32 selected)
     (let* ((name (lispm-desktop-store--fit (plist-get tile :name) (- width 10) face))
-           (w (lispm-desktop-platinum-content-width name face))
+           (w (lispm-ui-text-width name face))
            (nx (- center (/ w 2))))
       (when selected
-        (lispm-desktop-platinum-svg-fill svg (- nx 3) 44 (+ w 6) 16 (plist-get highlight :background)))
-      (lispm-desktop-platinum-svg-content svg name nx 44 16
+        (lispm-ui-svg-fill svg (- nx 3) 44 (+ w 6) 16 (plist-get highlight :background)))
+      (lispm-ui-svg-content svg name nx 44 16
                                             (if selected (plist-get highlight :foreground) (plist-get palette :text))
                                             face))
     (when-let* ((subtitle (plist-get tile :subtitle)))
       (let* ((text (lispm-desktop-store--fit subtitle (- width 10) small))
-             (w (lispm-desktop-platinum-content-width text small)))
-        (lispm-desktop-platinum-svg-content svg text (- center (/ w 2)) 61 14
-                                              (lispm-desktop-platinum-grey palette #x66) small)))
+             (w (lispm-ui-text-width text small)))
+        (lispm-ui-svg-content svg text (- center (/ w 2)) 61 14
+                                              (lispm-ui-grey palette #x66) small)))
     (if-let* ((progress (plist-get tile :progress)))
         (pcase-let ((`(,px ,py ,pw) (lispm-desktop-store--progress-box x width)))
           (lispm-desktop-platinum-svg-progress-bar svg px py pw progress palette))
@@ -2605,17 +2605,17 @@ says why there are none."
   (pcase-let* ((`(,gx ,_ ,tw) (lispm-desktop-store--grid width))
                (height lispm-desktop-store-tile-height)
                (svg (svg-create width height)))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
+    (lispm-ui-svg-fill svg 0 0 width height (plist-get palette :chrome))
     (lispm-desktop-store--draw-categories svg palette categories current (- (* line height)))
     (seq-do-indexed (lambda (tile column)
                       (lispm-desktop-store--draw-tile svg palette tile (+ gx (* column tw)) tw))
                     tiles)
     (when empty
-      (let* ((face 'lispm-desktop-platinum-list)
-             (w (lispm-desktop-platinum-content-width empty face)))
-        (lispm-desktop-platinum-svg-content
+      (let* ((face 'lispm-ui-list)
+             (w (lispm-ui-text-width empty face)))
+        (lispm-ui-svg-content
          svg empty (+ gx (/ (- width gx lispm-desktop-store-margin w) 2)) 40 16
-         (lispm-desktop-platinum-grey palette #x66) face)))
+         (lispm-ui-grey palette #x66) face)))
     svg))
 
 (defun lispm-desktop-store--text-category (category)
@@ -2633,10 +2633,10 @@ between the list and what is beside it."
                                     number " ")
                             'face (if (eq key (lispm-desktop-store--current-category))
                                       (lispm-desktop-store--selected-face)
-                                    'lispm-desktop-platinum-list)
+                                    'lispm-ui-list)
                             'lispm-desktop-store-hit (cons 'category key)))
             (make-string (1- lispm-desktop-store-text-categories-width) ?\s))
-          (propertize " │ " 'face `(:foreground ,(lispm-desktop-platinum-color :muted)))))
+          (propertize " │ " 'face `(:foreground ,(lispm-ui-color :muted)))))
 
 (defun lispm-desktop-store--text-progress (fraction)
   "Return a progress bar filled to FRACTION, as text eleven cells wide."
@@ -2658,10 +2658,10 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                (categories (lispm-desktop-store--categories))
                (items (lispm-desktop-store--page-items))
                (empty (and (null items) (lispm-desktop-store--empty-text)))
-               (dim `(:foreground ,(lispm-desktop-platinum-color :muted)))
+               (dim `(:foreground ,(lispm-ui-color :muted)))
                (size lispm-desktop-store-text-icon-size)
                (icon-lines (cdr (lispm-desktop-platinum-text-size size)))
-               (background (lispm-desktop-platinum-color :chrome))
+               (background (lispm-ui-color :chrome))
                (tile (lispm-desktop-store--tile-height))
                (tiles (mapcar #'lispm-desktop-store--tile items)))
     (dotimes (row (lispm-desktop-store--page-lines height (length categories)
@@ -2697,7 +2697,7 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
              (funcall centred icon-lines (concat " " (plist-get tile :name) " ")
                       'face (if (plist-get tile :selected)
                                 `(:inherit ,(lispm-desktop-store--selected-face) :weight bold)
-                              '(:inherit lispm-desktop-platinum-list :weight bold))
+                              '(:inherit lispm-ui-list :weight bold))
                       'lispm-desktop-store-hit item)
              (funcall centred (1+ icon-lines) (or (plist-get tile :subtitle) "")
                       'face dim 'lispm-desktop-store-hit item)
@@ -2739,10 +2739,10 @@ WIDTH by HEIGHT pixels, see `lispm-desktop-store--insert-grid'."
                            (seq-take (nthcdr (* line columns) items) columns)))
             (empty (and (= line 0) empty)))
         (insert (propertize " " 'display
-                            (lispm-desktop-platinum-image
+                            (lispm-ui-image
                              (list 'store-line width line categories current tiles empty)
                              (lambda ()
-                               (lispm-desktop-store--draw-line lispm-desktop-platinum-current-palette width line
+                               (lispm-desktop-store--draw-line lispm-ui-current-palette width line
                                                                categories current tiles empty)))
                             'lispm-desktop-store-line line
                             'keymap lispm-desktop-store-grid-map
@@ -2790,7 +2790,7 @@ page Go Back; and Check for Updates.  Return where the field's text is, as
         (lispm-desktop-platinum-insert-push-button (lispm-desktop-tr "Go Back") #'lispm-desktop-store-back
                                                    :help (lispm-desktop-tr "Go back to the items"))
       (insert (lispm-desktop-store--fit (lispm-desktop-store--title) (- width gx right (lispm-desktop-px 12))
-                                        '(:inherit lispm-desktop-platinum-list :weight bold))))
+                                        '(:inherit lispm-ui-list :weight bold))))
     (insert (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right right))))
     (lispm-desktop-platinum-insert-push-button label #'lispm-desktop-store-check-for-updates
                                                :help (lispm-desktop-tr "Fetch the catalogs again")
@@ -2805,10 +2805,10 @@ string, said between them.  Where the window is too narrow for both,
 RIGHT goes on a line of its own under LEFT."
   (let* ((gap (lispm-desktop-px 10))
          (margin (lispm-desktop-px lispm-desktop-store-margin))
-         (face 'lispm-desktop-platinum-list)
+         (face 'lispm-ui-list)
          (width (lambda (button)
                   (if (stringp button)
-                      (lispm-desktop-platinum-content-width button face)
+                      (lispm-ui-text-width button face)
                     (lispm-desktop-store--button-width (car button) (nth 3 button)))))
          (room-of (lambda (buttons)
                     (+ (apply #'+ (mapcar width buttons)) (* gap (max 0 (1- (length buttons)))))))
@@ -2897,7 +2897,7 @@ most WIDTH pixels, after a slash or a hyphen where one is: a file name
 or a URL, as an error names.  A word that fits is its own piece; so is a
 character, however narrow WIDTH, so that cutting ends."
   (let ((pieces nil))
-    (cl-flet ((fits (text) (<= (lispm-desktop-platinum-content-width text face) width)))
+    (cl-flet ((fits (text) (<= (lispm-ui-text-width text face) width)))
       (while (and (> (length word) 1) (not (fits word)))
         (let* ((fit (let ((n (1- (length word))))
                       (while (and (> n 1) (not (fits (substring word 0 n))))
@@ -2920,9 +2920,9 @@ properties."
   (unless (member text '(nil ""))
     (mapcan (lambda (paragraph)
               (mapcan (lambda (line) (lispm-desktop-store--pieces line width face))
-                      (or (lispm-desktop-i18n-wrap
+                      (or (lispm-ui-text-wrap
                            paragraph
-                           (lambda (line) (<= (lispm-desktop-platinum-content-width line face) width)))
+                           (lambda (line) (<= (lispm-ui-text-width line face) width)))
                           (list ""))))
             (split-string text "\n"))))
 
@@ -3052,7 +3052,7 @@ large as fits, up to `lispm-desktop-store-picture-scale' times them, but
 never smaller than its size, unless narrower to fit; another picture at
 its size, or narrower to fit."
   (when-let* ((size (if (string-suffix-p ".svg" file)
-                        (when-let* ((dom (lispm-desktop-platinum-svg-dom file)))
+                        (when-let* ((dom (lispm-ui-svg-dom file)))
                           (let* ((box (mapcar #'string-to-number
                                               (split-string (or (dom-attr dom 'viewBox) "") "[ ,]+" t)))
                                  (width (string-to-number (or (dom-attr dom 'width) "0")))
@@ -3115,8 +3115,8 @@ as (FROM TO URL)s."
   (let ((links nil) (at 0))
     (while (setq at (text-property-not-all at (length line) 'lispm-desktop-markdown-link nil line))
       (let ((end (next-single-property-change at 'lispm-desktop-markdown-link line (length line))))
-        (push (list (+ x (lispm-desktop-platinum-content-width (substring line 0 at) face))
-                    (+ x (lispm-desktop-platinum-content-width (substring line 0 end) face))
+        (push (list (+ x (lispm-ui-text-width (substring line 0 at) face))
+                    (+ x (lispm-ui-text-width (substring line 0 end) face))
                     (get-text-property at 'lispm-desktop-markdown-link line))
               links)
         (setq at end)))
@@ -3207,13 +3207,13 @@ the x of each; :code, the band behind a block of code, (X . WIDTH);
   (let* ((props (cdr (assq id (lispm-desktop-store-items))))
          (gx (car (lispm-desktop-store--grid width)))
          (room (- width gx lispm-desktop-store-margin))
-         (face 'lispm-desktop-platinum-list)
-         (small 'lispm-desktop-platinum-small)
+         (face 'lispm-ui-list)
+         (small 'lispm-ui-small)
          (fields (lispm-desktop-store--fields id))
          ;; The labels' right edge: past the widest, as a translation may
          ;; be wider than the room English takes.
          (label-end (apply #'max 72 (mapcar (lambda (field)
-                                               (+ 4 (lispm-desktop-platinum-content-width
+                                               (+ 4 (lispm-ui-text-width
                                                      (propertize (car field) 'face 'bold) small)))
                                              fields)))
          (about (lispm-desktop-store--about props))
@@ -3356,23 +3356,23 @@ is installed or updated."
   (let* ((tx (+ x 80))
          (room (- width tx lispm-desktop-store-margin))
          (text (plist-get palette :text))
-         (grey (lispm-desktop-platinum-grey palette #x66))
-         (small 'lispm-desktop-platinum-small))
+         (grey (lispm-ui-grey palette #x66))
+         (small 'lispm-ui-small))
     (lispm-desktop-store--draw-icon svg (lispm-desktop-platinum-icon-file (plist-get head :icon)) x 10 64)
-    (lispm-desktop-platinum-svg-content
+    (lispm-ui-svg-content
      svg (lispm-desktop-store--fit (plist-get head :name) room '(:weight bold :height 1.5))
-     tx 10 26 text 'lispm-desktop-platinum-list)
+     tx 10 26 text 'lispm-ui-list)
     (when-let* ((subtitle (plist-get head :subtitle)))
-      (lispm-desktop-platinum-svg-content svg (lispm-desktop-store--fit subtitle room small)
-                                          tx 38 14 grey small))
-    (lispm-desktop-platinum-svg-content svg (lispm-desktop-store--fit (plist-get head :catalog) room small)
-                                        tx 54 14 grey small)
+      (lispm-ui-svg-content svg (lispm-desktop-store--fit subtitle room small)
+                            tx 38 14 grey small))
+    (lispm-ui-svg-content svg (lispm-desktop-store--fit (plist-get head :catalog) room small)
+                          tx 54 14 grey small)
     (when-let* ((progress (plist-get head :progress)))
       (lispm-desktop-platinum-svg-progress-bar svg tx 72 (min 160 room) progress palette))))
 
 (defun lispm-desktop-store--draw-picture (svg file x y size)
   "Draw the picture FILE on SVG at X, Y, SIZE, (WIDTH . HEIGHT), pixels."
-  (lispm-desktop-platinum-svg-emacs-image
+  (lispm-ui-svg-emacs-image
    svg (list 'image :file file :type (if (string-suffix-p ".svg" file) 'svg (image-supported-file-p file)))
    x y (car size) (cdr size)))
 
@@ -3385,24 +3385,24 @@ CURRENT highlighted, and what it shows."
          (svg (svg-create width height))
          (x (car (lispm-desktop-store--grid width)))
          (text (plist-get palette :text))
-         (small 'lispm-desktop-platinum-small))
-    (lispm-desktop-platinum-svg-fill svg 0 0 width height (plist-get palette :chrome))
+         (small 'lispm-ui-small))
+    (lispm-ui-svg-fill svg 0 0 width height (plist-get palette :chrome))
     (lispm-desktop-store--draw-categories svg palette categories current (- top))
     ;; A quote's bars, and the band behind code, run on from row to row.
     (dolist (bar (plist-get row :bars))
-      (lispm-desktop-platinum-svg-fill svg (+ bar 4) 0 3 height (lispm-desktop-platinum-grey palette #xAA)))
+      (lispm-ui-svg-fill svg (+ bar 4) 0 3 height (lispm-ui-grey palette #xAA)))
     (when-let* ((band (plist-get row :code)))
-      (lispm-desktop-platinum-svg-fill svg (car band) 0 (cdr band) height (lispm-desktop-platinum-grey palette #xEE)))
+      (lispm-ui-svg-fill svg (car band) 0 (cdr band) height (lispm-ui-grey palette #xEE)))
     (when-let* ((marker (plist-get row :marker)))
-      (lispm-desktop-platinum-svg-content svg marker (plist-get row :marker-x) 0 height text (plist-get row :face)))
+      (lispm-ui-svg-content svg marker (plist-get row :marker-x) 0 height text (plist-get row :face)))
     (cond
      ((plist-get row :head)
       (lispm-desktop-store--draw-head svg palette x width (plist-get row :head)))
      ;; Inset in a well, as Mac OS 9 framed a picture.
      ((plist-get row :banner)
       (pcase-let ((`(,w . ,h) (plist-get row :size)))
-        (lispm-desktop-platinum-svg-fill svg (1- x) 3 (+ w 2) (+ h 2) (lispm-desktop-platinum-grey palette #xFF))
-        (lispm-desktop-platinum-svg-fill svg (1- x) 3 (1+ w) (1+ h) (lispm-desktop-platinum-grey palette #x88))
+        (lispm-ui-svg-fill svg (1- x) 3 (+ w 2) (+ h 2) (lispm-ui-grey palette #xFF))
+        (lispm-ui-svg-fill svg (1- x) 3 (1+ w) (1+ h) (lispm-ui-grey palette #x88))
         (lispm-desktop-store--draw-picture svg (plist-get row :banner) x 4 (plist-get row :size))))
      ((plist-get row :picture)
       (lispm-desktop-store--draw-picture svg (plist-get row :picture) (plist-get row :x) 0 (plist-get row :size)))
@@ -3410,17 +3410,17 @@ CURRENT highlighted, and what it shows."
      ((plist-get row :rule)
       (let* ((from (or (plist-get row :x) x))
              (end (if (plist-get row :room) (+ from (plist-get row :room) -1) (- width lispm-desktop-store-margin 1))))
-        (lispm-desktop-platinum-svg-row svg from end 6 (lispm-desktop-platinum-grey palette #x88))
-        (lispm-desktop-platinum-svg-row svg from end 7 (lispm-desktop-platinum-grey palette #xFF))))
+        (lispm-ui-svg-row svg from end 6 (lispm-ui-grey palette #x88))
+        (lispm-ui-svg-row svg from end 7 (lispm-ui-grey palette #xFF))))
      ((plist-get row :text)
-      (lispm-desktop-platinum-svg-content svg (plist-get row :text) (or (plist-get row :x) x) 0 height text
-                                          (plist-get row :face)))
+      (lispm-ui-svg-content svg (plist-get row :text) (or (plist-get row :x) x) 0 height text
+                            (plist-get row :face)))
      ((plist-get row :label)
       (let* ((label (propertize (plist-get row :label) 'face 'bold))
              (end (+ x (plist-get row :label-end))))
-        (lispm-desktop-platinum-svg-content
-         svg label (- end 4 (lispm-desktop-platinum-content-width label small)) 0 height text small)
-        (lispm-desktop-platinum-svg-content svg (plist-get row :value) (+ end 4) 0 height text small))))
+        (lispm-ui-svg-content
+         svg label (- end 4 (lispm-ui-text-width label small)) 0 height text small)
+        (lispm-ui-svg-content svg (plist-get row :value) (+ end 4) 0 height text small))))
     svg))
 
 (defun lispm-desktop-store--markdown-lines (blocks room dim)
@@ -3429,7 +3429,7 @@ cells wide, DIM the face of what only frames them: a blank line between
 blocks, a list's items after their bullets or numbers, a quote's lines
 after a bar, code further in, a rule across, an image by its words."
   (let ((lines nil)
-        (face 'lispm-desktop-platinum-list))
+        (face 'lispm-ui-list))
     (cl-flet ((add (more) (setq lines (append (reverse more) lines)))
               (prefixed (first then more)
                 (seq-map-indexed (lambda (line index) (concat (if (= index 0) first then) line)) more)))
@@ -3491,7 +3491,7 @@ the one
          (head (lispm-desktop-store--head id))
          (categories (lispm-desktop-store--categories))
          (room (max 10 (- width lispm-desktop-store-text-categories-width 5)))
-         (dim `(:foreground ,(lispm-desktop-platinum-color :muted)))
+         (dim `(:foreground ,(lispm-ui-color :muted)))
          (fields (lispm-desktop-store--fields id))
          (label-width (apply #'max 0 (mapcar (lambda (field) (string-width (car field))) fields)))
          (about (lispm-desktop-store--about props))
@@ -3502,7 +3502,7 @@ the one
          (picture (or (lispm-desktop-tty-images-blank 'head (plist-get head :icon) nil
                                                       (car picture-size) (cdr picture-size))
                       (lispm-desktop-platinum-icon-picture (plist-get head :icon) lispm-desktop-store-text-icon-size
-                                                           nil (lispm-desktop-platinum-color :chrome))
+                                                           nil (lispm-ui-color :chrome))
                       (list (substring-no-properties (lispm-desktop-platinum-icon (plist-get head :icon))))))
          (picture-width (apply #'max (mapcar #'string-width picture)))
          (beside `(,(propertize (plist-get head :name) 'face '(:weight bold))
@@ -3518,13 +3518,13 @@ the one
                   ,@(if (not about)
                         (lispm-desktop-store--wrap (concat (lispm-desktop-store--failure id)
                                                            (lispm-desktop-store--description props))
-                                                   room 'lispm-desktop-platinum-list)
+                                                   room 'lispm-ui-list)
                       (append (unless (string-empty-p notes)
-                                (append (lispm-desktop-store--wrap notes room 'lispm-desktop-platinum-list)
+                                (append (lispm-desktop-store--wrap notes room 'lispm-ui-list)
                                         (list "")))
                               (lispm-desktop-store--markdown-lines about room dim)))
                   ,@(when-let* ((skills (lispm-desktop-store--skill-lines id)))
-                      (cons "" (mapcan (lambda (line) (lispm-desktop-store--wrap line room 'lispm-desktop-platinum-list))
+                      (cons "" (mapcan (lambda (line) (lispm-desktop-store--wrap line room 'lispm-ui-list))
                                        skills)))
                   ""
                   ,(propertize (lispm-desktop-tr "Information") 'face (lispm-desktop-markdown-heading-face 2))
@@ -3564,10 +3564,10 @@ one `lispm-desktop-store--page-number' says."
                                                    (length categories))))
       (let* ((at top)
              (image (copy-sequence
-                     (lispm-desktop-platinum-image
+                     (lispm-ui-image
                       (list 'store-row width at categories current (lispm-desktop-store--row-key row))
                       (lambda ()
-                        (lispm-desktop-store--draw-row lispm-desktop-platinum-current-palette width at
+                        (lispm-desktop-store--draw-row lispm-ui-current-palette width at
                                                        row categories current))))))
         ;; A row is as tall as its image, though shorter than a line of
         ;; text, as a picture tiled: its pages end where the grid's would.
@@ -3675,7 +3675,7 @@ the composing ends."
           (when lispm-desktop-store--face-cookie
             (face-remap-remove-relative lispm-desktop-store--face-cookie))
           (setq lispm-desktop-store--face-cookie
-                (face-remap-add-relative 'default `(:background ,(lispm-desktop-platinum-color :chrome))))
+                (face-remap-add-relative 'default `(:background ,(lispm-ui-color :chrome))))
           (when lispm-desktop-store--field
             (delete-overlay lispm-desktop-store--field))
           (erase-buffer)
@@ -3761,7 +3761,7 @@ end empties it."
   (when-let* ((field lispm-desktop-store--field)
               ((overlay-buffer field)))
     (let* ((focused (lispm-desktop-store--field-focused-p))
-           (face (if focused 'lispm-desktop-platinum-field-focused 'lispm-desktop-platinum-field))
+           (face (if focused 'lispm-ui-field-focused 'lispm-ui-field))
            (empty (= (overlay-start field) (overlay-end field)))
            (end (if (lispm-desktop-tty-p)
                     (1- lispm-desktop-store-text-categories-width)
@@ -3780,8 +3780,8 @@ end empties it."
                                (concat pad
                                        (propertize (lispm-desktop-tr "Search") 'cursor t
                                                    'face `(:inherit ,face :foreground
-                                                                    ,(lispm-desktop-platinum-grey
-                                                                      lispm-desktop-platinum-current-palette #x88))))
+                                                                    ,(lispm-ui-grey
+                                                                      lispm-ui-current-palette #x88))))
                              (propertize " " 'face face 'cursor t))
                            (propertize " " 'face face 'display
                                        `(space :align-to (,(- end (lispm-desktop-px (if empty 4 18))))))
@@ -4468,7 +4468,7 @@ a grid of icons in pages, or an item's page in its place.
               line-spacing 0
               lispm-desktop-context-menu-function #'lispm-desktop-store--keyboard-menu
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
-              lispm-desktop-platinum-title "App Store"
+              lispm-desktop-platinum-window-title "App Store"
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "app-store")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-store--close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
