@@ -385,7 +385,7 @@ speaks; the columns keep their English names, which sorting goes by."
                 (list (lispm-desktop-tr-noop "Memory") 18 (lispm-desktop-buffer-manager--by 5)))
         tabulated-list-padding 1
         tabulated-list-sort-key '("Memory" . t))
-  (setq-local lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Buffer Manager"))
+  (setq-local lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "Buffer Manager"))
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "computer"))
   ;; One line per buffer, cut at the window's edge rather than wrapped;
   ;; turning visual line mode off restores the lines it found, so it goes

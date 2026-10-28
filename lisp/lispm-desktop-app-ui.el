@@ -770,7 +770,7 @@ and what it does, as found out from its keymap."
                                                                (capitalize (symbol-name app)))))))
     (with-current-buffer buffer
       (lispm-desktop-app-ui-keys-mode)
-      (setq-local lispm-desktop-platinum-title
+      (setq-local lispm-desktop-platinum-window-title
                   (lambda () (lispm-desktop-tr "%s Keys" (lispm-desktop-app-ui-name app))))
       (let ((inhibit-read-only t))
         (erase-buffer)
@@ -989,14 +989,14 @@ windows on its first line left there; one printed later prints them."
   "Give the current buffer its application's interface."
   (when (bound-and-true-p display-line-numbers-mode)
     (display-line-numbers-mode -1))
-  (setq-local lispm-desktop-platinum-title (let ((title (lispm-desktop-app-ui-get :title)))
-                                             (lambda ()
-                                               (cond ((functionp title)
-                                                      ;; One failing names the application.
-                                                      (or (lispm-desktop-app-ui--safely title)
-                                                          (lispm-desktop-app-ui-name)))
-                                                     (title (lispm-desktop-tr title))
-                                                     (t (lispm-desktop-app-ui-name)))))
+  (setq-local lispm-desktop-platinum-window-title (let ((title (lispm-desktop-app-ui-get :title)))
+                                                    (lambda ()
+                                                      (cond ((functionp title)
+                                                             ;; One failing names the application.
+                                                             (or (lispm-desktop-app-ui--safely title)
+                                                                 (lispm-desktop-app-ui-name)))
+                                                            (title (lispm-desktop-tr title))
+                                                            (t (lispm-desktop-app-ui-name)))))
               lispm-desktop-platinum-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
                                                              lispm-desktop-app-ui--app :icon)))
                                             (lispm-desktop-platinum-icon icon))

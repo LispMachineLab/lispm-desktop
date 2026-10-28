@@ -553,7 +553,7 @@ messages unread."
 (defun lispm-desktop-app-erc--setup-conversation ()
   "Title the window by the conversation it shows: the channel, or the
 network for a network's own buffer."
-  (setq-local lispm-desktop-platinum-title
+  (setq-local lispm-desktop-platinum-window-title
               (if (lispm-desktop-app-erc--server-p) (lispm-desktop-app-erc-network-name) (buffer-name))))
 
 (lispm-desktop-app-ui-define 'erc-mode

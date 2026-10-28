@@ -366,7 +366,7 @@ text terminal as rows of names, see `lispm-desktop-finder--text-items'."
                        (apply #'propertize label (funcall props (car item))))))
            row)
           (insert "\n" (propertize " " 'display '(space :height (14))) "\n"))
-        (setq lispm-desktop-platinum-title (lispm-desktop-finder--title lispm-desktop-finder--directory)
+        (setq lispm-desktop-platinum-window-title (lispm-desktop-finder--title lispm-desktop-finder--directory)
               lispm-desktop-platinum-icon (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
                                               (lispm-desktop-platinum-icon (plist-get folder :icon))
                                             (lispm-desktop-platinum-folder-icon lispm-desktop-finder--directory))

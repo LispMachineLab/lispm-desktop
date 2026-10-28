@@ -668,7 +668,7 @@ collapse box does."
 (define-derived-mode lispm-desktop-guide-mode lispm-desktop-app-window-mode "Guide"
   "Major mode of the guide's window: a step of the guide, its buttons under it.
 \\{lispm-desktop-guide-mode-map}"
-  (setq-local lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "LispM Guide"))
+  (setq-local lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "LispM Guide"))
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "guide")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box)

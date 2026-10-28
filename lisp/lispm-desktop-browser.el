@@ -92,7 +92,7 @@
 (defvar xwidget-webkit-mode-map)
 (defvar xwidget-webkit--loading-p)
 (declare-function lispm-desktop-platinum-icon "lispm-desktop-platinum-icons" (name))
-(defvar lispm-desktop-platinum-title)
+(defvar lispm-desktop-platinum-window-title)
 (defvar lispm-desktop-platinum-icon)
 (defvar lispm-desktop-platinum-box-functions)
 
@@ -970,7 +970,7 @@ toolbar.
               header-line-format '(:eval (lispm-desktop-browser--toolbar))
               truncate-lines t
               cursor-type 'bar
-              lispm-desktop-platinum-title #'lispm-desktop-browser--no-page-title
+              lispm-desktop-platinum-window-title #'lispm-desktop-browser--no-page-title
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "netscape")
               lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes))
   ;; Its height is the toolbars': a frame growing, as on a tall screen,
@@ -1003,7 +1003,7 @@ toolbar.
 (defun lispm-desktop-browser--no-page-title ()
   "Return the browser window's title while it shows no page: Browser, in
 the language LispM speaks.  This is the address buffer's
-`lispm-desktop-platinum-title' then."
+`lispm-desktop-platinum-window-title' then."
   (lispm-desktop-tr "Browser"))
 
 (defun lispm-desktop-browser--retitle ()
@@ -1012,12 +1012,12 @@ Each tab's window bottom is named after its page too, not after the
 buffer, whose name WebKit prefixes."
   (dolist (buffer (lispm-browser-tabs))
     (with-current-buffer buffer
-      (setq lispm-desktop-platinum-title (lispm-browser-title buffer))))
+      (setq lispm-desktop-platinum-window-title (lispm-browser-title buffer))))
   (when-let* ((buffer (get-buffer lispm-desktop-browser-address-buffer-name)))
     (let ((shown (and (lispm-desktop-browser--window) (window-buffer (lispm-desktop-browser--window)))))
       (with-current-buffer buffer
-        (setq lispm-desktop-platinum-title (if shown (lispm-browser-title shown)
-                                             #'lispm-desktop-browser--no-page-title)
+        (setq lispm-desktop-platinum-window-title (if shown (lispm-browser-title shown)
+                                                    #'lispm-desktop-browser--no-page-title)
               lispm-desktop-platinum-icon (or (and shown (lispm-browser-favicon shown))
                                               (lispm-desktop-platinum-icon "globe")))))))
 

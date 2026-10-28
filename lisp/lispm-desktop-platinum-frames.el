@@ -42,16 +42,16 @@
 ;;;; A window's title, its moves and rolling it up
 
 
-(defvar-local lispm-desktop-platinum-title nil
+(defvar-local lispm-desktop-platinum-window-title nil
   "Title the window of this buffer shows instead of the buffer's own name:
 a string, or a function returning one when the window is drawn, as a
 title in words of the language LispM speaks is, see
 lispm-desktop-i18n.el.")
 
 (defun lispm-desktop-platinum-title-text (&optional buffer)
-  "Return the title `lispm-desktop-platinum-title' gives BUFFER's window,
+  "Return the title `lispm-desktop-platinum-window-title' gives BUFFER's window,
 by default the current buffer's, or nil."
-  (let ((title (buffer-local-value 'lispm-desktop-platinum-title (or buffer (current-buffer)))))
+  (let ((title (buffer-local-value 'lispm-desktop-platinum-window-title (or buffer (current-buffer)))))
     (if (functionp title)
         (with-current-buffer (or buffer (current-buffer)) (funcall title))
       title)))

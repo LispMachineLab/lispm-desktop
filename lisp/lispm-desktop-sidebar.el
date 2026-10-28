@@ -194,7 +194,7 @@ TITLE-ACTIONS followed by a button calling REFRESH.  Both action lists
 hold (LABEL COMMAND HELP [PRESSED]) entries, LABEL and HELP in English,
 translated where shown, see `lispm-desktop-sidebar--toolbar-buttons'."
   (let ((spec (alist-get view lispm-desktop-sidebar-views)))
-    (setq-local lispm-desktop-platinum-title
+    (setq-local lispm-desktop-platinum-window-title
                 (lambda () (lispm-desktop-tr (plist-get (alist-get view lispm-desktop-sidebar-views) :title)))
                 lispm-desktop-platinum-icon (lispm-desktop-platinum-icon (plist-get spec :icon))))
   (kill-local-variable 'tab-line-format)

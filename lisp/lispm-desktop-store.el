@@ -856,7 +856,7 @@ meanwhile, in a pane of the window, or in a window of its own."
               truncate-lines nil
               word-wrap t)
         (setq-local word-wrap-by-category t
-                    lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "What It Brings"))))
+                    lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "What It Brings"))))
       (unwind-protect
           (if-let* ((frame (lispm-desktop-app-window-frame 'store)))
               (let ((window (split-window (frame-root-window frame) nil 'below)))
@@ -4468,7 +4468,7 @@ a grid of icons in pages, or an item's page in its place.
               line-spacing 0
               lispm-desktop-context-menu-function #'lispm-desktop-store--keyboard-menu
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
-              lispm-desktop-platinum-title "App Store"
+              lispm-desktop-platinum-window-title "App Store"
               lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "app-store")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-store--close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))

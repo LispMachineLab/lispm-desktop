@@ -318,7 +318,7 @@ toolbar."
               header-line-format nil
               truncate-lines t
               cursor-type nil
-              lispm-desktop-platinum-title (lambda () (lispm-desktop-tr "Bookmarks")))
+              lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "Bookmarks")))
   (visual-line-mode -1)
   (setq-local truncate-lines t)
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list)

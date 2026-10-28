@@ -1908,7 +1908,7 @@ window opened in needs it.  This is one of
   (setq-local lispm-desktop-platinum-info (lambda () (lispm-desktop-tr "Choices are kept for the next start."))
               header-line-format '(:eval (lispm-desktop-settings--tabs))
               ;; The control panel's name, whichever tab is in front.
-              lispm-desktop-platinum-title
+              lispm-desktop-platinum-window-title
               (lambda ()
                 (when-let* ((category (assq lispm-desktop-settings--category lispm-desktop-settings-categories)))
                   (lispm-desktop-settings-category-label category)))
