@@ -75,6 +75,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'svg)
+(require 'color)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum-palette)
@@ -281,6 +282,129 @@ then looks that up as a fontset's name and fails."
   (when (display-graphic-p)
     (list :fontset (or (lispm-desktop-platinum--cjk-fontset family) 'reset))))
 
+(defun lispm-desktop-platinum--color-distance (a b)
+  "Return the perceptual CIE76 distance between colours A and B, or nil.
+Unlike raw RGB distance, this accounts for the chroma of Platinum's
+lavender selection as well as its lightness against the list body."
+  (when-let* ((rgb-a (lispm-ui-rgb a))
+              (rgb-b (lispm-ui-rgb b)))
+    (sqrt (apply #'+
+                 (cl-mapcar (lambda (x y) (expt (- x y) 2))
+                            (apply #'color-srgb-to-lab rgb-a)
+                            (apply #'color-srgb-to-lab rgb-b))))))
+
+(defun lispm-desktop-platinum--linear-component (component)
+  "Return the linear-light value of an sRGB COMPONENT."
+  (if (<= component 0.04045) (/ component 12.92)
+    (expt (/ (+ component 0.055) 1.055) 2.4)))
+
+(defun lispm-desktop-platinum--relative-luminance (color)
+  "Return COLOR's WCAG relative luminance, or nil if unresolved."
+  (when-let* ((rgb (lispm-ui-rgb color)))
+    (apply #'+ (cl-mapcar #'* '(0.2126 0.7152 0.0722)
+                          (mapcar #'lispm-desktop-platinum--linear-component rgb)))))
+
+(defun lispm-desktop-platinum--text-contrast (a b)
+  "Return the WCAG contrast ratio of colours A and B, or nil."
+  (when-let* ((x (lispm-desktop-platinum--relative-luminance a))
+              (y (lispm-desktop-platinum--relative-luminance b)))
+    (/ (+ (max x y) 0.05) (+ (min x y) 0.05))))
+
+(defun lispm-desktop-platinum--row-foregrounds ()
+  "Return foregrounds used by sidebar text, statuses and agent icons."
+  (let ((faces (append '(default shadow success warning error)
+                       (and (boundp 'lispm-agents-label-faces) lispm-agents-label-faces)
+                       (mapcar (lambda (agent) (nth 2 (plist-get (cdr agent) :icon)))
+                               (and (boundp 'lispm-agents-defined) lispm-agents-defined))
+                       (seq-filter (lambda (face)
+                                     (string-match-p "\\`lispm-agents-.*-icon\\'" (symbol-name face)))
+                                   (face-list)))))
+    (delete-dups (delq nil (mapcar (lambda (face)
+                                    (when (and face (facep face))
+                                      (face-foreground face nil t))) faces)))))
+
+(defun lispm-desktop-platinum--selection-luminances (body foregrounds)
+  "Return closed luminance intervals preserving FOREGROUNDS on BODY.
+For each foreground, the contrast inequality permits a dark interval
+and a light interval.  Intersect those intervals instead of searching
+a coarse colour grid, which cannot establish whether a solution exists."
+  (when-let* ((ground (lispm-desktop-platinum--relative-luminance body)))
+    (let ((intervals (list (cons 0.0 1.0))))
+      (dolist (foreground foregrounds intervals)
+        (when-let* ((ink (lispm-desktop-platinum--relative-luminance foreground)))
+          (let* ((ratio (/ (+ (max ink ground) 0.05) (+ (min ink ground) 0.05)))
+                 (dark (- (/ (+ ink 0.05) ratio) 0.05))
+                 (light (- (* ratio (+ ink 0.05)) 0.05))
+                 (allowed (append (and (>= dark -1e-12)
+                                       (list (cons 0.0 (max 0.0 dark))))
+                                  (and (<= light (+ 1.0 1e-12))
+                                       (list (cons (min 1.0 light) 1.0)))))
+                 next)
+            (dolist (interval intervals)
+              (dolist (range allowed)
+                (let ((low (max (car interval) (car range)))
+                      (high (min (cdr interval) (cdr range))))
+                  (when (<= low (+ high 1e-12))
+                    (push (cons low (max low high)) next)))))
+            (setq intervals (delete-dups (nreverse next)))))))))
+
+(defun lispm-desktop-platinum--color-at-luminance (color luminance)
+  "Tint or shade COLOR to LUMINANCE in linear light, preserving its hue.
+Return a normal 24-bit colour; callers check contrast after rounding."
+  (when-let* ((rgb (lispm-ui-rgb color))
+              (light (lispm-desktop-platinum--relative-luminance color)))
+    (let* ((end (if (< light luminance) 1.0 0.0))
+           (fraction (if (= light end) 0.0 (/ (- luminance light) (- end light)))))
+      (apply #'format "#%02x%02x%02x"
+             (mapcar
+              (lambda (component)
+                (let* ((linear (lispm-desktop-platinum--linear-component component))
+                       (mixed (+ linear (* fraction (- end linear))))
+                       (srgb (if (<= mixed 0.0031308) (* mixed 12.92)
+                               (- (* 1.055 (expt mixed (/ 1.0 2.4))) 0.055))))
+                  (round (* 255 (max 0.0 (min 1.0 srgb)))))) rgb)))))
+
+(defun lispm-desktop-platinum--selection-background (body accent region foregrounds current)
+  "Choose a selection on BODY preserving every FOREGROUNDS contrast.
+Prefer REGION, then an ACCENT tint or shade in an allowed luminance
+interval.  An underline distinguishes selection from CURRENT even
+where preserving dim text permits only a subtle background change.
+Return nil only when the allowed luminance is solely BODY's pure black
+or white: no other colour can satisfy it.  If 24-bit rounding prevents
+an accent tint from fitting a narrow interval, retain BODY and its
+text colours; the underline still identifies the selected row."
+  (let* ((tint (lispm-ui-blend body accent 0.60))
+         (ground (lispm-desktop-platinum--relative-luminance body))
+         (intervals (lispm-desktop-platinum--selection-luminances body foregrounds)))
+    (cond
+     ;; Unresolved terminal colours retain the theme's background.
+     ((not (and tint ground (lispm-ui-rgb current))) region)
+     ((and (or (= ground 0.0) (= ground 1.0))
+           (seq-every-p (lambda (range)
+                          (and (< (abs (- (car range) ground)) 1e-12)
+                               (< (abs (- (cdr range) ground)) 1e-12))) intervals))
+      nil)
+     (t
+      (cl-labels ((suitable (candidate)
+                    (when-let* ((light (lispm-desktop-platinum--relative-luminance candidate)))
+                      (seq-some (lambda (range)
+                                  (<= (- (car range) 1e-12) light (+ (cdr range) 1e-12)))
+                                intervals))))
+        (or (and (suitable region)
+                 (> (or (lispm-desktop-platinum--color-distance body region) 0) 3)
+                 region)
+            (and (suitable tint) tint)
+            (catch 'found
+              (dolist (range intervals)
+                ;; Interior samples avoid 24-bit rounding across a bound;
+                ;; these are projections of the accent, not gamut searches.
+                (dolist (fraction '(0.5 0.25 0.75))
+                  (let ((candidate
+                         (lispm-desktop-platinum--color-at-luminance
+                          accent (+ (car range) (* fraction (- (cdr range) (car range)))))))
+                    (when (suitable candidate) (throw 'found candidate))))))
+            body))))))
+
 (defun lispm-desktop-platinum-apply-faces ()
   "Set every chrome face in the palette just derived from the active theme,
 and the look's fonts, LispM UI's faces' too, whose colours LispM UI has
@@ -394,12 +518,40 @@ faces this function never sets, so re-running it is idempotent."
     ;; theme's, as Dracula's, is barely lighter than its list.  Where
     ;; colours cannot be blended, as on a text terminal, the secondary
     ;; selection stands in.
-    (let ((tinted (lispm-ui-blend (face-background 'lispm-desktop-platinum-list-body nil t)
-                                  (lispm-ui-color :accent)
-                                  0.25)))
+    (let* ((body (face-background 'lispm-desktop-platinum-list-body nil t))
+           (accent (lispm-ui-color :accent))
+           (tinted (lispm-ui-blend body accent 0.25))
+           (region (face-background 'region nil t))
+           (preserved (lispm-desktop-platinum--selection-background
+                       body accent region (lispm-desktop-platinum--row-foregrounds) tinted))
+           ;; Some light palettes leave no room for a distinct background
+           ;; while preserving both default and dim text.  Only then use
+           ;; a conventional selection with its own contrasting text.
+           (selected (or preserved
+                         (if (and (>= (or (lispm-desktop-platinum--text-contrast
+                                            region "#ffffff") 0) 4.5)
+                                  (> (or (lispm-desktop-platinum--color-distance body region) 0) 3))
+                             region
+                           (lispm-desktop-platinum--color-at-luminance accent 0.10))))
+           (foreground (and (not preserved) selected "#ffffff"))
+           ;; A focus edge remains clear when light themes allow only a
+           ;; near-white fill.  It does not cover icon or status colours,
+           ;; or change row height as a box around the row would.
+           (edge (and tinted selected
+                      (if (>= (or (lispm-desktop-platinum--text-contrast accent selected) 0) 3)
+                          accent
+                        (or foreground text)))))
       (set-face-attribute 'lispm-desktop-platinum-row-current nil
                           :inherit (if tinted 'unspecified 'secondary-selection)
-                          :background (or tinted 'unspecified)))))
+                          :background (or tinted 'unspecified))
+      ;; Never inherit region's foreground.  Reset an exceptional text
+      ;; colour on theme/look changes so the normal path keeps row colours.
+      (set-face-attribute 'lispm-desktop-platinum-row-selected nil
+                          :inherit 'unspecified
+                          :background (or selected 'unspecified)
+                          :foreground (or foreground 'unspecified)
+                          :underline (if edge `(:color ,edge :style line) 'unspecified)
+                          :extend t))))
 
 ;; Before LispM UI draws its forms again, at 90: they are measured in the
 ;; fonts set here.

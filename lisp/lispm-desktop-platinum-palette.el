@@ -88,6 +88,16 @@ does; users rarely need to."
   "Face of a list's row: a lit line atop it parts it from the row above."
   :group 'lispm-desktop-platinum)
 
+(defface lispm-desktop-platinum-row-selected '((t :extend t))
+  "Face of a list's selected row at point.
+Prefer the theme's region when visible and preserving every row
+foreground's full contrast; otherwise tint or shade the accent.
+An underline identifies selection even when contrast permits only a
+subtle fill.  Only when no distinct background can preserve the text
+colours use a dark selection with white text.  The underline separates
+selection from `lispm-desktop-platinum-row-current'."
+  :group 'lispm-desktop-platinum)
+
 (defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))
   "Face of a list's row naming what is being worked on elsewhere, as the
 agent sidebar's row of the session at work: the list tinted with the

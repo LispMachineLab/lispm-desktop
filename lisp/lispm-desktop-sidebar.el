@@ -224,7 +224,7 @@ selected item."
   (dolist (cursor '(evil-emacs-state-cursor evil-normal-state-cursor
                     evil-motion-state-cursor))
     (set (make-local-variable cursor) '(nil)))
-  (face-remap-add-relative 'hl-line 'region)
+  (face-remap-add-relative 'hl-line 'lispm-desktop-platinum-row-selected)
   ;; A window's title menu offers documents, not the sidebar's lists.
   (setq-local lispm-desktop-platinum-listed nil)
   (display-line-numbers-mode -1))
