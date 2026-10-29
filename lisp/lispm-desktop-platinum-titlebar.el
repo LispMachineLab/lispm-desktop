@@ -29,6 +29,7 @@
 
 ;;; Code:
 
+(require 'lispm-ui-window)
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
@@ -268,9 +269,6 @@ The ellipsis takes the face of the text it follows."
                                                    (substring string 0 n))))))))))
       (concat (substring string 0 n) ellipsis))))
 
-(defconst lispm-ui-title-box-margin 3
-  "Pixels from a title bar's end to the box nearest it, Mac OS 9's.")
-
 (defconst lispm-desktop-platinum-resize-corners
   '((left top . 12) (right top . 12) (left bottom . 12) (right bottom . 15))
   "Where macOS takes a press on an undecorated frame as resizing it from a
@@ -332,42 +330,6 @@ frame has two of them at its title bar's ends, and, rolled up, all four."
            left (- right (window-right-divider-width window) (window-scroll-bar-width window))
            top))
       (cons margin margin))))
-
-(cl-defgeneric lispm-ui-title-layout (width title-width &optional controls margins)
-  "Return how a title bar WIDTH pixels wide lays out a title TITLE-WIDTH wide.
-CONTROLS, as `lispm-desktop-platinum-window-controls' returns them,
-says which boxes the bar holds, by default all three.  MARGINS,
-\(LEFT . RIGHT) pixels, stands the boxes nearest the bar's ends that far
-in, by default Mac OS 9's `lispm-ui-title-box-margin'; an end
-without boxes keeps Mac OS 9's.  A window's bar stands its boxes clear
-of the corners its frame is resized from, see
-`lispm-desktop-platinum-window-box-margins'.  The value is a plist: the
-title stretch, between the boxes, runs
-from :start to :end; the title, as wide as :title, starts at :label-x;
-:ridges lists the \(FROM . TO) columns of the ridges either side;
-:margins, (LEFT . RIGHT), the bar's ground before the close box and after
-the last box.  Spacing is Mac OS 9's: the close box three pixels in from
-the edge, four pixels to the ridges, four from the ridges to the zoom
-box, three to the collapse box and three to the edge.  The title is
-centred in the bar unless that would push it into the boxes; a title too
-wide is narrowed so that a short run of ridges stays on either side."
-  (pcase-let* ((`(,close ,zoom ,collapse) (or controls '(on on on)))
-               (s lispm-ui-title-box-size)
-               (margin lispm-ui-title-box-margin)
-               (`(,lead . ,trail) (or margins (cons margin margin)))
-               (lead (if close lead 0))
-               (trail (if (or zoom collapse) trail margin))
-               (start (if close (+ lead s) 0))
-               (end (- width trail (if zoom s 0) (if (and zoom collapse) 3 0) (if collapse s 0)))
-               (from (+ start (if close 4 7)))
-               (to (- end (if (or zoom collapse) 5 8)))
-               (pad 6)
-               (least 12)
-               (title (max 0 (min title-width (- to from (* 2 (+ pad least))))))
-               (label-x (max (+ from least pad)
-                             (min (/ (- width title) 2) (- to least pad title)))))
-    (list :start start :end end :title title :label-x label-x :margins (cons lead trail)
-          :ridges (list (cons from (- label-x pad)) (cons (+ label-x title pad) to)))))
 
 (defun lispm-desktop-platinum--fixed-p (window)
   "Return non-nil when WINDOW keeps its place and size: a side window, such

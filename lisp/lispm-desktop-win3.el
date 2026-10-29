@@ -366,7 +366,7 @@ frame round white, FRACTION of it filled in the highlight colour."
     (lispm-ui-svg-paint svg (1+ x) (1+ y) filled (- h 2) (plist-get palette :highlight))))
 
 (cl-defmethod lispm-ui-draw-list-header (palette columns
-                                                 &context (lispm-desktop-look (eql win3))
+                                                 &context (lispm-ui-look (eql win3))
                                                  &optional label-x)
   "Return a list's column headings as buttons in a row, in PALETTE.
 COLUMNS lists (LABEL WIDTH SORTED [X]); the sorted column's heading is
@@ -387,7 +387,7 @@ drawn pushed in.  LABEL-X places labels, by default eight pixels in."
 ;;;; Scroll bars
 
 (cl-defmethod lispm-ui-scroll-thumb (height start end min max
-                                            &context (lispm-desktop-look (eql win3)))
+                                            &context (lispm-ui-look (eql win3)))
   "Return the thumb of a Windows 3.2 scroll bar HEIGHT pixels tall: a
 square as wide as the bar, standing as far along the track as START is
 along a buffer from MIN to MAX, END showing last; nil when everything
@@ -411,7 +411,7 @@ and grey when not."
                       (if enabled (plist-get palette :outline) (lispm-desktop-pc-shadow palette))))
 
 (cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
-                                                &context (lispm-desktop-look (eql win3)))
+                                                &context (lispm-ui-look (eql win3)))
   "Return Windows 3.2's scroll bar HEIGHT pixels tall, in PALETTE: arrow
 buttons at both ends, the grey track between, outlined in black, and
 THUMB a raised square on it.  Nothing to scroll, THUMB nil, greys the

@@ -130,7 +130,7 @@ the look's :box-width wide, in PALETTE, PRESSED or not.")
     (cons (plist-get palette :title-inactive) (plist-get palette :title-inactive-text))))
 
 (cl-defmethod lispm-ui-title-layout (width title-width
-                                           &context (lispm-desktop-look (lispm-ui-look-family pc))
+                                           &context (lispm-ui-look (lispm-ui-look-family pc))
                                            &optional controls margins)
   "Lay a PC title bar WIDTH pixels wide out for a title TITLE-WIDTH wide.
 The system menu box opens it, minimize and maximize close it, each the
@@ -530,7 +530,7 @@ ON; grey when STATE is `disabled', the circle's inside grey when
     svg))
 
 (cl-defmethod lispm-ui-draw-triangle (palette open
-                                              &context (lispm-desktop-look (lispm-ui-look-family pc)))
+                                              &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a tree's disclosure box in PALETTE, twelve pixels square: a box
 outlined in the look's :tree-box holding a minus when OPEN, a plus when
 closed."
@@ -548,7 +548,7 @@ closed."
 (defconst lispm-desktop-pc-scroll-button 16
   "Height in pixels of a scroll bar's arrow button, its outline included.")
 
-(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Lay a PC scroll bar HEIGHT pixels tall out: an arrow button at either
 end, the track between."
   (let ((b lispm-desktop-pc-scroll-button))

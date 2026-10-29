@@ -361,7 +361,7 @@ grey, FRACTION of it filled in the title bar's colour."
     (lispm-ui-svg-paint svg (1+ x) (1+ y) filled (- h 2) (plist-get palette :title))))
 
 (cl-defmethod lispm-ui-draw-list-header (palette columns
-                                                 &context (lispm-desktop-look (eql os2))
+                                                 &context (lispm-ui-look (eql os2))
                                                  &optional label-x)
   "Return a details view's column titles in PALETTE, as OS/2 2.0 drew them:
 each centred over a grey line, on the view's ground.  COLUMNS lists
@@ -387,7 +387,7 @@ not used: titles are centred."
 ;;;; Scroll bars
 
 (cl-defmethod lispm-ui-scroll-thumb (height start end min max
-                                            &context (lispm-desktop-look (eql os2)))
+                                            &context (lispm-ui-look (eql os2)))
   "Return the thumb of an OS/2 2.0 scroll bar HEIGHT pixels tall, as long
 as the part of a buffer from MIN to MAX the window shows, START to END;
 nil when everything shows, or the track is too short."
@@ -402,7 +402,7 @@ nil when everything shows, or the track is too short."
               length)))))
 
 (cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
-                                                &context (lispm-desktop-look (eql os2)))
+                                                &context (lispm-ui-look (eql os2)))
   "Return OS/2 2.0's scroll bar HEIGHT pixels tall, in PALETTE: raised arrow
 buttons at both ends, a stippled track between, THUMB raised on it.
 Nothing to scroll, THUMB nil, greys the arrows; an inactive bar, ACTIVE

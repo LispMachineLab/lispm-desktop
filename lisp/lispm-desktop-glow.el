@@ -293,7 +293,7 @@ bar's ground, filled when PRESSED.  Collapse holds a bar, zoom a square."
     svg))
 
 (cl-defmethod lispm-ui-title-layout (width title-width
-                                           &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                           &context (lispm-ui-look (lispm-ui-look-family glow))
                                            &optional controls margins)
   "Lay a glowing title bar WIDTH pixels wide out for a title TITLE-WIDTH wide.
 The close box opens it, zoom and collapse close it; phosphor centres the
@@ -818,7 +818,7 @@ track outlined dimly, FRACTION of it a glowing bar."
       (lispm-ui-svg-paint svg (+ x 2) (+ y 3) filled (- h 6) (lispm-desktop-glow-color palette :glow)))))
 
 (cl-defmethod lispm-ui-draw-triangle (palette open
-                                              &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                              &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a list's disclosure mark, twelve pixels square: a chevron in the
 glow colour, pointing down when OPEN, right when not."
   (let ((svg (svg-create 12 12)))
@@ -827,7 +827,7 @@ glow colour, pointing down when OPEN, right when not."
     svg))
 
 (cl-defmethod lispm-ui-draw-list-header (palette columns
-                                                 &context (lispm-desktop-look (lispm-ui-look-family glow))
+                                                 &context (lispm-ui-look (lispm-ui-look-family glow))
                                                  &optional label-x)
   "Return a list's column headings in a glowing row: dim labels between dim
 lines, the sorted column's label in the glow colour and underlined.
@@ -858,14 +858,14 @@ default eight pixels in."
 (defconst lispm-desktop-glow--scroll-arrow 16
   "Height in pixels of a glowing scroll bar's arrow box.")
 
-(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Lay a glowing scroll bar HEIGHT pixels tall out: an arrow at either end,
 the track between."
   (let ((a lispm-desktop-glow--scroll-arrow))
     (list :track a :track-length (max 0 (- height a a)) :up 0 :down (- height a) :arrow a)))
 
 (cl-defmethod lispm-ui-scroll-thumb (height start end min max
-                                            &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                            &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return the thumb of a glowing scroll bar HEIGHT pixels tall, as long as
 the part of the buffer from MIN to MAX shown, START to END, is of it,
 twenty pixels at least; nil when everything shows, or the track is too
@@ -892,7 +892,7 @@ square outlined in the glow colour holding a chevron, dim when not LIVE."
                               :fill "none" :stroke ink :stroke-width 1.6)))
 
 (cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
-                                                &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                                &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a glowing scroll bar HEIGHT pixels tall, in PALETTE: arrow boxes at
 both ends, the dark track between marked every eight pixels, THUMB on it,
 its corners cut and three grips across it; neon fills it.  Nothing to

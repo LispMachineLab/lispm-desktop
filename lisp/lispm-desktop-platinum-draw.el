@@ -24,12 +24,14 @@
 ;;; Commentary:
 
 ;; The parts of title bars the chrome is drawn of, all pure: palette and
-;; geometry in, an SVG out.  The grounds and ridges of title bars, their
-;; boxes, triangles.  They are drawn with LispM UI's primitives and kept
-;; in its cache of drawn images (lispm-ui-draw.el).
+;; geometry in, an SVG out.  The desktop draws the title bar's boxes;
+;; LispM UI draws its ground and ridges and lists' disclosure triangles.
+;; All are kept in LispM UI's image cache (lispm-ui-draw.el).
 
 ;;; Code:
 
+(require 'lispm-ui-window)
+(require 'lispm-ui-list)
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
@@ -38,50 +40,16 @@
 (require 'lispm-ui-draw)
 (require 'lispm-ui-text)
 
-
 (defconst lispm-desktop-platinum-title-height 22
   "Height in pixels of a title bar, and of a window's bottom edge.")
 
 (defconst lispm-desktop-platinum-menu-bar-height 20
   "Height in pixels of the menu bar, Mac OS 9's.")
 
-(defconst lispm-ui-title-box-size 13
-  "Side in pixels of a title bar box.")
-
 (defconst lispm-desktop-platinum-box-top 3
   "Pixels from a title bar's top to its boxes'.")
 
 ;;;; Drawing (pure)
-
-(defconst lispm-ui-title-bar-height 21
-  "Height in pixels of a title bar: its lit top line to the content's
-black line, both included.  The outline above it is drawn by what is
-above: the menu bar's black line, a window divider, a window's frame.")
-
-(defun lispm-ui-svg-title-ground (svg x width palette active)
-  "Draw a title bar's ground on SVG from X, WIDTH pixels wide.
-An ACTIVE bar is platinum, lit along its top, shaded along its bottom
-over the content's black line; an inactive one lies flat, over a grey
-line."
-  (let ((grey (lambda (level) (lispm-ui-grey palette level)))
-        (h lispm-ui-title-bar-height))
-    (lispm-ui-svg-fill svg x 0 width h (funcall grey (if active #xCC #xDD)))
-    (if (not active)
-        (lispm-ui-svg-fill svg x (1- h) width 1 (funcall grey #x55))
-      (lispm-ui-svg-fill svg x 0 width 1 (funcall grey #xFF))
-      (lispm-ui-svg-fill svg x (- h 2) width 1 (funcall grey #x99))
-      (lispm-ui-svg-fill svg x (1- h) width 1 (plist-get palette :outline)))))
-
-(defun lispm-ui-svg-title-ridges (svg from to palette)
-  "Draw a title bar's six ridges on SVG from column FROM to TO, both in.
-Each ridge is a lit line over a shaded one, the lit line starting a
-pixel further left and the shaded one ending a pixel further right, so
-their ends look engraved."
-  (when (< from to)
-    (dotimes (i 6)
-      (let ((y (+ 3 (* 2 i))))
-        (lispm-ui-svg-row svg from (1- to) y (lispm-ui-grey palette #xFF))
-        (lispm-ui-svg-row svg (1+ from) to (1+ y) (lispm-ui-grey palette #x77))))))
 
 (defun lispm-desktop-platinum-draw-box (palette kind &optional modified pressed)
   "Return an SVG of a title bar box of KIND, `close', `zoom' or `collapse'.
@@ -134,59 +102,6 @@ turned over."
         (svg-circle svg (/ s 2.0) (+ y (/ s 2.0)) 2 :fill (plist-get palette :outline))))
     svg))
 
-(cl-defun lispm-ui-draw-title-part (palette width &key active ridges label label-x
-                                            lead trail)
-  "Return an SVG of a stretch of title bar WIDTH pixels wide, in PALETTE.
-It shows the ground of an ACTIVE or inactive bar, the RIDGES, a list of
-\(FROM . TO) columns, and LABEL, a string as Emacs would show it in the
-titles' face, its icon included, from column LABEL-X.  LEAD draws the
-lit line down the bar's left end, TRAIL the shaded one down its right."
-  (let ((svg (svg-create width lispm-ui-title-bar-height))
-        (h lispm-ui-title-bar-height))
-    (lispm-ui-svg-title-ground svg 0 width palette active)
-    (when active
-      (when lead
-        (lispm-ui-svg-column svg 0 0 (- h 3) (lispm-ui-grey palette #xFF)))
-      (when trail
-        (lispm-ui-svg-column svg (1- width) 1 (- h 3) (lispm-ui-grey palette #x99)))
-      (pcase-dolist (`(,from . ,to) ridges)
-        (lispm-ui-svg-title-ridges svg from to palette)))
-    (when label
-      (lispm-ui-svg-content
-       svg label label-x 0 (- h 2)
-       (if active (plist-get palette :text) (lispm-ui-grey palette #x77))
-       (if active 'lispm-ui-title 'lispm-ui-title-inactive)))
-    svg))
-
-(defconst lispm-ui-list--triangle
-  '("O" "OO" "OLO" "OLFO" "OLFFO" "OLFFDO" "OLFDOSs" "OLDOSs" "OFOSs" "OOSs" "OSs" " s")
-  "Mac OS 9's disclosure triangle pointing right, a row of pixels a string.
-O is the outline, L, F and D the light, face and dark of the variation
-colour, S and s the shadow falling to the lower right.")
-
-(cl-defgeneric lispm-ui-draw-triangle (palette open)
-  "Return an SVG of a list's disclosure triangle in PALETTE.
-OPEN points it down, at a disclosed group; otherwise it points right.
-It is drawn as Mac OS 9 drew it: outlined, in the variation colour lit
-from the left, casting a shadow; pointing down, it is the same triangle
-turned over its diagonal."
-  (let ((svg (svg-create 12 12))
-        (colors `((?O . ,(plist-get palette :outline)) (?L . ,(plist-get palette :thumb-light))
-                  (?F . ,(plist-get palette :thumb)) (?D . ,(plist-get palette :thumb-dark))
-                  (?S . ,(lispm-ui-grey palette #x88))
-                  (?s . ,(lispm-ui-grey palette #xBB)))))
-    (seq-do-indexed
-     (lambda (row y)
-       (seq-do-indexed
-        (lambda (pixel x)
-          (when-let* ((color (alist-get pixel colors)))
-            (if open
-                (lispm-ui-svg-dot svg y (+ x 3) color)
-              (lispm-ui-svg-dot svg (+ x 3) y color))))
-        row))
-     lispm-ui-list--triangle)
-    svg))
-
 (defun lispm-desktop-platinum--strut (width)
   "Return a blank image WIDTH pixels wide, as tall as a title bar.
 Every title bar opens with one, so active and inactive bars are equally
@@ -217,15 +132,6 @@ OPTIONS are those of `lispm-ui-draw-title-part'."
                      (plist-get options :label-x) (plist-get options :lead) (plist-get options :trail))
                (lambda () (apply #'lispm-ui-draw-title-part lispm-ui-current-palette
                                  width options)))))
-
-(defun lispm-ui-triangle (open)
-  "Return a disclosure triangle as a string, pointing down when OPEN.
-On a text terminal it is a character, a cell wide."
-  (if (lispm-desktop-tty-p)
-      (if open "▾" "▸")
-    (propertize " " 'display (lispm-ui-image
-                              (list 'triangle open)
-                              (lambda () (lispm-ui-draw-triangle lispm-ui-current-palette open))))))
 
 (provide 'lispm-desktop-platinum-draw)
 ;;; lispm-desktop-platinum-draw.el ends here

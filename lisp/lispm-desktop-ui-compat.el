@@ -46,6 +46,10 @@
 (require 'lispm-ui-menu)
 (require 'lispm-ui-ask)
 (require 'lispm-ui-alert)
+(require 'lispm-ui-list)
+(require 'lispm-ui-scroll)
+(require 'lispm-ui-window)
+(require 'lispm-ui-file-dialog)
 
 ;;;; Variables
 
@@ -88,9 +92,24 @@
 (defvaralias 'lispm-desktop-popup-button-gap 'lispm-ui-alert-button-gap)
 (defvaralias 'lispm-desktop-popup-text-alert-width 'lispm-ui-text-alert-width)
 
+;; Lists, scroll bars, title drawing and the file dialog.
+(defvaralias 'lispm-desktop-platinum-list-header-height 'lispm-ui-list-header-height)
+(defvaralias 'lispm-desktop-platinum-scroll-width 'lispm-ui-scroll-width)
+(defvaralias 'lispm-desktop-platinum-scroll-arrow 'lispm-ui-scroll-arrow)
+(defvaralias 'lispm-desktop-platinum-title-bar-height 'lispm-ui-title-bar-height)
+(defvaralias 'lispm-desktop-platinum-box-size 'lispm-ui-title-box-size)
+(defvaralias 'lispm-desktop-platinum-box-margin 'lispm-ui-title-box-margin)
+(defvaralias 'lispm-desktop-choose-width 'lispm-ui-file-dialog-width)
+(defvaralias 'lispm-desktop-choose-rows 'lispm-ui-file-dialog-rows)
+(defvaralias 'lispm-desktop-choose-row-height 'lispm-ui-file-dialog-row-height)
+(defvaralias 'lispm-desktop-choose-preview-limit 'lispm-ui-file-dialog-preview-limit)
+(defvaralias 'lispm-desktop-choose-recent 'lispm-ui-choose-recent)
+(defvaralias 'lispm-desktop-choose-recent-count 'lispm-ui-choose-recent-count)
+
 ;;;; Faces
 
 (pcase-dolist (`(,old . ,new) '((lispm-desktop-platinum-title . lispm-ui-title)
+                                (lispm-desktop-platinum-title-inactive . lispm-ui-title-inactive)
                                 (lispm-desktop-platinum-list . lispm-ui-list)
                                 (lispm-desktop-platinum-small . lispm-ui-small)
                                 (lispm-desktop-platinum-field . lispm-ui-field)
@@ -130,6 +149,9 @@
 
 (defalias 'lispm-desktop-popup-alert #'lispm-ui-alert)
 (defalias 'lispm-desktop-popup-menu #'lispm-ui-menu)
+;;;; File dialogs
+
+(defalias 'lispm-desktop-choose-file #'lispm-ui-choose-file)
 
 (provide 'lispm-desktop-ui-compat)
 ;;; lispm-desktop-ui-compat.el ends here

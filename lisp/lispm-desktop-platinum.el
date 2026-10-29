@@ -71,6 +71,7 @@
 
 ;;; Code:
 
+(require 'lispm-ui-list)
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
@@ -117,47 +118,6 @@ Mac OS 9's Finder listed files in Geneva."
 
 (defconst lispm-desktop-platinum-column-width 11
   "Width in columns of a list's right-hand column, the one it is sorted by.")
-
-(defconst lispm-ui-list-header-height 21
-  "Height in pixels of a list's row of column headings.")
-
-(defconst lispm-ui-list--sort-glyph
-  '("      #" "     ##" "    ###" "   ####" "  #####" " ######" "#######")
-  "The glyph of a list's sort-direction button, a row of pixels a string.")
-
-(cl-defgeneric lispm-ui-draw-list-header (palette columns &optional label-x)
-  "Return an SVG of a list's row of column headings, in PALETTE.
-COLUMNS lists (LABEL WIDTH SORTED [X]) from left to right; a
-sixteen-pixel sort-direction button ends the row.  Each heading is a
-bevelled cell, its label in the list's font X pixels in, by default
-LABEL-X or eight; the heading of the SORTED column is drawn pushed in
-and darker, as Mac OS 9 drew the column a list was sorted by."
-  (let* ((h lispm-ui-list-header-height)
-         (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
-         (svg (svg-create width h))
-         (grey (lambda (level) (lispm-ui-grey palette level)))
-         (x 0))
-    (pcase-dolist (`(,label ,w ,sorted ,x-in) (append columns '((nil 16 nil))))
-      (cl-flet ((row (y level) (lispm-ui-svg-row svg x (+ x w -1) y (funcall grey level)))
-                (column (cx level) (lispm-ui-svg-column svg (+ x cx) 0 (1- h) (funcall grey level))))
-        (if sorted
-            (progn
-              (lispm-ui-svg-fill svg x 0 w h (funcall grey #x88))
-              (row (- h 2) #xAA) (column (- w 2) #xAA)
-              (row (1- h) #x44) (column (1- w) #x44)
-              (row 1 #x55) (column 1 #x55)
-              (row 0 #x11) (column 0 #x11))
-          (lispm-ui-svg-fill svg x 0 w h (funcall grey #xCC))
-          (row (- h 2) #x88) (row (1- h) #x33)
-          (row 1 #xFF) (column 1 #xFF)
-          (row 0 #x66) (column 0 #x66)))
-      (when label
-        (lispm-ui-svg-content svg label (+ x (or x-in label-x 8)) 1 (- h 3)
-                                              (plist-get palette :text) 'lispm-ui-list))
-      (setq x (+ x w)))
-    (lispm-ui-svg-pixel-map svg (- width 12) 7 lispm-ui-list--sort-glyph
-                                      `((?# . ,(plist-get palette :text))))
-    svg))
 
 (defun lispm-desktop-platinum-columns (name meta width meta-width &optional label-x)
   "Return a list's column headings NAME and META as a line WIDTH pixels wide.
@@ -471,8 +431,6 @@ faces this function never sets, so re-running it is idempotent."
                     lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
       (apply #'set-face-attribute face nil :family (or system 'unspecified) :height 120
              :weight 'bold (lispm-desktop-platinum--fontset-attribute system)))
-    (set-face-attribute 'lispm-ui-title-inactive nil
-                        :foreground (lispm-ui-color :muted) :inherit 'unspecified)
     ;; Menu bar titles are drawn as images in these faces; menus'
     ;; items inherit them.
     (set-face-attribute 'lispm-desktop-platinum-menu-title nil
