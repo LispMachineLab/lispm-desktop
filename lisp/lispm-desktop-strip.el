@@ -494,7 +494,7 @@ above the bottom: (X . Y), kept within the bounds."
   "Return non-nil while a menu or an alert is up, which stays over the strip."
   (seq-some (lambda (frame)
               (and (frame-visible-p frame)
-                   (string-prefix-p " *lispm-desktop-popup*"
+                   (string-prefix-p " *lispm-ui-popup*"
                                     (buffer-name (window-buffer (frame-root-window frame))))))
             (frame-list)))
 

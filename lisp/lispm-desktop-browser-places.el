@@ -44,7 +44,7 @@
 (require 'lispm-desktop-browser)
 (require 'lispm-desktop-i18n)
 
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-sidebar-toolbar-button "lispm-desktop-sidebar" (label command help row &optional state))
 
 ;;;; The Bookmarks menu

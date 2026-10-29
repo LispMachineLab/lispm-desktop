@@ -724,7 +724,6 @@
   ("Really restart Emacs? " . "確定要重新啟動 Emacs 嗎？")
   ("Really quit Emacs? " . "確定要結束 Emacs 嗎？")
   ("Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars" . "Mac OS 9 的 Platinum 外觀：立體斜邊的灰色調、細條紋標題列")
-  ("Menu: " . "選單：")
   ("Point is not in sight" . "游標不在可見範圍內")
   ("Appearance" . "外觀")
   ("Keyboard" . "鍵盤")

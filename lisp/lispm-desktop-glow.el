@@ -439,7 +439,7 @@ drawn."
     svg))
 
 (cl-defmethod lispm-ui-draw-menu (palette items width highlight
-                                          &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                          &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a glowing menu of ITEMS WIDTH pixels wide, in PALETTE.
 On the menu colour, a bar of light down its left; the item under the
 mouse, HIGHLIGHT, filled, its corners cut; key equivalents flush right
@@ -521,7 +521,7 @@ cross."
                  :font-family font :font-size 18 :font-weight "bold")))))
 
 (cl-defmethod lispm-ui-draw-alert (palette icon message detail buttons pressed focused
-                                           &context (lispm-desktop-look (lispm-ui-look-family glow)))
+                                           &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a glowing alert of ICON, MESSAGE, DETAIL and BUTTONS, in PALETTE.
 Laid out as Mac OS 9's, see `lispm-ui-alert-layout': a dark
 body inside a glowing line, a striped band along its top, the icon, the

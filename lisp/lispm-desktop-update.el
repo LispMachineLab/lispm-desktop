@@ -77,8 +77,8 @@
 (require 'lispm-desktop-store-installer)
 (require 'lispm-exec)
 
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-ui-popup-available-p "lispm-desktop-popup" ())
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
+(declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
 
 (defgroup lispm-desktop-update nil
   "Software Update: keeping LispM up to date."

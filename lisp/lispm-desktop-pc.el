@@ -236,7 +236,7 @@ a star; STATUS follows it."
     label))
 
 (cl-defmethod lispm-ui-draw-menu (palette items width highlight
-                                          &context (lispm-desktop-look (lispm-ui-look-family pc)))
+                                          &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a PC menu of ITEMS WIDTH pixels wide, in PALETTE.
 The menu colour inside the outline the menu's frame draws, framed in the
 look's :menu bevel; the item under the mouse, HIGHLIGHT, in the
@@ -305,7 +305,7 @@ its :menu-separator, disabled items grey."
 `stop', `note' or `caution', thirty-two pixels square.")
 
 (cl-defmethod lispm-ui-alert-layout (message detail buttons
-                                             &context (lispm-desktop-look (lispm-ui-look-family pc)))
+                                             &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Lay a PC message box of MESSAGE, DETAIL and BUTTONS out.
 Under the caption, the icon at the top left and the message beside it;
 the buttons in a row centred along the bottom, the default first, the
@@ -338,7 +338,7 @@ look's :alert-gap apart and :alert-bottom over the border."
                                 #'< placed))))
 
 (cl-defmethod lispm-ui-draw-alert (palette icon message detail buttons pressed focused
-                                           &context (lispm-desktop-look (lispm-ui-look-family pc)))
+                                           &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a PC message box of ICON, MESSAGE, DETAIL and BUTTONS.
 Its :dialog-ground framed in its :dialog bevel, the caption with its
 system menu box, a body of its :dialog-body holding the icon, the

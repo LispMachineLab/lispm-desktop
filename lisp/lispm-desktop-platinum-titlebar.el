@@ -37,9 +37,9 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function tabspaces--buffer-list "tabspaces" (&optional frame tabnum))
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-ui-popup-available-p "lispm-desktop-popup" ())
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
+(declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
 
 ;;;; What the desktop tells title bars
 
@@ -133,7 +133,7 @@ windows and the menu bar are left as they are, which
 
 (defun lispm-desktop-platinum--buffer-icon (buffer)
   "Return the proxy icon of BUFFER's window, as Finder's windows showed one."
-  (or (buffer-local-value 'lispm-ui-icon buffer)
+  (or (buffer-local-value 'lispm-desktop-platinum-window-icon buffer)
       (lispm-desktop-platinum-buffer-icon buffer)))
 
 (defun lispm-desktop-platinum--window-command (command)

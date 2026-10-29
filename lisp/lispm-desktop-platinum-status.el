@@ -36,7 +36,7 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-exec)
 
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function battery-format "battery" (format alist))
 (declare-function battery-update "battery" ())
 (declare-function display-time-update "time" ())

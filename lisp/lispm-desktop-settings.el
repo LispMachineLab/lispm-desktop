@@ -1935,7 +1935,7 @@ key of `lispm-desktop-settings-categories'."
         (with-current-buffer (get-buffer-create name)
           (lispm-desktop-settings-mode)
           (setq lispm-desktop-settings--category category
-                lispm-ui-icon
+                lispm-desktop-platinum-window-icon
                 (lispm-ui-icon (nth 2 (assq category lispm-desktop-settings-categories))))
           (current-buffer)))))
 

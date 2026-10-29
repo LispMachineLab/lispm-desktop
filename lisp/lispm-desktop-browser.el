@@ -91,9 +91,9 @@
 (declare-function xwidget-webkit-estimated-load-progress "xwidget.c" (xwidget))
 (defvar xwidget-webkit-mode-map)
 (defvar xwidget-webkit--loading-p)
-(declare-function lispm-ui-icon "lispm-desktop-platinum-icons" (name))
+(declare-function lispm-ui-icon "lispm-ui-icons" (name))
 (defvar lispm-desktop-platinum-window-title)
-(defvar lispm-ui-icon)
+(defvar lispm-desktop-platinum-window-icon)
 (defvar lispm-desktop-platinum-box-functions)
 
 (defconst lispm-desktop-browser-workspace-name "Browser"
@@ -151,7 +151,7 @@ an address is searched for, see `lispm-browser-input-url'."
 (declare-function lispm-desktop-browser--bookmark-items "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser--places-shown "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser--personal-toolbar "lispm-desktop-browser-places" ())
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 
 (defun lispm-desktop-browser--file-items ()
   "Return the items of the browser's File menu."
@@ -971,7 +971,7 @@ toolbar.
               truncate-lines t
               cursor-type 'bar
               lispm-desktop-platinum-window-title #'lispm-desktop-browser--no-page-title
-              lispm-ui-icon (lispm-ui-icon "netscape")
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "netscape")
               lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes))
   ;; Its height is the toolbars': a frame growing, as on a tall screen,
   ;; gives its height to the page, the toolbars fitted again at once.
@@ -1018,7 +1018,7 @@ buffer, whose name WebKit prefixes."
       (with-current-buffer buffer
         (setq lispm-desktop-platinum-window-title (if shown (lispm-browser-title shown)
                                                     #'lispm-desktop-browser--no-page-title)
-              lispm-ui-icon (or (and shown (lispm-browser-favicon shown))
+              lispm-desktop-platinum-window-icon (or (and shown (lispm-browser-favicon shown))
                                 (lispm-ui-icon "globe")))))))
 
 (defun lispm-desktop-browser--redraw-tabs ()

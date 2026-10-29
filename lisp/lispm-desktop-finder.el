@@ -63,9 +63,9 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 (defconst lispm-desktop-finder-buffer-name " *Finder*"
   "Name of the Finder window's buffer.")
@@ -367,7 +367,7 @@ text terminal as rows of names, see `lispm-desktop-finder--text-items'."
            row)
           (insert "\n" (propertize " " 'display '(space :height (14))) "\n"))
         (setq lispm-desktop-platinum-window-title (lispm-desktop-finder--title lispm-desktop-finder--directory)
-              lispm-ui-icon (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
+              lispm-desktop-platinum-window-icon (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
                                 (lispm-ui-icon (plist-get folder :icon))
                               (lispm-desktop-platinum-folder-icon lispm-desktop-finder--directory))
               ;; The header counts the items; the bottom edge holds only

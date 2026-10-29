@@ -997,7 +997,7 @@ windows on its first line left there; one printed later prints them."
                                                                  (lispm-desktop-app-ui-name)))
                                                             (title (lispm-desktop-tr title))
                                                             (t (lispm-desktop-app-ui-name)))))
-              lispm-ui-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
+              lispm-desktop-platinum-window-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
                                                lispm-desktop-app-ui--app :icon)))
                               (lispm-ui-icon icon))
               lispm-desktop-platinum-info #'lispm-desktop-app-ui-status

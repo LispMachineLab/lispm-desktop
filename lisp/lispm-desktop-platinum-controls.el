@@ -44,8 +44,8 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-platinum-fit "lispm-desktop-platinum-titlebar" (string width))
-(declare-function lispm-ui-popup-available-p "lispm-desktop-popup" ())
-(declare-function lispm-ui-menu-choose "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
+(declare-function lispm-ui-menu-choose "lispm-ui-menu" (items &optional x y align))
 
 ;;;; Header strips and header buttons
 
@@ -773,31 +773,7 @@ See `lispm-desktop-platinum-tabs'."
 ;; Controls inserted in a buffer, as Control Panels holds them, are LispM
 ;; UI's (`lispm-ui-insert-push-button' and the others): buttons of
 ;; button.el, the one point is on drawn ringed in the focus colour.  The
-;; desktop's own are the bevel buttons holding an icon, and its menu,
-;; which pop-up menus open.
-
-(defun lispm-ui-choose-default (choices &optional current position label)
-  "Open a menu of CHOICES, a list of (VALUE . TEXT), at POSITION, by default
-point, CURRENT's item checked; return (VALUE) of the item chosen, or nil.
-Where no menu can be drawn, the choices are read in the minibuffer, after
-LABEL."
-  (if (not (lispm-ui-popup-available-p))
-      (let ((text (completing-read (format-prompt (or label "") (cdr (assoc current choices)))
-                                   (mapcar #'cdr choices) nil t nil nil
-                                   (cdr (assoc current choices)))))
-        (when-let* ((choice (rassoc text choices)))
-          (list (car choice))))
-    (let* ((position (or position (point)))
-           (xy (and (pos-visible-in-window-p position nil t)
-                    (posn-x-y (posn-at-point position))))
-           (item (lispm-ui-menu-choose
-                  (mapcar (pcase-lambda (`(,value . ,text))
-                            (list :label text :value value :checked (equal value current)))
-                          choices)
-                  (and xy (+ (car xy) (car (window-inside-pixel-edges))))
-                  (and xy (+ (cdr xy) (cadr (window-inside-pixel-edges))
-                             lispm-ui-button-height)))))
-      (and item (list (plist-get item :value))))))
+;; desktop's own are the bevel buttons holding an icon.
 
 (cl-defun lispm-desktop-platinum-insert-icon-button (icon label action &key help)
   "Insert a bevel button holding ICON, a 32-pixel icon's name, which calls

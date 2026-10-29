@@ -440,5 +440,9 @@ after `pre-redisplay-function'."
     (add-hook 'suspend-resume-hook #'lispm-desktop-tty-images--refresh)
     (add-hook 'kill-emacs-hook #'lispm-desktop-tty-images--take-away)))
 
+;; LispM UI's alerts and file dialog use the desktop's terminal renderer.
+(setq lispm-ui-tty-image-function #'lispm-desktop-tty-images-blank
+      lispm-ui-tty-image-show-function #'lispm-desktop-tty-images-show-marked)
+
 (provide 'lispm-desktop-tty-images)
 ;;; lispm-desktop-tty-images.el ends here

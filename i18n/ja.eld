@@ -724,7 +724,6 @@
   ("Really restart Emacs? " . "Emacsを再起動してもよろしいですか？ ")
   ("Really quit Emacs? " . "Emacsを終了してもよろしいですか？ ")
   ("Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars" . "Mac OS 9のPlatinumアピアランス：立体的なグレー、ストライプのタイトルバー")
-  ("Menu: " . "メニュー：")
   ("Point is not in sight" . "ポイントが表示範囲外です")
   ("Appearance" . "アピアランス")
   ("Keyboard" . "キーボード")

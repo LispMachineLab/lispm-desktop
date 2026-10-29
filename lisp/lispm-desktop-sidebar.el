@@ -196,7 +196,7 @@ translated where shown, see `lispm-desktop-sidebar--toolbar-buttons'."
   (let ((spec (alist-get view lispm-desktop-sidebar-views)))
     (setq-local lispm-desktop-platinum-window-title
                 (lambda () (lispm-desktop-tr (plist-get (alist-get view lispm-desktop-sidebar-views) :title)))
-                lispm-ui-icon (lispm-ui-icon (plist-get spec :icon))))
+                lispm-desktop-platinum-window-icon (lispm-ui-icon (plist-get spec :icon))))
   (kill-local-variable 'tab-line-format)
   (unless lispm-desktop-sidebar--faces
     (setq-local lispm-desktop-sidebar--faces

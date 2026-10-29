@@ -66,7 +66,7 @@
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" ())
 (declare-function lispm-desktop-buffer-manager "lispm-desktop-buffer-manager" ())
-(declare-function lispm-ui-menu-keyboard-p "lispm-desktop-popup" (keys))
+(declare-function lispm-ui-menu-keyboard-p "lispm-ui-menu" (keys))
 (declare-function tabspaces--current-tab-name "tabspaces" ())
 (declare-function tabspaces-local-buffer-list "tabspaces" (&optional frame tabnum))
 (declare-function tabspaces--set-buffer-predicate "tabspaces" (frame))
@@ -255,7 +255,7 @@ the edge of the windows below, which runs across the strip."
               right-fringe-width 0
               evil-emacs-state-cursor '(nil)
               evil-normal-state-cursor '(nil)
-              lispm-ui-icon (lispm-ui-icon 'emacs)
+              lispm-desktop-platinum-window-icon (lispm-ui-icon 'emacs)
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-editor--close-box
                                                          :zoom #'lispm-desktop-editor--zoom-box)
               lispm-desktop-platinum-active-function #'lispm-desktop-editor--active-p)

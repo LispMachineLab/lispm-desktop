@@ -1131,10 +1131,10 @@ would land back on the icon's own cell."
   (interactive)
   (lispm-desktop--move-selected 0 -1))
 
-(declare-function lispm-ui-popup-make-frame "lispm-desktop-popup" (parent))
-(declare-function lispm-ui-popup-dispose "lispm-desktop-popup" (frame))
-(declare-function lispm-ui-popup-fill "lispm-desktop-popup" (frame text))
-(declare-function lispm-ui-popup-set-size "lispm-desktop-popup" (frame width height))
+(declare-function lispm-ui-popup-make-frame "lispm-ui-popup" (parent))
+(declare-function lispm-ui-popup-dispose "lispm-ui-popup" (frame))
+(declare-function lispm-ui-popup-fill "lispm-ui-popup" (frame text))
+(declare-function lispm-ui-popup-set-size "lispm-ui-popup" (frame width height))
 
 (defconst lispm-desktop-drag-opacity 0.5
   "How opaque the dragged copy of an icon is, as Mac OS 9's drag image was.")
@@ -1327,7 +1327,7 @@ dragged about, this puts them back."
   (customize-save-variable 'lispm-desktop-icon-places nil)
   (lispm-desktop--render))
 
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 
 (defun lispm-desktop--arrange-items ()

@@ -37,8 +37,8 @@
 (require 'lispm-desktop-platinum-coach)
 (require 'lispm-desktop-i18n)
 
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 (declare-function lispm-desktop-platinum-menu-status "lispm-desktop-platinum-status" ())
 

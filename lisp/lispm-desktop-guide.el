@@ -669,7 +669,7 @@ collapse box does."
   "Major mode of the guide's window: a step of the guide, its buttons under it.
 \\{lispm-desktop-guide-mode-map}"
   (setq-local lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "LispM Guide"))
-              lispm-ui-icon (lispm-ui-icon "guide")
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "guide")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box)
               truncate-lines nil

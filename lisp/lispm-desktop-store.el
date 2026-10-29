@@ -145,8 +145,8 @@
 (require 'lispm-desktop-markdown)
 (require 'lispm-desktop-tty-images)
 
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
 (declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
@@ -4473,7 +4473,7 @@ a grid of icons in pages, or an item's page in its place.
               lispm-desktop-context-menu-function #'lispm-desktop-store--keyboard-menu
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
               lispm-desktop-platinum-window-title "App Store"
-              lispm-ui-icon (lispm-ui-icon "app-store")
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "app-store")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-store--close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
   (add-hook 'window-size-change-functions #'lispm-desktop-store--refit nil t)

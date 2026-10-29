@@ -105,7 +105,7 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-catalog)
 
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 (declare-function lispm-desktop-app-ui-menus "lispm-desktop-app-ui" (app))
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))

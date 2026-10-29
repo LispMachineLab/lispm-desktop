@@ -55,7 +55,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-terminal "lispm-terminal" (&optional agent))
 (declare-function lispm-terminal-soon "lispm-terminal" (function))
 (declare-function lispm-desktop-standalone-started-hidden-p "lispm-desktop-standalone" ())

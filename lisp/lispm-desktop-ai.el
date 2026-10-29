@@ -60,7 +60,7 @@
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
 (declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional directory))
 (declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
-(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (defvar tabspaces-default-tab)
 (defvar lispm-desktop-term-exit-functions)
 
