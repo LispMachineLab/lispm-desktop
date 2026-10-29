@@ -118,21 +118,21 @@ Mac OS 9's Finder listed files in Geneva."
 (defconst lispm-desktop-platinum-column-width 11
   "Width in columns of a list's right-hand column, the one it is sorted by.")
 
-(defconst lispm-desktop-platinum-list-header-height 21
+(defconst lispm-ui-list-header-height 21
   "Height in pixels of a list's row of column headings.")
 
-(defconst lispm-desktop-platinum--sort-glyph
+(defconst lispm-ui-list--sort-glyph
   '("      #" "     ##" "    ###" "   ####" "  #####" " ######" "#######")
   "The glyph of a list's sort-direction button, a row of pixels a string.")
 
-(cl-defgeneric lispm-desktop-platinum-draw-list-header (palette columns &optional label-x)
+(cl-defgeneric lispm-ui-draw-list-header (palette columns &optional label-x)
   "Return an SVG of a list's row of column headings, in PALETTE.
 COLUMNS lists (LABEL WIDTH SORTED [X]) from left to right; a
 sixteen-pixel sort-direction button ends the row.  Each heading is a
 bevelled cell, its label in the list's font X pixels in, by default
 LABEL-X or eight; the heading of the SORTED column is drawn pushed in
 and darker, as Mac OS 9 drew the column a list was sorted by."
-  (let* ((h lispm-desktop-platinum-list-header-height)
+  (let* ((h lispm-ui-list-header-height)
          (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
          (svg (svg-create width h))
          (grey (lambda (level) (lispm-ui-grey palette level)))
@@ -155,7 +155,7 @@ and darker, as Mac OS 9 drew the column a list was sorted by."
         (lispm-ui-svg-content svg label (+ x (or x-in label-x 8)) 1 (- h 3)
                                               (plist-get palette :text) 'lispm-ui-list))
       (setq x (+ x w)))
-    (lispm-ui-svg-pixel-map svg (- width 12) 7 lispm-desktop-platinum--sort-glyph
+    (lispm-ui-svg-pixel-map svg (- width 12) 7 lispm-ui-list--sort-glyph
                                       `((?# . ,(plist-get palette :text))))
     svg))
 
@@ -163,7 +163,7 @@ and darker, as Mac OS 9 drew the column a list was sorted by."
   "Return a list's column headings NAME and META as a line WIDTH pixels wide.
 META is the right-hand column, META-WIDTH pixels wide with the
 sort-direction button, the column the list is sorted by; NAME is
-LABEL-X pixels in.  See `lispm-desktop-platinum-draw-list-header'.  On a
+LABEL-X pixels in.  See `lispm-ui-draw-list-header'.  On a
 text terminal the headings are text, the widths cells."
   (let ((name-width (- width meta-width)))
     (if (lispm-desktop-tty-p)
@@ -177,7 +177,7 @@ text terminal the headings are text, the widths cells."
                         (lispm-ui-image
                          (list 'list-header name meta width meta-width label-x)
                          (lambda ()
-                           (lispm-desktop-platinum-draw-list-header
+                           (lispm-ui-draw-list-header
                             lispm-ui-current-palette
                             (list (list name name-width nil) (list meta (- meta-width 16) t 4))
                             label-x))))
@@ -207,22 +207,22 @@ as the triangles take the theme's colour."
        `(treemacs-create-theme "lispm-desktop-platinum"
           :config
           (progn
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "disk")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle t) "disk")
                                   :fallback ,(funcall text-row "▾" "disk")
                                   :extensions (root-open))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "disk")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle nil) "disk")
                                   :fallback ,(funcall text-row "▸" "disk")
                                   :extensions (root-closed))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "folder")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle t) "folder")
                                   :fallback ,(funcall text-row "▾" "folder")
                                   :extensions (dir-open))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "folder")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle nil) "folder")
                                   :fallback ,(funcall text-row "▸" "folder")
                                   :extensions (dir-closed))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "document-blank")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle t) "document-blank")
                                   :fallback ,(funcall text-row "▾" "document-blank")
                                   :extensions (tag-open))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "document-blank")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle nil) "document-blank")
                                   :fallback ,(funcall text-row "▸" "document-blank")
                                   :extensions (tag-closed))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-blank")
@@ -467,11 +467,11 @@ faces this function never sets, so re-running it is idempotent."
                         :foreground (lispm-ui-color :muted) :height 0.95
                         :box `(:line-width (1 . 1)
                                :color ,(lispm-ui-grey lispm-ui-current-palette #x99)))
-    (dolist (face '(lispm-ui-title lispm-desktop-platinum-title-inactive
+    (dolist (face '(lispm-ui-title lispm-ui-title-inactive
                     lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
       (apply #'set-face-attribute face nil :family (or system 'unspecified) :height 120
              :weight 'bold (lispm-desktop-platinum--fontset-attribute system)))
-    (set-face-attribute 'lispm-desktop-platinum-title-inactive nil
+    (set-face-attribute 'lispm-ui-title-inactive nil
                         :foreground (lispm-ui-color :muted) :inherit 'unspecified)
     ;; Menu bar titles are drawn as images in these faces; menus'
     ;; items inherit them.

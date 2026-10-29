@@ -475,7 +475,7 @@ the right-hand column; clicking the row calls ACTION, described by HELP."
   (let ((beg (point)))
     (insert (lispm-desktop-sidebar--row
              (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
-                     (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-ui-list)
+                     (propertize (lispm-ui-triangle open) 'face 'lispm-ui-list)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                      (lispm-desktop-platinum-folder-icon directory)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6)))))

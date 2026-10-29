@@ -1,4 +1,4 @@
-;;; lispm-desktop-choose.el --- Choosing a file, in the desktop's own dialog  -*- lexical-binding: t; -*-
+;;; lispm-ui-file-dialog.el --- Choosing a file, in the desktop's own dialog  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Ryan.K
 
@@ -64,31 +64,31 @@
 (require 'lispm-ui-modal)
 (require 'lispm-desktop-i18n)
 
-(defconst lispm-desktop-choose-width 450
+(defconst lispm-ui-file-dialog-width 450
   "Width in pixels of the dialog choosing a file, its outline included.")
 
-(defconst lispm-desktop-choose-rows 7
+(defconst lispm-ui-file-dialog-rows 7
   "How many rows of the dialog's list show at once.")
 
-(defconst lispm-desktop-choose-row-height 20
+(defconst lispm-ui-file-dialog-row-height 20
   "Height in pixels of a row of the dialog's list, the white line under it
 included, as Mac OS 9's lists drew them.")
 
-(defconst lispm-desktop-choose-preview-limit (* 16 1024 1024)
+(defconst lispm-ui-file-dialog-preview-limit (* 16 1024 1024)
   "Size in bytes of the largest picture the dialog previews.")
 
-(defvar lispm-desktop-choose-recent nil
+(defvar lispm-ui-choose-recent nil
   "The files chosen in the dialog choosing a file, the last first.")
 
-(defconst lispm-desktop-choose-recent-count 10
+(defconst lispm-ui-choose-recent-count 10
   "How many files the dialog's Recent menu keeps.")
 
 (with-eval-after-load 'savehist
   (defvar savehist-additional-variables)
-  (add-to-list 'savehist-additional-variables 'lispm-desktop-choose-recent))
+  (add-to-list 'savehist-additional-variables 'lispm-ui-choose-recent))
 
-(cl-defstruct (lispm-desktop-choose--dialog
-               (:constructor lispm-desktop-choose--make-dialog)
+(cl-defstruct (lispm-ui-file-dialog--dialog
+               (:constructor lispm-ui-file-dialog--make-dialog)
                (:copier nil))
   "A dialog choosing a file, as it stands.
 ITEMS are the folder's, each (NAME FILE FOLDER TIME), in the order
@@ -102,7 +102,7 @@ the pictures previewed."
 
 ;;;; The folder's items
 
-(defun lispm-desktop-choose--read (directory predicate)
+(defun lispm-ui-file-dialog--read (directory predicate)
   "Return the items of DIRECTORY the dialog lists, as (NAME FILE FOLDER TIME):
 its folders and the files PREDICATE, a function of a file's name, takes,
 or all of them for nil; those whose names start with a dot are hidden,
@@ -116,92 +116,92 @@ as Finder hid them."
                 items))))
     items))
 
-(defun lispm-desktop-choose--item (dialog)
+(defun lispm-ui-file-dialog--item (dialog)
   "Return DIALOG's item selected, or nil."
-  (when-let* ((index (lispm-desktop-choose--dialog-selected dialog)))
-    (nth index (lispm-desktop-choose--dialog-items dialog))))
+  (when-let* ((index (lispm-ui-file-dialog--dialog-selected dialog)))
+    (nth index (lispm-ui-file-dialog--dialog-items dialog))))
 
-(defun lispm-desktop-choose--select (dialog index)
+(defun lispm-ui-file-dialog--select (dialog index)
   "Select DIALOG's item INDEX, kept among its items, or none for nil,
 scrolled into view."
-  (let ((count (length (lispm-desktop-choose--dialog-items dialog))))
-    (setf (lispm-desktop-choose--dialog-selected dialog)
+  (let ((count (length (lispm-ui-file-dialog--dialog-items dialog))))
+    (setf (lispm-ui-file-dialog--dialog-selected dialog)
           (and index (> count 0) (max 0 (min index (1- count)))))
-    (when-let* ((selected (lispm-desktop-choose--dialog-selected dialog)))
-      (let ((top (lispm-desktop-choose--dialog-top dialog)))
+    (when-let* ((selected (lispm-ui-file-dialog--dialog-selected dialog)))
+      (let ((top (lispm-ui-file-dialog--dialog-top dialog)))
         (cond ((< selected top) (setq top selected))
-              ((>= selected (+ top lispm-desktop-choose-rows))
-               (setq top (- selected lispm-desktop-choose-rows -1))))
-        (lispm-desktop-choose--scroll-to dialog top)))))
+              ((>= selected (+ top lispm-ui-file-dialog-rows))
+               (setq top (- selected lispm-ui-file-dialog-rows -1))))
+        (lispm-ui-file-dialog--scroll-to dialog top)))))
 
-(defun lispm-desktop-choose--scroll-to (dialog top)
+(defun lispm-ui-file-dialog--scroll-to (dialog top)
   "Show DIALOG's list from row TOP, kept within its items."
-  (setf (lispm-desktop-choose--dialog-top dialog)
-        (max 0 (min top (- (length (lispm-desktop-choose--dialog-items dialog))
-                           lispm-desktop-choose-rows)))))
+  (setf (lispm-ui-file-dialog--dialog-top dialog)
+        (max 0 (min top (- (length (lispm-ui-file-dialog--dialog-items dialog))
+                           lispm-ui-file-dialog-rows)))))
 
-(defun lispm-desktop-choose--sort (dialog)
+(defun lispm-ui-file-dialog--sort (dialog)
   "Sort DIALOG's items as it says, the item selected staying selected:
 by name, A first whatever its case, the numbers in names counted, or
 by date, the latest first; DESCENDING the other way."
-  (let* ((selected (lispm-desktop-choose--item dialog))
-         (items (sort (copy-sequence (lispm-desktop-choose--dialog-items dialog))
-                      (if (eq (lispm-desktop-choose--dialog-sort dialog) 'date)
+  (let* ((selected (lispm-ui-file-dialog--item dialog))
+         (items (sort (copy-sequence (lispm-ui-file-dialog--dialog-items dialog))
+                      (if (eq (lispm-ui-file-dialog--dialog-sort dialog) 'date)
                           (lambda (a b) (time-less-p (nth 3 b) (nth 3 a)))
                         (lambda (a b) (string-version-lessp (downcase (car a)) (downcase (car b))))))))
-    (setf (lispm-desktop-choose--dialog-items dialog)
-          (if (lispm-desktop-choose--dialog-descending dialog) (nreverse items) items))
-    (lispm-desktop-choose--select dialog (and selected (seq-position (lispm-desktop-choose--dialog-items dialog)
+    (setf (lispm-ui-file-dialog--dialog-items dialog)
+          (if (lispm-ui-file-dialog--dialog-descending dialog) (nreverse items) items))
+    (lispm-ui-file-dialog--select dialog (and selected (seq-position (lispm-ui-file-dialog--dialog-items dialog)
                                                                     selected #'eq)))))
 
-(defun lispm-desktop-choose--go (dialog directory &optional name)
+(defun lispm-ui-file-dialog--go (dialog directory &optional name)
   "Show DIRECTORY in DIALOG, the item NAME selected, else the first."
   (let ((directory (file-name-as-directory (expand-file-name directory))))
-    (setf (lispm-desktop-choose--dialog-directory dialog) directory
-          (lispm-desktop-choose--dialog-items dialog)
-          (lispm-desktop-choose--read directory (lispm-desktop-choose--dialog-predicate dialog))
-          (lispm-desktop-choose--dialog-selected dialog) nil
-          (lispm-desktop-choose--dialog-top dialog) 0)
-    (lispm-desktop-choose--sort dialog)
-    (lispm-desktop-choose--select
-     dialog (or (and name (seq-position (lispm-desktop-choose--dialog-items dialog) name
+    (setf (lispm-ui-file-dialog--dialog-directory dialog) directory
+          (lispm-ui-file-dialog--dialog-items dialog)
+          (lispm-ui-file-dialog--read directory (lispm-ui-file-dialog--dialog-predicate dialog))
+          (lispm-ui-file-dialog--dialog-selected dialog) nil
+          (lispm-ui-file-dialog--dialog-top dialog) 0)
+    (lispm-ui-file-dialog--sort dialog)
+    (lispm-ui-file-dialog--select
+     dialog (or (and name (seq-position (lispm-ui-file-dialog--dialog-items dialog) name
                                         (lambda (item name) (equal (car item) name))))
                 0))))
 
-(defun lispm-desktop-choose--parent (directory)
+(defun lispm-ui-file-dialog--parent (directory)
   "Return the folder holding DIRECTORY, or nil at the top."
   (let ((parent (file-name-directory (directory-file-name directory))))
     (unless (or (null parent) (equal parent directory)) parent)))
 
-(defun lispm-desktop-choose--up (dialog)
+(defun lispm-ui-file-dialog--up (dialog)
   "Go up to the folder holding the one DIALOG shows, this one selected."
-  (let ((directory (lispm-desktop-choose--dialog-directory dialog)))
-    (when-let* ((parent (lispm-desktop-choose--parent directory)))
-      (lispm-desktop-choose--go dialog parent (file-name-nondirectory (directory-file-name directory))))))
+  (let ((directory (lispm-ui-file-dialog--dialog-directory dialog)))
+    (when-let* ((parent (lispm-ui-file-dialog--parent directory)))
+      (lispm-ui-file-dialog--go dialog parent (file-name-nondirectory (directory-file-name directory))))))
 
-(defun lispm-desktop-choose--open (dialog)
+(defun lispm-ui-file-dialog--open (dialog)
   "Open DIALOG's item selected: go into a folder; return a file, chosen."
-  (when-let* ((item (lispm-desktop-choose--item dialog)))
+  (when-let* ((item (lispm-ui-file-dialog--item dialog)))
     (if (nth 2 item)
-        (progn (lispm-desktop-choose--go dialog (nth 1 item)) nil)
+        (progn (lispm-ui-file-dialog--go dialog (nth 1 item)) nil)
       (nth 1 item))))
 
-(defun lispm-desktop-choose--type (dialog char)
+(defun lispm-ui-file-dialog--type (dialog char)
   "Select DIALOG's first item whose name starts with the letters typed, CHAR
 the last: letters typed within a second of each other make one name."
   (let ((now (float-time)))
-    (setf (lispm-desktop-choose--dialog-typed dialog)
-          (concat (if (< (- now (lispm-desktop-choose--dialog-typed-at dialog)) 1.0)
-                      (lispm-desktop-choose--dialog-typed dialog)
+    (setf (lispm-ui-file-dialog--dialog-typed dialog)
+          (concat (if (< (- now (lispm-ui-file-dialog--dialog-typed-at dialog)) 1.0)
+                      (lispm-ui-file-dialog--dialog-typed dialog)
                     "")
                   (downcase (char-to-string char)))
-          (lispm-desktop-choose--dialog-typed-at dialog) now)
-    (let ((typed (lispm-desktop-choose--dialog-typed dialog)))
-      (when-let* ((index (seq-position (lispm-desktop-choose--dialog-items dialog) typed
+          (lispm-ui-file-dialog--dialog-typed-at dialog) now)
+    (let ((typed (lispm-ui-file-dialog--dialog-typed dialog)))
+      (when-let* ((index (seq-position (lispm-ui-file-dialog--dialog-items dialog) typed
                                        (lambda (item typed) (string-prefix-p typed (downcase (car item)))))))
-        (lispm-desktop-choose--select dialog index)))))
+        (lispm-ui-file-dialog--select dialog index)))))
 
-(defun lispm-desktop-choose--places ()
+(defun lispm-ui-file-dialog--places ()
   "Return the usual places, which the Shortcuts button pops up: (NAME . FOLDER)
 for each that is there."
   (seq-filter (lambda (place) (file-directory-p (cdr place)))
@@ -211,18 +211,18 @@ for each that is there."
                     (cons (lispm-desktop-tr "Downloads") "~/Downloads/")
                     (cons (lispm-desktop-tr "Pictures") "~/Pictures/"))))
 
-(defun lispm-desktop-choose--recent (dialog)
+(defun lispm-ui-file-dialog--recent (dialog)
   "Return the files chosen lately that DIALOG may choose, the last first."
-  (let ((predicate (lispm-desktop-choose--dialog-predicate dialog)))
+  (let ((predicate (lispm-ui-file-dialog--dialog-predicate dialog)))
     (seq-filter (lambda (file) (and (file-regular-p file) (or (null predicate) (funcall predicate file))))
-                lispm-desktop-choose-recent)))
+                lispm-ui-choose-recent)))
 
-(defun lispm-desktop-choose--remember (file)
+(defun lispm-ui-file-dialog--remember (file)
   "Put FILE first among the files chosen lately."
-  (setq lispm-desktop-choose-recent
-        (seq-take (cons file (delete file lispm-desktop-choose-recent)) lispm-desktop-choose-recent-count)))
+  (setq lispm-ui-choose-recent
+        (seq-take (cons file (delete file lispm-ui-choose-recent)) lispm-ui-choose-recent-count)))
 
-(defun lispm-desktop-choose--date (time)
+(defun lispm-ui-file-dialog--date (time)
   "Return TIME as the list's Date Modified column shows it."
   (let ((days (- (time-to-days nil) (time-to-days time))))
     (cond ((= days 0) (lispm-desktop-tr "Today"))
@@ -231,44 +231,44 @@ for each that is there."
 
 ;;;; Keys
 
-(defun lispm-desktop-choose--key (dialog event)
+(defun lispm-ui-file-dialog--key (dialog event)
   "Do what EVENT, a key, does in DIALOG.
 Return the file chosen, `cancel', or nil while the dialog stays."
-  (let ((rows lispm-desktop-choose-rows)
-        (selected (or (lispm-desktop-choose--dialog-selected dialog) -1)))
+  (let ((rows lispm-ui-file-dialog-rows)
+        (selected (or (lispm-ui-file-dialog--dialog-selected dialog) -1)))
     (pcase (lispm-ui-modal-role event)
       ('cancel 'cancel)
-      ('confirm (lispm-desktop-choose--open dialog))
-      ('down (lispm-desktop-choose--select dialog (1+ selected)) nil)
-      ('up (lispm-desktop-choose--select dialog (max 0 (1- selected))) nil)
-      ('right (when (nth 2 (lispm-desktop-choose--item dialog))
-                (lispm-desktop-choose--open dialog)))
-      ((or 'left 'back) (lispm-desktop-choose--up dialog) nil)
+      ('confirm (lispm-ui-file-dialog--open dialog))
+      ('down (lispm-ui-file-dialog--select dialog (1+ selected)) nil)
+      ('up (lispm-ui-file-dialog--select dialog (max 0 (1- selected))) nil)
+      ('right (when (nth 2 (lispm-ui-file-dialog--item dialog))
+                (lispm-ui-file-dialog--open dialog)))
+      ((or 'left 'back) (lispm-ui-file-dialog--up dialog) nil)
       (_
        (pcase event
-         ((or ?\C-v 'next) (lispm-desktop-choose--select dialog (+ (max selected 0) rows)) nil)
-         ((or ?\M-v 'prior) (lispm-desktop-choose--select dialog (max 0 (- selected rows))) nil)
-         ((or ?\M-< 'home) (lispm-desktop-choose--select dialog 0) nil)
+         ((or ?\C-v 'next) (lispm-ui-file-dialog--select dialog (+ (max selected 0) rows)) nil)
+         ((or ?\M-v 'prior) (lispm-ui-file-dialog--select dialog (max 0 (- selected rows))) nil)
+         ((or ?\M-< 'home) (lispm-ui-file-dialog--select dialog 0) nil)
          ((or ?\M-> 'end)
-          (lispm-desktop-choose--select dialog (1- (length (lispm-desktop-choose--dialog-items dialog))))
+          (lispm-ui-file-dialog--select dialog (1- (length (lispm-ui-file-dialog--dialog-items dialog))))
           nil)
-         (?~ (lispm-desktop-choose--go dialog "~/") nil)
+         (?~ (lispm-ui-file-dialog--go dialog "~/") nil)
          ((pred characterp)
           (when (and (>= event ?\s) (< event 127) (not (eq event ?/)))
-            (lispm-desktop-choose--type dialog event))
+            (lispm-ui-file-dialog--type dialog event))
           nil))))))
 
 ;;;; Layout
 
-(defun lispm-desktop-choose--button-labels (dialog)
+(defun lispm-ui-file-dialog--button-labels (dialog)
   "Return the labels of DIALOG's buttons, (CANCEL . DEFAULT): the default
 button opens a folder selected and chooses a file."
   (cons (lispm-desktop-tr "Cancel")
-        (if (nth 2 (lispm-desktop-choose--item dialog))
+        (if (nth 2 (lispm-ui-file-dialog--item dialog))
             (lispm-desktop-tr "Open")
           (lispm-desktop-tr "Choose"))))
 
-(defun lispm-desktop-choose--layout ()
+(defun lispm-ui-file-dialog--layout ()
   "Return where the dialog draws its parts, a plist of (X Y WIDTH HEIGHT)
 in pixels from its outline's top left, and its :width and :height.
 They stand as Navigation Services stood them: the pop-up menu of folders
@@ -276,13 +276,13 @@ at the top left, the Shortcuts and Recent buttons at the top right, the
 list under them, its :header, :rows and :scroll bar, the :preview
 beside it, and the buttons at the bottom right, the default
 \(:choose) last, its ring outside its place."
-  (let* ((w lispm-desktop-choose-width)
-         (body (1+ lispm-desktop-platinum-title-bar-height))
+  (let* ((w lispm-ui-file-dialog-width)
+         (body (1+ lispm-ui-title-bar-height))
          (list-y (+ body 41))
          (list-w 260)
-         (rows-h (* lispm-desktop-choose-rows lispm-desktop-choose-row-height))
-         (list-h (+ 1 lispm-desktop-platinum-list-header-height rows-h 1))
-         (rows-y (+ list-y 1 lispm-desktop-platinum-list-header-height))
+         (rows-h (* lispm-ui-file-dialog-rows lispm-ui-file-dialog-row-height))
+         (list-h (+ 1 lispm-ui-list-header-height rows-h 1))
+         (rows-y (+ list-y 1 lispm-ui-list-header-height))
          (pane-x (+ 15 list-w 5))
          (right (- w 15))
          (buttons-y (+ list-y list-h 16))
@@ -296,17 +296,17 @@ beside it, and the buttons at the bottom right, the default
           :shortcuts (list (- right 31 4 31) (+ body 10) 31 27)
           :recent (list (- right 31) (+ body 10) 31 27)
           :list (list 15 list-y list-w list-h)
-          :header (list 16 (1+ list-y) (- list-w 2) lispm-desktop-platinum-list-header-height)
-          :rows (list 16 rows-y (- list-w 2 lispm-desktop-platinum-scroll-width) rows-h)
+          :header (list 16 (1+ list-y) (- list-w 2) lispm-ui-list-header-height)
+          :rows (list 16 rows-y (- list-w 2 lispm-ui-scroll-width) rows-h)
           :date 96
-          :scroll (list (- (+ 15 list-w) lispm-desktop-platinum-scroll-width) rows-y
-                        lispm-desktop-platinum-scroll-width (1+ rows-h))
+          :scroll (list (- (+ 15 list-w) lispm-ui-scroll-width) rows-y
+                        lispm-ui-scroll-width (1+ rows-h))
           :preview (list pane-x list-y (- right pane-x) list-h)
           :cancel (list (- choose-x 3 lispm-ui-alert-button-gap cancel-w) buttons-y cancel-w
                         lispm-ui-button-height)
           :choose (list choose-x buttons-y choose-w lispm-ui-button-height))))
 
-(defun lispm-desktop-choose--hit (dialog layout x y)
+(defun lispm-ui-file-dialog--hit (dialog layout x y)
   "Return what of DIALOG, laid out as LAYOUT says, is at X, Y: `location',
 `shortcuts', `recent', `cancel' or `choose'; (header . COLUMN), COLUMN
 `name', `date' or `direction'; (row . INDEX) of an item; (scroll .
@@ -324,15 +324,15 @@ PART), PART `up', `down', `page-up', `page-down' or `thumb'; or nil."
                             ((>= x (- (+ left width) 16 (plist-get layout :date))) 'date)
                             (t 'name)))))
      ((in :rows)
-      (let ((index (+ (lispm-desktop-choose--dialog-top dialog)
-                      (/ (- y (nth 1 (plist-get layout :rows))) lispm-desktop-choose-row-height))))
-        (when (< index (length (lispm-desktop-choose--dialog-items dialog)))
+      (let ((index (+ (lispm-ui-file-dialog--dialog-top dialog)
+                      (/ (- y (nth 1 (plist-get layout :rows))) lispm-ui-file-dialog-row-height))))
+        (when (< index (length (lispm-ui-file-dialog--dialog-items dialog)))
           (cons 'row index))))
      ((in :scroll)
       (pcase-let* ((`(,_ ,top ,_ ,height) (plist-get layout :scroll))
-                   (bar (lispm-desktop-platinum-scroll-layout height))
+                   (bar (lispm-ui-scroll-layout height))
                    (at (- y top))
-                   (thumb (lispm-desktop-choose--thumb dialog height)))
+                   (thumb (lispm-ui-file-dialog--thumb dialog height)))
         (cons 'scroll
               (cond ((>= at (plist-get bar :down)) 'down)
                     ((>= at (plist-get bar :up)) 'up)
@@ -341,24 +341,24 @@ PART), PART `up', `down', `page-up', `page-down' or `thumb'; or nil."
                     ((>= at (+ (car thumb) (cdr thumb))) 'page-down)
                     (t 'thumb))))))))
 
-(defun lispm-desktop-choose--thumb (dialog height)
+(defun lispm-ui-file-dialog--thumb (dialog height)
   "Return the thumb of DIALOG's scroll bar HEIGHT tall, see
-`lispm-desktop-platinum-scroll-thumb', or nil when every item shows."
-  (let ((top (lispm-desktop-choose--dialog-top dialog)))
-    (lispm-desktop-platinum-scroll-thumb height top (+ top lispm-desktop-choose-rows)
-                                         0 (length (lispm-desktop-choose--dialog-items dialog)))))
+`lispm-ui-scroll-thumb', or nil when every item shows."
+  (let ((top (lispm-ui-file-dialog--dialog-top dialog)))
+    (lispm-ui-scroll-thumb height top (+ top lispm-ui-file-dialog-rows)
+                           0 (length (lispm-ui-file-dialog--dialog-items dialog)))))
 
 ;;;; Drawing
 
-(defun lispm-desktop-choose--picture (dialog file)
+(defun lispm-ui-file-dialog--picture (dialog file)
   "Return the picture in FILE as DIALOG previews it, (DATA TYPE WIDTH
 HEIGHT), DATA its bytes, or nil where it cannot be shown.  Each is read
 once while the dialog is open."
-  (let ((pictures (lispm-desktop-choose--dialog-pictures dialog)))
+  (let ((pictures (lispm-ui-file-dialog--dialog-pictures dialog)))
     (with-memoization (gethash file pictures)
       (ignore-errors
         (when (and (display-images-p)
-                   (< (or (file-attribute-size (file-attributes file)) 0) lispm-desktop-choose-preview-limit))
+                   (< (or (file-attribute-size (file-attributes file)) 0) lispm-ui-file-dialog-preview-limit))
           (let* ((type (image-supported-file-p file))
                  (size (and type (image-size (create-image file type) t))))
             (when size
@@ -368,13 +368,13 @@ once while the dialog is open."
                       (buffer-string))
                     type (car size) (cdr size)))))))))
 
-(defun lispm-desktop-choose--draw-picture (svg dialog rect palette)
+(defun lispm-ui-file-dialog--draw-picture (svg dialog rect palette)
   "Draw on SVG the preview of DIALOG's item selected in RECT, the pane's
 inside, and its size under it, if it is a picture."
-  (when-let* (((lispm-desktop-choose--dialog-preview dialog))
-              (item (lispm-desktop-choose--item dialog))
+  (when-let* (((lispm-ui-file-dialog--dialog-preview dialog))
+              (item (lispm-ui-file-dialog--item dialog))
               ((not (nth 2 item)))
-              (picture (lispm-desktop-choose--picture dialog (nth 1 item))))
+              (picture (lispm-ui-file-dialog--picture dialog (nth 1 item))))
     (pcase-let* ((`(,data ,type ,pw ,ph) picture)
                  (`(,x ,y ,w ,h) rect)
                  (room-h (- h 22))
@@ -393,28 +393,28 @@ inside, and its size under it, if it is a picture."
                             (+ y room-h 4) 16 (plist-get palette :muted)
                             'lispm-ui-small))))
 
-(defun lispm-desktop-choose--draw-title (svg width title palette)
+(defun lispm-ui-file-dialog--draw-title (svg width title palette)
   "Draw on SVG a movable modal window's title bar WIDTH wide reading TITLE,
 inside the outline: ridges either side of the title, and no boxes."
   (let* ((label (let ((label (copy-sequence title)))
                   (add-face-text-property 0 (length label) 'lispm-ui-title t label)
                   label))
-         (layout (lispm-desktop-platinum-title-layout
+         (layout (lispm-ui-title-layout
                   width (lispm-ui-text-width label 'lispm-ui-title)
                   '(nil nil nil)))
          (label (lispm-desktop-platinum-fit label (plist-get layout :title))))
     (lispm-ui-svg-embed
-     svg (lispm-desktop-platinum-draw-title-part palette width :active t :lead t :trail t
-                                                 :ridges (plist-get layout :ridges)
-                                                 :label label :label-x (plist-get layout :label-x))
-     1 1 width lispm-desktop-platinum-title-bar-height)))
+     svg (lispm-ui-draw-title-part palette width :active t :lead t :trail t
+                                   :ridges (plist-get layout :ridges)
+                                   :label label :label-x (plist-get layout :label-x))
+     1 1 width lispm-ui-title-bar-height)))
 
-(defun lispm-desktop-choose--draw-location (svg dialog rect palette)
+(defun lispm-ui-file-dialog--draw-location (svg dialog rect palette)
   "Draw on SVG in RECT the pop-up menu of the folder DIALOG shows: the
 folder's icon and name, and the menu's arrows."
   (pcase-let* ((`(,x ,y ,w ,_) rect)
-               (state (and (eq (lispm-desktop-choose--dialog-pressed dialog) 'location) 'pressed))
-               (directory (lispm-desktop-choose--dialog-directory dialog))
+               (state (and (eq (lispm-ui-file-dialog--dialog-pressed dialog) 'location) 'pressed))
+               (directory (lispm-ui-file-dialog--dialog-directory dialog))
                (name (or (file-name-nondirectory (directory-file-name directory)) ""))
                (label (concat (lispm-ui-icon "folder") " "
                               (lispm-desktop-platinum-fit
@@ -426,7 +426,7 @@ folder's icon and name, and the menu's arrows."
                           (plist-get (lispm-ui-push-button-colors palette state) :label)
                           'lispm-ui-title)))
 
-(defun lispm-desktop-choose--draw-place-button (svg rect palette state kind)
+(defun lispm-ui-file-dialog--draw-place-button (svg rect palette state kind)
   "Draw on SVG in RECT the bevel button of KIND, `shortcuts' or `recent', in
 STATE: a disk for the usual places, a clock for the files chosen lately,
 and the small arrow of a button popping up a menu."
@@ -449,7 +449,7 @@ and the small arrow of a button popping up a menu."
                            (cons (+ x w -6.5) (+ y h -5.5)))
                  :fill ink)))
 
-(defun lispm-desktop-choose--draw-list (svg dialog layout palette)
+(defun lispm-ui-file-dialog--draw-list (svg dialog layout palette)
   "Draw on SVG DIALOG's list as LAYOUT places it: its headings, its rows,
 the sorted column darker, the item selected in reverse, and its scroll
 bar."
@@ -460,9 +460,9 @@ bar."
                (`(,sx ,sy ,sw ,sh) (plist-get layout :scroll))
                (date-w (plist-get layout :date))
                (name-w (- rw date-w))
-               (by-date (eq (lispm-desktop-choose--dialog-sort dialog) 'date))
-               (items (lispm-desktop-choose--dialog-items dialog))
-               (top (lispm-desktop-choose--dialog-top dialog))
+               (by-date (eq (lispm-ui-file-dialog--dialog-sort dialog) 'date))
+               (items (lispm-ui-file-dialog--dialog-items dialog))
+               (top (lispm-ui-file-dialog--dialog-top dialog))
                (text (plist-get palette :text)))
     (lispm-ui-svg-fill svg lx ly lw lh (plist-get palette :outline))
     (cl-flet ((heading (label width)
@@ -470,22 +470,22 @@ bar."
                 ;; longer language's may be.
                 (lispm-desktop-platinum-fit (propertize label 'face 'lispm-ui-list) width)))
       (lispm-ui-svg-embed
-       svg (lispm-desktop-platinum-draw-list-header
+       svg (lispm-ui-draw-list-header
             palette (list (list (heading (lispm-desktop-tr "Name") (- name-w 34)) name-w (not by-date) 28)
                           (list (heading (lispm-desktop-tr "Date Modified") (- date-w 10)) date-w by-date 6)))
        hx hy hw hh))
-    (dotimes (row lispm-desktop-choose-rows)
-      (let ((y (+ ry (* row lispm-desktop-choose-row-height)))
+    (dotimes (row lispm-ui-file-dialog-rows)
+      (let ((y (+ ry (* row lispm-ui-file-dialog-row-height)))
             (index (+ top row)))
-        (lispm-ui-svg-fill svg rx y name-w (1- lispm-desktop-choose-row-height)
+        (lispm-ui-svg-fill svg rx y name-w (1- lispm-ui-file-dialog-row-height)
                            (funcall grey (if by-date #xEE #xDD)))
-        (lispm-ui-svg-fill svg (+ rx name-w) y date-w (1- lispm-desktop-choose-row-height)
+        (lispm-ui-svg-fill svg (+ rx name-w) y date-w (1- lispm-ui-file-dialog-row-height)
                            (funcall grey (if by-date #xDD #xEE)))
-        (lispm-ui-svg-row svg rx (+ rx rw -1) (+ y lispm-desktop-choose-row-height -1)
+        (lispm-ui-svg-row svg rx (+ rx rw -1) (+ y lispm-ui-file-dialog-row-height -1)
                           (funcall grey #xFF))
         (when-let* ((item (nth index items)))
           (pcase-let* ((`(,name ,file ,folder ,time) item)
-                       (selected (eql index (lispm-desktop-choose--dialog-selected dialog)))
+                       (selected (eql index (lispm-ui-file-dialog--dialog-selected dialog)))
                        (label (lispm-desktop-platinum-fit (propertize name 'face 'lispm-ui-list)
                                                           (- name-w 34)))
                        (label-w (lispm-ui-text-width label 'lispm-ui-list)))
@@ -494,138 +494,138 @@ bar."
              (+ rx 8) (+ y 2) 16)
             (when selected
               (lispm-ui-svg-fill svg (+ rx 26) (+ y 2) (+ label-w 4) 15 (plist-get palette :outline)))
-            (lispm-ui-svg-content svg label (+ rx 28) y (1- lispm-desktop-choose-row-height)
+            (lispm-ui-svg-content svg label (+ rx 28) y (1- lispm-ui-file-dialog-row-height)
                                   (if selected (funcall grey #xFF) text)
                                   'lispm-ui-list)
-            (lispm-ui-svg-content svg (lispm-desktop-choose--date time) (+ rx name-w 6) y
-                                  (1- lispm-desktop-choose-row-height) text
+            (lispm-ui-svg-content svg (lispm-ui-file-dialog--date time) (+ rx name-w 6) y
+                                  (1- lispm-ui-file-dialog-row-height) text
                                   'lispm-ui-list)))))
     (lispm-ui-svg-embed
-     svg (lispm-desktop-platinum-draw-scroll-bar palette sh (lispm-desktop-choose--thumb dialog sh) t)
+     svg (lispm-ui-draw-scroll-bar palette sh (lispm-ui-file-dialog--thumb dialog sh) t)
      sx sy sw sh)))
 
-(defun lispm-desktop-choose-draw (dialog palette)
-  "Return an SVG of DIALOG in PALETTE, laid out by `lispm-desktop-choose--layout'.
+(defun lispm-ui-file-dialog-draw (dialog palette)
+  "Return an SVG of DIALOG in PALETTE, laid out by `lispm-ui-file-dialog--layout'.
 It is drawn as Mac OS 9 drew a movable modal window: outlined, its title
 bar ridged either side of its title and holding no boxes, its body
 platinum, lit along its top and left inside and shaded along its bottom
 and right; the controls as Navigation Services drew them."
-  (let* ((layout (lispm-desktop-choose--layout))
+  (let* ((layout (lispm-ui-file-dialog--layout))
          (w (plist-get layout :width))
          (h (plist-get layout :height))
          (svg (svg-create w h))
          (grey (lambda (level) (lispm-ui-grey palette level)))
-         (pressed (lispm-desktop-choose--dialog-pressed dialog))
-         (labels (lispm-desktop-choose--button-labels dialog))
-         (body (1+ lispm-desktop-platinum-title-bar-height)))
+         (pressed (lispm-ui-file-dialog--dialog-pressed dialog))
+         (labels (lispm-ui-file-dialog--button-labels dialog))
+         (body (1+ lispm-ui-title-bar-height)))
     (lispm-ui-svg-fill svg 0 0 w h (plist-get palette :outline))
     (lispm-ui-svg-fill svg 1 1 (- w 2) (- h 2) (funcall grey #xDD))
-    (lispm-desktop-choose--draw-title svg (- w 2) (lispm-desktop-choose--dialog-title dialog) palette)
+    (lispm-ui-file-dialog--draw-title svg (- w 2) (lispm-ui-file-dialog--dialog-title dialog) palette)
     (lispm-ui-svg-row svg 2 (- w 4) (1+ body) (funcall grey #xFF))
     (lispm-ui-svg-column svg 2 (1+ body) (- h 4) (funcall grey #xFF))
     (lispm-ui-svg-row svg 3 (- w 3) (- h 3) (funcall grey #x99))
     (lispm-ui-svg-column svg (- w 3) (+ body 2) (- h 3) (funcall grey #x99))
-    (lispm-desktop-choose--draw-location svg dialog (plist-get layout :location) palette)
-    (lispm-desktop-choose--draw-place-button svg (plist-get layout :shortcuts) palette
+    (lispm-ui-file-dialog--draw-location svg dialog (plist-get layout :location) palette)
+    (lispm-ui-file-dialog--draw-place-button svg (plist-get layout :shortcuts) palette
                                              (and (eq pressed 'shortcuts) 'pressed) 'shortcuts)
-    (lispm-desktop-choose--draw-place-button svg (plist-get layout :recent) palette
+    (lispm-ui-file-dialog--draw-place-button svg (plist-get layout :recent) palette
                                              (cond ((eq pressed 'recent) 'pressed)
-                                                   ((null (lispm-desktop-choose--recent dialog)) 'disabled))
+                                                   ((null (lispm-ui-file-dialog--recent dialog)) 'disabled))
                                              'recent)
-    (lispm-desktop-choose--draw-list svg dialog layout palette)
+    (lispm-ui-file-dialog--draw-list svg dialog layout palette)
     ;; The preview pane, sunk into the body.
     (pcase-let ((`(,x ,y ,pw ,ph) (plist-get layout :preview)))
       (lispm-ui-svg-row svg x (+ x pw -2) y (funcall grey #x88))
       (lispm-ui-svg-column svg x y (+ y ph -2) (funcall grey #x88))
       (lispm-ui-svg-row svg (1+ x) (+ x pw -1) (+ y ph -1) (funcall grey #xFF))
       (lispm-ui-svg-column svg (+ x pw -1) (1+ y) (+ y ph -1) (funcall grey #xFF))
-      (lispm-desktop-choose--draw-picture svg dialog (list (+ x 8) (+ y 8) (- pw 16) (- ph 16)) palette))
+      (lispm-ui-file-dialog--draw-picture svg dialog (list (+ x 8) (+ y 8) (- pw 16) (- ph 16)) palette))
     (pcase-dolist (`(,part ,label ,default) `((:cancel ,(car labels) nil) (:choose ,(cdr labels) t)))
       (pcase-let ((`(,x ,y ,bw ,_) (plist-get layout part)))
         (lispm-ui-svg-push-button
          svg x y palette label bw
          :default default
          :state (cond ((eq pressed (intern (substring (symbol-name part) 1))) 'pressed)
-                      ((and default (null (lispm-desktop-choose--item dialog))) 'disabled)))))
+                      ((and default (null (lispm-ui-file-dialog--item dialog))) 'disabled)))))
     svg))
 
-(defun lispm-desktop-choose--show (frame dialog)
+(defun lispm-ui-file-dialog--show (frame dialog)
   "Show DIALOG in its popup FRAME, drawn anew."
   (lispm-ui-popup-fill
-   frame (propertize " " 'display (svg-image (lispm-desktop-choose-draw dialog lispm-ui-current-palette)
+   frame (propertize " " 'display (svg-image (lispm-ui-file-dialog-draw dialog lispm-ui-current-palette)
                                              :ascent 100 :scale 1)))
   (redisplay t))
 
 ;;;; The mouse
 
-(defun lispm-desktop-choose--at (event frame dialog)
+(defun lispm-ui-file-dialog--at (event frame dialog)
   "Return what of DIALOG, shown in FRAME, mouse EVENT is over, see
-`lispm-desktop-choose--hit'; nil when it is not over FRAME."
+`lispm-ui-file-dialog--hit'; nil when it is not over FRAME."
   (when-let* ((position (lispm-ui-modal-over event frame))
               (xy (posn-x-y position)))
-    (lispm-desktop-choose--hit dialog (lispm-desktop-choose--layout) (car xy) (cdr xy))))
+    (lispm-ui-file-dialog--hit dialog (lispm-ui-file-dialog--layout) (car xy) (cdr xy))))
 
-(defun lispm-desktop-choose--hold (frame dialog part)
+(defun lispm-ui-file-dialog--hold (frame dialog part)
   "Hold PART of DIALOG, shown in FRAME, pressed while the mouse stays down
 over it; return non-nil when it rose over it."
   (lispm-ui-modal-hold
-   (lambda (event) (equal (lispm-desktop-choose--at event frame dialog) part))
+   (lambda (event) (equal (lispm-ui-file-dialog--at event frame dialog) part))
    (lambda (down)
-     (setf (lispm-desktop-choose--dialog-pressed dialog) (and down part))
-     (lispm-desktop-choose--show frame dialog))))
+     (setf (lispm-ui-file-dialog--dialog-pressed dialog) (and down part))
+     (lispm-ui-file-dialog--show frame dialog))))
 
-(defun lispm-desktop-choose--menu (frame dialog part items)
+(defun lispm-ui-file-dialog--menu (frame dialog part items)
   "Pop up ITEMS under PART of DIALOG, shown in FRAME, held pressed while the
 menu is open; return the item chosen, or nil."
-  (pcase-let ((`(,x ,y ,_ ,h) (plist-get (lispm-desktop-choose--layout) part))
+  (pcase-let ((`(,x ,y ,_ ,h) (plist-get (lispm-ui-file-dialog--layout) part))
               (`(,fx . ,fy) (frame-position frame)))
-    (setf (lispm-desktop-choose--dialog-pressed dialog) (intern (substring (symbol-name part) 1)))
-    (lispm-desktop-choose--show frame dialog)
+    (setf (lispm-ui-file-dialog--dialog-pressed dialog) (intern (substring (symbol-name part) 1)))
+    (lispm-ui-file-dialog--show frame dialog)
     (unwind-protect
         (lispm-ui-menu-choose items (+ fx x) (+ fy y h))
-      (setf (lispm-desktop-choose--dialog-pressed dialog) nil))))
+      (setf (lispm-ui-file-dialog--dialog-pressed dialog) nil))))
 
-(defun lispm-desktop-choose--folder-icon ()
+(defun lispm-ui-file-dialog--folder-icon ()
   "Return the image of a folder's small icon, for a menu item."
   (create-image (lispm-ui-icon-file "folder") nil nil :ascent 'center))
 
-(defun lispm-desktop-choose--path-items (dialog)
+(defun lispm-ui-file-dialog--path-items (dialog)
   "Return the menu of the folders holding the one DIALOG shows, it first."
   (let ((folders nil)
-        (directory (lispm-desktop-choose--dialog-directory dialog)))
+        (directory (lispm-ui-file-dialog--dialog-directory dialog)))
     (while directory
       (push directory folders)
-      (setq directory (lispm-desktop-choose--parent directory)))
+      (setq directory (lispm-ui-file-dialog--parent directory)))
     (mapcar (lambda (folder)
               (let ((name (file-name-nondirectory (directory-file-name folder))))
                 (list :label (if (string-empty-p name) "/" name) :value folder
-                      :icon (lispm-desktop-choose--folder-icon))))
+                      :icon (lispm-ui-file-dialog--folder-icon))))
             (nreverse folders))))
 
-(defun lispm-desktop-choose--shortcut (frame dialog &optional keyboard)
+(defun lispm-ui-file-dialog--shortcut (frame dialog &optional keyboard)
   "Pop up the usual places under DIALOG's Shortcuts button, in FRAME, and go
 to the one chosen.  KEYBOARD says the keyboard asked: nothing is held."
   (when-let* ((item (if keyboard
-                        (pcase-let ((`(,x ,y ,_ ,h) (plist-get (lispm-desktop-choose--layout) :shortcuts))
+                        (pcase-let ((`(,x ,y ,_ ,h) (plist-get (lispm-ui-file-dialog--layout) :shortcuts))
                                     (`(,fx . ,fy) (frame-position frame)))
-                          (lispm-ui-menu-choose (lispm-desktop-choose--place-items) (+ fx x) (+ fy y h)))
-                      (lispm-desktop-choose--menu frame dialog :shortcuts
-                                                  (lispm-desktop-choose--place-items)))))
-    (lispm-desktop-choose--go dialog (plist-get item :value))))
+                          (lispm-ui-menu-choose (lispm-ui-file-dialog--place-items) (+ fx x) (+ fy y h)))
+                      (lispm-ui-file-dialog--menu frame dialog :shortcuts
+                                                  (lispm-ui-file-dialog--place-items)))))
+    (lispm-ui-file-dialog--go dialog (plist-get item :value))))
 
-(defun lispm-desktop-choose--place-items ()
+(defun lispm-ui-file-dialog--place-items ()
   "Return the menu of the usual places."
   (mapcar (pcase-lambda (`(,name . ,folder))
-            (list :label name :value folder :icon (lispm-desktop-choose--folder-icon)))
-          (lispm-desktop-choose--places)))
+            (list :label name :value folder :icon (lispm-ui-file-dialog--folder-icon)))
+          (lispm-ui-file-dialog--places)))
 
-(defun lispm-desktop-choose--drag-thumb (frame dialog grab)
+(defun lispm-ui-file-dialog--drag-thumb (frame dialog grab)
   "Drag DIALOG's scroll bar thumb, in FRAME, held GRAB pixels below its top,
 the list following it, until the mouse rises."
-  (pcase-let* ((`(,_ ,top ,_ ,height) (plist-get (lispm-desktop-choose--layout) :scroll))
-               (track (plist-get (lispm-desktop-platinum-scroll-layout height) :track-length))
-               (count (length (lispm-desktop-choose--dialog-items dialog)))
-               (room (- count lispm-desktop-choose-rows)))
+  (pcase-let* ((`(,_ ,top ,_ ,height) (plist-get (lispm-ui-file-dialog--layout) :scroll))
+               (track (plist-get (lispm-ui-scroll-layout height) :track-length))
+               (count (length (lispm-ui-file-dialog--dialog-items dialog)))
+               (room (- count lispm-ui-file-dialog-rows)))
     (catch 'done
       (while t
         (let ((event (lispm-ui-modal-read)))
@@ -634,30 +634,30 @@ the list following it, until the mouse rises."
                 ((mouse-movement-p event)
                  (when-let* ((position (lispm-ui-modal-over event frame))
                              (y (cdr (posn-x-y position)))
-                             (thumb (lispm-desktop-choose--thumb dialog height)))
+                             (thumb (lispm-ui-file-dialog--thumb dialog height)))
                    (let ((free (max 1 (- track (cdr thumb)))))
-                     (lispm-desktop-choose--scroll-to
+                     (lispm-ui-file-dialog--scroll-to
                       dialog (round (* room (/ (float (- y top grab)) free))))
-                     (lispm-desktop-choose--show frame dialog))))))))))
+                     (lispm-ui-file-dialog--show frame dialog))))))))))
 
-(defun lispm-desktop-choose--click (frame dialog event)
+(defun lispm-ui-file-dialog--click (frame dialog event)
   "Do what mouse EVENT, a press, does in DIALOG, shown in FRAME.
 Return the file chosen, `cancel', or nil while the dialog stays."
   (let ((double (memq 'double (event-modifiers event))))
-    (pcase (lispm-desktop-choose--at event frame dialog)
-      ('cancel (and (lispm-desktop-choose--hold frame dialog 'cancel) 'cancel))
-      ('choose (and (lispm-desktop-choose--item dialog)
-                    (lispm-desktop-choose--hold frame dialog 'choose)
-                    (lispm-desktop-choose--open dialog)))
+    (pcase (lispm-ui-file-dialog--at event frame dialog)
+      ('cancel (and (lispm-ui-file-dialog--hold frame dialog 'cancel) 'cancel))
+      ('choose (and (lispm-ui-file-dialog--item dialog)
+                    (lispm-ui-file-dialog--hold frame dialog 'choose)
+                    (lispm-ui-file-dialog--open dialog)))
       ('location
-       (when-let* ((item (lispm-desktop-choose--menu frame dialog :location
-                                                     (lispm-desktop-choose--path-items dialog))))
-         (lispm-desktop-choose--go dialog (plist-get item :value)))
+       (when-let* ((item (lispm-ui-file-dialog--menu frame dialog :location
+                                                     (lispm-ui-file-dialog--path-items dialog))))
+         (lispm-ui-file-dialog--go dialog (plist-get item :value)))
        nil)
-      ('shortcuts (lispm-desktop-choose--shortcut frame dialog) nil)
+      ('shortcuts (lispm-ui-file-dialog--shortcut frame dialog) nil)
       ('recent
-       (when-let* ((files (lispm-desktop-choose--recent dialog))
-                   (item (lispm-desktop-choose--menu
+       (when-let* ((files (lispm-ui-file-dialog--recent dialog))
+                   (item (lispm-ui-file-dialog--menu
                           frame dialog :recent
                           (mapcar (lambda (file)
                                     (list :label (file-name-nondirectory file) :value file
@@ -667,35 +667,35 @@ Return the file chosen, `cancel', or nil while the dialog stays."
                                   files))))
          ;; The file is shown selected, its preview beside it, to be chosen.
          (let ((file (plist-get item :value)))
-           (lispm-desktop-choose--go dialog (file-name-directory file) (file-name-nondirectory file))))
+           (lispm-ui-file-dialog--go dialog (file-name-directory file) (file-name-nondirectory file))))
        nil)
       (`(header . ,column)
        (if (eq column 'direction)
-           (setf (lispm-desktop-choose--dialog-descending dialog)
-                 (not (lispm-desktop-choose--dialog-descending dialog)))
-         (setf (lispm-desktop-choose--dialog-sort dialog) column))
-       (lispm-desktop-choose--sort dialog)
+           (setf (lispm-ui-file-dialog--dialog-descending dialog)
+                 (not (lispm-ui-file-dialog--dialog-descending dialog)))
+         (setf (lispm-ui-file-dialog--dialog-sort dialog) column))
+       (lispm-ui-file-dialog--sort dialog)
        nil)
       (`(row . ,index)
-       (lispm-desktop-choose--select dialog index)
-       (when double (lispm-desktop-choose--open dialog)))
+       (lispm-ui-file-dialog--select dialog index)
+       (when double (lispm-ui-file-dialog--open dialog)))
       (`(scroll . ,part)
-       (let ((top (lispm-desktop-choose--dialog-top dialog)))
+       (let ((top (lispm-ui-file-dialog--dialog-top dialog)))
          (pcase part
-           ('up (lispm-desktop-choose--scroll-to dialog (1- top)))
-           ('down (lispm-desktop-choose--scroll-to dialog (1+ top)))
-           ('page-up (lispm-desktop-choose--scroll-to dialog (- top lispm-desktop-choose-rows)))
-           ('page-down (lispm-desktop-choose--scroll-to dialog (+ top lispm-desktop-choose-rows)))
+           ('up (lispm-ui-file-dialog--scroll-to dialog (1- top)))
+           ('down (lispm-ui-file-dialog--scroll-to dialog (1+ top)))
+           ('page-up (lispm-ui-file-dialog--scroll-to dialog (- top lispm-ui-file-dialog-rows)))
+           ('page-down (lispm-ui-file-dialog--scroll-to dialog (+ top lispm-ui-file-dialog-rows)))
            ('thumb
-            (pcase-let* ((`(,_ ,bar-top ,_ ,height) (plist-get (lispm-desktop-choose--layout) :scroll))
+            (pcase-let* ((`(,_ ,bar-top ,_ ,height) (plist-get (lispm-ui-file-dialog--layout) :scroll))
                          (y (cdr (posn-x-y (event-start event)))))
-              (lispm-desktop-choose--drag-thumb
-               frame dialog (- y bar-top (car (lispm-desktop-choose--thumb dialog height))))))))
+              (lispm-ui-file-dialog--drag-thumb
+               frame dialog (- y bar-top (car (lispm-ui-file-dialog--thumb dialog height))))))))
        nil))))
 
 ;;;; The dialog
 
-(defun lispm-desktop-choose--loop (frame dialog)
+(defun lispm-ui-file-dialog--loop (frame dialog)
   "Read events for DIALOG, shown in FRAME, until a file is chosen or it is
 cancelled; return the file, or nil."
   (track-mouse
@@ -705,31 +705,31 @@ cancelled; return the file, or nil."
                (result
                 (cond
                  ((lispm-ui-modal-mouse-down-p event)
-                  (lispm-desktop-choose--click frame dialog event))
+                  (lispm-ui-file-dialog--click frame dialog event))
                  ((memq (event-basic-type event) '(wheel-up wheel-down mouse-4 mouse-5))
                   (when (lispm-ui-modal-over event frame)
-                    (lispm-desktop-choose--scroll-to
-                     dialog (+ (lispm-desktop-choose--dialog-top dialog)
+                    (lispm-ui-file-dialog--scroll-to
+                     dialog (+ (lispm-ui-file-dialog--dialog-top dialog)
                                (if (memq (event-basic-type event) '(wheel-down mouse-5)) 3 -3))))
                   nil)
                  ((or (mouse-event-p event) (mouse-movement-p event)) 'ignore)
-                 ((eq event ?/) (lispm-desktop-choose--shortcut frame dialog t) nil)
-                 ((and (lispm-ui-modal-confirm-p event) (lispm-desktop-choose--item dialog))
+                 ((eq event ?/) (lispm-ui-file-dialog--shortcut frame dialog t) nil)
+                 ((and (lispm-ui-modal-confirm-p event) (lispm-ui-file-dialog--item dialog))
                   ;; Return presses the default button, which blinks.
                   (lispm-ui-modal-flash 'button
                                              (lambda ()
-                                               (setf (lispm-desktop-choose--dialog-pressed dialog) 'choose)
-                                               (lispm-desktop-choose--show frame dialog)))
-                  (setf (lispm-desktop-choose--dialog-pressed dialog) nil)
-                  (lispm-desktop-choose--key dialog event))
-                 (t (lispm-desktop-choose--key dialog event)))))
+                                               (setf (lispm-ui-file-dialog--dialog-pressed dialog) 'choose)
+                                               (lispm-ui-file-dialog--show frame dialog)))
+                  (setf (lispm-ui-file-dialog--dialog-pressed dialog) nil)
+                  (lispm-ui-file-dialog--key dialog event))
+                 (t (lispm-ui-file-dialog--key dialog event)))))
           (pcase result
             ('cancel (throw 'done nil))
             ((pred stringp) (throw 'done result))
             ('ignore nil)
-            (_ (lispm-desktop-choose--show frame dialog))))))))
+            (_ (lispm-ui-file-dialog--show frame dialog))))))))
 
-(defun lispm-desktop-choose--fallback (title file directory predicate)
+(defun lispm-ui-file-dialog--fallback (title file directory predicate)
   "Read a file in the minibuffer, as the dialog of TITLE would choose one:
 from FILE's folder or DIRECTORY, among those PREDICATE takes; never in
 the system's own panel."
@@ -743,7 +743,7 @@ the system's own panel."
         (and (file-regular-p chosen) (expand-file-name chosen)))
     (quit nil)))
 
-(cl-defun lispm-desktop-choose-file (&key title file directory predicate preview)
+(cl-defun lispm-ui-choose-file (&key title file directory predicate preview)
   "Show the desktop's dialog choosing a file; return the file chosen, or nil.
 TITLE titles it, by default \"Choose a File\".  It opens on FILE's
 folder, FILE selected, else on DIRECTORY, by default `default-directory'.
@@ -755,24 +755,24 @@ file is read in the minibuffer."
   (let ((title (or title (lispm-desktop-tr "Choose a File")))
         (directory (or (and file (file-name-directory file)) directory default-directory)))
     (if (not (lispm-ui-popup-graphic-p))
-        (lispm-desktop-choose--fallback title file directory predicate)
-      (let* ((dialog (lispm-desktop-choose--make-dialog :title title :predicate predicate :preview preview))
+        (lispm-ui-file-dialog--fallback title file directory predicate)
+      (let* ((dialog (lispm-ui-file-dialog--make-dialog :title title :predicate predicate :preview preview))
              (parent (selected-frame))
-             (frame (progn (lispm-desktop-choose--go dialog directory (and file (file-name-nondirectory file)))
+             (frame (progn (lispm-ui-file-dialog--go dialog directory (and file (file-name-nondirectory file)))
                            (lispm-ui-popup-make-frame parent)))
-             (layout (lispm-desktop-choose--layout)))
+             (layout (lispm-ui-file-dialog--layout)))
         (unwind-protect
             (progn
-              (lispm-desktop-choose--show frame dialog)
+              (lispm-ui-file-dialog--show frame dialog)
               (lispm-ui-popup-set-size frame (plist-get layout :width) (plist-get layout :height))
               (lispm-ui-popup-show frame
                                    (/ (- (frame-pixel-width parent) (plist-get layout :width)) 2)
                                    (max 0 (/ (- (frame-pixel-height parent) (plist-get layout :height)) 3))
                                    'alert)
-              (when-let* ((chosen (lispm-desktop-choose--loop frame dialog)))
-                (lispm-desktop-choose--remember chosen)
+              (when-let* ((chosen (lispm-ui-file-dialog--loop frame dialog)))
+                (lispm-ui-file-dialog--remember chosen)
                 chosen))
           (lispm-ui-popup-dispose frame))))))
 
-(provide 'lispm-desktop-choose)
-;;; lispm-desktop-choose.el ends here
+(provide 'lispm-ui-file-dialog)
+;;; lispm-ui-file-dialog.el ends here

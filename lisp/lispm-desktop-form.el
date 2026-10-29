@@ -49,7 +49,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
-(require 'lispm-desktop-choose)
+(require 'lispm-ui-file-dialog)
 (require 'lispm-desktop-i18n)
 (require 'lispm-ui-form)
 (require 'lispm-ui-ask)
@@ -76,10 +76,10 @@ chosen, or nil.  A picture's is titled so, and previews the picture
 selected.  TYPE, LABEL, FILE and PREDICATE are as
 `lispm-ui-form-choose-file-function' gives them."
   (ignore label)
-  (lispm-desktop-choose-file :title (if (eq type 'picture)
-                                        (lispm-desktop-tr "Choose a Picture")
-                                      (lispm-desktop-tr "Choose a File"))
-                             :file file :predicate predicate :preview (eq type 'picture)))
+  (lispm-ui-choose-file :title (if (eq type 'picture)
+                                   (lispm-desktop-tr "Choose a Picture")
+                                 (lispm-desktop-tr "Choose a File"))
+                        :file file :predicate predicate :preview (eq type 'picture)))
 
 ;;;; Showing
 
@@ -105,7 +105,7 @@ dialog, and have LispM UI speak the desktop's language."
   (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose
         lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--layout)
-  (setq lispm-ui-choose-file-function #'lispm-desktop-choose-file)
+  (setq lispm-ui-choose-file-function #'lispm-ui-choose-file)
   ;; Before LispM's agent's, which follows the desktop's too.
   (add-hook 'lispm-ui-language-functions #'lispm-desktop-current-language -50)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-ui-language-changed)

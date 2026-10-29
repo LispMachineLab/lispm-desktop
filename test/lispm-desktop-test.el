@@ -1654,8 +1654,8 @@ as a check box does, without waiting for Apply."
 (ert-deftest lispm-desktop-test-title-layout-centres ()
   "A short title sits in the middle of its bar, with ridges either side,
 the boxes spaced as Mac OS 9 spaced them."
-  (let* ((layout (lispm-desktop-platinum-title-layout 600 100))
-         (s lispm-desktop-platinum-box-size)
+  (let* ((layout (lispm-ui-title-layout 600 100))
+         (s lispm-ui-title-box-size)
          (ridges (plist-get layout :ridges)))
     (should (= (plist-get layout :title) 100))
     (should (= (plist-get layout :label-x) 250))
@@ -1668,7 +1668,7 @@ the boxes spaced as Mac OS 9 spaced them."
 
 (ert-deftest lispm-desktop-test-title-layout-narrows-long-titles ()
   "A title too wide for its bar is narrowed, keeping ridges on both sides."
-  (pcase-let* ((layout (lispm-desktop-platinum-title-layout 300 1000))
+  (pcase-let* ((layout (lispm-ui-title-layout 300 1000))
                (`((,a . ,b) (,c . ,d)) (plist-get layout :ridges)))
     (should (< (plist-get layout :title) 300))
     (should (>= (- b a) 12))
@@ -1676,8 +1676,8 @@ the boxes spaced as Mac OS 9 spaced them."
 
 (ert-deftest lispm-desktop-test-title-layout-without-boxes ()
   "A bar lacking boxes gives their room to the title."
-  (let ((all (lispm-desktop-platinum-title-layout 300 1000))
-        (close-only (lispm-desktop-platinum-title-layout 300 1000 '(on nil nil))))
+  (let ((all (lispm-ui-title-layout 300 1000))
+        (close-only (lispm-ui-title-layout 300 1000 '(on nil nil))))
     (should (> (plist-get close-only :end) (plist-get all :end)))
     (should (> (plist-get close-only :title) (plist-get all :title)))))
 
@@ -1685,16 +1685,16 @@ the boxes spaced as Mac OS 9 spaced them."
   "Margins stand the boxes nearest the bar's ends that far in, the title
 stretch between giving up the room; an end without boxes keeps Mac OS
 9's margin."
-  (let* ((s lispm-desktop-platinum-box-size)
-         (margin lispm-desktop-platinum-box-margin)
-         (layout (lispm-desktop-platinum-title-layout 600 100 nil '(12 . 15)))
-         (close-only (lispm-desktop-platinum-title-layout 600 100 '(on nil nil) '(12 . 15))))
+  (let* ((s lispm-ui-title-box-size)
+         (margin lispm-ui-title-box-margin)
+         (layout (lispm-ui-title-layout 600 100 nil '(12 . 15)))
+         (close-only (lispm-ui-title-layout 600 100 '(on nil nil) '(12 . 15))))
     (should (equal (plist-get layout :margins) '(12 . 15)))
     (should (= (plist-get layout :start) (+ 12 s)))
     (should (= (plist-get layout :end) (- 600 15 s 3 s)))
     (should (equal (plist-get close-only :margins) (cons 12 margin)))
     (should (= (plist-get close-only :end) (- 600 margin)))
-    (should (equal (plist-get (lispm-desktop-platinum-title-layout 600 100) :margins)
+    (should (equal (plist-get (lispm-ui-title-layout 600 100) :margins)
                    (cons margin margin)))))
 
 (defun lispm-desktop-test--box-in-corner-p (frame-width frame-height box)
@@ -1711,7 +1711,7 @@ resizes a frame FRAME-WIDTH by FRAME-HEIGHT pixels from."
   "Return the boxes nearest the ends of a title bar from LEFT to RIGHT, its
 top at TOP, standing them at MARGINS: the close box and the last box, as
 \(X0 Y0 X1 Y1) in pixels."
-  (pcase-let ((s lispm-desktop-platinum-box-size)
+  (pcase-let ((s lispm-ui-title-box-size)
               (y (+ top lispm-desktop-platinum-box-top))
               (`(,lead . ,trail) margins))
     (list (list (+ left lead) y (+ left lead s) (+ y s))
@@ -1722,7 +1722,7 @@ top at TOP, standing them at MARGINS: the close box and the last box, as
 their frame from, and no further in than that takes, Mac OS 9's margin
 the least.  A floating window's bar runs along its frame's top; rolled
 up, the bar is the whole frame."
-  (let ((margin lispm-desktop-platinum-box-margin))
+  (let ((margin lispm-ui-title-box-margin))
     (pcase-dolist (`(,geometry ,expected)
                    '(((400 300 0 400 0) (12 . 12))         ; a floating window
                      ((400 22 0 400 0) (12 . 15))          ; rolled up
@@ -1761,7 +1761,7 @@ screen; a decorated frame, or one of another window system, it does not."
   "A window's title bar keeps Mac OS 9's margins unless the window system
 resizes its frame from the corners; then they come of where the bar runs
 in the frame, its right end before the window's divider and scroll bar."
-  (let ((margin lispm-desktop-platinum-box-margin))
+  (let ((margin lispm-ui-title-box-margin))
     (should (equal (lispm-desktop-platinum-window-box-margins (selected-window))
                    (cons margin margin)))
     (cl-letf (((symbol-function 'lispm-desktop-platinum--resized-from-corners-p) #'always)
@@ -1796,7 +1796,7 @@ its pieces filling its width."
   (skip-unless (image-type-available-p 'svg))
   (let* ((lispm-ui-current-palette (lispm-ui-derive-palette "#FFFFFF" "#000000"
                                                                                   "#777777" "#6363CE"))
-         (s lispm-desktop-platinum-box-size)
+         (s lispm-ui-title-box-size)
          (pieces (lispm-desktop-test--bar-pieces
                   (lispm-desktop-platinum-draw-title-bar 600 t nil "codex" nil '(on on on)
                                                           nil nil nil '(12 . 15)))))
@@ -1811,9 +1811,9 @@ its pieces filling its width."
       (should (eq (dom-tag (lispm-desktop-platinum-draw-box palette kind)) 'svg))
       (should (eq (dom-tag (lispm-desktop-platinum-draw-box palette kind t)) 'svg))
       (should (eq (dom-tag (lispm-desktop-platinum-draw-box palette kind nil t)) 'svg)))
-    (should (eq (dom-tag (lispm-desktop-platinum-draw-title-part palette 50 :active t :ridges '((0 . 49))))
+    (should (eq (dom-tag (lispm-ui-draw-title-part palette 50 :active t :ridges '((0 . 49))))
                 'svg))
-    (should (eq (dom-tag (lispm-desktop-platinum-draw-triangle palette t)) 'svg))))
+    (should (eq (dom-tag (lispm-ui-draw-triangle palette t)) 'svg))))
 
 (ert-deftest lispm-desktop-test-title-box-pixels ()
   "The close box is a recessed well round a dark frame, a bevel and a
@@ -1840,7 +1840,7 @@ glyphs; the bar is lit along its top, shaded along its bottom."
       (should (equal (at zoom 4 10) "#222222"))
       (should (equal (at collapse 6 8) "#222222"))
       (should (equal (at collapse 6 10) "#222222")))
-    (let ((part (lispm-desktop-platinum-draw-title-part palette 40 :active t :ridges '((2 . 30)))))
+    (let ((part (lispm-ui-draw-title-part palette 40 :active t :ridges '((2 . 30)))))
       (cl-flet ((at (x y) (lispm-desktop-test--pixel part x y)))
         ;; Six ridges, their ends engraved.
         (should (equal (at 2 3) "#FFFFFF"))
@@ -1850,7 +1850,7 @@ glyphs; the bar is lit along its top, shaded along its bottom."
         (should (equal (at 30 3) "#CCCCCC"))
         (should (equal (at 10 13) "#FFFFFF"))
         (should (equal (at 10 15) "#CCCCCC"))))
-    (let ((inactive (lispm-desktop-platinum-draw-title-part palette 40)))
+    (let ((inactive (lispm-ui-draw-title-part palette 40)))
       (should (equal (lispm-desktop-test--pixel inactive 10 0) "#DDDDDD"))
       (should (equal (lispm-desktop-test--pixel inactive 10 20) "#555555")))))
 
@@ -3521,25 +3521,25 @@ while held."
 (ert-deftest lispm-desktop-test-scroll-thumb ()
   "The thumb is as long as the share shown, and as far down as the start;
 the arrows take the bar's bottom."
-  (let ((arrows (1+ (* 2 lispm-desktop-platinum-scroll-arrow))))
+  (let ((arrows (1+ (* 2 lispm-ui-scroll-arrow))))
     ;; Everything shows: no thumb.
-    (should-not (lispm-desktop-platinum-scroll-thumb 400 1 1000 1 1000))
+    (should-not (lispm-ui-scroll-thumb 400 1 1000 1 1000))
     ;; The top of a buffer ten times the window: a tenth of the track, at its top.
-    (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb (+ 300 arrows) 1 101 1 1001)))
+    (pcase-let ((`(,top . ,length) (lispm-ui-scroll-thumb (+ 300 arrows) 1 101 1 1001)))
       (should (= top 0))
       (should (= length 30)))
     ;; The end: the thumb's bottom meets the arrows.
-    (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb (+ 300 arrows) 901 1001 1 1001)))
+    (pcase-let ((`(,top . ,length) (lispm-ui-scroll-thumb (+ 300 arrows) 901 1001 1 1001)))
       (should (= (+ top length) 300)))
     ;; A short thumb is never shorter than a box.
-    (should (= (cdr (lispm-desktop-platinum-scroll-thumb 400 1 2 1 100000)) 16))))
+    (should (= (cdr (lispm-ui-scroll-thumb 400 1 2 1 100000)) 16))))
 
 (ert-deftest lispm-desktop-test-scroll-bar-draws ()
   "Scroll bars draw active, inactive, and with nothing to scroll."
   (let ((palette (lispm-ui-derive-palette "#FFFFFF" "#000000" "#777777" "#6363CE")))
-    (should (eq (dom-tag (lispm-desktop-platinum-draw-scroll-bar palette 300 '(40 . 30) t)) 'svg))
-    (should (eq (dom-tag (lispm-desktop-platinum-draw-scroll-bar palette 300 nil t)) 'svg))
-    (should (eq (dom-tag (lispm-desktop-platinum-draw-scroll-bar palette 300 '(40 . 30) nil)) 'svg))))
+    (should (eq (dom-tag (lispm-ui-draw-scroll-bar palette 300 '(40 . 30) t)) 'svg))
+    (should (eq (dom-tag (lispm-ui-draw-scroll-bar palette 300 nil t)) 'svg))
+    (should (eq (dom-tag (lispm-ui-draw-scroll-bar palette 300 '(40 . 30) nil)) 'svg))))
 
 ;;;; Controls
 
@@ -3659,8 +3659,8 @@ pressed, the cross is lit on a grey disc."
 (ert-deftest lispm-desktop-test-disclosure-triangle ()
   "The disclosure triangle is outlined, in the variation colour, shadowed."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (right (lispm-desktop-platinum-draw-triangle palette nil))
-         (down (lispm-desktop-platinum-draw-triangle palette t)))
+         (right (lispm-ui-draw-triangle palette nil))
+         (down (lispm-ui-draw-triangle palette t)))
     (cl-flet ((at (svg x y) (lispm-desktop-test--pixel svg x y)))
       (should (equal (at right 3 0) "#000000"))
       (should (equal (at right 4 3) "#CCCCFF"))
@@ -4207,9 +4207,9 @@ the wheel, which X reports as buttons 4 and 5, does not end it."
 in the variation colour with four ridges, its arrows together at the
 bottom; with nothing to scroll it lies flat."
   (let* ((palette (lispm-desktop-test--platinum-palette))
-         (bar (lispm-desktop-platinum-draw-scroll-bar palette 200 '(40 . 60) t))
-         (flat (lispm-desktop-platinum-draw-scroll-bar palette 200 nil t))
-         (track (lispm-desktop-platinum--scroll-track 200)))
+         (bar (lispm-ui-draw-scroll-bar palette 200 '(40 . 60) t))
+         (flat (lispm-ui-draw-scroll-bar palette 200 nil t))
+         (track (lispm-ui-scroll--track 200)))
     (should (equal (lispm-desktop-test--size bar) '(16 . 200)))
     (cl-flet ((at (svg x y) (lispm-desktop-test--pixel svg x y)))
       (should (equal (at bar 0 10) "#000000"))
@@ -15856,14 +15856,14 @@ system menu at the left, minimize and maximize at the right, the title
 centred between them."
   (dolist (look '(win3 os2))
     (let* ((lispm-desktop-look look)
-           (layout (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(3 . 3)))
+           (layout (lispm-ui-title-layout 300 100 '(on on on) '(3 . 3)))
            (button (if (eq look 'win3) 19 18)))
       (should (= (plist-get layout :start) button))
       (should (= (plist-get layout :end) (- 300 button button)))
       (should (= (plist-get layout :label-x)
                  (+ button (/ (- 300 button button button 100) 2))))
       ;; Clear of the corners the window system resizes from.
-      (should (= (plist-get (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(12 . 12)) :start)
+      (should (= (plist-get (lispm-ui-title-layout 300 100 '(on on on) '(12 . 12)) :start)
                  (+ 12 button))))))
 
 (ert-deftest lispm-desktop-test-look-title-bar-keeps-the-boxes ()
@@ -15929,18 +15929,18 @@ of stay Mac OS 9's."
 thumb on the track between; Windows' thumb is a square."
   (dolist (look '(win3 os2))
     (let* ((lispm-desktop-look look)
-           (layout (lispm-desktop-platinum-scroll-layout 200)))
+           (layout (lispm-ui-scroll-layout 200)))
       (should (= (plist-get layout :up) 0))
       (should (= (plist-get layout :down) (- 200 (plist-get layout :arrow))))
       (should (= (+ (plist-get layout :track) (plist-get layout :track-length)) (plist-get layout :down)))
-      (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb 200 1 101 1 1001)))
+      (pcase-let ((`(,top . ,length) (lispm-ui-scroll-thumb 200 1 101 1 1001)))
         (should (= top (plist-get layout :track)))
-        (when (eq look 'win3) (should (= length lispm-desktop-platinum-scroll-width))))
-      (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb 200 901 1001 1 1001)))
+        (when (eq look 'win3) (should (= length lispm-ui-scroll-width))))
+      (pcase-let ((`(,top . ,length) (lispm-ui-scroll-thumb 200 901 1001 1 1001)))
         (should (= (+ top length) (plist-get layout :down))))
-      (should-not (lispm-desktop-platinum-scroll-thumb 200 1 1001 1 1001))))
+      (should-not (lispm-ui-scroll-thumb 200 1 1001 1 1001))))
   (let ((lispm-desktop-look 'platinum))
-    (should (= (plist-get (lispm-desktop-platinum-scroll-layout 200) :track) 0))))
+    (should (= (plist-get (lispm-ui-scroll-layout 200) :track) 0))))
 
 (ert-deftest lispm-desktop-test-look-alert-layout ()
   "Windows 3.2's message box puts the default button first and Cancel last,
@@ -16081,12 +16081,12 @@ lines in the accent, marks in the highlight, the menu bar on the desktop."
 boxes; neon puts it after the close box.  The boxes keep their targets."
   (let ((lispm-desktop-look 'phosphor)
         (b lispm-desktop-glow-box-width))
-    (let ((layout (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(0 . 0))))
+    (let ((layout (lispm-ui-title-layout 300 100 '(on on on) '(0 . 0))))
       (should (= (plist-get layout :start) b))
       (should (= (plist-get layout :end) (- 300 b b)))
       (should (= (plist-get layout :label-x) (+ b (/ (- 300 b b b 100) 2)))))
     (let ((lispm-desktop-look 'neon))
-      (should (= (plist-get (lispm-desktop-platinum-title-layout 300 100 '(on on on) '(0 . 0)) :label-x)
+      (should (= (plist-get (lispm-ui-title-layout 300 100 '(on on on) '(0 . 0)) :label-x)
                  (+ b 6))))
     (dolist (look '(phosphor neon))
       (let* ((lispm-desktop-look look)
@@ -16114,14 +16114,14 @@ line it draws about the window, at the size laid out for it."
 by the part of the buffer shown, twenty pixels at least."
   (dolist (look '(phosphor neon))
     (let* ((lispm-desktop-look look)
-           (layout (lispm-desktop-platinum-scroll-layout 200)))
+           (layout (lispm-ui-scroll-layout 200)))
       (should (= (plist-get layout :up) 0))
       (should (= (plist-get layout :down) (- 200 (plist-get layout :arrow))))
-      (pcase-let ((`(,top . ,length) (lispm-desktop-platinum-scroll-thumb 200 1 501 1 1001)))
+      (pcase-let ((`(,top . ,length) (lispm-ui-scroll-thumb 200 1 501 1 1001)))
         (should (= top (plist-get layout :track)))
         (should (= length (/ (plist-get layout :track-length) 2))))
-      (should (= (cdr (lispm-desktop-platinum-scroll-thumb 200 1 2 1 100001)) 20))
-      (should-not (lispm-desktop-platinum-scroll-thumb 200 1 1001 1 1001)))))
+      (should (= (cdr (lispm-ui-scroll-thumb 200 1 2 1 100001)) 20))
+      (should-not (lispm-ui-scroll-thumb 200 1 1001 1 1001)))))
 
 (ert-deftest lispm-desktop-test-glass-chooses-frames ()
   "Glass covers frames floating over the desktop, never the screen nor an
@@ -16573,9 +16573,9 @@ ends at single characters."
 bob.jpg, notes.txt, a hidden .secret.png and a folder albums holding
 cover.png, ada.png the latest; `picture-p' takes the pictures."
   (declare (indent 0))
-  `(let* ((folder (file-name-as-directory (make-temp-file "lispm-desktop-choose" t)))
+  `(let* ((folder (file-name-as-directory (make-temp-file "lispm-ui-file-dialog" t)))
           (picture-p (lambda (file) (string-match-p "\\.\\(png\\|jpg\\)\\'" file)))
-          (lispm-desktop-choose-recent nil))
+          (lispm-ui-choose-recent nil))
      (unwind-protect
          (progn
            (make-directory (expand-file-name "albums" folder))
@@ -16587,7 +16587,7 @@ cover.png, ada.png the latest; `picture-p' takes the pictures."
        (delete-directory folder t))))
 
 (defmacro lispm-desktop-test--with-choose-keys (&rest body)
-  "Run BODY where `lispm-desktop-choose-file' reads the events queued in
+  "Run BODY where `lispm-ui-choose-file' reads the events queued in
 `unread-command-events', its dialog drawn nowhere.  In BODY, `shown'
 holds each state of the dialog drawn, the latest first."
   (declare (indent 0))
@@ -16598,11 +16598,11 @@ holds each state of the dialog drawn, the latest first."
                 (lambda (&optional _timeout)
                   (or (pop unread-command-events) (error "The dialog waits for more events"))))
                ((symbol-function 'lispm-ui-popup-make-frame) (lambda (&rest _) 'dialog))
-               ((symbol-function 'lispm-desktop-choose--show)
+               ((symbol-function 'lispm-ui-file-dialog--show)
                 (lambda (_frame dialog)
-                  (push (list (lispm-desktop-choose--dialog-directory dialog)
-                              (car (lispm-desktop-choose--item dialog))
-                              (lispm-desktop-choose--dialog-pressed dialog))
+                  (push (list (lispm-ui-file-dialog--dialog-directory dialog)
+                              (car (lispm-ui-file-dialog--item dialog))
+                              (lispm-ui-file-dialog--dialog-pressed dialog))
                         shown)))
                ((symbol-function 'lispm-ui-popup-set-size) #'ignore)
                ((symbol-function 'lispm-ui-popup-show) #'ignore)
@@ -16621,9 +16621,9 @@ chosen is remembered among the recent ones."
     (lispm-desktop-test--with-choose-keys
       (cl-flet ((choose (events &rest args)
                   (let ((unread-command-events events))
-                    (apply #'lispm-desktop-choose-file :directory folder :predicate picture-p args))))
+                    (apply #'lispm-ui-choose-file :directory folder :predicate picture-p args))))
         (should (equal (choose '(return)) (expand-file-name "ada.png" folder)))
-        (should (equal (car lispm-desktop-choose-recent) (expand-file-name "ada.png" folder)))
+        (should (equal (car lispm-ui-choose-recent) (expand-file-name "ada.png" folder)))
         ;; Return blinked the default button.
         (should (seq-find (lambda (state) (eq (nth 2 state) 'choose)) shown))
         ;; Into albums, and its picture chosen.
@@ -16643,30 +16643,30 @@ chosen is remembered among the recent ones."
 by name or by date, the latest first, either way turned over; what is
 selected stays selected as the order changes."
   (lispm-desktop-test--with-pictures
-    (let ((dialog (lispm-desktop-choose--make-dialog :predicate picture-p)))
-      (lispm-desktop-choose--go dialog folder)
-      (should (equal (mapcar #'car (lispm-desktop-choose--dialog-items dialog)) '("ada.png" "albums" "bob.jpg")))
-      (should (equal (mapcar (lambda (item) (nth 2 item)) (lispm-desktop-choose--dialog-items dialog)) '(nil t nil)))
-      (lispm-desktop-choose--select dialog 2)
-      (setf (lispm-desktop-choose--dialog-sort dialog) 'date)
-      (lispm-desktop-choose--sort dialog)
-      (should (equal (mapcar #'car (lispm-desktop-choose--dialog-items dialog)) '("ada.png" "albums" "bob.jpg")))
-      (setf (lispm-desktop-choose--dialog-descending dialog) t)
-      (lispm-desktop-choose--sort dialog)
-      (should (equal (mapcar #'car (lispm-desktop-choose--dialog-items dialog)) '("bob.jpg" "albums" "ada.png")))
-      (should (equal (car (lispm-desktop-choose--item dialog)) "bob.jpg"))
+    (let ((dialog (lispm-ui-file-dialog--make-dialog :predicate picture-p)))
+      (lispm-ui-file-dialog--go dialog folder)
+      (should (equal (mapcar #'car (lispm-ui-file-dialog--dialog-items dialog)) '("ada.png" "albums" "bob.jpg")))
+      (should (equal (mapcar (lambda (item) (nth 2 item)) (lispm-ui-file-dialog--dialog-items dialog)) '(nil t nil)))
+      (lispm-ui-file-dialog--select dialog 2)
+      (setf (lispm-ui-file-dialog--dialog-sort dialog) 'date)
+      (lispm-ui-file-dialog--sort dialog)
+      (should (equal (mapcar #'car (lispm-ui-file-dialog--dialog-items dialog)) '("ada.png" "albums" "bob.jpg")))
+      (setf (lispm-ui-file-dialog--dialog-descending dialog) t)
+      (lispm-ui-file-dialog--sort dialog)
+      (should (equal (mapcar #'car (lispm-ui-file-dialog--dialog-items dialog)) '("bob.jpg" "albums" "ada.png")))
+      (should (equal (car (lispm-ui-file-dialog--item dialog)) "bob.jpg"))
       ;; Names sort whatever their case, the numbers in them counted.
       (make-directory (expand-file-name "Avatars" folder))
       (dolist (file '("Zed.png" "z10.png" "z9.png"))
         (write-region "" nil (expand-file-name file folder) nil 'silent))
-      (setf (lispm-desktop-choose--dialog-sort dialog) 'name
-            (lispm-desktop-choose--dialog-descending dialog) nil)
-      (lispm-desktop-choose--go dialog folder)
-      (should (equal (mapcar #'car (lispm-desktop-choose--dialog-items dialog))
+      (setf (lispm-ui-file-dialog--dialog-sort dialog) 'name
+            (lispm-ui-file-dialog--dialog-descending dialog) nil)
+      (lispm-ui-file-dialog--go dialog folder)
+      (should (equal (mapcar #'car (lispm-ui-file-dialog--dialog-items dialog))
                      '("ada.png" "albums" "Avatars" "bob.jpg" "z9.png" "z10.png" "Zed.png")))
       ;; Today's and yesterday's dates are said so.
-      (should (equal (lispm-desktop-choose--date nil) "Today"))
-      (should (equal (lispm-desktop-choose--date (time-subtract nil 86400)) "Yesterday")))))
+      (should (equal (lispm-ui-file-dialog--date nil) "Today"))
+      (should (equal (lispm-ui-file-dialog--date (time-subtract nil 86400)) "Yesterday")))))
 
 (ert-deftest lispm-desktop-test-choose-file-mouse ()
   "The dialog's parts stand where it draws them and answer the mouse: a
@@ -16675,16 +16675,16 @@ its column, the sort-direction button turns the order over, and the
 scroll bar's arrows and track scroll the list."
   (lispm-desktop-test--with-pictures
     (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
-           (dialog (lispm-desktop-choose--make-dialog :predicate picture-p))
-           (layout (lispm-desktop-choose--layout)))
+           (dialog (lispm-ui-file-dialog--make-dialog :predicate picture-p))
+           (layout (lispm-ui-file-dialog--layout)))
       (dotimes (i 20)
         (write-region "" nil (expand-file-name (format "z%02d.png" i) folder) nil 'silent))
-      (lispm-desktop-choose--go dialog folder)
+      (lispm-ui-file-dialog--go dialog folder)
       (cl-flet ((click (part &optional dx dy double)
                   (pcase-let ((`(,x ,y ,_ ,_) (plist-get layout part)))
                     (cl-letf (((symbol-function 'lispm-ui-modal-over)
                                (lambda (event _frame) (event-start event))))
-                      (lispm-desktop-choose--click
+                      (lispm-ui-file-dialog--click
                        'dialog dialog
                        (list (if double 'double-down-mouse-1 'down-mouse-1)
                              (list (selected-window) 1 (cons (+ x (or dx 0)) (+ y (or dy 0))) 0)))))))
@@ -16697,32 +16697,32 @@ scroll bar's arrows and track scroll the list."
           (should (< (+ cx cw) ox))
           (should (<= (+ ox ow 3) (+ px pw)))
           (should (<= (+ px pw) (plist-get layout :width))))
-        (should (eq (lispm-desktop-choose--hit dialog layout (+ (nth 0 (plist-get layout :cancel)) 5)
+        (should (eq (lispm-ui-file-dialog--hit dialog layout (+ (nth 0 (plist-get layout :cancel)) 5)
                                                (+ (nth 1 (plist-get layout :cancel)) 5))
                     'cancel))
         ;; The third row selected, then albums opened with a double click.
-        (click :rows 40 (+ 5 (* 2 lispm-desktop-choose-row-height)))
-        (should (equal (car (lispm-desktop-choose--item dialog)) "bob.jpg"))
-        (click :rows 40 (+ 5 lispm-desktop-choose-row-height) t)
-        (should (string-suffix-p "albums/" (lispm-desktop-choose--dialog-directory dialog)))
-        (lispm-desktop-choose--up dialog)
+        (click :rows 40 (+ 5 (* 2 lispm-ui-file-dialog-row-height)))
+        (should (equal (car (lispm-ui-file-dialog--item dialog)) "bob.jpg"))
+        (click :rows 40 (+ 5 lispm-ui-file-dialog-row-height) t)
+        (should (string-suffix-p "albums/" (lispm-ui-file-dialog--dialog-directory dialog)))
+        (lispm-ui-file-dialog--up dialog)
         ;; The Date Modified heading sorts by date, the latest first.
         (click :header (- (nth 2 (plist-get layout :header)) 30) 5)
-        (should (eq (lispm-desktop-choose--dialog-sort dialog) 'date))
+        (should (eq (lispm-ui-file-dialog--dialog-sort dialog) 'date))
         (click :header (- (nth 2 (plist-get layout :header)) 5) 5)
-        (should (lispm-desktop-choose--dialog-descending dialog))
+        (should (lispm-ui-file-dialog--dialog-descending dialog))
         (click :header 20 5)
-        (should (eq (lispm-desktop-choose--dialog-sort dialog) 'name))
+        (should (eq (lispm-ui-file-dialog--dialog-sort dialog) 'name))
         ;; The scroll bar's down arrow scrolls a row, the track a page.
         (pcase-let* ((`(,_ ,_ ,_ ,height) (plist-get layout :scroll))
-                     (bar (lispm-desktop-platinum-scroll-layout height)))
-          (setf (lispm-desktop-choose--dialog-top dialog) 0)
+                     (bar (lispm-ui-scroll-layout height)))
+          (setf (lispm-ui-file-dialog--dialog-top dialog) 0)
           (click :scroll 5 (+ (plist-get bar :down) 5))
-          (should (= (lispm-desktop-choose--dialog-top dialog) 1))
+          (should (= (lispm-ui-file-dialog--dialog-top dialog) 1))
           (click :scroll 5 (+ (plist-get bar :up) 5))
-          (should (= (lispm-desktop-choose--dialog-top dialog) 0))
+          (should (= (lispm-ui-file-dialog--dialog-top dialog) 0))
           (click :scroll 5 (- (plist-get bar :up) 3))
-          (should (= (lispm-desktop-choose--dialog-top dialog) lispm-desktop-choose-rows)))))))
+          (should (= (lispm-ui-file-dialog--dialog-top dialog) lispm-ui-file-dialog-rows)))))))
 
 (ert-deftest lispm-desktop-test-choose-file-drawn ()
   "The dialog is drawn as one image as wide and tall as its layout says,
@@ -16730,11 +16730,11 @@ its title, headings, items and buttons on it."
   (skip-unless (image-type-available-p 'svg))
   (lispm-desktop-test--with-pictures
     (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
-           (dialog (lispm-desktop-choose--make-dialog :title "Choose a Picture" :predicate picture-p :preview t))
-           (layout (lispm-desktop-choose--layout)))
-      (lispm-desktop-choose--go dialog folder)
+           (dialog (lispm-ui-file-dialog--make-dialog :title "Choose a Picture" :predicate picture-p :preview t))
+           (layout (lispm-ui-file-dialog--layout)))
+      (lispm-ui-file-dialog--go dialog folder)
       (let ((text (with-temp-buffer
-                    (svg-print (lispm-desktop-choose-draw dialog lispm-ui-current-palette))
+                    (svg-print (lispm-ui-file-dialog-draw dialog lispm-ui-current-palette))
                     (buffer-string))))
         (should (string-match-p (format "width=\"%d\"" (plist-get layout :width)) text))
         (dolist (word '("Choose a Picture" "Name" "Date Modified" "ada.png" "albums" "bob.jpg" "Cancel" "Choose"))
@@ -16752,7 +16752,7 @@ in the system's own panel, among the files the dialog would list."
                                (and (funcall predicate (expand-file-name "ada.png" folder)) t))
                          asked)
                    (expand-file-name "ada.png" folder))))
-        (should (equal (lispm-desktop-choose-file :directory folder :predicate picture-p)
+        (should (equal (lispm-ui-choose-file :directory folder :predicate picture-p)
                        (expand-file-name "ada.png" folder)))
         (should (equal asked `((,folder nil nil t))))))))
 
@@ -16860,7 +16860,7 @@ LispM's agent's, which follows the desktop's too; told when it changes."
     (lispm-desktop-form-setup)
     (should-not lispm-ui-alert-function)
     (should-not lispm-ui-choose-function)
-    (should (eq lispm-ui-choose-file-function #'lispm-desktop-choose-file))
+    (should (eq lispm-ui-choose-file-function #'lispm-ui-choose-file))
     (should (eq (lispm-ui-current-language) 'de))
     (let ((lispm-ui-language-changed-hook (list (lambda () (setq changed (1+ changed))))))
       (run-hooks 'lispm-desktop-language-changed-hook)
@@ -16879,7 +16879,7 @@ picture selected previewed."
         (enable-theme-functions nil)
         (lispm-desktop-language-changed-hook nil)
         (asked nil))
-    (cl-letf (((symbol-function 'lispm-desktop-choose-file) (lambda (&rest args) (push args asked) "/tmp/ada.png")))
+    (cl-letf (((symbol-function 'lispm-ui-choose-file) (lambda (&rest args) (push args asked) "/tmp/ada.png")))
       (lispm-desktop-form-setup)
       (should (eq lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file))
       (should (equal (funcall lispm-ui-form-choose-file-function 'picture "Picture" "/tmp/bob.png" #'ignore)

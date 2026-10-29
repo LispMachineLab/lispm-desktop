@@ -1149,7 +1149,7 @@ up.  Return non-nil when the window moved or grew."
          (width (frame-pixel-width outer))
          (height (frame-pixel-height outer))
          (text (cons (frame-text-width frame) (frame-text-height frame)))
-         (title (and (eq kind 'grow) (not (eq outer frame)) lispm-desktop-platinum-title-bar-height))
+         (title (and (eq kind 'grow) (not (eq outer frame)) lispm-ui-title-bar-height))
          (least (let ((smallest (lispm-desktop-platinum--window-min-size frame)))
                   (cons (- (car smallest) (car text)) (- (cdr smallest) (cdr text)))))
          (rectangle

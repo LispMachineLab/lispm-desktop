@@ -64,7 +64,7 @@ does; users rarely need to."
 
 ;;;; Faces
 
-(defface lispm-desktop-platinum-title-inactive '((t :weight bold :inherit shadow))
+(defface lispm-ui-title-inactive '((t :weight bold :inherit shadow))
   "Face of an inactive window's title."
   :group 'lispm-desktop-platinum)
 
