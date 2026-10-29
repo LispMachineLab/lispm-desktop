@@ -39,6 +39,7 @@
   ("Modified" . "Modification")
   ("Name" . "Nom")
   ("Resume" . "Reprendre")
+  ("Resume with…" . "Reprendre avec…")
   ("Rename…" . "Renommer…")
   ("Unarchive" . "Désarchiver")
   ("Archive" . "Archiver")

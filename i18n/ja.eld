@@ -39,6 +39,7 @@
   ("Modified" . "変更日")
   ("Name" . "名前")
   ("Resume" . "再開")
+  ("Resume with…" . "モデルを指定して再開…")
   ("Rename…" . "名前を変更…")
   ("Unarchive" . "アーカイブを解除")
   ("Archive" . "アーカイブ")

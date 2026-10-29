@@ -7732,6 +7732,55 @@ its transcript, and gets no Resume in its menu."
           (kill-buffer)
           (delete-file lispm-agents-state-file))))))
 
+(ert-deftest lispm-desktop-test-agent-list-resume-with-model-menu ()
+  "A stopped session supporting a model override offers Resume with;
+the action keeps the clicked session, and running or unsupported sessions
+and transcripts that cannot be resumed do not offer it."
+  ;; Older LispM Agent versions do not expose model-aware resume yet.
+  (skip-unless (fboundp 'lispm-agents-session-model-resumable-p))
+  (lispm-desktop-test--with-agents
+      `((claude :name "Claude Code" :program "emacs"
+                :resume-arguments ,(lambda (id) (list "--resume" id))
+                :model-arguments ,(lambda (model) (list "--model" model))
+                :resumable ,(lambda (session) (not (plist-get session :parent))))
+        (other :name "Other" :program "emacs"))
+    (let (shown acted)
+      (with-temp-buffer
+        (insert "Session")
+        (save-window-excursion
+          (switch-to-buffer (current-buffer))
+          (cl-letf (((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(10 . 20)))
+                    ((symbol-function 'lispm-desktop-popup-menu)
+                     (lambda (items &rest _) (setq shown items)))
+                    ((symbol-function 'lispm-agents-session-buffer)
+                     (lambda (id) (when (equal id "running") (current-buffer))))
+                    ((symbol-function 'lispm-agents-archived-p) #'ignore)
+                    ((symbol-function 'lispm-agents-session-act)
+                     (lambda (action session) (setq acted (list action session)))))
+            (cl-labels ((menu (session)
+                          (put-text-property (point-min) (point-max) 'lispm-agents-session session)
+                          (lispm-desktop-agent-list-context-menu
+                           (list 'mouse-3 (list (selected-window) 1 '(0 . 0) 0)))
+                          (seq-find (lambda (item)
+                                      (and (listp item)
+                                           (equal (plist-get item :label) "Resume with…")))
+                                    shown)))
+              (let* ((session '(:agent claude :id "stopped" :cwd "/tmp/project/"))
+                     (item (menu session)))
+                (should item)
+                (should (equal (mapcar (lambda (entry) (plist-get entry :label))
+                                      (seq-take shown 2))
+                               '("Resume" "Resume with…")))
+                (funcall (plist-get item :action))
+                (should (equal acted (list 'resume-with session))))
+              (should-not (menu '(:agent claude :id "running")))
+              (should-not (menu '(:agent claude :id "child" :parent "stopped")))
+              (should-not (menu '(:agent other :id "stopped")))
+              ;; An older LispM Agent still offers its original actions.
+              (cl-letf (((symbol-function 'lispm-agents-session-model-resumable-p) nil))
+                (should-not (menu '(:agent claude :id "stopped")))
+                (should (equal (plist-get (car shown) :label) "Resume"))))))))))
+
 (ert-deftest lispm-desktop-test-agent-list-puts-waiting-first ()
   "A session whose agent waits for the user, as its terminal reports or
 one of LispM's agents says, comes first in its project, in bold, with

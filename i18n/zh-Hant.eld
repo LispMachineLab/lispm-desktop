@@ -39,6 +39,7 @@
   ("Modified" . "修改日期")
   ("Name" . "名稱")
   ("Resume" . "繼續")
+  ("Resume with…" . "使用指定模型繼續…")
   ("Rename…" . "重新命名…")
   ("Unarchive" . "取消封存")
   ("Archive" . "封存")
