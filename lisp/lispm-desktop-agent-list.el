@@ -43,6 +43,7 @@
 
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
+(declare-function lispm-agents-session-model-resumable-p "lispm-agents" (session))
 
 ;;;; Agent session sidebar
 
@@ -457,6 +458,10 @@ It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'.
                            :action (lambda () (lispm-agents-session-act (cdr entry) session)))))
                  `(,@(when (lispm-agents-session-resumable-p session)
                        `((,(lispm-desktop-tr "Resume") . resume)))
+                   ,@(when (and (fboundp 'lispm-agents-session-model-resumable-p)
+                                (lispm-agents-session-model-resumable-p session)
+                                (not (lispm-agents-session-buffer (plist-get session :id))))
+                       `((,(lispm-desktop-tr "Resume with…") . resume-with)))
                    (,(lispm-desktop-tr "Rename…") . rename)
                    (,(if (lispm-agents-archived-p session)
                          (lispm-desktop-tr "Unarchive")
