@@ -15760,17 +15760,35 @@ Marked as an application's own, it is no screen of the desktop's."
       (disable-theme theme))))
 
 (ert-deftest lispm-desktop-test-sidebar-selection-contrast ()
-  "Keep visible theme highlights and row text colours in every look.
-Only weak region backgrounds need the stronger accent tint."
+  "Keep every foreground's full contrast, with an explicit selection edge.
+Only a list without a distinct preserving background may replace text colours."
   (dolist (theme '(dracula platinum win3 os2 phosphor neon))
     (let* ((palette (pcase theme
                       ('dracula (lispm-desktop-test--dracula-palette))
                       ('platinum (lispm-desktop-test--platinum-palette))
                       (_ (lispm-desktop-test--theme-palette theme))))
-           (text (pcase theme
-                   ('dracula "#f8f8f2") ('platinum "#000000")
-                   ('win3 "#000000") ('os2 "#000000")
-                   ('phosphor "#00ff41") ('neon "#eceaff")))
+           ;; Dracula is external to the checkout: its upstream face
+           ;; colours are fixtures; bundled themes are loaded below.
+           (foregrounds
+            (if (eq theme 'dracula)
+                '((default . "#f8f8f2") (shadow . "#6272a4")
+                  (success . "#50fa7b") (warning . "#ffb86c") (error . "#ff5555")
+                  (font-lock-function-name-face . "#50fa7b")
+                  (font-lock-keyword-face . "#ff79c6")
+                  (font-lock-type-face . "#8be9fd")
+                  (font-lock-constant-face . "#bd93f9")
+                  (font-lock-variable-name-face . "#f8f8f2")
+                  (lispm-agents-claude-icon . "#D97757"))
+              (let ((custom-theme-load-path
+                     (cons (expand-file-name "themes/" lispm-desktop-directory)
+                           custom-theme-load-path)))
+                (unwind-protect
+                    (progn
+                      (load-theme theme t)
+                      (mapcar (lambda (face) (cons face (face-foreground face nil t)))
+                              (append '(default shadow success warning error lispm-agents-claude-icon)
+                                      lispm-agents-label-faces)))
+                  (disable-theme theme)))))
            (region (if (eq theme 'dracula) "#44475a"
                      (let ((custom-theme-load-path
                             (cons (expand-file-name "themes/" lispm-desktop-directory)
@@ -15787,8 +15805,8 @@ Only weak region backgrounds need the stronger accent tint."
         (cl-letf (((symbol-function 'display-graphic-p) #'ignore)
                   ((symbol-function 'face-foreground)
                    (lambda (face &optional frame inherit)
-                     (if (eq face 'default) text
-                       (funcall foreground face frame inherit))))
+                     (or (alist-get face foregrounds)
+                         (funcall foreground face frame inherit))))
                   ((symbol-function 'set-face-attribute)
                    (lambda (face _frame &rest attributes)
                      (puthash face (append attributes (gethash face faces)) faces)))
@@ -15805,21 +15823,34 @@ Only weak region backgrounds need the stronger accent tint."
                  (selection (gethash 'lispm-desktop-platinum-row-selected faces))
                  (selected (plist-get selection :background)))
             (should (equal current (lispm-ui-blend body (plist-get palette :accent) 0.25)))
-            (let ((region-distance (lispm-desktop-platinum--color-distance body region))
-                  (current-distance (lispm-desktop-platinum--color-distance body current)))
-              (when (and (>= region-distance (max 20 current-distance))
-                         (>= (lispm-desktop-platinum--text-contrast text region) 4.5))
-                (should (equal selected region)))
-              (should (>= (lispm-desktop-platinum--color-distance body selected)
-                          (max 20 current-distance))))
-            (should (>= (lispm-desktop-platinum--text-contrast text selected) 4.5))
-            (when (and (eq theme 'platinum) (eq lispm-desktop-look 'platinum))
-              (should (equal (downcase selected) "#ceceff")))
+            (let ((own-text (plist-get selection :foreground)))
+              (ert-info ((format "%s/%s on %s (body %s)"
+                                 theme lispm-desktop-look selected body))
+                (if (eq own-text 'unspecified)
+                    (dolist (entry foregrounds)
+                      (ert-info ((format "Preserve %s, including contrast above 4.5:1"
+                                         (car entry)))
+                        (should (>= (+ 1e-9 (lispm-desktop-platinum--text-contrast
+                                            (cdr entry) selected))
+                                    (lispm-desktop-platinum--text-contrast (cdr entry) body)))))
+                  ;; These white-list combinations have no distinct fill
+                  ;; preserving their mix of light and dark foregrounds.
+                  (should (equal own-text "#ffffff"))
+                  (should (equal (lispm-ui-rgb body) '(1.0 1.0 1.0)))
+                  (should (memq theme '(platinum win3 os2 phosphor)))
+                  (should (memq lispm-desktop-look '(win3 os2)))
+                  (should (>= (lispm-desktop-platinum--text-contrast own-text selected) 4.5))
+                  (when (>= (lispm-desktop-platinum--text-contrast region "#ffffff") 4.5)
+                    (should (equal selected region))))))
+            ;; A deliberate edge distinguishes selection from the current
+            ;; session's fill even when preserving dim text needs a pale fill.
+            (should (plist-get selection :underline))
+            (should (>= (lispm-desktop-platinum--text-contrast
+                         (plist-get (plist-get selection :underline) :color) selected)
+                        3))
             (when (and (eq theme 'dracula) (eq lispm-desktop-look 'platinum))
               (should-not (equal selected region)))
-            ;; Neither an explicit nor an inherited foreground may mask
-            ;; the row's agent icons and coloured running label.
-            (should-not (plist-member selection :foreground))
+            ;; No inherited region foreground can leak into either path.
             (should (eq (plist-get selection :inherit) 'unspecified))
             (should (eq (plist-get selection :extend) t)))
           ;; Even without blending, copy only region's background.
@@ -15828,11 +15859,60 @@ Only weak region backgrounds need the stronger accent tint."
           (let ((selection (gethash 'lispm-desktop-platinum-row-selected faces)))
             (should (equal (plist-get selection :background) region))
             (should (eq (plist-get selection :inherit) 'unspecified))
-            (should-not (plist-member selection :foreground))))))))
+            (should (eq (plist-get selection :foreground) 'unspecified))
+            (should (eq (plist-get selection :underline) 'unspecified))))))))
   (with-temp-buffer
     (lispm-desktop-sidebar-setup-buffer)
     (should (memq 'lispm-desktop-platinum-row-selected
                   (cdr (assq 'hl-line face-remapping-alist))))))
+
+(ert-deftest lispm-desktop-test-sidebar-selection-preserves-strong-and-narrow-contrast ()
+  "Preserve strong contrast and an exact-luminance solution between two texts."
+  (let* ((body "#eeeeee")
+         (accent "#7777cc")
+         (region "#ceceff")
+         (selected (lispm-desktop-platinum--selection-background
+                    body accent region '("#000000" "#777777") "#cbcbe6")))
+    (should selected)
+    (should-not (equal (lispm-ui-rgb body) (lispm-ui-rgb selected)))
+    (dolist (foreground '("#000000" "#777777"))
+      (should (>= (+ 1e-9 (lispm-desktop-platinum--text-contrast foreground selected))
+                  (lispm-desktop-platinum--text-contrast foreground body))))
+    ;; A purple palette must not wander into the yellow RGB-gamut sample
+    ;; that looked weaker than the current-session mark in Platinum.
+    (pcase-let ((`(,red ,green ,blue) (lispm-ui-rgb selected)))
+      (should (>= blue red))
+      (should (>= blue green))))
+  ;; Black and white text together pin the luminance exactly to BODY.
+  ;; A different hue at that luminance is valid, even though a sparse RGB
+  ;; search almost certainly misses it.  If display colour quantization
+  ;; prevents an exact tint, BODY with the focus edge still preserves text;
+  ;; the solver must not report that white foregrounds are required.
+  (let* ((body "#808080")
+         (selected (lispm-desktop-platinum--selection-background
+                    body "#0000ff" "#3333aa" '("#000000" "#ffffff") "#6060a0")))
+    (should selected)
+    (dolist (foreground '("#000000" "#ffffff"))
+      (should (>= (+ 1e-9 (lispm-desktop-platinum--text-contrast foreground selected))
+                  (lispm-desktop-platinum--text-contrast foreground body))))))
+
+(ert-deftest lispm-desktop-test-sidebar-selection-keeps-valid-theme-and-detects-no-fill ()
+  "Keep a usable theme highlight, distinguish impossibility from missing colours."
+  (should (equal (lispm-desktop-platinum--selection-background
+                  "#cccccc" "#7777cc" "#eeeeff" '("#000000") "#b7b7cc")
+                 "#eeeeff"))
+  ;; Black on white already has the maximum possible contrast.  Only
+  ;; white itself preserves it, and that cannot distinguish the row.
+  (should-not (lispm-desktop-platinum--selection-background
+               "#ffffff" "#000080" "#000080" '("#000000" "#777777") "#bfbfdf"))
+  (should-not (lispm-desktop-platinum--selection-background
+               "#000000" "#00ff00" "#006600" '("#ffffff") "#004000"))
+  ;; Unresolved terminal colours keep the theme's background; they are
+  ;; not evidence that every foreground may be replaced with white.
+  (cl-letf (((symbol-function 'lispm-ui-rgb) #'ignore))
+    (should (equal (lispm-desktop-platinum--selection-background
+                    "unspecified-bg" "blue" "navy" '("unspecified-fg") nil)
+                   "navy"))))
 
 (ert-deftest lispm-desktop-test-looks-defined ()
   "Mac OS 9, Windows 3.2, OS/2 2.0, phosphor and neon are looks, each with

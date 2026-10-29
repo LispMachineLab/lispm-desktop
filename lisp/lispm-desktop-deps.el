@@ -92,8 +92,8 @@ while LispM Kit, which translates them, is being installed."
               :version "0.2.1")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
-           ;; Newer than lispm-agents, which the desktop needs too.
-           :needs "lispm-exec")
+           ;; The sidebar uses session trees and waiting-state queries.
+           :needs "lispm-exec" :version "0.12.0")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"

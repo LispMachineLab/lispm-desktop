@@ -89,10 +89,13 @@ does; users rarely need to."
   :group 'lispm-desktop-platinum)
 
 (defface lispm-desktop-platinum-row-selected '((t :extend t))
-  "Background of a list's selected row at point, leaving text colours alone.
-The theme's region where it stands out plainly from the list and at least
-as much as `lispm-desktop-platinum-row-current', with readable default
-text; an accent tint adjusted for text contrast otherwise."
+  "Face of a list's selected row at point.
+Prefer the theme's region when visible and preserving every row
+foreground's full contrast; otherwise tint or shade the accent.
+An underline identifies selection even when contrast permits only a
+subtle fill.  Only when no distinct background can preserve the text
+colours use a dark selection with white text.  The underline separates
+selection from `lispm-desktop-platinum-row-current'."
   :group 'lispm-desktop-platinum)
 
 (defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))
