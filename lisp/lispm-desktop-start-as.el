@@ -55,7 +55,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
 (declare-function lispm-terminal "lispm-terminal" (&optional agent))
 (declare-function lispm-terminal-soon "lispm-terminal" (function))
 (declare-function lispm-desktop-standalone-started-hidden-p "lispm-desktop-standalone" ())
@@ -188,7 +188,7 @@ to restart into it unless it runs as AS already."
          (message (if (eq as 'terminal)
                       (lispm-desktop-tr "LispM starts in Focus Mode, as it runs now")
                     (lispm-desktop-tr "LispM starts as the desktop, as it runs now"))))
-        ((eq 'restart (lispm-desktop-popup-alert
+        ((eq 'restart (lispm-ui-alert
                        'note (if (eq as 'terminal)
                                  (lispm-desktop-tr "LispM starts in Focus Mode from its next start.")
                                (lispm-desktop-tr "LispM starts as the desktop from its next start."))

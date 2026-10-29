@@ -120,7 +120,7 @@ A workspace's main area shows it where it holds nothing else.")
     (trash :label ,(lispm-desktop-tr-noop "Trash") :icon-function lispm-desktop--trash-icon
            :command lispm-desktop-open-trash :bottom t :help ,(lispm-desktop-tr-noop "What was thrown away")))
   "The desktop's icons, from the top: (KEY . PROPERTIES).
-:label names an icon, :icon is as `lispm-desktop-platinum-icon-file' takes it
+:label names an icon, :icon is as `lispm-ui-icon-file' takes it
 \(the 32-pixel drawing, or Emacs's own scalable icon), or :icon-function
 returns it as it changes, as the Trash's does; :command opens it
 and :help describes it.  :label and :help are in English, translated
@@ -366,7 +366,7 @@ another.")
   "Return icon NAME, darkened when SELECTED, ready to nest in the desktop.
 The value is (ATTRIBUTES . CONTENT): what its root element declares that
 its content needs (its view box, namespaces, rendering) and the content."
-  (let ((file (lispm-desktop-platinum-icon-file name)))
+  (let ((file (lispm-ui-icon-file name)))
     (or (gethash (cons file selected) lispm-desktop--svg-icons)
         (puthash
          (cons file selected)
@@ -828,13 +828,13 @@ longer be told apart.")
 (defun lispm-desktop--text-desktop (width height &optional image)
   "Return the desktop as text WIDTH cells by HEIGHT lines, where images
 cannot be shown, as on a text terminal.  Its icons are drawn in block
-characters, see `lispm-desktop-platinum-icon-picture', each over
+characters, see `lispm-ui-icon-picture', each over
 its name: down the right edge from under the menu bar, on in a column to
 the left where they run out of room, the Trash in the bottom corner; the
 one selected darkened, its name inverted, as Mac OS 9 drew it.  They
 are drawn `lispm-desktop-text-icon-size' pixels a side, in as many
 columns as they need; on a terminal too small for that, as a character
-each, see `lispm-desktop-platinum-icon'.  Every cell of an icon and its
+each, see `lispm-ui-icon'.  Every cell of an icon and its
 name carries its key as its `lispm-desktop-item' property, for the
 mouse.
 IMAGE, where given, is called with each icon drawn at that size, as
@@ -844,7 +844,7 @@ LINE, COLUMN, see `lispm-desktop-tty-images-show', and its cells are
 left blank, for the image to lie on."
   (let* ((items (lispm-desktop--items))
          (labels (mapcar (lambda (item) (concat " " (lispm-desktop--item-label (cdr item)) " ")) items))
-         (picture-size (lispm-desktop-platinum-text-size lispm-desktop-text-icon-size))
+         (picture-size (lispm-ui-text-size lispm-desktop-text-icon-size))
          (column (+ 2 (apply #'max (car picture-size) (mapcar #'string-width labels))))
          (size (let ((rows (/ (1- height) (+ (cdr picture-size) 2))))
                  (and (> rows 0)
@@ -866,9 +866,9 @@ left blank, for the image to lie on."
                                                 (+ left (/ (- column (car picture-size)) 2))
                                                 (car picture-size) lines))
                                   (make-list lines (make-string (car picture-size) ?\s)))
-                                 ((and size (lispm-desktop-platinum-icon-picture icon size selected
-                                                                                 (lispm-desktop--color))))
-                                 (t (list (substring-no-properties (lispm-desktop-platinum-icon icon))))))
+                                 ((and size (lispm-ui-icon-picture icon size selected
+                                                                   (lispm-desktop--color))))
+                                 (t (list (substring-no-properties (lispm-ui-icon icon))))))
                        (properties (list 'lispm-desktop-item (car item)
                                          'help-echo (lispm-desktop--item-help (cdr item)))))
                   (seq-do-indexed
@@ -898,7 +898,7 @@ left blank, for the image to lie on."
                       (setq row (+ row per))))
                   items labels)))
     ;; A text terminal keeps a window's last column for a long line's sign.
-    (mapconcat #'identity (lispm-desktop-platinum-text-compose (1- width) height pieces) "\n")))
+    (mapconcat #'identity (lispm-ui-text-compose (1- width) height pieces) "\n")))
 
 (defun lispm-desktop--render (&optional window)
   "Draw the desktop for WINDOW, by default the window showing it.
@@ -1131,10 +1131,10 @@ would land back on the icon's own cell."
   (interactive)
   (lispm-desktop--move-selected 0 -1))
 
-(declare-function lispm-desktop-popup-make-frame "lispm-desktop-popup" (parent))
-(declare-function lispm-desktop-popup-dispose "lispm-desktop-popup" (frame))
-(declare-function lispm-desktop-popup-fill "lispm-desktop-popup" (frame text))
-(declare-function lispm-desktop-popup-set-size "lispm-desktop-popup" (frame width height))
+(declare-function lispm-ui-popup-make-frame "lispm-desktop-popup" (parent))
+(declare-function lispm-ui-popup-dispose "lispm-desktop-popup" (frame))
+(declare-function lispm-ui-popup-fill "lispm-desktop-popup" (frame text))
+(declare-function lispm-ui-popup-set-size "lispm-desktop-popup" (frame width height))
 
 (defconst lispm-desktop-drag-opacity 0.5
   "How opaque the dragged copy of an icon is, as Mac OS 9's drag image was.")
@@ -1149,15 +1149,15 @@ passes."
   (let ((parent (window-frame window))
         (svgs (lispm-desktop--copy-svgs icon label)))
     (cl-flet ((make (svg)
-                (let* ((frame (lispm-desktop-popup-make-frame parent))
+                (let* ((frame (lispm-ui-popup-make-frame parent))
                        (image (create-image svg 'svg t :scale 1 :ascent 100
                                             :base-uri default-directory))
                        (size (image-size image t)))
                   (modify-frame-parameters frame `((child-frame-border-width . 0)
                                                    (background-color . ,(lispm-desktop--color))
                                                    (alpha . ,lispm-desktop-drag-opacity)))
-                  (lispm-desktop-popup-fill frame (propertize " " 'display image))
-                  (lispm-desktop-popup-set-size frame (car size) (cdr size))
+                  (lispm-ui-popup-fill frame (propertize " " 'display image))
+                  (lispm-ui-popup-set-size frame (car size) (cdr size))
                   frame)))
       (cons (make (car svgs)) (make (cdr svgs))))))
 
@@ -1259,8 +1259,8 @@ darkened under what was dragged there."
                      (lambda () (lispm-desktop--pointer window))
                      press)
                   (when frames
-                    (lispm-desktop-popup-dispose (car frames))
-                    (lispm-desktop-popup-dispose (cdr frames))))))
+                    (lispm-ui-popup-dispose (car frames))
+                    (lispm-ui-popup-dispose (cdr frames))))))
     (cond ((and to (car result) over) (lispm-desktop-remove-alias key))
           ((and to (car result))
            (lispm-desktop--drop key (car to) (cdr to) window)
@@ -1313,8 +1313,8 @@ nothing is dragged."
                         (lambda () (lispm-desktop--pointer window))
                         press)
                      (when frames
-                       (lispm-desktop-popup-dispose (car frames))
-                       (lispm-desktop-popup-dispose (cdr frames)))
+                       (lispm-ui-popup-dispose (car frames))
+                       (lispm-ui-popup-dispose (cdr frames)))
                      (when over
                        (lispm-desktop--select selected)))))
         (and event over t)))))
@@ -1327,7 +1327,7 @@ dragged about, this puts them back."
   (customize-save-variable 'lispm-desktop-icon-places nil)
   (lispm-desktop--render))
 
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 
 (defun lispm-desktop--arrange-items ()
@@ -1337,11 +1337,11 @@ dragged about, this puts them back."
 
 (defun lispm-desktop--menu (x y &optional align)
   "Pop up the desktop's menu at X, Y of the frame.
-ALIGN is as `lispm-desktop-popup-menu' takes it.  The menu has Open for
+ALIGN is as `lispm-ui-menu' takes it.  The menu has Open for
 the icon selected, and Remove from Desktop for an alias, then Arrange
 Icons and the desktop picture, as Mac OS 9's desktop offered them."
   (let ((selected (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer))))
-    (lispm-desktop-popup-menu
+    (lispm-ui-menu
      `(,@(when selected
            `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-open :key "M-o")
              ,@(when (plist-get (lispm-desktop--item selected) :alias)
@@ -1715,7 +1715,7 @@ the Application menu."
 
 (defvar lispm-desktop-help-items-function nil
   "Function returning the items of the desktop's Help menu, as
-`lispm-desktop-popup-menu' takes them, or nil for no Help menu.")
+`lispm-ui-menu' takes them, or nil for no Help menu.")
 
 (defun lispm-desktop--help-items ()
   "Return the items of the desktop's Help menu."

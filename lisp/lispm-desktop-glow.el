@@ -438,46 +438,46 @@ drawn."
          0 (- h 2) ink 'lispm-desktop-platinum-menu-title)))
     svg))
 
-(cl-defmethod lispm-desktop-popup-draw-menu (palette items width highlight
-                                                     &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-draw-menu (palette items width highlight
+                                          &context (lispm-desktop-look (lispm-ui-look-family glow)))
   "Return a glowing menu of ITEMS WIDTH pixels wide, in PALETTE.
 On the menu colour, a bar of light down its left; the item under the
 mouse, HIGHLIGHT, filled, its corners cut; key equivalents flush right
 in the glow colour, arrows on those holding submenus, separators dashed,
 disabled items dim.  The menu's frame draws the line round it."
-  (pcase-let* ((`(,tops . ,height) (lispm-desktop-popup--rows items))
+  (pcase-let* ((`(,tops . ,height) (lispm-ui-menu--rows items))
                (svg (lispm-desktop-glow--create width height))
-               (icons (lispm-desktop-popup--icon-room items))
+               (icons (lispm-ui-menu--icon-room items))
                (glow (lispm-desktop-glow-color palette :glow)))
     (lispm-ui-svg-paint svg 0 0 width height (plist-get palette :menu))
     (lispm-ui-svg-paint svg 0 0 3 height (lispm-desktop-glow-color palette :title-end))
     (seq-do-indexed
      (lambda (item index)
        (let ((top (nth index tops)))
-         (if (lispm-desktop-popup--separator-p item)
-             (lispm-desktop-glow--line svg 10 (+ top (/ lispm-desktop-popup-separator-height 2) 0.5)
-                                       (- width 10) (+ top (/ lispm-desktop-popup-separator-height 2) 0.5)
+         (if (lispm-ui-menu--separator-p item)
+             (lispm-desktop-glow--line svg 10 (+ top (/ lispm-ui-menu-separator-height 2) 0.5)
+                                       (- width 10) (+ top (/ lispm-ui-menu-separator-height 2) 0.5)
                                        (plist-get palette :border-inactive) 1 "2,3")
-           (let* ((h (lispm-desktop-popup--item-height))
+           (let* ((h (lispm-ui-menu--item-height))
                   (lit (eql index highlight))
-                  (enabled (lispm-desktop-popup--enabled-p item))
+                  (enabled (lispm-ui-menu--enabled-p item))
                   (ink (cond (lit (plist-get palette :highlight-text))
                              (enabled (plist-get palette :menu-text))
                              (t (plist-get palette :border-inactive))))
-                  (face (lispm-desktop-popup--face (or lit enabled)))
-                  (key (and (not (plist-get item :submenu)) (lispm-desktop-popup--key item)))
+                  (face (lispm-ui-menu--face (or lit enabled)))
+                  (key (and (not (plist-get item :submenu)) (lispm-ui-menu--key item)))
                   (label (propertize (plist-get item :label) 'face `(:foreground ,ink))))
              (when lit
                (lispm-desktop-glow--path svg (lispm-desktop-glow-chamfer 5 top (- width 10) h 4 '(tl br))
                                          :fill (plist-get palette :highlight)))
              (when (plist-get item :checked)
                (lispm-ui-svg-content svg (propertize "✓" 'face `(:foreground ,ink))
-                                     (if lispm-desktop-popup-small 5 7) top h ink face))
+                                     (if lispm-ui-menu-small 5 7) top h ink face))
              (when-let* ((icon (plist-get item :icon))
-                         (size (min lispm-desktop-popup-icon-size h)))
-               (lispm-ui-svg-emacs-image svg icon (lispm-desktop-popup--label-x)
+                         (size (min lispm-ui-menu-icon-size h)))
+               (lispm-ui-svg-emacs-image svg icon (lispm-ui-menu--label-x)
                                          (+ top (/ (- h size) 2)) size size))
-             (lispm-ui-svg-content svg label (+ (lispm-desktop-popup--label-x) icons)
+             (lispm-ui-svg-content svg label (+ (lispm-ui-menu--label-x) icons)
                                    top h ink face)
              (cond ((plist-get item :submenu)
                     (lispm-ui-svg-arrow svg (- width 12) (+ top (/ (- h 7) 2)) 4 'right ink))
@@ -485,7 +485,7 @@ disabled items dim.  The menu's frame draws the line round it."
                     (let ((key-ink (cond (lit ink) (enabled glow) (t ink))))
                       (lispm-ui-svg-content
                        svg (propertize key 'face `(:foreground ,key-ink))
-                       (- width (lispm-desktop-popup--key-margin) (lispm-desktop-popup--label-width key))
+                       (- width (lispm-ui-menu--key-margin) (lispm-ui-menu--label-width key))
                        top h key-ink face))))))))
      items)
     svg))
@@ -520,16 +520,16 @@ cross."
                  :fill (lispm-desktop-glow--on hot)
                  :font-family font :font-size 18 :font-weight "bold")))))
 
-(cl-defmethod lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused
-                                                      &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-draw-alert (palette icon message detail buttons pressed focused
+                                           &context (lispm-desktop-look (lispm-ui-look-family glow)))
   "Return a glowing alert of ICON, MESSAGE, DETAIL and BUTTONS, in PALETTE.
-Laid out as Mac OS 9's, see `lispm-desktop-popup--alert-layout': a dark
+Laid out as Mac OS 9's, see `lispm-ui-alert-layout': a dark
 body inside a glowing line, a striped band along its top, the icon, the
 message and the buttons; neon splits the line into cyan and magenta
 ghosts.  PRESSED and FOCUSED are values of buttons, held down or
 holding the keyboard."
-  (let* ((layout (lispm-desktop-popup--alert-layout message detail buttons))
-         (w (or (plist-get layout :width) lispm-desktop-popup-alert-width))
+  (let* ((layout (lispm-ui-alert-layout message detail buttons))
+         (w (or (plist-get layout :width) lispm-ui-alert-width))
          (h (plist-get layout :height))
          (svg (lispm-desktop-glow--create w h))
          (c 10)
@@ -552,8 +552,8 @@ holding the keyboard."
       (cl-loop for x from (+ c 4) below (- w 8) by 8
                do (lispm-desktop-glow--path stripes (format "M%s,4 h4 l-3,5 h-4 Z" (+ x 3)))))
     (lispm-desktop-glow--svg-alert-icon svg icon 25 y palette)
-    (lispm-desktop-popup-svg-alert-contents svg layout lispm-desktop-popup-alert-text-x y palette
-                                            pressed focused (plist-get palette :muted))
+    (lispm-ui-svg-alert-contents svg layout lispm-ui-alert-text-x y palette
+                                 pressed focused (plist-get palette :muted))
     svg))
 
 ;;;; Controls

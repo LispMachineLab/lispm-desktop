@@ -62,11 +62,11 @@
   "Open the desktop's menu of CHOICES of a form's pop-up menu, VALUE checked.
 LABEL, CHOICES, VALUE and EVENT are as `lispm-ui-form-choose-function'
 gives them.  Where no menu can be drawn, the form's own way is taken."
-  (if (lispm-desktop-popup-available-p)
-      (lispm-desktop-platinum-choose choices value
-                                     (or (and (mouse-event-p event) (posn-point (event-start event)))
-                                         (point))
-                                     label)
+  (if (lispm-ui-popup-available-p)
+      (lispm-ui-choose-default choices value
+                               (or (and (mouse-event-p event) (posn-point (event-start event)))
+                                   (point))
+                               label)
     (lispm-ui-form-choose label choices value event)))
 
 (defun lispm-desktop-form-choose-file (type label file predicate)
@@ -106,8 +106,8 @@ and dialog, in its language."
   (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose
         lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--layout)
-  (setq lispm-ui-alert-function #'lispm-desktop-popup-alert
-        lispm-ui-choose-function #'lispm-desktop-platinum-choose
+  (setq lispm-ui-alert-function #'lispm-ui-alert
+        lispm-ui-choose-function #'lispm-ui-choose-default
         lispm-ui-choose-file-function #'lispm-desktop-choose-file)
   ;; Before LispM's agent's, which follows the desktop's too.
   (add-hook 'lispm-ui-language-functions #'lispm-desktop-current-language -50)

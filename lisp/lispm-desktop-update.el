@@ -77,8 +77,8 @@
 (require 'lispm-desktop-store-installer)
 (require 'lispm-exec)
 
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
+(declare-function lispm-ui-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-popup-available-p "lispm-desktop-popup" ())
 
 (defgroup lispm-desktop-update nil
   "Software Update: keeping LispM up to date."
@@ -752,14 +752,14 @@ Update's own may come up while you type.  This runs from a timer, where
 C-g is let quit the alert."
   (when-let* ((updates (lispm-desktop-update-updates)))
     (with-local-quit
-      (if (or (active-minibuffer-window) (not (fboundp 'lispm-desktop-popup-available-p))
+      (if (or (active-minibuffer-window) (not (fboundp 'lispm-ui-popup-available-p))
               ;; Without its window, the alert asks in the minibuffer, where
               ;; a key typed meanwhile would answer.
-              (and (not asked) (not (lispm-desktop-popup-available-p))))
+              (and (not asked) (not (lispm-ui-popup-available-p))))
           (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
                    (lispm-desktop-update--summary updates))
         (when (eq 'restart
-                  (lispm-desktop-popup-alert
+                  (lispm-ui-alert
                    'note (lispm-desktop-tr-n "An update to LispM is ready." "Updates to LispM are ready."
                                              (length updates))
                    `((,(lispm-desktop-tr "Later") later cancel)

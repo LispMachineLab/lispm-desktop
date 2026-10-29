@@ -56,7 +56,7 @@ by default the current buffer's, or nil."
         (with-current-buffer (or buffer (current-buffer)) (funcall title))
       title)))
 
-(defvar-local lispm-desktop-platinum-icon nil
+(defvar-local lispm-ui-icon nil
   "Icon the window of this buffer shows before its title, a string.")
 
 (defvar lispm-desktop-platinum-frame-moved-functions nil

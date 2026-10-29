@@ -335,8 +335,8 @@ its parent keymap's shadows is not counted."
                    map)))
       (walk map []))
     (mapcar (pcase-lambda (`(,command . ,keys))
-              (cons command (append (seq-filter #'lispm-desktop-popup-keyboard-p keys)
-                                    (seq-remove #'lispm-desktop-popup-keyboard-p keys))))
+              (cons command (append (seq-filter #'lispm-ui-menu-keyboard-p keys)
+                                    (seq-remove #'lispm-ui-menu-keyboard-p keys))))
             (nreverse found))))
 
 (defconst lispm-desktop-app-ui--small-words
@@ -552,7 +552,7 @@ what the application says there, as Finder windows' strips."
   "Return the key ACTION, a command, is typed with in WINDOW, or nil."
   (when (and (symbolp action) (window-live-p window))
     (with-current-buffer (window-buffer window)
-      (when-let* ((keys (seq-find #'lispm-desktop-popup-keyboard-p
+      (when-let* ((keys (seq-find #'lispm-ui-menu-keyboard-p
                                   (where-is-internal action (list (current-local-map))))))
         (key-description keys)))))
 
@@ -675,9 +675,9 @@ This is the :menus of an application the App Store installed."
 
 (defun lispm-desktop-app-ui-about (app)
   "Say what application APP is, in an alert, as Mac OS 9's About boxes."
-  (lispm-desktop-popup-alert 'note (lispm-desktop-app-ui-name app) `((,(lispm-desktop-tr "OK") ok default))
-                             (when-let* ((description (lispm-desktop-app-ui--app-property app :description)))
-                               (lispm-desktop-tr description))))
+  (lispm-ui-alert 'note (lispm-desktop-app-ui-name app) `((,(lispm-desktop-tr "OK") ok default))
+                  (when-let* ((description (lispm-desktop-app-ui--app-property app :description)))
+                    (lispm-desktop-tr description))))
 
 ;;;; The window of keys
 
@@ -697,9 +697,9 @@ This is the :menus of an application the App Store installed."
   "Return KEYS, the key sequences of one command, as its row of the keys
 window reads them: the first typed on the keyboard alone, and one that
 is not, as an arrow."
-  (let ((others (seq-remove #'lispm-desktop-popup-keyboard-p keys)))
+  (let ((others (seq-remove #'lispm-ui-menu-keyboard-p keys)))
     (mapconcat #'lispm-desktop-app-ui-key-name
-               (seq-take (seq-uniq (cons (car (or (seq-filter #'lispm-desktop-popup-keyboard-p keys) others))
+               (seq-take (seq-uniq (cons (car (or (seq-filter #'lispm-ui-menu-keyboard-p keys) others))
                                          others))
                          2)
                "  ")))
@@ -797,15 +797,15 @@ The alert is over the window asking, or over the screen while that
 window is not shown yet, as when a game asks before its first board."
   (let ((frame (selected-frame)))
     (with-selected-frame (if (frame-visible-p frame) frame (lispm-desktop-apps-screen))
-      (lispm-desktop-popup-alert 'caution (lispm-desktop-app-ui--question prompt)
-                                 `((,(lispm-desktop-tr "Yes") t default ?y ?Y)
-                                   (,(lispm-desktop-tr "No") nil cancel ?n ?N))))))
+      (lispm-ui-alert 'caution (lispm-desktop-app-ui--question prompt)
+                      `((,(lispm-desktop-tr "Yes") t default ?y ?Y)
+                        (,(lispm-desktop-tr "No") nil cancel ?n ?N))))))
 
 (defun lispm-desktop-app-ui--asking (ask prompt &rest arguments)
   "Ask PROMPT in an alert when an application's window asks it, else as ASK
 does with ARGUMENTS.  This is the advice of `y-or-n-p' and `yes-or-no-p'."
   (if (and (lispm-desktop-app-ui-app) (stringp prompt) (not executing-kbd-macro)
-           (lispm-desktop-popup-available-p))
+           (lispm-ui-popup-available-p))
       (lispm-desktop-app-ui-ask prompt)
     (apply ask prompt arguments)))
 
@@ -997,9 +997,9 @@ windows on its first line left there; one printed later prints them."
                                                                  (lispm-desktop-app-ui-name)))
                                                             (title (lispm-desktop-tr title))
                                                             (t (lispm-desktop-app-ui-name)))))
-              lispm-desktop-platinum-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
-                                                             lispm-desktop-app-ui--app :icon)))
-                                            (lispm-desktop-platinum-icon icon))
+              lispm-ui-icon (when-let* ((icon (lispm-desktop-app-ui--app-property
+                                               lispm-desktop-app-ui--app :icon)))
+                              (lispm-ui-icon icon))
               lispm-desktop-platinum-info #'lispm-desktop-app-ui-status
               show-trailing-whitespace nil
               indicate-empty-lines nil

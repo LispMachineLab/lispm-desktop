@@ -36,7 +36,7 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-exec)
 
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-desktop-popup" (items &optional x y align))
 (declare-function battery-format "battery" (format alist))
 (declare-function battery-update "battery" ())
 (declare-function display-time-update "time" ())
@@ -273,7 +273,7 @@ It runs COMMAND, described by HELP, and is highlighted while its menu is open."
    key
    (concat (when image
              ;; An icon name gives a string already displayed as the icon.
-             (if (stringp image) (lispm-desktop-platinum-icon image) (propertize " " 'display image)))
+             (if (stringp image) (lispm-ui-icon image) (propertize " " 'display image)))
            (when (and image label) " ")
            label)
    command help (eq lispm-desktop-platinum--open-menu key)))
@@ -282,7 +282,7 @@ It runs COMMAND, described by HELP, and is highlighted while its menu is open."
   "Pop up ITEMS under the status title KEY that was just clicked."
   (let ((x (car (posn-x-y (event-start last-input-event)))))
     (lispm-desktop-platinum-with-open-menu key
-      (lispm-desktop-popup-menu items (max 0 (- x 12)) (lispm-desktop-platinum--menu-y)))))
+      (lispm-ui-menu items (max 0 (- x 12)) (lispm-desktop-platinum--menu-y)))))
 
 (defun lispm-desktop-platinum-time-menu ()
   "Pop up the clock's menu: the date, the calendar, the world clock."

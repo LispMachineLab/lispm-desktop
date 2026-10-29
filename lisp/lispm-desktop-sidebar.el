@@ -50,7 +50,7 @@ Each entry is (VIEW . PROPS), see `lispm-desktop-sidebar-define-view'.")
   "Make VIEW one of the left sidebar's views, or redefine it in place.
 PROPS is a property list:
   :title    the name its title bar and tab show
-  :icon     its Finder icon, see `lispm-desktop-platinum-icon'
+  :icon     its Finder icon, see `lispm-ui-icon'
   :help     what its tab says it shows
   :command  the command its menu bar title runs
 :title and :help are in English, marked with `lispm-desktop-tr-noop', and
@@ -196,7 +196,7 @@ translated where shown, see `lispm-desktop-sidebar--toolbar-buttons'."
   (let ((spec (alist-get view lispm-desktop-sidebar-views)))
     (setq-local lispm-desktop-platinum-window-title
                 (lambda () (lispm-desktop-tr (plist-get (alist-get view lispm-desktop-sidebar-views) :title)))
-                lispm-desktop-platinum-icon (lispm-desktop-platinum-icon (plist-get spec :icon))))
+                lispm-ui-icon (lispm-ui-icon (plist-get spec :icon))))
   (kill-local-variable 'tab-line-format)
   (unless lispm-desktop-sidebar--faces
     (setq-local lispm-desktop-sidebar--faces

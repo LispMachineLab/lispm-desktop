@@ -232,7 +232,7 @@ bookmarks, and the panel."
 returning such a name or an SVG drawing sixteen pixels square; HELP is
 the module's Balloon Help, a string in English, translated where shown,
 or a function returning one in the language LispM speaks; ITEMS returns
-its menu, as `lispm-desktop-popup-menu' takes it, in that language;
+its menu, as `lispm-ui-menu' takes it, in that language;
 VISIBLE, when given, decides whether it shows.")
 
 (defun lispm-desktop-strip--value (value)
@@ -251,7 +251,7 @@ VISIBLE, when given, decides whether it shows.")
   "Return the icon of module KEY: an SVG file, or an SVG drawing."
   (let ((icon (lispm-desktop-strip--value
                (plist-get (alist-get key lispm-desktop-strip-module-alist) :icon))))
-    (if (stringp icon) (lispm-desktop-platinum-icon-file icon) icon)))
+    (if (stringp icon) (lispm-ui-icon-file icon) icon)))
 
 (defun lispm-desktop-strip--items (key)
   "Return the menu of module KEY."
@@ -418,7 +418,7 @@ screen, counted as a child frame's position is; nil while it is hidden."
                     line-spacing 0
                     buffer-read-only t)
         ;; Its frame keeps the strip's size as the font changes.
-        (lispm-desktop-popup-hold-size)
+        (lispm-ui-popup-hold-size)
         ;; The line is as tall as the strip's images, whatever the font.
         (face-remap-add-relative 'default :height 10)
         (current-buffer))))
@@ -483,7 +483,7 @@ above the bottom: (X . Y), kept within the bounds."
     ;; screen shows as an empty bar.
     (lispm-desktop-platinum-set-background lispm-desktop-strip--frame
                                            (lispm-ui-color :strip))
-    (lispm-desktop-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
+    (lispm-ui-popup-set-size lispm-desktop-strip--frame (lispm-desktop-strip--width)
                                lispm-desktop-platinum-strip-height)
     (lispm-desktop-strip--place)))
 
@@ -583,8 +583,8 @@ the strip is drawn right after."
 strip's screen: its outline on the module's left edge, its bottom two
 pixels into the strip, as Mac OS 9's module menus popped up."
   (pcase-let* ((`(,left . ,top) (frame-position lispm-desktop-strip--frame))
-               (height (let ((lispm-desktop-popup-small t))
-                         (cdr (lispm-desktop-popup--rows items)))))
+               (height (let ((lispm-ui-menu-small t))
+                         (cdr (lispm-ui-menu--rows items)))))
     (cons (+ left (lispm-desktop-strip--x (cons 'module key)) -1)
           (+ top 1 (- height)))))
 
@@ -593,20 +593,20 @@ pixels into the strip, as Mac OS 9's module menus popped up."
 item chosen once the module is let go; return the item, or nil."
   (let ((items (lispm-desktop-strip--items key))
         (chosen nil))
-    (if (not (lispm-desktop-popup-graphic-p))
-        (lispm-desktop-popup-menu items)
+    (if (not (lispm-ui-popup-graphic-p))
+        (lispm-ui-menu items)
       (unwind-protect
           (progn
             (setq lispm-desktop-strip--pressed key)
             (lispm-desktop-strip--render)
             (redisplay t)
             (pcase-let ((`(,x . ,y) (lispm-desktop-strip--menu-place key items)))
-              (let ((lispm-desktop-popup-small t)
-                    (lispm-desktop-popup-parent (frame-parent lispm-desktop-strip--frame)))
-                (setq chosen (lispm-desktop-popup-choose items x y)))))
+              (let ((lispm-ui-menu-small t)
+                    (lispm-ui-menu-parent (frame-parent lispm-desktop-strip--frame)))
+                (setq chosen (lispm-ui-menu-choose items x y)))))
         (setq lispm-desktop-strip--pressed nil)
         (lispm-desktop-strip--render))
-      (lispm-desktop-popup--run chosen))))
+      (lispm-ui-menu--run chosen))))
 
 (defun lispm-desktop-strip--drag-tab ()
   "Follow the mouse dragging the tab: the modules shown follow it, the tab
@@ -744,8 +744,8 @@ let go where it was does nothing."
 going on to the menus beside, as along the menu bar.  Return (CHOSEN .
 INDEX): the item chosen, or nil, and the module whose menu closed."
   (let (step chosen)
-    (while (setq step (catch 'lispm-desktop-popup-menu-bar-step
-                        (let ((lispm-desktop-popup-menu-bar-step t))
+    (while (setq step (catch 'lispm-ui-menu-bar-step
+                        (let ((lispm-ui-menu-bar-step t))
                           (lispm-desktop-strip--focus-on (nth index modules))
                           (setq chosen (lispm-desktop-strip--open (nth index modules))))
                         nil))

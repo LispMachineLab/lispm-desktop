@@ -87,7 +87,7 @@
   "Return the application NAME, its ICON's name, for the bar to find.
 OPEN opens it; FIELDS are more texts it is found by, as a subtitle."
   (list :kind 'application :name name
-        :icon (lispm-desktop-platinum-icon icon)
+        :icon (lispm-ui-icon icon)
         :fields (cons (cons 3 name) (delq nil (mapcar (lambda (text) (and text (cons 1.5 text))) fields)))
         :open open))
 
@@ -97,7 +97,7 @@ find, by its name in English and in the language spoken, and by
 \"terminal\" and \"console\"."
   (let ((name (lispm-desktop-tr "Focus Mode")))
     (list :kind 'mode :label (lispm-desktop-tr "Mode") :name name
-          :icon (lispm-desktop-platinum-icon "terminal")
+          :icon (lispm-ui-icon "terminal")
           :detail (lispm-desktop-tr "LispM's terminal: the sessions and a listener, by keyboard")
           :fields `((3 . ,name) (3 . "Focus Mode") (1.5 . "terminal console")
                     (1.5 . ,(lispm-desktop-tr "LispM's terminal: the sessions and a listener, by keyboard")))
@@ -132,14 +132,14 @@ control panels, and those of them not named as one of their panels is."
         (dolist (panel panels)
           (push (list :kind 'control-panel :label (lispm-desktop-tr "Control Panel")
                       :name (lispm-desktop-settings-panel-label panel)
-                      :icon (lispm-desktop-platinum-icon (or (nth 3 panel) "control-panels"))
+                      :icon (lispm-ui-icon (or (nth 3 panel) "control-panels"))
                       :open (let ((key (car panel))) (lambda () (lispm-desktop-settings-show key))))
                 things))
         (dolist (category (lispm-desktop-settings--categories))
           (let ((name (lispm-desktop-settings-category-label category)))
             (unless (member name (mapcar #'lispm-desktop-settings-panel-label panels))
               (push (list :kind 'control-panel :label (lispm-desktop-tr "Control Panel")
-                          :name name :icon (lispm-desktop-platinum-icon (nth 3 category))
+                          :name name :icon (lispm-ui-icon (nth 3 category))
                           :open (let ((key (car category)))
                                   (lambda () (lispm-desktop-settings-show-category key))))
                     things))))))
@@ -184,7 +184,7 @@ the last one LispM selected while it was open, as an application opened.")
 (defun lispm-desktop-bar--graphic-p ()
   "Return non-nil when the bar drops from the menu bar: on a graphical
 display, the desktop drawn.  On a text terminal it keeps the minibuffer."
-  (and (display-graphic-p) (lispm-desktop-popup-graphic-p)))
+  (and (display-graphic-p) (lispm-ui-popup-graphic-p)))
 
 (defun lispm-desktop-bar--make-frame (screen minibuffer)
   "Return a hidden child frame of SCREEN for the bar, its MINIBUFFER as
@@ -213,7 +213,7 @@ and outline, and the menus' font."
   (set-face-attribute 'child-frame-border frame :background (lispm-ui-color :outline))
   (set-face-attribute 'internal-border frame :background background)
   (set-face-attribute 'fringe frame :background background)
-  (let ((family (face-attribute 'lispm-desktop-popup-item :family nil 'default)))
+  (let ((family (face-attribute 'lispm-ui-menu-item :family nil 'default)))
     (when (stringp family)
       (set-face-attribute 'default frame :family family))))
 
@@ -256,9 +256,9 @@ PANEL, empty, under it; note how tall the panel may grow, see
 `lispm-desktop-bar--room'."
   (let ((screen (frame-parent field))
         (top (lispm-desktop-platinum--menu-y)))
-    (lispm-desktop-popup-set-size field lispm-desktop-bar-width (frame-char-height field))
+    (lispm-ui-popup-set-size field lispm-desktop-bar-width (frame-char-height field))
     (set-frame-position field (lispm-desktop-bar--x screen) top)
-    (lispm-desktop-popup-set-size panel lispm-desktop-bar-width (frame-char-height panel))
+    (lispm-ui-popup-set-size panel lispm-desktop-bar-width (frame-char-height panel))
     ;; The two share a line, as one panel.
     (pcase-let ((`(,_ ,_ ,_ ,bottom) (frame-edges field 'outer-edges)))
       (set-frame-position panel (lispm-desktop-bar--x screen) (1- bottom)))
@@ -313,14 +313,14 @@ they are, up to half the screen, or two thirds of it opened out.  This is
           (set-window-buffer window buffer)
           (set-window-dedicated-p window t)
           (with-current-buffer buffer
-            (lispm-desktop-popup-hold-size)))
+            (lispm-ui-popup-hold-size)))
         ;; The size only: the spinner redraws four times a second.
         (let* ((most (if (lispm-bar-expanded-p) (cdr lispm-desktop-bar--room) (car lispm-desktop-bar--room)))
                (size (cons lispm-desktop-bar-width
                            (max (frame-char-height panel)
                                 (cdr (window-text-pixel-size window nil nil nil (max 1 (or most 400))))))))
-          (unless (equal size (frame-parameter panel 'lispm-desktop-popup-size))
-            (lispm-desktop-popup-set-size panel (car size) (cdr size))))
+          (unless (equal size (frame-parameter panel 'lispm-ui-popup-size))
+            (lispm-ui-popup-set-size panel (car size) (cdr size))))
         (with-selected-window window
           (when (>= (point) (point-max))
             (recenter -1)))
@@ -412,7 +412,7 @@ without LispM Agent's bar, lispm-bar.el."
           lispm-bar-show-function #'lispm-desktop-bar-show
           lispm-bar-hide-function #'lispm-desktop-bar-hide
           lispm-bar-triangle-function #'lispm-desktop-platinum-triangle
-          lispm-bar-ask-icon (lambda () (lispm-desktop-platinum-icon 'lambda)))
+          lispm-bar-ask-icon (lambda () (lispm-ui-icon 'lambda)))
     (add-hook 'lispm-desktop-platinum-status-functions #'lispm-desktop-bar-status)
     (keymap-global-set "C-c l" #'lispm-ai)
     (force-mode-line-update t)))

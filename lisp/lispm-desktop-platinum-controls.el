@@ -44,8 +44,8 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-platinum-fit "lispm-desktop-platinum-titlebar" (string width))
-(declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
-(declare-function lispm-desktop-popup-choose "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-popup-available-p "lispm-desktop-popup" ())
+(declare-function lispm-ui-menu-choose "lispm-desktop-popup" (items &optional x y align))
 
 ;;;; Header strips and header buttons
 
@@ -776,12 +776,12 @@ See `lispm-desktop-platinum-tabs'."
 ;; desktop's own are the bevel buttons holding an icon, and its menu,
 ;; which pop-up menus open.
 
-(defun lispm-desktop-platinum-choose (choices &optional current position label)
+(defun lispm-ui-choose-default (choices &optional current position label)
   "Open a menu of CHOICES, a list of (VALUE . TEXT), at POSITION, by default
 point, CURRENT's item checked; return (VALUE) of the item chosen, or nil.
 Where no menu can be drawn, the choices are read in the minibuffer, after
 LABEL."
-  (if (not (lispm-desktop-popup-available-p))
+  (if (not (lispm-ui-popup-available-p))
       (let ((text (completing-read (format-prompt (or label "") (cdr (assoc current choices)))
                                    (mapcar #'cdr choices) nil t nil nil
                                    (cdr (assoc current choices)))))
@@ -790,7 +790,7 @@ LABEL."
     (let* ((position (or position (point)))
            (xy (and (pos-visible-in-window-p position nil t)
                     (posn-x-y (posn-at-point position))))
-           (item (lispm-desktop-popup-choose
+           (item (lispm-ui-menu-choose
                   (mapcar (pcase-lambda (`(,value . ,text))
                             (list :label text :value value :checked (equal value current)))
                           choices)
@@ -826,7 +826,7 @@ button is text, the icon a character in it."
   (if (lispm-desktop-tty-p)
       (lispm-ui-text-control
        (lispm-ui-text-button (concat " " (substring-no-properties
-                                          (lispm-desktop-platinum-icon icon))
+                                          (lispm-ui-icon icon))
                                      " ")
                              state)
        focused)
@@ -842,7 +842,7 @@ button is text, the icon a character in it."
          (lispm-ui-svg-embed
           svg (lispm-ui-draw-bevel-button palette w h :state state) pad pad w h)
          (lispm-ui-svg-emacs-image
-          svg (create-image (lispm-desktop-platinum-icon-file icon))
+          svg (create-image (lispm-ui-icon-file icon))
           (+ pad (/ (- w 32) 2)) (+ pad (/ (- h 32) 2)) 32 32)
          svg)))))
 

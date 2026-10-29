@@ -482,7 +482,7 @@ icon or a place a function returns, and what Show Me calls is a function."
     (let ((properties (cdr step)))
       (should (stringp (plist-get properties :title)))
       (should (stringp (plist-get properties :text)))
-      (should (file-readable-p (lispm-desktop-platinum-icon-file (plist-get properties :icon))))
+      (should (file-readable-p (lispm-ui-icon-file (plist-get properties :icon))))
       (pcase (plist-get properties :mark)
         ('nil)
         (`(menu . ,key) (should (memq key '(lispm-desktop-lambda lispm-desktop-application))))
@@ -495,7 +495,7 @@ icon or a place a function returns, and what Show Me calls is a function."
         (should (stringp (nth 1 entry)))
         (dolist (keys (split-string (car entry) ", *" t))
           (should (key-valid-p keys))))))
-  (should (file-readable-p (lispm-desktop-platinum-icon-file "guide"))))
+  (should (file-readable-p (lispm-ui-icon-file "guide"))))
 
 (ert-deftest lispm-desktop-test-guide-shows-what-is-here ()
   "Steps whose subject is missing are left out, and keys whose predicate
@@ -687,7 +687,7 @@ Go listing every step, the one the guide is on checked."
     (should (equal (mapcar #'car (lispm-desktop-store--folder-items)) '("App Store" "LispM Guide" "Calculator")))
     (should (equal (mapcar (lambda (item) (plist-get item :label)) (lispm-desktop-store-application-items))
                    '("LispM Guide" "Calculator")))
-    (should (file-readable-p (lispm-desktop-platinum-icon-file "guide-32")))
+    (should (file-readable-p (lispm-ui-icon-file "guide-32")))
     (cl-letf (((symbol-function 'lispm-desktop-guide-open-p) #'ignore))
       (should-not (assq 'guide (lispm-desktop-apps--available))))
     (cl-letf (((symbol-function 'lispm-desktop-guide-open-p) #'always))
@@ -1991,7 +1991,7 @@ where it is let go."
             ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 0 800 601)))
             ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
             ((symbol-function 'lispm-desktop--place-copy) #'ignore)
-            ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+            ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
             ((symbol-function 'lispm-desktop--render) #'ignore)
             ((symbol-function 'customize-save-variable)
              (lambda (variable value) (set variable value))))
@@ -2029,7 +2029,7 @@ gives the drag up, the icon left where it was."
             ((symbol-function 'window-body-height) (lambda (&rest _) 601))
             ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 0 800 601)))
             ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
-            ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+            ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
             ((symbol-function 'lispm-desktop--render) #'ignore)
             ((symbol-function 'customize-save-variable)
              (lambda (variable value) (set variable value))))
@@ -2081,7 +2081,7 @@ icon, Open first."
                  (lambda (_) (with-current-buffer (lispm-desktop-buffer)
                                (setq lispm-desktop--selected key))))
                 ((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(0 . 0)))
-                ((symbol-function 'lispm-desktop-popup-menu) (lambda (items &rest _) (setq shown items))))
+                ((symbol-function 'lispm-ui-menu) (lambda (items &rest _) (setq shown items))))
         (lispm-desktop-context-menu nil)
         (should (equal (plist-get (car shown) :label) "Arrange Icons"))
         (should (plist-get (car shown) :enabled))
@@ -2188,7 +2188,7 @@ Open; so does the File menu, in place of Move to Trash."
           (lispm-desktop-finder--had-focus nil))
       (cl-letf (((symbol-function 'lispm-desktop--press-select) #'ignore)
                 ((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(0 . 0)))
-                ((symbol-function 'lispm-desktop-popup-menu) (lambda (items &rest _) (setq shown items)))
+                ((symbol-function 'lispm-ui-menu) (lambda (items &rest _) (setq shown items)))
                 ((symbol-function 'lispm-desktop-finder-shown-p) #'ignore))
         (cl-flet ((labels (items) (mapcar (lambda (item) (and (consp item) (plist-get item :label))) items)))
           (with-current-buffer (lispm-desktop-buffer)
@@ -2255,7 +2255,7 @@ moved, and an alias let go elsewhere is put on the grid."
               ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 0 800 601)))
               ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
               ((symbol-function 'lispm-desktop--place-copy) #'ignore)
-              ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+              ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
               ((symbol-function 'lispm-desktop--render) #'ignore))
       (let* ((cell (lispm-desktop--cell-at 'calculator nil))
              (press (cons (+ (car cell) 40) (+ (cadr cell) 16)))
@@ -2350,7 +2350,7 @@ icon's own cell saves nothing."
             ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 0 800 601)))
             ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
             ((symbol-function 'lispm-desktop--place-copy) #'ignore)
-            ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+            ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
             ((symbol-function 'lispm-desktop--render) #'ignore))
     (let* ((lispm-desktop-icon-places nil)
            (lispm-desktop--last-click nil)
@@ -2412,7 +2412,7 @@ with Escape, or only clicked, it is not."
               ((symbol-function 'lispm-desktop--copy-frames) (lambda (&rest _) '(icon . name)))
               ((symbol-function 'lispm-desktop--place-copy)
                (lambda (_frames _label x y _window) (push (cons x y) placed)))
-              ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+              ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
               ((symbol-function 'read-event)
                (lambda (&rest _)
                  (pcase-let ((`(,dx ,dy . ,event) (pop script)))
@@ -2786,7 +2786,7 @@ what is installed then; the App Store cannot be thrown away."
                    ;; current.
                    (set-buffer (get-buffer-create " *lispm-test-other*"))
                    t))
-                ((symbol-function 'lispm-desktop-popup-alert)
+                ((symbol-function 'lispm-ui-alert)
                  (lambda (_icon message &rest _) (error "Alert: %s" message))))
         (lispm-desktop-finder--go 'applications)
         (should (equal (lispm-desktop-finder-trash-label) "Uninstall…"))
@@ -2815,7 +2815,7 @@ has an icon of, has none made, nor has an item of another folder."
                            :items lispm-desktop-store--folder-items :trash "Uninstall…")))
           (lispm-desktop-aliases nil)
           (shown nil))
-      (cl-letf (((symbol-function 'lispm-desktop-popup-menu) (lambda (items &rest _) (setq shown items))))
+      (cl-letf (((symbol-function 'lispm-ui-menu) (lambda (items &rest _) (setq shown items))))
         (cl-flet ((item (label) (seq-find (lambda (item) (and (consp item) (equal (plist-get item :label) label)))
                                           shown)))
           (lispm-desktop-finder--go 'applications)
@@ -3087,11 +3087,11 @@ other key closes the panel and goes on to Emacs."
               ((symbol-function 'lispm-desktop-workspaces--layout) #'ignore)
               ((symbol-function 'lispm-desktop-workspaces--width) (lambda (_) 100))
               ((symbol-function 'lispm-desktop-workspaces--text) (lambda (&rest _) ""))
-              ((symbol-function 'lispm-desktop-popup-make-frame) (lambda (_) 'panel))
-              ((symbol-function 'lispm-desktop-popup-fill) #'ignore)
-              ((symbol-function 'lispm-desktop-popup-set-size) #'ignore)
-              ((symbol-function 'lispm-desktop-popup-show) #'ignore)
-              ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+              ((symbol-function 'lispm-ui-popup-make-frame) (lambda (_) 'panel))
+              ((symbol-function 'lispm-ui-popup-fill) #'ignore)
+              ((symbol-function 'lispm-ui-popup-set-size) #'ignore)
+              ((symbol-function 'lispm-ui-popup-show) #'ignore)
+              ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
               ((symbol-function 'frame-root-window) #'ignore)
               ((symbol-function 'window-text-pixel-size) (lambda (&rest _) '(100 . 100)))
               ((symbol-function 'redisplay) #'ignore))
@@ -3508,12 +3508,12 @@ while held."
 
 (ert-deftest lispm-desktop-test-file-icons ()
   "Files are shown with the document of their kind."
-  (should (equal (lispm-desktop-platinum-file-icon-name "a.el") "document-lisp"))
-  (should (equal (lispm-desktop-platinum-file-icon-name "a.rs") "document-code"))
-  (should (equal (lispm-desktop-platinum-file-icon-name "README.md") "document-markdown"))
-  (should (equal (lispm-desktop-platinum-file-icon-name "notes.org") "document-org"))
-  (should (equal (lispm-desktop-platinum-file-icon-name "a.png") "document-image"))
-  (should (equal (lispm-desktop-platinum-file-icon-name "LICENSE") "document"))
+  (should (equal (lispm-ui-file-icon-name "a.el") "document-lisp"))
+  (should (equal (lispm-ui-file-icon-name "a.rs") "document-code"))
+  (should (equal (lispm-ui-file-icon-name "README.md") "document-markdown"))
+  (should (equal (lispm-ui-file-icon-name "notes.org") "document-org"))
+  (should (equal (lispm-ui-file-icon-name "a.png") "document-image"))
+  (should (equal (lispm-ui-file-icon-name "LICENSE") "document"))
   (dolist (name '("document-lisp" "document-code" "document-markdown" "document-org"
                   "folder-git" "lispm" "robot"))
     (should (file-exists-p (expand-file-name (format "icons/os9/%s.svg" name) lispm-desktop-directory)))))
@@ -4297,7 +4297,7 @@ the keyboard under the selected window's title."
     (with-temp-buffer
       (setq-local lispm-desktop-platinum-title-menu-function
                   (lambda (_window) '((:label "Here" :action ignore))))
-      (cl-letf (((symbol-function 'lispm-desktop-popup-menu)
+      (cl-letf (((symbol-function 'lispm-ui-menu)
                  (lambda (items &optional x y _align) (push (list items x y) calls))))
         (save-window-excursion
           (switch-to-buffer (current-buffer))
@@ -4675,9 +4675,9 @@ variation colour, disabled items greyed."
                   (:label "Two" :action ignore :enabled nil)
                   (:label "Three" :action ignore)
                   (:label "More" :submenu (( :label "Four" :action ignore)))))
-         (svg (lispm-desktop-popup-draw-menu palette items 200 3))
+         (svg (lispm-ui-draw-menu palette items 200 3))
          (texts (dom-by-tag svg 'text)))
-    (should (equal (car (lispm-desktop-popup--rows items)) '(0 16 22 38 54)))
+    (should (equal (car (lispm-ui-menu--rows items)) '(0 16 22 38 54)))
     (should (equal (lispm-desktop-test--size svg) '(200 . 70)))
     (cl-flet ((at (x y) (lispm-desktop-test--pixel svg x y))
               (ink (label) (dom-attr (seq-find (lambda (text) (string-search label (dom-text text))) texts)
@@ -4700,15 +4700,15 @@ variation colour, disabled items greyed."
       ;; More's submenu triangle.
       (should (equal (at 190 61) "#000000")))
     ;; The item under a y.
-    (should (= (lispm-desktop-popup--index-at items 40) 3))
-    (should-not (lispm-desktop-popup--index-at items 18))
-    (should-not (lispm-desktop-popup--index-at items 25))
+    (should (= (lispm-ui-menu--index-at items 40) 3))
+    (should-not (lispm-ui-menu--index-at items 18))
+    (should-not (lispm-ui-menu--index-at items 25))
     ;; Moving down from One skips the separator and the disabled Two.
-    (should (= (lispm-desktop-popup--step items 0 1) 3))
-    (should (= (lispm-desktop-popup--step items 3 1) 4))
+    (should (= (lispm-ui-menu--step items 0 1) 3))
+    (should (= (lispm-ui-menu--step items 3 1) 4))
     ;; A dark theme greys disabled items in its own dim colour.
     (let* ((dracula (lispm-desktop-test--dracula-palette))
-           (dark (lispm-desktop-popup-draw-menu dracula items 200 nil)))
+           (dark (lispm-ui-draw-menu dracula items 200 nil)))
       (should (equal (dom-attr (seq-find (lambda (text) (string-search "Two" (dom-text text)))
                                          (dom-by-tag dark 'text))
                                'fill)
@@ -4719,12 +4719,12 @@ variation colour, disabled items greyed."
 small system font, labels 15 pixels in."
   (let* ((palette (lispm-desktop-test--platinum-palette))
          (lispm-ui-current-palette palette)
-         (lispm-desktop-popup-small t)
+         (lispm-ui-menu-small t)
          (items '((:label "One" :action ignore) (:label "Two" :action ignore)))
-         (svg (lispm-desktop-popup-draw-menu palette items 100 1)))
+         (svg (lispm-ui-draw-menu palette items 100 1)))
     (should (equal (lispm-desktop-test--size svg) '(100 . 26)))
     (should (equal (lispm-desktop-test--pixel svg 50 20) "#333399"))
-    (should (= (lispm-desktop-popup--menu-width items)
+    (should (= (lispm-ui-menu--width items)
                (+ 15 (lispm-ui-text-width "Two" 'lispm-ui-small) 11)))
     (should (seq-every-p (lambda (text) (= (dom-attr text 'x) 15))
                          (seq-remove (lambda (text) (string-search "&#" (dom-text text)))
@@ -4737,32 +4737,32 @@ Apple menu did: the labels move over to make room."
          (lispm-ui-current-palette palette)
          (icon `(image :type png :data ,(base64-decode-string "iVBORw0KGgo=")))
          (items `((:label "Blocker" :action ignore :icon ,icon) (:label "Store" :action ignore)))
-         (svg (lispm-desktop-popup-draw-menu palette items 200 nil))
+         (svg (lispm-ui-draw-menu palette items 200 nil))
          (images (dom-by-tag svg 'image)))
     (should (= (length images) 1))
-    (should (= (dom-attr (car images) 'x) (lispm-desktop-popup--label-x)))
-    (should (seq-every-p (lambda (text) (= (dom-attr text 'x) (+ (lispm-desktop-popup--label-x) 20)))
+    (should (= (dom-attr (car images) 'x) (lispm-ui-menu--label-x)))
+    (should (seq-every-p (lambda (text) (= (dom-attr text 'x) (+ (lispm-ui-menu--label-x) 20)))
                          (dom-by-tag svg 'text)))
-    (should (= (lispm-desktop-popup--menu-width items)
-               (+ 20 (lispm-desktop-popup--menu-width (mapcar (lambda (item) (plist-put (copy-sequence item) :icon nil))
-                                                              items)))))))
+    (should (= (lispm-ui-menu--width items)
+               (+ 20 (lispm-ui-menu--width (mapcar (lambda (item) (plist-put (copy-sequence item) :icon nil))
+                                                   items)))))))
 
 (ert-deftest lispm-desktop-test-submenu-turns-at-the-edge ()
   "A submenu opens beside its item, or on the menu's left when the right
 has no room, as Mac OS 9's did at the screen's edge."
   (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
          (items '((:label "One" :action ignore) (:label "More" :submenu ((:label "Two" :action ignore)))))
-         (submenu (lispm-desktop-popup--submenu (nth 1 items)))
+         (submenu (lispm-ui-menu--submenu (nth 1 items)))
          (level (list :items items :x 100 :y 20 :width 80))
-         (width (lispm-desktop-popup--menu-width submenu)))
-    (should (equal (lispm-desktop-popup--submenu-place level 1 submenu 1000) '(178 35 nil)))
-    (should (equal (lispm-desktop-popup--submenu-place level 1 submenu (+ 178 width 1)) '(102 35 right)))))
+         (width (lispm-ui-menu--width submenu)))
+    (should (equal (lispm-ui-menu--submenu-place level 1 submenu 1000) '(178 35 nil)))
+    (should (equal (lispm-ui-menu--submenu-place level 1 submenu (+ 178 width 1)) '(102 35 right)))))
 
 (ert-deftest lispm-desktop-test-menu-keys ()
   "Key equivalents are keyboard sequences only."
-  (should (lispm-desktop-popup-keyboard-p (kbd "C-c a l")))
-  (should-not (lispm-desktop-popup-keyboard-p [C-M-drag-mouse-1]))
-  (should-not (lispm-desktop-popup-keyboard-p [menu-bar file open])))
+  (should (lispm-ui-menu-keyboard-p (kbd "C-c a l")))
+  (should-not (lispm-ui-menu-keyboard-p [C-M-drag-mouse-1]))
+  (should-not (lispm-ui-menu-keyboard-p [menu-bar file open])))
 
 (ert-deftest lispm-desktop-test-keymap-items ()
   "A menu keymap becomes menu items: labels, conditions, checks, submenus."
@@ -4785,20 +4785,20 @@ has no room, as Mac OS 9's did at the screen's edge."
       (should (equal (plist-get (pop items) :key) "C-x z"))
       (should (equal (plist-get (nth 0 items) :key) "C-x f"))
       (should (plist-get (nth 1 items) :checked))
-      (should-not (lispm-desktop-popup--enabled-p (nth 4 items)))
+      (should-not (lispm-ui-menu--enabled-p (nth 4 items)))
       (should (equal (mapcar (lambda (item) (plist-get item :label))
-                             (lispm-desktop-popup--submenu (nth 3 items)))
+                             (lispm-ui-menu--submenu (nth 3 items)))
                      '("Inner"))))))
 
 (defun lispm-desktop-test--choose (label)
-  "Return a stand-in for `lispm-desktop-popup-choose' that picks the item LABEL.
+  "Return a stand-in for `lispm-ui-menu-choose' that picks the item LABEL.
 It follows submenus, as a click through a hierarchical menu does."
   (lambda (items &rest _)
     (named-let pick ((items items))
       (seq-some (lambda (item)
                   (when (consp item)
                     (cond ((equal (plist-get item :label) label) item)
-                          ((plist-get item :submenu) (pick (lispm-desktop-popup--submenu item))))))
+                          ((plist-get item :submenu) (pick (lispm-ui-menu--submenu item))))))
                 items))))
 
 (ert-deftest lispm-desktop-test-x-popup-menu-keymap ()
@@ -4809,15 +4809,15 @@ as the project tree's right-click menu looks its command up by it."
     (define-key sub [file] '(menu-item "File" find-file))
     (define-key map [new] `(menu-item "New" ,sub))
     (define-key map [rename] '(menu-item "Rename" rename-file))
-    (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'always)
+    (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
               ((symbol-function 'lispm-desktop-popup--x-position) (lambda (_) '(10 . 20)))
-              ((symbol-function 'lispm-desktop-popup-choose) (lispm-desktop-test--choose "File")))
+              ((symbol-function 'lispm-ui-menu-choose) (lispm-desktop-test--choose "File")))
       (let ((choice (lispm-desktop-popup--x-popup-menu #'ignore t map)))
         (should (equal choice '(new file)))
         (should (eq (lookup-key map (apply #'vector choice)) 'find-file))))
-    (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'always)
+    (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
               ((symbol-function 'lispm-desktop-popup--x-position) (lambda (_) '(10 . 20)))
-              ((symbol-function 'lispm-desktop-popup-choose) #'ignore))
+              ((symbol-function 'lispm-ui-menu-choose) #'ignore))
       (should-not (lispm-desktop-popup--x-popup-menu #'ignore t map)))))
 
 (ert-deftest lispm-desktop-test-x-popup-menu-panes ()
@@ -4827,10 +4827,10 @@ cannot be chosen, and panes are parted by separators."
     (should (equal (mapcar (lambda (item) (if (consp item) (plist-get item :label) item))
                            (lispm-desktop-popup--pane-items menu))
                    '("teh" "Suggestions" separator "Actions" "Save" separator)))
-    (should-not (lispm-desktop-popup--enabled-p (nth 1 (lispm-desktop-popup--pane-items menu))))
-    (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'always)
+    (should-not (lispm-ui-menu--enabled-p (nth 1 (lispm-desktop-popup--pane-items menu))))
+    (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
               ((symbol-function 'lispm-desktop-popup--x-position) (lambda (_) '(10 . 20)))
-              ((symbol-function 'lispm-desktop-popup-choose) (lispm-desktop-test--choose "Save")))
+              ((symbol-function 'lispm-ui-menu-choose) (lispm-desktop-test--choose "Save")))
       (should (eq (lispm-desktop-popup--x-popup-menu #'ignore t menu) 'save)))))
 
 (ert-deftest lispm-desktop-test-x-popup-menu-passes-through ()
@@ -4851,14 +4851,14 @@ cannot be chosen, and panes are parted by separators."
 
 (ert-deftest lispm-desktop-test-popups-fall-back ()
   "Without a graphical display, menus and alerts ask in the minibuffer."
-  (should-not (lispm-desktop-popup-available-p))
+  (should-not (lispm-ui-popup-available-p))
   (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "Two")))
-    (should (equal (plist-get (lispm-desktop-popup-menu '((:label "One" :action ignore)
-                                                          (:label "Two" :action ignore)))
+    (should (equal (plist-get (lispm-ui-menu '((:label "One" :action ignore)
+                                               (:label "Two" :action ignore)))
                               :label)
                    "Two")))
   (cl-letf (((symbol-function 'read-multiple-choice) (lambda (&rest _) '(?s "Save"))))
-    (should (eq (lispm-desktop-popup-alert 'caution "Save?" '(("Cancel" cancel cancel)
+    (should (eq (lispm-ui-alert 'caution "Save?" '(("Cancel" cancel cancel)
                                                              ("Save" save default)))
                 'save))))
 
@@ -4870,7 +4870,7 @@ line and a column, not four lines and ten columns, and has its frame
 sized back."
   (with-temp-buffer
     (setq-local mode-line-format nil)
-    (lispm-desktop-popup-hold-size)
+    (lispm-ui-popup-hold-size)
     (save-window-excursion
       (set-window-buffer nil (current-buffer))
       (should (= (window-min-size nil nil nil t) (frame-char-height)))
@@ -4886,19 +4886,19 @@ sized back."
               ((symbol-function 'frame-text-height) (lambda (&optional _frame) (cdr text))))
       (unwind-protect
           (progn
-            ;; A frame `lispm-desktop-popup-set-size' never sized is left alone.
-            (lispm-desktop-popup--keep-size (selected-window))
+            ;; A frame `lispm-ui-popup-set-size' never sized is left alone.
+            (lispm-ui-popup--keep-size (selected-window))
             (should-not sized)
-            (lispm-desktop-popup-set-size frame 256 24)
+            (lispm-ui-popup-set-size frame 256 24)
             (should (equal sized '((256 . 24))))
             ;; A larger font: Emacs made it whole columns, and four lines.
             (setq text '(288 . 76) sized nil)
-            (lispm-desktop-popup--keep-size (selected-window))
+            (lispm-ui-popup--keep-size (selected-window))
             (should (equal sized '((256 . 24))))
             (setq sized nil)
-            (lispm-desktop-popup--keep-size (selected-window))
+            (lispm-ui-popup--keep-size (selected-window))
             (should-not sized))
-        (set-frame-parameter frame 'lispm-desktop-popup-size nil)))))
+        (set-frame-parameter frame 'lispm-ui-popup-size nil)))))
 
 (ert-deftest lispm-desktop-test-alert-text ()
   "An alert shows its message, its detail and a button per choice, framed
@@ -4906,8 +4906,8 @@ as Mac OS 9 framed its alerts."
   (let* ((palette (lispm-desktop-test--platinum-palette))
          (lispm-ui-current-palette palette)
          (buttons '(("Don’t Save" discard nil) ("Cancel" cancel cancel) ("Save" save default)))
-         (svg (lispm-desktop-popup-draw-alert palette 'caution "Save?" "Changes will be lost."
-                                              buttons nil nil))
+         (svg (lispm-ui-draw-alert palette 'caution "Save?" "Changes will be lost."
+                                   buttons nil nil))
          (texts (mapcar #'dom-text (dom-by-tag svg 'text))))
     (should (seq-find (lambda (text) (string-search "Save?" text)) texts))
     (should (seq-find (lambda (text) (string-search "Changes will be lost." text)) texts))
@@ -4916,31 +4916,31 @@ as Mac OS 9 framed its alerts."
       (should (equal (at 1 30) "#FFFFFF"))
       (should (equal (at 30 1) "#FFFFFF"))
       (should (equal (at 50 40) "#DDDDDD"))
-      (should (equal (at (- lispm-desktop-popup-alert-width 2) 30) "#999999"))
-      (should (equal (at (- lispm-desktop-popup-alert-width 1) 30) "#FF6666")))))
+      (should (equal (at (- lispm-ui-alert-width 2) 30) "#999999"))
+      (should (equal (at (- lispm-ui-alert-width 1) 30) "#FF6666")))))
 
 (ert-deftest lispm-desktop-test-alert-layout ()
   "Don't Save stands apart under the message; Cancel and the default button
 stand at the right, ten pixels apart, the default's ring twelve pixels
 from the edge."
   (let* ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette))
-         (layout (lispm-desktop-popup--alert-layout
+         (layout (lispm-ui-alert-layout
                   "Save changes to the document before closing?" nil
                   '(("Don’t Save" discard nil) ("Cancel" cancel cancel) ("Save" save default))))
          (buttons (plist-get layout :buttons))
-         (w lispm-desktop-popup-alert-width))
+         (w lispm-ui-alert-width))
     (should (equal (mapcar #'cadr buttons) '(discard cancel save)))
     (pcase-let ((`(,_ ,_ ,_ ,dont ,_ ,_) (nth 0 buttons))
                 (`(,_ ,_ ,_ ,cancel ,_ ,cancel-width) (nth 1 buttons))
                 (`(,_ ,_ ,_ ,save ,_ ,save-width) (nth 2 buttons)))
-      (should (= dont (- lispm-desktop-popup-alert-text-x 4)))
+      (should (= dont (- lispm-ui-alert-text-x 4)))
       (should (= (+ save save-width 3) (- w 12)))
-      (should (= (- (- save 3) (+ cancel cancel-width)) lispm-desktop-popup-button-gap)))
+      (should (= (- (- save 3) (+ cancel cancel-width)) lispm-ui-alert-button-gap)))
     (cl-letf (((symbol-function 'lispm-ui-modal-over)
                (lambda (event _frame) (event-start event)))
               ((symbol-function 'frame-parameter) (lambda (&rest _) buttons)))
       (pcase-let ((`(,_ ,_ ,_ ,x ,y ,_) (nth 1 buttons)))
-        (should (eq (lispm-desktop-popup--button-at
+        (should (eq (lispm-ui-alert--button-at
                      (list 'mouse-1 (list (selected-window) 1 (cons (+ x 5) (+ y 5)) 0))
                      nil)
                     'cancel))))))
@@ -4952,21 +4952,21 @@ of Cancel; one whose words fit keeps the width."
   (let ((lispm-ui-current-palette (lispm-desktop-test--platinum-palette)))
     (cl-letf (((symbol-function 'lispm-ui-push-button-width)
                (lambda (label) (+ 24 (* 6 (length label))))))
-      (should-not (plist-get (lispm-desktop-popup--alert-layout
+      (should-not (plist-get (lispm-ui-alert-layout
                               "Uninstall?" nil '(("Uninstall All" all nil) ("Cancel" cancel cancel)
                                                  ("Uninstall" item default)))
                              :width))
-      (let* ((layout (lispm-desktop-popup--alert-layout
+      (let* ((layout (lispm-ui-alert-layout
                       "„Test“ deinstallieren?" nil
                       '(("Alles deinstallieren" all nil) ("Abbrechen" cancel cancel)
                         ("Deinstallieren" item default))))
              (w (plist-get layout :width))
              (buttons (plist-get layout :buttons)))
-        (should (> w lispm-desktop-popup-alert-width))
+        (should (> w lispm-ui-alert-width))
         (pcase-let ((`(,_ ,_ ,_ ,apart ,_ ,apart-width) (nth 0 buttons))
                     (`(,_ ,_ ,_ ,cancel ,_ ,_) (nth 1 buttons))
                     (`(,_ ,_ ,_ ,default ,_ ,default-width) (nth 2 buttons)))
-          (should (= (- cancel (+ apart apart-width)) (* 2 lispm-desktop-popup-button-gap)))
+          (should (= (- cancel (+ apart apart-width)) (* 2 lispm-ui-alert-button-gap)))
           (should (= (+ default default-width 3) (- w 12))))))))
 
 ;;;; The desktop's modal panels, on LispM UI's lispm-ui-modal
@@ -4978,17 +4978,17 @@ Mac OS 9's buttons were, and pressed as the mouse rises over them."
               #'lispm-desktop-store--grid-press)))
 
 (defmacro lispm-desktop-test--with-alert-keys (&rest body)
-  "Run BODY where `lispm-desktop-popup-alert' reads the events queued in
+  "Run BODY where `lispm-ui-alert' reads the events queued in
 `unread-command-events', its popup drawn nowhere.  In BODY, `draws' holds
 the (PRESSED FOCUSED) of each drawing, the latest first."
   (declare (indent 0))
   `(let ((draws nil))
-     (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) (lambda () t))
-               ((symbol-function 'lispm-desktop-popup-open-alert) (lambda (&rest _) 'alert))
-               ((symbol-function 'lispm-desktop-popup--draw-alert)
+     (cl-letf (((symbol-function 'lispm-ui-popup-available-p) (lambda () t))
+               ((symbol-function 'lispm-ui-alert-open) (lambda (&rest _) 'alert))
+               ((symbol-function 'lispm-ui-alert--draw)
                 (lambda (_frame _icon _message _detail _buttons pressed focused)
                   (push (list pressed focused) draws)))
-               ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+               ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
                ((symbol-function 'sit-for) #'ignore)
                ((symbol-function 'redisplay) #'ignore))
        ,@body)))
@@ -5002,7 +5002,7 @@ the button ringed; a button's own keys press it."
     (lispm-desktop-test--with-alert-keys
       (cl-flet ((answer (events &optional given)
                   (let ((unread-command-events events))
-                    (lispm-desktop-popup-alert 'caution "Save?" (or given buttons)))))
+                    (lispm-ui-alert 'caution "Save?" (or given buttons)))))
         (should (eq (answer '(return)) 'save))
         (should (eq (answer '(?\r)) 'save))
         (should (eq (answer '(escape)) 'cancel))
@@ -5588,8 +5588,8 @@ flush with its right edge."
               ((symbol-function 'window-inside-pixel-edges) (lambda (&rest _) '(0 180 800 200)))
               ((symbol-function 'lispm-browser-extensions-button-anchor)
                (lambda (&rest args) (setq asked args) 'anchor))
-              ((symbol-function 'lispm-desktop-popup-menu)
-               (lambda (items x y align) (push (list items x y align lispm-desktop-popup-parent) shown))))
+              ((symbol-function 'lispm-ui-menu)
+               (lambda (items x y align) (push (list items x y align lispm-ui-menu-parent) shown))))
       (should (eq (lispm-desktop-browser--extension-anchor "a") 'anchor))
       (should (equal asked (list (selected-window) (+ 80 3) 24 "a")))
       (lispm-desktop-browser--popup-at '(items) (list 'frame 700 83 24 24))
@@ -5609,7 +5609,7 @@ typed still goes in beside the region, and other keys keep their ways."
         (buffer (lispm-desktop-browser--address-buffer)))
     (cl-letf (((symbol-function 'lispm-browser-shown-buffer) #'ignore)
               ((symbol-function 'lispm-desktop-browser--bookmarks-button) (lambda () "Bookmarks"))
-              ((symbol-function 'lispm-desktop-platinum-icon) (lambda (_) "*"))
+              ((symbol-function 'lispm-ui-icon) (lambda (_) "*"))
               ((symbol-function 'lispm-desktop-clipboard-text) (lambda () "example.com")))
       (unwind-protect
           (save-window-excursion
@@ -5651,7 +5651,7 @@ start."
         (buffer (lispm-desktop-browser--address-buffer)))
     (cl-letf (((symbol-function 'lispm-browser-shown-buffer) #'ignore)
               ((symbol-function 'lispm-desktop-browser--bookmarks-button) (lambda () "Bookmarks"))
-              ((symbol-function 'lispm-desktop-platinum-icon) (lambda (_) "*")))
+              ((symbol-function 'lispm-ui-icon) (lambda (_) "*")))
       (unwind-protect
           (save-window-excursion
             (switch-to-buffer buffer)
@@ -5756,7 +5756,7 @@ shown in its own control panel's window."
 the panel says how it stands, with what can be done about it."
   ;; Drawn as SVG: an Emacs without librsvg cannot.
   (skip-unless (image-type-available-p 'svg))
-  (should (file-readable-p (lispm-desktop-platinum-icon-file "kernel-32")))
+  (should (file-readable-p (lispm-ui-icon-file "kernel-32")))
   (let ((saved nil)
         (lispm-desktop-kernel nil)
         (status '(off)))
@@ -5904,7 +5904,7 @@ loaded, and not before."
             ((symbol-function 'lispm-desktop-settings--lispm-p) #'ignore))
     (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
       (should (equal (cadr (memq 'network keys)) 'sandbox))))
-  (should (file-readable-p (lispm-desktop-platinum-icon-file "sandbox-32"))))
+  (should (file-readable-p (lispm-ui-icon-file "sandbox-32"))))
 
 (ert-deftest lispm-desktop-test-settings-lispm-with-lispm-agent ()
   "The LispM panel shows, between Network and Sandbox, once LispM Agent's
@@ -5915,7 +5915,7 @@ settings are loaded, and not before."
             ((symbol-function 'lispm-desktop-settings--sandbox-p) #'always))
     (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
       (should (equal (seq-take (memq 'network keys) 3) '(network lispm sandbox)))))
-  (should (file-readable-p (lispm-desktop-platinum-icon-file "lispm-32"))))
+  (should (file-readable-p (lispm-ui-icon-file "lispm-32"))))
 
 (defmacro lispm-desktop-test--with-lispm-settings (&rest body)
   "Run BODY with LispM Agent's settings loaded and set as a test's own: the
@@ -6257,7 +6257,7 @@ rules replaces the user's own only once they say so."
     (let ((answer nil) (replace nil) (asked nil))
       (cl-letf (((symbol-function 'customize-save-variable) (lambda (variable value) (set variable value)))
                 ((symbol-function 'read-string) (lambda (&rest _) answer))
-                ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) (setq asked t) replace)))
+                ((symbol-function 'lispm-ui-alert) (lambda (&rest _) (setq asked t) replace)))
         (should (equal (lispm-desktop-settings--sandbox-description 'high) "Reads only the project; no network."))
         (cl-letf (((symbol-function 'lispm-sandbox-level-description)
                    (lambda (&optional level) (format "%s, said from its rules" level))))
@@ -6360,7 +6360,7 @@ away there."
 software under; Licence shows the licence in the editor, OK nothing."
   (let ((alerts nil) (choice 'ok) (shown nil)
         (lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence))
-    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+    (cl-letf (((symbol-function 'lispm-ui-alert)
                (lambda (_icon _message buttons detail) (push (list buttons detail) alerts) choice))
               ((symbol-function 'lispm-desktop-apps-activate) (lambda (app) (push app shown)))
               ((symbol-function 'describe-copying) (lambda () (push 'copying shown))))
@@ -7750,7 +7750,7 @@ and transcripts that cannot be resumed do not offer it."
         (save-window-excursion
           (switch-to-buffer (current-buffer))
           (cl-letf (((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(10 . 20)))
-                    ((symbol-function 'lispm-desktop-popup-menu)
+                    ((symbol-function 'lispm-ui-menu)
                      (lambda (items &rest _) (setq shown items)))
                     ((symbol-function 'lispm-agents-session-buffer)
                      (lambda (id) (when (equal id "running") (current-buffer))))
@@ -8415,8 +8415,8 @@ messages and details, `killed', `saved' to what was killed and saved."
   `(let ((answers ,answers) (asked nil) (killed nil) (saved nil)
          (kill-emacs-query-functions nil) (save-some-buffers-functions nil)
          (confirm-kill-processes t))
-     (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) (lambda () t))
-               ((symbol-function 'lispm-desktop-popup-alert)
+     (cl-letf (((symbol-function 'lispm-ui-popup-available-p) (lambda () t))
+               ((symbol-function 'lispm-ui-alert)
                 (lambda (_icon message buttons &optional detail)
                   (push (list message detail (mapcar #'car buttons)) asked)
                   (pop answers)))
@@ -8489,19 +8489,19 @@ no function keys, and no Super keys where no key is Super."
   (let ((items '((:label "Undo" :action ignore) separator (:label "Paste" :action ignore)
                  (:label "Print" :action ignore :enabled nil)
                  (:label " paste again" :action ignore))))
-    (should (= (lispm-desktop-popup--item-starting items nil ?p) 2))
-    (should (= (lispm-desktop-popup--item-starting items 2 ?P) 4))
-    (should (= (lispm-desktop-popup--item-starting items 4 ?p) 2))
-    (should-not (lispm-desktop-popup--item-starting items nil ?z)))
-  (should (lispm-desktop-popup-keyboard-p (kbd "C-x h")))
-  (should (lispm-desktop-popup-keyboard-p (kbd "M-RET")))
-  (should-not (lispm-desktop-popup-keyboard-p (kbd "<f10>")))
-  (should-not (lispm-desktop-popup-keyboard-p (kbd "<open>")))
-  (should-not (lispm-desktop-popup-keyboard-p (kbd "M-<down>")))
-  (should-not (lispm-desktop-popup-keyboard-p (kbd "<mouse-1>")))
+    (should (= (lispm-ui-menu--item-starting items nil ?p) 2))
+    (should (= (lispm-ui-menu--item-starting items 2 ?P) 4))
+    (should (= (lispm-ui-menu--item-starting items 4 ?p) 2))
+    (should-not (lispm-ui-menu--item-starting items nil ?z)))
+  (should (lispm-ui-menu-keyboard-p (kbd "C-x h")))
+  (should (lispm-ui-menu-keyboard-p (kbd "M-RET")))
+  (should-not (lispm-ui-menu-keyboard-p (kbd "<f10>")))
+  (should-not (lispm-ui-menu-keyboard-p (kbd "<open>")))
+  (should-not (lispm-ui-menu-keyboard-p (kbd "M-<down>")))
+  (should-not (lispm-ui-menu-keyboard-p (kbd "<mouse-1>")))
   (let ((window-system 'ns) (ns-command-modifier 'meta) (ns-alternate-modifier 'none))
-    (should-not (lispm-desktop-popup-keyboard-p (kbd "s-a"))))
-  (should (lispm-desktop-popup-keyboard-p (kbd "M-c"))))
+    (should-not (lispm-ui-menu-keyboard-p (kbd "s-a"))))
+  (should (lispm-ui-menu-keyboard-p (kbd "M-c"))))
 
 (ert-deftest lispm-desktop-test-term-keys ()
   "Keys send the bytes terminals expect: cursor keys follow the program's
@@ -8628,7 +8628,7 @@ grew to the four lines Emacs keeps a window to, over the echo area."
           (set-window-buffer nil buffer)
           (should (= (window-min-size nil nil nil t) (frame-char-height)))
           (with-current-buffer buffer
-            (should (memq #'lispm-desktop-popup--keep-size window-size-change-functions))))
+            (should (memq #'lispm-ui-popup--keep-size window-size-change-functions))))
       (kill-buffer buffer))))
 
 (ert-deftest lispm-desktop-test-strip-menu-place ()
@@ -8636,9 +8636,9 @@ grew to the four lines Emacs keeps a window to, over the echo area."
 its bottom two pixels into the strip, as Mac OS 9's did."
   (lispm-desktop-test--with-strip
     (let ((items '((:label "One" :action ignore) separator (:label "Two" :action ignore))))
-      (let ((lispm-desktop-popup-small t))
-        (should (= (cdr (lispm-desktop-popup--rows items)) (+ 13 6 13))))
-      (should (= (cdr (lispm-desktop-popup--rows items)) (+ 16 6 16)))
+      (let ((lispm-ui-menu-small t))
+        (should (= (cdr (lispm-ui-menu--rows items)) (+ 13 6 13))))
+      (should (= (cdr (lispm-ui-menu--rows items)) (+ 16 6 16)))
       (cl-letf (((symbol-function 'frame-position) (lambda (&rest _) '(0 . 500))))
         (should (equal (lispm-desktop-strip--menu-place 'desktop items)
                        (cons (+ 15 14 28 -1) (- 501 32))))))))
@@ -8808,7 +8808,7 @@ colour changed: NS Emacs clears a frame whenever its background is set."
     (cl-letf (((symbol-function 'lispm-desktop-strip--live-p) #'always)
               ((symbol-function 'lispm-desktop-strip--line) (lambda () "strip"))
               ((symbol-function 'lispm-ui-color) (lambda (_key) color))
-              ((symbol-function 'lispm-desktop-popup-set-size) #'ignore)
+              ((symbol-function 'lispm-ui-popup-set-size) #'ignore)
               ((symbol-function 'lispm-desktop-strip--width) (lambda () 100))
               ((symbol-function 'lispm-desktop-strip--place) #'ignore)
               ((symbol-function 'frame-parameter)
@@ -8838,7 +8838,7 @@ menu of the module beside, as along the menu bar."
                  (lambda (key)
                    (push key opened)
                    (when (< (length opened) 3)
-                     (throw 'lispm-desktop-popup-menu-bar-step (if (eq key 'appearance) -1 1)))
+                     (throw 'lispm-ui-menu-bar-step (if (eq key 'appearance) -1 1)))
                    nil)))
         (should (equal (lispm-desktop-strip--walk (lispm-desktop-strip--modules) 0) '(nil . 0)))
         (should (equal opened '(appearance mail appearance)))))))
@@ -10549,7 +10549,7 @@ approved: those three always ask, and show first what they do."
     (should (string-search "Calculate, skill for agents"
                            (funcall (lispm-tool-preview (lispm-get-tool "store_install")) "calculator")))
     (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) (error "Asked")))
-              ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) (error "Asked"))))
+              ((symbol-function 'lispm-ui-alert) (lambda (&rest _) (error "Asked"))))
       (should (equal (lispm-desktop-test--call-async "store_install" "calculator")
                      '("Calculator is installed. Its skills for agents: calc-help." nil)))
       (should (lispm-desktop-store-installed-p 'calc-help))
@@ -10686,7 +10686,7 @@ and Uninstall All has the Installer uninstall what it alone needed."
                          (push (list (mapcar #'lispm-desktop-needs-name needs) who (featurep 'lispm-desktop-test-ext))
                                installs)))
                       ((symbol-function 'lispm-desktop-needs-brewed-p) (lambda (_need) t))
-                      ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) 'all))
+                      ((symbol-function 'lispm-ui-alert) (lambda (&rest _) 'all))
                       ((symbol-function 'lispm-desktop-needs-uninstall)
                        (lambda (needs who &rest _) (push (list (mapcar #'lispm-desktop-needs-name needs) who)
                                                          uninstalls))))
@@ -10955,7 +10955,7 @@ uninstall the programs."
           (asked nil) (deleted nil) (uninstalled nil) (answer nil))
       (cl-letf (((symbol-function 'lispm-desktop-store--needs-leftovers) (lambda (_) (list op)))
                 ((symbol-function 'lispm-desktop-store--package-leftovers) (lambda (&rest _) '(dep-a)))
-                ((symbol-function 'lispm-desktop-popup-alert)
+                ((symbol-function 'lispm-ui-alert)
                  (lambda (_icon question buttons detail)
                    (push (list question (mapcar #'car buttons) detail) asked)
                    answer))
@@ -12550,9 +12550,9 @@ install as LispM quits, else by an alert, once Emacs is idle."
 check was asked for; without its window, a check of its own only says so."
   (lispm-desktop-test--with-update
     (let ((buttons nil) (restarted 0) (said nil))
-      (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+      (cl-letf (((symbol-function 'lispm-ui-alert)
                  (lambda (_icon _message choices &optional _detail) (setq buttons choices) 'restart))
-                ((symbol-function 'lispm-desktop-popup-available-p) #'always)
+                ((symbol-function 'lispm-ui-popup-available-p) #'always)
                 ((symbol-function 'lispm-desktop-update-restart) (lambda () (cl-incf restarted)))
                 ((symbol-function 'lispm-desktop-update--app) #'ignore)
                 ((symbol-function 'message) (lambda (&rest args) (push args said))))
@@ -12563,7 +12563,7 @@ check was asked for; without its window, a check of its own only says so."
         (lispm-desktop-update--offer nil)
         (should (= restarted 2))
         (should-not (nth 2 (assoc "Restart" buttons)))
-        (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'ignore))
+        (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'ignore))
           (setq buttons nil)
           (lispm-desktop-update--offer nil)
           (should-not buttons)
@@ -13224,8 +13224,8 @@ has no bottom saying where point is in the list."
   "A question asked in an application's window is asked in an alert,
 without its (y or n); asked elsewhere, as Emacs asks it."
   (let ((asked nil))
-    (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'always)
-              ((symbol-function 'lispm-desktop-popup-alert)
+    (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
+              ((symbol-function 'lispm-ui-alert)
                (lambda (icon message buttons &optional _detail)
                  (setq asked (list icon message (mapcar #'car buttons)))
                  t)))
@@ -14227,7 +14227,7 @@ nothing standing in is offered as it opens, once a session."
         (lispm-desktop-app-ui--told nil)
         (asked nil))
     (cl-letf (((symbol-function 'executable-find) (lambda (name &rest _) (equal name "lispm-test-stand-in")))
-              ((symbol-function 'lispm-desktop-popup-alert)
+              ((symbol-function 'lispm-ui-alert)
                (lambda (_icon message &rest _) (push message asked) 'cancel)))
       (should (equal (seq-filter #'stringp (mapcar (lambda (item) (and (consp item) (plist-get item :label)))
                                                    (lispm-desktop-app-ui--help-items 'emms)))
@@ -14384,7 +14384,7 @@ then runs once it is; called from code, it runs as it is."
     (defalias 'lispm-desktop-test--guarded (lambda () (interactive) (cl-incf ran)))
     (unwind-protect
         (cl-letf (((symbol-function 'executable-find) #'ignore)
-                  ((symbol-function 'lispm-desktop-popup-alert) (lambda (&rest _) 'install))
+                  ((symbol-function 'lispm-ui-alert) (lambda (&rest _) 'install))
                   ((symbol-function 'lispm-desktop-needs-install)
                    (lambda (needs who then) (push (list (mapcar #'lispm-desktop-needs-name needs) who) installs)
                      (funcall then t))))
@@ -14706,7 +14706,7 @@ would install fails, and what waited is answered nil."
         (lispm-desktop-needs--homebrew nil)
         (asked nil)
         answer)
-    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+    (cl-letf (((symbol-function 'lispm-ui-alert)
                (lambda (_icon message &rest _) (push message asked) 'cancel))
               ((symbol-function 'lispm-desktop-app-window-close) #'ignore))
       (lispm-desktop-needs-install lispm-desktop-test--needs "EMMS" (lambda (present) (setq answer (list present))))
@@ -14787,7 +14787,7 @@ sources change."
   "When the Music library could not be read, the alert says why and its
 Open Privacy Settings opens Media & Apple Music in System Settings."
   (let ((asked nil) (opened nil))
-    (cl-letf (((symbol-function 'lispm-desktop-popup-alert)
+    (cl-letf (((symbol-function 'lispm-ui-alert)
                (lambda (_icon message buttons &optional detail)
                  (setq asked (list message (mapcar #'car buttons) detail))
                  'settings))
@@ -14823,7 +14823,7 @@ opens Media & Apple Music; songs it may read are counted."
   (let ((asked nil) (opened nil) (readable 'denied))
     (cl-letf (((symbol-function 'lispm-desktop-app-emms-readable-p) (lambda (_) readable))
               ((symbol-function 'lispm-desktop-app-emms--application) (lambda (&rest _) "LispM"))
-              ((symbol-function 'lispm-desktop-popup-alert)
+              ((symbol-function 'lispm-ui-alert)
                (lambda (_icon message buttons &optional detail)
                  (setq asked (list message (mapcar #'car buttons) detail))
                  'settings))
@@ -15405,7 +15405,7 @@ terminal too.  One no package offers is not installed."
 (defun lispm-desktop-test--popup-choosing (label)
   "Return a stand-in for `lispm-desktop-settings--popup-under-button' that
 chooses the item LABEL, following submenus, and runs it."
-  (lambda (items) (lispm-desktop-popup--run (funcall (lispm-desktop-test--choose label) items))))
+  (lambda (items) (lispm-ui-menu--run (funcall (lispm-desktop-test--choose label) items))))
 
 (ert-deftest lispm-desktop-test-startup-add-service ()
   "Add… pops up a menu of what can open at startup; its Service submenu
@@ -15431,10 +15431,10 @@ offered no more, the level it has checked."
     (should (equal lispm-desktop-startup-items '((:service lispm-desktop-test-echo))))
     (should (equal lispm-service-levels '((lispm-desktop-test-echo . middle))))
     (let ((echo (car (lispm-desktop-settings--startup-service-items))))
-      (should-not (lispm-desktop-popup--enabled-p echo))
+      (should-not (lispm-ui-menu--enabled-p echo))
       (should (plist-get echo :checked))
       (should (plist-get (seq-find (lambda (item) (equal (plist-get item :label) "Middle"))
-                                   (lispm-desktop-popup--submenu echo))
+                                   (lispm-ui-menu--submenu echo))
                          :checked)))))
 
 (ert-deftest lispm-desktop-test-startup-add-app ()
@@ -15445,10 +15445,10 @@ the startup items already is checked and not offered again."
          (items (lispm-desktop-settings--startup-app-items)))
     (should (equal (mapcar (lambda (item) (plist-get item :label)) items) '("Browser" "Stickies")))
     (should (plist-get (car items) :checked))
-    (should-not (lispm-desktop-popup--enabled-p (car items)))
+    (should-not (lispm-ui-menu--enabled-p (car items)))
     (cl-letf (((symbol-function 'customize-save-variable)
                (lambda (variable value) (set variable value))))
-      (lispm-desktop-popup--run (cadr items)))
+      (lispm-ui-menu--run (cadr items)))
     (should (equal lispm-desktop-startup-items '((:app browser) (:app stickies))))))
 
 (ert-deftest lispm-desktop-test-startup-after-start ()
@@ -15610,14 +15610,14 @@ desktop."
 without an input method: one of its label, else of its value's name,
 as for labels in Chinese, else a digit.  It is asked there even from a
 timer, where Emacs would pop up a dialog box."
-  (should (equal (lispm-desktop-popup--alert-keys '(("Later" later cancel) ("Restart" restart default)))
+  (should (equal (lispm-ui--alert-keys '(("Later" later cancel) ("Restart" restart default)))
                  '((?l "Later" later) (?r "Restart" restart))))
-  (should (equal (lispm-desktop-popup--alert-keys '(("Save" save) ("Same" same)))
+  (should (equal (lispm-ui--alert-keys '(("Save" save) ("Same" same)))
                  '((?s "Save" save) (?a "Same" same))))
-  (should (equal (mapcar #'car (lispm-desktop-popup--alert-keys
+  (should (equal (mapcar #'car (lispm-ui--alert-keys
                                 '(("\u7a0d\u540e" later cancel) ("\u91cd\u65b0\u542f\u52a8" restart default))))
                  '(?l ?r)))
-  (should (equal (mapcar #'car (lispm-desktop-popup--alert-keys '(("\u662f" 1) ("\u5426" 2))))
+  (should (equal (mapcar #'car (lispm-ui--alert-keys '(("\u662f" 1) ("\u5426" 2))))
                  '(?1 ?2)))
   ;; Asked from a timer, as after an agent's turn, still in the
   ;; minibuffer, never in a dialog box.
@@ -15625,7 +15625,7 @@ timer, where Emacs would pop up a dialog box."
     (cl-letf (((symbol-function 'read-multiple-choice)
                (lambda (_prompt choices &rest _) (setq dialog use-dialog-box) (cadr choices))))
       (let ((use-dialog-box t))
-        (should (eq (lispm-desktop-popup--alert-fallback
+        (should (eq (lispm-ui--alert-in-minibuffer
                      "Restart?" '(("Later" later cancel) ("Restart" restart default)) nil 'later)
                     'restart))))
     (should-not dialog)))
@@ -15733,7 +15733,7 @@ LispM Agent has it."
         (told nil))
     (delete-file lispm-desktop-start-as-restart-file)
     (cl-letf (((symbol-function 'customize-save-variable) (lambda (variable value &rest _) (set variable value)))
-              ((symbol-function 'lispm-desktop-popup-alert)
+              ((symbol-function 'lispm-ui-alert)
                (lambda (_icon message buttons &optional _detail)
                  (setq asked (cons message (mapcar #'cadr buttons)))
                  answer))
@@ -16209,10 +16209,10 @@ following, without the watcher drawing it a second time."
   "A look's own icons take the place of Mac OS 9's; those it draws none
 of stay Mac OS 9's."
   (let ((lispm-desktop-look 'os2))
-    (should (string-match-p "/icons/os2/trash-32\\.svg\\'" (lispm-desktop-platinum-icon-file "trash-32")))
-    (should (string-match-p "/icons/os9/netscape\\.svg\\'" (lispm-desktop-platinum-icon-file "netscape"))))
+    (should (string-match-p "/icons/os2/trash-32\\.svg\\'" (lispm-ui-icon-file "trash-32")))
+    (should (string-match-p "/icons/os9/netscape\\.svg\\'" (lispm-ui-icon-file "netscape"))))
   (let ((lispm-desktop-look 'platinum))
-    (should (string-match-p "/icons/os9/trash-32\\.svg\\'" (lispm-desktop-platinum-icon-file "trash-32"))))
+    (should (string-match-p "/icons/os9/trash-32\\.svg\\'" (lispm-ui-icon-file "trash-32"))))
   (dolist (look '(win3 os2))
     (dolist (file (directory-files (expand-file-name (format "icons/%s" look) lispm-desktop-directory) t "\\.svg\\'"))
       (should (file-exists-p (expand-file-name (concat "icons/os9/" (file-name-nondirectory file))
@@ -16240,7 +16240,7 @@ thumb on the track between; Windows' thumb is a square."
   "Windows 3.2's message box puts the default button first and Cancel last,
 centred along its bottom, under a caption."
   (let* ((lispm-desktop-look 'win3)
-         (layout (lispm-desktop-popup--alert-layout
+         (layout (lispm-ui-alert-layout
                   "Save changes?" nil '(("Don’t Save" discard nil) ("Cancel" cancel cancel)
                                         ("Save" save default))))
          (buttons (plist-get layout :buttons))
@@ -16258,13 +16258,13 @@ centred along its bottom, under a caption."
     (let* ((lispm-desktop-look look)
            (palette (lispm-desktop-test--theme-palette (lispm-ui-look-get :theme look)))
            (items (list (list :label "Open" :action #'ignore) 'separator (list :label "Quit")))
-           (menu (lispm-desktop-popup-draw-menu palette items 120 0))
-           (layout (lispm-desktop-popup--alert-layout "Quit?" nil '(("Cancel" cancel cancel) ("Quit" quit default))))
-           (alert (lispm-desktop-popup-draw-alert palette 'caution "Quit?" nil
-                                                  '(("Cancel" cancel cancel) ("Quit" quit default)) nil nil)))
-      (should (equal (dom-attr menu 'height) (cdr (lispm-desktop-popup--rows items))))
+           (menu (lispm-ui-draw-menu palette items 120 0))
+           (layout (lispm-ui-alert-layout "Quit?" nil '(("Cancel" cancel cancel) ("Quit" quit default))))
+           (alert (lispm-ui-draw-alert palette 'caution "Quit?" nil
+                                       '(("Cancel" cancel cancel) ("Quit" quit default)) nil nil)))
+      (should (equal (dom-attr menu 'height) (cdr (lispm-ui-menu--rows items))))
       (should (equal (dom-attr alert 'height) (plist-get layout :height)))
-      (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-desktop-popup-alert-width))))))
+      (should (equal (dom-attr alert 'width) (or (plist-get layout :width) lispm-ui-alert-width))))))
 
 ;;;; Families of looks
 
@@ -16313,7 +16313,7 @@ Windows 3.2's ten pixels apart, OS/2 2.0's eight."
     (dolist (look '(win3 os2))
       (pcase-let* ((lispm-desktop-look look)
                    (`(,save ,cancel) (seq-sort-by (lambda (b) (nth 3 b)) #'<
-                                                  (plist-get (lispm-desktop-popup--alert-layout "Save?" nil buttons)
+                                                  (plist-get (lispm-ui-alert-layout "Save?" nil buttons)
                                                              :buttons))))
         (should (= (- (nth 3 cancel) (+ (nth 3 save) (nth 5 save)))
                    (lispm-ui-look-metric :alert-gap)))))))
@@ -16543,11 +16543,11 @@ front highlighted, and cuts its labels where they would not fit."
 `lispm-desktop-platinum-text-icons' starting its name longest, else a
 dot."
   (lispm-desktop-test--on-tty
-    (should (equal (lispm-desktop-platinum-icon "folder-git-32") "▪"))
-    (should (equal (lispm-desktop-platinum-icon "document-lisp") "λ"))
-    (should (equal (lispm-desktop-platinum-icon "document-code") "▫"))
-    (should (equal (lispm-desktop-platinum-icon 'emacs) "◆"))
-    (should (equal (lispm-desktop-platinum-icon "/some/app/icon.svg") "·"))
+    (should (equal (lispm-ui-icon "folder-git-32") "▪"))
+    (should (equal (lispm-ui-icon "document-lisp") "λ"))
+    (should (equal (lispm-ui-icon "document-code") "▫"))
+    (should (equal (lispm-ui-icon 'emacs) "◆"))
+    (should (equal (lispm-ui-icon "/some/app/icon.svg") "·"))
     (should (equal (lispm-desktop-platinum-triangle t) "▾"))))
 
 (ert-deftest lispm-desktop-test-tty-menu ()
@@ -16559,16 +16559,16 @@ for a separator; the item highlighted and those disabled in their faces."
                     separator
                     (:label "Saved" :action ,(lambda () nil) :checked t)
                     (:label "Gone" :enabled nil)))
-           (lines (split-string (lispm-desktop-popup--text-menu items 24 0) "\n")))
+           (lines (split-string (lispm-ui-menu--text items 24 0) "\n")))
       (should (= (length lines) 4))
       (should (seq-every-p (lambda (line) (= (string-width line) 24)) lines))
       (should (string-match-p "\\`  Open +C-x C-f \\'" (nth 0 lines)))
       (should (equal (substring-no-properties (nth 1 lines)) (make-string 24 ?─)))
       (should (string-prefix-p "✓ Saved" (nth 2 lines)))
-      (should (memq 'lispm-desktop-popup-item-highlight (ensure-list (get-text-property 2 'face (nth 0 lines)))))
-      (should (memq 'lispm-desktop-popup-item-disabled (ensure-list (get-text-property 2 'face (nth 3 lines))))))
-    (should (= (lispm-desktop-popup--item-height) 1))
-    (should (equal (cdr (lispm-desktop-popup--rows '((:label "a") separator (:label "b")))) 3))))
+      (should (memq 'lispm-ui-menu-item-highlight (ensure-list (get-text-property 2 'face (nth 0 lines)))))
+      (should (memq 'lispm-ui-menu-item-disabled (ensure-list (get-text-property 2 'face (nth 3 lines))))))
+    (should (= (lispm-ui-menu--item-height) 1))
+    (should (equal (cdr (lispm-ui-menu--rows '((:label "a") separator (:label "b")))) 3))))
 
 (ert-deftest lispm-desktop-test-tty-alert ()
   "On a text terminal an alert is laid out in cells: the default button at
@@ -16576,7 +16576,7 @@ the right, Cancel to its left, a button coming before Cancel standing
 apart under the message, none overlapping, every line as wide."
   (lispm-desktop-test--on-tty
     (let* ((buttons '(("Don’t Save" discard nil) ("Cancel" cancel cancel) ("Save" save default)))
-           (layout (lispm-desktop-popup--text-alert-layout
+           (layout (lispm-ui-alert--text-layout
                     "Save changes to the document “notes.org” before closing?"
                     "If you don’t save, your changes will be lost." buttons))
            (w (plist-get layout :width)))
@@ -16584,12 +16584,12 @@ apart under the message, none overlapping, every line as wide."
                    (plist-get layout :buttons)))
         (should (= (+ sx sw) (- w 2)))
         (should (< (+ cx cw) sx))
-        (should (= dx lispm-desktop-popup--text-alert-x))
+        (should (= dx lispm-ui-alert--text-x))
         (should (< (+ dx dw) cx)))
-      (let ((lines (split-string (lispm-desktop-popup--text-alert
+      (let ((lines (split-string (lispm-ui-alert--text
                                   'caution "Save changes?" "Detail." buttons nil 'cancel)
                                  "\n")))
-        (should (seq-every-p (lambda (line) (= (string-width line) lispm-desktop-popup-text-alert-width)) lines))
+        (should (seq-every-p (lambda (line) (= (string-width line) lispm-ui-text-alert-width)) lines))
         (should (string-match-p "\\[ Save \\]" (car (last lines 2))))))))
 
 (ert-deftest lispm-desktop-test-tty-desktop ()
@@ -16654,11 +16654,11 @@ shape covers is clear."
                  <rect x=\"2\" y=\"1\" width=\"2\" height=\"1\" fill=\"#FFFFFF\"/>
                  <rect x=\"0\" y=\"2\" width=\"4\" height=\"2\" fill=\"#00FF00\" display=\"none\"/>
                </svg>")))
-    (let ((pixels (lispm-desktop-platinum-raster-dom dom 4)))
+    (let ((pixels (lispm-ui-raster-dom dom 4)))
       (should (equal (aref pixels 0) ["#ff0000" "#ff0000" "#0000ff" "#0000ff"]))
       (should (equal (aref pixels 1) ["#ff0000" "#ff0000" "#ffffff" "#ffffff"]))
       (should (equal (aref pixels 2) [nil nil nil nil])))
-    (let ((pixels (lispm-desktop-platinum-raster-dom dom 2)))
+    (let ((pixels (lispm-ui-raster-dom dom 2)))
       (should (equal (aref pixels 0) ["#ff0000" "#8080ff"]))
       (should (equal (aref pixels 1) [nil nil])))))
 
@@ -16668,7 +16668,7 @@ pixel takes the colour covering most of the four it stands for, the
 darker of two covering as much, so a pixel-wide outline survives, but
 the lighter amid the darker, so what close outlines outline survives."
   (skip-unless (fboundp 'libxml-parse-xml-region))
-  (let ((pixels (lispm-desktop-platinum-raster-dom
+  (let ((pixels (lispm-ui-raster-dom
                  (lispm-desktop-test--svg
                   "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\" shape-rendering=\"crispEdges\">
                      <rect x=\"0\" y=\"0\" width=\"2\" height=\"2\" fill=\"#000000\"/>
@@ -16679,7 +16679,7 @@ the lighter amid the darker, so what close outlines outline survives."
                  2)))
     (should (equal (aref pixels 0) ["#000000" "#0000ff"]))
     (should (equal (aref pixels 1) [nil nil])))
-  (let ((pixels (lispm-desktop-platinum-raster-dom
+  (let ((pixels (lispm-ui-raster-dom
                  (lispm-desktop-test--svg
                   "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\" viewBox=\"0 0 4 4\" shape-rendering=\"crispEdges\">
                      <rect x=\"0\" y=\"0\" width=\"4\" height=\"4\" fill=\"#000000\"/>
@@ -16692,7 +16692,7 @@ the lighter amid the darker, so what close outlines outline survives."
   "Paths are filled, their arcs followed; a circle is round; an outline
 stays a pixel wide however small the icon, and one of no width is none."
   (skip-unless (fboundp 'libxml-parse-xml-region))
-  (let ((pixels (lispm-desktop-platinum-raster-dom
+  (let ((pixels (lispm-ui-raster-dom
                  (lispm-desktop-test--svg
                   "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\">
                      <path d=\"M0 0H8L0 8Z\" fill=\"#000000\"/>
@@ -16702,7 +16702,7 @@ stays a pixel wide however small the icon, and one of no width is none."
     (should (aref (aref pixels 0) 0))
     (should (aref (aref pixels 0) 6))
     (should-not (aref (aref pixels 7) 7)))
-  (let ((pixels (lispm-desktop-platinum-raster-dom
+  (let ((pixels (lispm-ui-raster-dom
                  (lispm-desktop-test--svg
                   "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\">
                      <path d=\"M0 4A4 4 0 0 1 8 4A4 4 0 0 1 0 4Z\" style=\"fill:#0000ff\"/>
@@ -16712,7 +16712,7 @@ stays a pixel wide however small the icon, and one of no width is none."
     (should (aref (aref pixels 0) 4))
     (should-not (aref (aref pixels 0) 0)))
   (cl-flet ((outlined (width)
-              (lispm-desktop-platinum-raster-dom
+              (lispm-ui-raster-dom
                (lispm-desktop-test--svg
                 (format "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">
                            <rect x=\"8\" y=\"8\" width=\"48\" height=\"48\" fill=\"none\"
@@ -16729,7 +16729,7 @@ the half blocks; what is clear keeps no colour where the character can
 leave it so, and is the background where it cannot.  Darkened, every
 colour is at half its brightness."
   (let* ((r "#ff0000") (b "#0000ff")
-         (lines (lispm-desktop-platinum-text-picture
+         (lines (lispm-ui-text-picture
                  (vector (vector r r r r nil nil r b nil nil)
                          (vector r r r r nil nil r b nil nil)
                          (vector r r nil nil b b r b nil nil)
@@ -16741,12 +16741,12 @@ colour is at half its brightness."
     (should (equal (get-text-property 2 'face (car lines)) `(:foreground ,b)))
     (should (equal (get-text-property 3 'face (car lines)) `(:foreground ,r :background ,b)))
     (should-not (get-text-property 4 'face (car lines))))
-  (let ((line (car (lispm-desktop-platinum-text-picture
+  (let ((line (car (lispm-ui-text-picture
                     [["#00ff00" "#00ff00"] ["#00ff00" "#00ff00"] ["#00ff00" "#00ff00"] [nil nil]]
                     nil "#123456"))))
     (should (equal line "▂"))
     (should (equal (get-text-property 0 'face line) '(:foreground "#123456" :background "#00ff00"))))
-  (should (equal (get-text-property 0 'face (car (lispm-desktop-platinum-text-picture
+  (should (equal (get-text-property 0 'face (car (lispm-ui-text-picture
                                                   [["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]
                                                    ["#ff0000" "#ff0000"] ["#ff0000" "#ff0000"]]
                                                   t)))
@@ -16756,8 +16756,8 @@ colour is at half its brightness."
   "Pixels make an opaque PNG: its chunks summed right, the pixels each a
 square SCALE wide in the middle, the rest the background, clear pixels
 too."
-  (should (= (lispm-desktop-platinum--crc "IEND") #xAE426082))
-  (let* ((png (lispm-desktop-platinum-raster-png [["#ff0000" nil] [nil "#0000ff"]] 2 6 4 "#00ff00"))
+  (should (= (lispm-ui-raster--crc "IEND") #xAE426082))
+  (let* ((png (lispm-ui-raster-png [["#ff0000" nil] [nil "#0000ff"]] 2 6 4 "#00ff00"))
          (data-at (string-search "IDAT" png))
          (length (string-to-number (mapconcat (lambda (byte) (format "%02x" byte))
                                               (substring png (- data-at 4) data-at) "")
@@ -16821,15 +16821,15 @@ terminal shows no images."
 (ert-deftest lispm-desktop-test-text-compose ()
   "Pieces of text stand where they are put on blank lines as wide as asked,
 cut at the right edge."
-  (should (equal (lispm-desktop-platinum-text-compose 8 3 '((0 2 "ab") (2 0 "x") (2 6 "long")))
+  (should (equal (lispm-ui-text-compose 8 3 '((0 2 "ab") (2 0 "x") (2 6 "long")))
                  '("  ab    " "        " "x     lo"))))
 
 (ert-deftest lispm-desktop-test-raster-icon-color ()
   "Where only a character's room is left, an icon is drawn in the colour it
 is drawn in most: Mac OS 9's folders in their blue."
   (skip-unless (fboundp 'libxml-parse-xml-region))
-  (let ((color (lispm-desktop-platinum-raster-color
-                (lispm-desktop-platinum-raster (lispm-desktop-platinum-icon-file "folder") 16))))
+  (let ((color (lispm-ui-raster-color
+                (lispm-ui-raster (lispm-ui-icon-file "folder") 16))))
     (should (equal color "#9c9cff"))))
 
 (ert-deftest lispm-desktop-test-tty-window-geometry ()
@@ -17081,9 +17081,9 @@ ends at single characters."
 (ert-deftest lispm-desktop-test-choose-without-menus ()
   "Where no menu can be drawn, a pop-up menu's choices are read in the
 minibuffer."
-  (cl-letf (((symbol-function 'lispm-desktop-popup-available-p) #'ignore)
+  (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'ignore)
             ((symbol-function 'completing-read) (lambda (&rest _) "Big")))
-    (should (equal (lispm-desktop-platinum-choose '((small . "Small") (big . "Big")) 'small) '(big)))))
+    (should (equal (lispm-ui-choose-default '((small . "Small") (big . "Big")) 'small) '(big)))))
 
 (defmacro lispm-desktop-test--with-pictures (&rest body)
   "Run BODY with `folder' a folder of pictures and others: ada.png,
@@ -17109,21 +17109,21 @@ cover.png, ada.png the latest; `picture-p' takes the pictures."
 holds each state of the dialog drawn, the latest first."
   (declare (indent 0))
   `(let ((shown nil))
-     (cl-letf (((symbol-function 'lispm-desktop-popup-graphic-p) (lambda () t))
+     (cl-letf (((symbol-function 'lispm-ui-popup-graphic-p) (lambda () t))
                ;; The events queued, and no waiting for more.
                ((symbol-function 'lispm-ui-modal-read-event)
                 (lambda (&optional _timeout)
                   (or (pop unread-command-events) (error "The dialog waits for more events"))))
-               ((symbol-function 'lispm-desktop-popup-make-frame) (lambda (&rest _) 'dialog))
+               ((symbol-function 'lispm-ui-popup-make-frame) (lambda (&rest _) 'dialog))
                ((symbol-function 'lispm-desktop-choose--show)
                 (lambda (_frame dialog)
                   (push (list (lispm-desktop-choose--dialog-directory dialog)
                               (car (lispm-desktop-choose--item dialog))
                               (lispm-desktop-choose--dialog-pressed dialog))
                         shown)))
-               ((symbol-function 'lispm-desktop-popup-set-size) #'ignore)
-               ((symbol-function 'lispm-desktop-popup-show) #'ignore)
-               ((symbol-function 'lispm-desktop-popup-dispose) #'ignore)
+               ((symbol-function 'lispm-ui-popup-set-size) #'ignore)
+               ((symbol-function 'lispm-ui-popup-show) #'ignore)
+               ((symbol-function 'lispm-ui-popup-dispose) #'ignore)
                ((symbol-function 'sit-for) #'ignore)
                ((symbol-function 'redisplay) #'ignore))
        ,@body)))
@@ -17293,8 +17293,8 @@ LispM's agent's, which follows the desktop's too; told when it changes."
         (lispm-desktop-language 'de)
         (changed 0))
     (lispm-desktop-form-setup)
-    (should (eq lispm-ui-alert-function #'lispm-desktop-popup-alert))
-    (should (eq lispm-ui-choose-function #'lispm-desktop-platinum-choose))
+    (should (eq lispm-ui-alert-function #'lispm-ui-alert))
+    (should (eq lispm-ui-choose-function #'lispm-ui-choose-default))
     (should (eq lispm-ui-choose-file-function #'lispm-desktop-choose-file))
     (should (eq (lispm-ui-current-language) 'de))
     (let ((lispm-ui-language-changed-hook (list (lambda () (setq changed (1+ changed))))))

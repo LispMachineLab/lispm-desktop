@@ -351,7 +351,7 @@ else LispM quits, as \\[save-buffers-kill-emacs] does."
   "Return the file of APP's icon, its large one where it has one."
   (when-let* ((name (or (lispm-desktop-apps-large-icon app)
                         (plist-get (alist-get app lispm-desktop-apps) :icon))))
-    (let ((file (lispm-desktop-platinum-icon-file name)))
+    (let ((file (lispm-ui-icon-file name)))
       (and (file-readable-p file) file))))
 
 (defun lispm-desktop-standalone--emacs ()
