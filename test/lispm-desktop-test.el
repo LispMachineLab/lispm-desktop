@@ -7666,6 +7666,7 @@ first, then those failed or done, and round again."
 
 (ert-deftest lispm-desktop-test-agent-list-trees-sessions ()
   "A session an agent started is drawn under the session that started it,
+even from a different working directory,
 once that one is opened by its triangle or the right arrow, and hidden
 again by the left arrow; one that cannot be resumed says it is opened as
 its transcript, and gets no Resume in its menu."
@@ -7675,12 +7676,12 @@ its transcript, and gets no Resume in its menu."
                :sessions ,(lambda ()
                             (let ((now (float-time)))
                               (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
-                                          :title "Fix the build" :time (- now 30))
-                                    (list :agent 'codex :id "0200" :cwd "/tmp/project/"
-                                          :title "Find the failing test" :time (- now 20)
+                                          :title "Fix the build" :started (- now 30) :time (- now 30))
+                                    (list :agent 'codex :id "0200" :cwd "/tmp/child-worktree/"
+                                          :title "Find the failing test" :started (- now 20) :time (- now 20)
                                           :parent "0199")
                                     (list :agent 'codex :id "0201" :cwd "/tmp/project/"
-                                          :title "Ship it" :time (- now 10)))))))
+                                          :title "Ship it" :started (- now 10) :time (- now 10)))))))
     (let ((lispm-agents--session-readers nil)
           (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
           (lispm-agents--archived 'unloaded))
@@ -7781,19 +7782,20 @@ and transcripts that cannot be resumed do not offer it."
                 (should-not (menu '(:agent claude :id "stopped")))
                 (should (equal (plist-get (car shown) :label) "Resume"))))))))))
 
-(ert-deftest lispm-desktop-test-agent-list-puts-waiting-first ()
-  "A session whose agent waits for the user, as its terminal reports or
-one of LispM's agents says, comes first in its project, in bold, with
-its state as its label, and the bottom edge counts it; LispM's agents
-report themselves through the same functions as terminals."
+(ert-deftest lispm-desktop-test-agent-list-keeps-launch-order-while-waiting ()
+  "Waiting and recent output do not move an older session above a newer
+one.  The waiting session remains bold, with its state as its label,
+and the bottom edge counts it."
   (lispm-desktop-test--with-agents
       `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
                :sessions ,(lambda ()
                             (let ((now (float-time)))
                               (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
-                                          :title "Fix the build" :time (- now 30))
+                                          :title "Fix the build" :started (- now 30)
+                                          :time now)
                                     (list :agent 'codex :id "0200" :cwd "/tmp/project/"
-                                          :title "Ship it" :time (- now 10)))))))
+                                          :title "Ship it" :started (- now 10)
+                                          :time (- now 10)))))))
     (let ((lispm-agents--session-readers nil)
           (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
           (lispm-agents--archived 'unloaded)
@@ -7815,7 +7817,7 @@ report themselves through the same functions as terminals."
                     (lispm-desktop-agent-list--render)
                     (let ((fix (save-excursion (goto-char (point-min)) (search-forward "Fix the build")))
                           (ship (save-excursion (goto-char (point-min)) (search-forward "Ship it"))))
-                      (should (< fix ship))
+                      (should (< ship fix))
                       ;; The row's own faces are layered over the title's.
                       (should (string-search ":weight bold" (format "%S" (get-text-property (1- fix) 'face))))
                       (should-not (string-search ":weight bold" (format "%S" (get-text-property (1- ship) 'face))))
@@ -7823,6 +7825,77 @@ report themselves through the same functions as terminals."
                 (kill-buffer))))
         (kill-buffer terminal)
         (delete-file lispm-agents-state-file)))))
+
+(ert-deftest lispm-desktop-test-agent-list-merges-unrecorded-terminals-by-opening ()
+  "New terminals and resumed sessions share one opening order, regardless
+of buffer focus.  The preview still counts only recorded root sessions."
+  (let* ((now (float-time))
+         (older (generate-new-buffer "*codex:older-unrecorded*"))
+         (newer (generate-new-buffer "*codex:newer-unrecorded*"))
+         (live (list older newer))
+         (lispm-agents-terminal-live-p-function #'buffer-live-p)
+         (lispm-agents--session-readers nil)
+         (lispm-agents--archived nil)
+         (lispm-agents-state-file (make-temp-file "lispm-desktop-test-opening"))
+         (lispm-desktop-agent-list-project-preview 1))
+    (unwind-protect
+        (lispm-desktop-test--with-agents
+            `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
+                     :sessions ,(lambda ()
+                                  (list (list :agent 'codex :id "recorded" :cwd "/tmp/project/"
+                                              :title "Resumed session" :started (- now 3600)
+                                              :time (- now 3600))
+                                        (list :agent 'codex :id "hidden" :cwd "/tmp/project/"
+                                              :title "Older recorded session" :started (- now 7200)
+                                              :time (- now 7200))))))
+          (with-temp-file lispm-agents-state-file (insert "(:archived nil)"))
+          (lispm-agents-session-opened 'codex "recorded" (- now 10))
+          (cl-loop for terminal in live
+                   for time in (list (- now 20) (- now 5))
+                   for title in '("Older new terminal" "Newer new terminal")
+                   do (with-current-buffer terminal
+                        (setq major-mode 'lispm-desktop-term-mode
+                              default-directory "/tmp/project/"
+                              lispm-agents-buffer-agent 'codex
+                              lispm-agents-buffer-title title
+                              lispm-agents-buffer-launched time)))
+          (cl-letf (((symbol-function 'lispm-agents-live-buffers) (lambda () live))
+                    ((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+            (with-temp-buffer
+              (lispm-desktop-agent-list-mode)
+              (lispm-desktop-agent-list--render)
+              (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+                (should (< (string-search "Newer new terminal" text)
+                           (string-search "Resumed session" text)))
+                (should (< (string-search "Resumed session" text)
+                           (string-search "Older new terminal" text)))
+                (should-not (string-search "Older recorded session" text))
+                (should (string-search "1 more…" text))
+                ;; Selecting another terminal reverses buffer-list's MRU order.
+                (setq live (reverse live))
+                (lispm-desktop-agent-list--render)
+                (should (equal text (buffer-substring-no-properties (point-min) (point-max)))))
+              ;; A later resume moves the recorded session above both terminals.
+              (lispm-agents-session-opened 'codex "recorded" now)
+              (lispm-desktop-agent-list--render)
+              (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+                (should (< (string-search "Resumed session" text)
+                           (string-search "Newer new terminal" text)))))))
+      (mapc #'kill-buffer (list older newer))
+      (delete-file lispm-agents-state-file))))
+
+(ert-deftest lispm-desktop-test-agent-list-recent-resume-keeps-project-open ()
+  "An old transcript resumed recently remains visible after its terminal
+closes; explicit folding still wins."
+  (let* ((now (float-time))
+         (group (list :key "project" :time (- now (* 30 86400))
+                      :opened (- now 10) :running nil)))
+    (with-temp-buffer
+      (should-not (lispm-desktop-agent-list--default-folded-p group now))
+      (setq lispm-desktop-agent-list--folds '(("project" . t)))
+      (should (lispm-desktop-agent-list--folded-p group now)))
+    (plist-put group :opened (- now (* 8 86400)))
+    (should (lispm-desktop-agent-list--default-folded-p group now))))
 
 (ert-deftest lispm-desktop-test-agent-list-marks-the-session-at-work ()
   "The row of the agent buffer being worked on stands out in the agent
@@ -7977,6 +8050,46 @@ labelled idle and not counted as running; once the agent works, it is."
                   (kill-buffer))))
           (kill-buffer chat)
           (delete-file lispm-agents-state-file))))))
+
+(ert-deftest lispm-desktop-test-lispm-keeps-session-start-time ()
+  "LispM's creation time reaches the common session sorter independently
+of transcript updates."
+  (let ((sessions (mapcar #'lispm-desktop-lispm--session
+                          '((:id "older" :root "/tmp/project/" :title "Older"
+                             :started 10 :time 30 :parent "parent")
+                            (:id "newer" :root "/tmp/project/" :title "Newer"
+                             :started 20 :time 20)))))
+    (should (equal (plist-get (car sessions) :parent) "parent"))
+    (should (equal (mapcar (lambda (session) (plist-get session :id))
+                          (lispm-agents--sort-sessions sessions))
+                   '("newer" "older")))))
+
+(ert-deftest lispm-desktop-test-lispm-tags-opened-session-once ()
+  "Tagging a newly opened or cleared session records its position once;
+repeated state changes and transcript updates do not move it."
+  (let ((id "original") (now 10) opened)
+    (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () 'agent))
+              ((symbol-function 'lispm-agent-id) (lambda (_agent) id))
+              ((symbol-function 'lispm-agent-name) (lambda (_agent) 'assistant))
+              ((symbol-function 'float-time) (lambda (&optional _time) now))
+              ((symbol-function 'lispm-agents-session-opened)
+               (lambda (agent session time) (push (list agent session time) opened))))
+      (with-temp-buffer
+        (lispm-desktop-lispm--tag-buffer)
+        (should (equal opened '((lispm "original" 10))))
+        (setq now 20)
+        (lispm-desktop-lispm--tag-buffer)
+        (should (= lispm-agents-buffer-launched 10))
+        (should (= (length opened) 1))
+        (setq id "cleared")
+        (lispm-desktop-lispm--tag-buffer)
+        (should (= lispm-agents-buffer-launched 20))
+        (should (equal opened '((lispm "cleared" 20) (lispm "original" 10)))))
+      ;; Opening the recorded session in a new chat is a resume.
+      (setq now 30)
+      (with-temp-buffer
+        (lispm-desktop-lispm--tag-buffer)
+        (should (equal (car opened) '(lispm "cleared" 30)))))))
 
 (ert-deftest lispm-desktop-test-lispm-user-turn-unarchives ()
   "A turn the user begins in an archived LispM session takes it out of the
