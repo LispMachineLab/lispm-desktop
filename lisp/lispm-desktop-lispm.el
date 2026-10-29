@@ -69,7 +69,7 @@
 (declare-function lispm-resume-file "lispm-runtime" (file))
 (declare-function lispm-rename-session "lispm-runtime" (file title))
 (declare-function lispm-session-files "lispm-runtime" (id))
-(declare-function lispm-agents-session-opened "lispm-agents" (agent id &optional time))
+(declare-function lispm-agents-session-opened-time "lispm-agents" (session))
 (declare-function lispm-language-changed "lispm-i18n" ())
 (declare-function lispm-agent-attended "lispm-core" (agent))
 (declare-function lispm-agent-busy-p "lispm-core" (agent))
@@ -157,15 +157,14 @@
 
 (defun lispm-desktop-lispm--tag-buffer ()
   "Tag a LispM chat or session buffer: its session id, title and layout.
-Record a newly opened session once; later status changes keep its order.
-lispm-desktop-ai reads these tags."
+Copy the opening time recorded by the agent runtime.  Presenting a
+buffer never starts or resumes its session."
   (when-let* ((agent (lispm-desktop-lispm--buffer-agent)))
     (let ((id (lispm-agent-id agent)))
-      (unless (equal id lispm-agents-buffer-session-id)
-        (setq lispm-agents-buffer-launched (float-time))
-        (when (fboundp 'lispm-agents-session-opened)
-          (lispm-agents-session-opened 'lispm id lispm-agents-buffer-launched)))
       (setq lispm-agents-buffer-session-id id
+            lispm-agents-buffer-launched
+            (when (fboundp 'lispm-agents-session-opened-time)
+              (lispm-agents-session-opened-time (list :agent 'lispm :id id)))
             lispm-agents-buffer-title (or lispm-agents-buffer-title
                                           (symbol-name (lispm-agent-name agent)))))
     (setq-local lispm-desktop-conversation-buffer t)))

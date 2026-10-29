@@ -8064,32 +8064,40 @@ of transcript updates."
                           (lispm-agents--sort-sessions sessions))
                    '("newer" "older")))))
 
-(ert-deftest lispm-desktop-test-lispm-tags-opened-session-once ()
-  "Tagging a newly opened or cleared session records its position once;
-repeated state changes and transcript updates do not move it."
-  (let ((id "original") (now 10) opened)
-    (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () 'agent))
-              ((symbol-function 'lispm-agent-id) (lambda (_agent) id))
-              ((symbol-function 'lispm-agent-name) (lambda (_agent) 'assistant))
-              ((symbol-function 'float-time) (lambda (&optional _time) now))
-              ((symbol-function 'lispm-agents-session-opened)
-               (lambda (agent session time) (push (list agent session time) opened))))
-      (with-temp-buffer
-        (lispm-desktop-lispm--tag-buffer)
-        (should (equal opened '((lispm "original" 10))))
-        (setq now 20)
-        (lispm-desktop-lispm--tag-buffer)
-        (should (= lispm-agents-buffer-launched 10))
-        (should (= (length opened) 1))
-        (setq id "cleared")
-        (lispm-desktop-lispm--tag-buffer)
-        (should (= lispm-agents-buffer-launched 20))
-        (should (equal opened '((lispm "cleared" 20) (lispm "original" 10)))))
-      ;; Opening the recorded session in a new chat is a resume.
-      (setq now 30)
-      (with-temp-buffer
-        (lispm-desktop-lispm--tag-buffer)
-        (should (equal (car opened) '(lispm "cleared" 30)))))))
+(ert-deftest lispm-desktop-test-lispm-tagging-keeps-runtime-opening-time ()
+  "Tagging or recreating a view only copies the runtime's opening time;
+it does not write session state, including for an unknown session."
+  (let ((id "original")
+        (lispm-agents-state-file (make-temp-file "lispm-desktop-test-opening")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () 'agent))
+                  ((symbol-function 'lispm-agent-id) (lambda (_agent) id))
+                  ((symbol-function 'lispm-agent-name) (lambda (_agent) 'assistant)))
+          (with-temp-file lispm-agents-state-file (insert "(:archived nil)"))
+          (lispm-agents-session-opened 'lispm "original" 10)
+          (lispm-agents-session-opened 'lispm "cleared" 20)
+          (cl-flet ((state () (with-temp-buffer
+                               (insert-file-contents lispm-agents-state-file)
+                               (buffer-string))))
+            (let ((before (state)))
+              (with-temp-buffer
+                (lispm-desktop-lispm--tag-buffer)
+                (should (= lispm-agents-buffer-launched 10))
+                (lispm-desktop-lispm--tag-buffer)
+                (should (= lispm-agents-buffer-launched 10))
+                (setq id "cleared")
+                (lispm-desktop-lispm--tag-buffer)
+                (should (= lispm-agents-buffer-launched 20)))
+              ;; Recreating a chat view does not resume the session.
+              (with-temp-buffer
+                (lispm-desktop-lispm--tag-buffer)
+                (should (= lispm-agents-buffer-launched 20)))
+              (setq id "unknown")
+              (with-temp-buffer
+                (lispm-desktop-lispm--tag-buffer)
+                (should (zerop lispm-agents-buffer-launched)))
+              (should (equal before (state))))))
+      (delete-file lispm-agents-state-file))))
 
 (ert-deftest lispm-desktop-test-lispm-user-turn-unarchives ()
   "A turn the user begins in an archived LispM session takes it out of the
