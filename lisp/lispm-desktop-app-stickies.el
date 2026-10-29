@@ -59,7 +59,6 @@
 (defvar lispm-stickies-hide-note-function)
 (defvar lispm-stickies-shown-function)
 (defvar lispm-stickies-front-note-function)
-(defvar lispm-stickies-confirm-function)
 (defvar lispm-stickies-place-function)
 (defvar lispm-stickies-changed-hook)
 (declare-function lispm-stickies "ext:lispm-stickies" ())
@@ -237,15 +236,6 @@ This is `lispm-stickies-hide-note-function' on the desktop."
     (when (frame-live-p frame)
       (delete-frame frame))
     (lispm-desktop-app-stickies--forget buffer)))
-
-(defun lispm-desktop-app-stickies--confirm (question detail)
-  "Ask QUESTION, DETAIL under it, in a caution alert; return non-nil when
-its answer is to go on.
-This is `lispm-stickies-confirm-function' on the desktop."
-  (eq (lispm-desktop-popup-alert 'caution question
-                                 '(("Cancel" keep cancel) ("Throw Away" throw default))
-                                 detail)
-      'throw))
 
 (defun lispm-desktop-app-stickies-open ()
   "Open Stickies on the desktop: its notes come back where they were, the
@@ -744,7 +734,6 @@ as it is."
           lispm-stickies-hide-note-function #'lispm-desktop-app-stickies--hide
           lispm-stickies-shown-function #'lispm-desktop-app-stickies--frame
           lispm-stickies-front-note-function #'lispm-desktop-app-stickies--front-note
-          lispm-stickies-confirm-function #'lispm-desktop-app-stickies--confirm
           lispm-stickies-place-function #'lispm-desktop-app-stickies--place)
     (add-hook 'lispm-stickies-changed-hook #'lispm-desktop-app-stickies--changed)
     (keymap-set lispm-stickies-note-mode-map "C-c C-r" #'lispm-desktop-app-stickies-roll)
