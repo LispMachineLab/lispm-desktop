@@ -70,6 +70,8 @@
 (declare-function lispm-rename-session "lispm-runtime" (file title))
 (declare-function lispm-session-files "lispm-runtime" (id))
 (declare-function lispm-language-changed "lispm-i18n" ())
+(declare-function lispm-agent-attended "lispm-core" (agent))
+(declare-function lispm-agent-busy-p "lispm-core" (agent))
 (declare-function lispm-agent-id "lispm-core" (agent))
 (declare-function lispm-agent-name "lispm-core" (agent))
 (declare-function lispm-agent-view "lispm-core" (agent))
@@ -168,11 +170,15 @@ user, see `lispm-agent-status-record'; nil for any other buffer."
     (lispm-agent-status-record agent)))
 
 (defun lispm-desktop-lispm--changed (agent)
-  "Keep AGENT's buffer tagged, and say its sessions changed."
+  "Keep AGENT's buffer tagged, and say its sessions changed.
+A turn the user began takes an archived session out of the archive,
+see `lispm-agents-user-wrote'; resuming one to look at it does not."
   (let ((view (lispm-agent-view agent)))
     ;; /clear gives a standing agent a new session in the same chat.
     (when (buffer-live-p view)
       (with-current-buffer view (lispm-desktop-lispm--tag-buffer))))
+  (when (and (lispm-agent-busy-p agent) (lispm-agent-attended agent))
+    (lispm-agents-user-wrote 'lispm (lispm-agent-id agent)))
   (run-hooks 'lispm-agents-changed-hook))
 
 ;;;; Commands

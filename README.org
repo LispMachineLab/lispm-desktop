@@ -128,7 +128,8 @@ Optional, used when present:
 - *Agents side by side*: sessions of LispM, Claude Code, Codex and App Store agents (Hermes),
   listed per project.  Claude Code and Codex see the selection, open files and diagnostics;
   programs speaking the [[https://superlogical.com/rex/docs/build/program-status][Program Status Protocol]] show working, done or waiting in their title
-  bars (=C-c a n= goes to the next one waiting).
+  bars (=C-c a n= goes to the next one waiting).  Right-click a stopped Claude Code or Codex
+  session and choose /Resume with…/ to enter a model.
 - *The LispM bar*: a magnifying glass beside the clock (=C-c l=, or =M-x ai=) drops a field.
   What you type finds applications, Control Panels, skills and tools at once, and Return opens
   the one chosen; otherwise it asks LispM itself, the system's own agent, whose reply streams in

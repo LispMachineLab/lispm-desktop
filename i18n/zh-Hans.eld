@@ -39,6 +39,7 @@
   ("Modified" . "修改日期")
   ("Name" . "名称")
   ("Resume" . "恢复")
+  ("Resume with…" . "使用指定模型恢复…")
   ("Rename…" . "重新命名…")
   ("Unarchive" . "取消归档")
   ("Archive" . "归档")
