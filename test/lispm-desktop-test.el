@@ -14320,6 +14320,12 @@ it is asked for; an application not installed is no matter."
           ;; Shown from its own window, it is no matter.
           (cl-letf (((symbol-function 'lispm-desktop-app-ui-app) (lambda (&optional _) 'shrdlu)))
             (should-not (lispm-desktop-app-ui--elsewhere-p buffer nil)))
+          ;; While the user reads in a minibuffer it stays put; while the
+          ;; LispM bar is open, as LispM works, it goes home.
+          (cl-letf (((symbol-function 'active-minibuffer-window) (lambda () (frame-root-window))))
+            (should-not (lispm-desktop-app-ui--elsewhere-p buffer nil))
+            (let ((lispm-desktop-bar--field (selected-frame)))
+              (should (lispm-desktop-app-ui--elsewhere-p buffer nil))))
           (let ((lispm-desktop-apps (cdr lispm-desktop-apps)))
             (should-not (lispm-desktop-app-ui--home buffer))))
       (kill-buffer buffer))))
