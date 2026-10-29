@@ -44,6 +44,7 @@
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
 (declare-function lispm-agents-session-model-resumable-p "lispm-agents" (session))
+(declare-function lispm-desktop-agent-work "lispm-desktop-agent-work" (directory))
 
 ;;;; Agent session sidebar
 
@@ -62,6 +63,22 @@ Directories absent from it use `lispm-desktop-agent-list--default-folded-p'.")
 
 (defvar-local lispm-desktop-agent-list--expanded nil
   "Directory keys whose groups list every session instead of a preview.")
+
+(defvar lispm-desktop-agent-list-open-project-functions nil
+  "Functions that display a clicked agent project directory.
+Each receives an absolute DIRECTORY with a trailing slash.  The first to
+return non-nil handles the click.  If none handles it, show the directory's
+live agents in the main area.  A handler must not fold the sidebar group.
+Optional work views may register here without becoming a Desktop dependency.")
+
+(defun lispm-desktop-agent-list--open-project (directory)
+  "Show DIRECTORY's live agents through an optional or native work view."
+  (let ((directory (file-name-as-directory (expand-file-name directory))))
+    (or (run-hook-with-args-until-success
+         'lispm-desktop-agent-list-open-project-functions directory)
+        (progn
+          (require 'lispm-desktop-agent-work)
+          (lispm-desktop-agent-work directory)))))
 
 (defun lispm-desktop-agent-list--default-folded-p (group now)
   "Return non-nil when GROUP starts folded at time NOW.
@@ -144,7 +161,10 @@ Finder list; its sessions are rows one level in, newest first."
            (folded (lispm-desktop-tr "Open %s" directory))
            (chats (lispm-desktop-tr "Close project-less conversations"))
            (t (lispm-desktop-tr "Close %s" directory)))
-     (unless chats directory))
+     (unless chats directory)
+     (apply-partially #'lispm-desktop-agent-list--open-project directory)
+     (if chats (lispm-desktop-tr "Open project-less conversations")
+       (lispm-desktop-tr "Open %s" directory)))
     (unless folded
       ;; A terminal whose session is already listed shows as that session's
       ;; running row; only terminals without a recorded session list here.

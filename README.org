@@ -9,6 +9,11 @@ as a workspace for coding agents, ready from the first start.  [[https://github.
 share its sidebar, [[https://github.com/LispMachineLab/lispm-browser][LispM Browser]] is its web browser, and its App Store installs more.  In
 code, the prefix is ~lispm-desktop-~.
 
+In the Agents sidebar, only a folder's left triangle folds or unfolds its sessions;
+clicking the folder opens its activated agents in Work, or a native Agent list when
+the Office plugin is unavailable. Idle agents remain included; the Files sidebar
+and its folder behavior are unchanged.
+
 * The LispM projects
 
 | [[https://github.com/LispMachineLab/lispm-agent][lispm-agent]]     | AI agents inside Emacs                                            |
