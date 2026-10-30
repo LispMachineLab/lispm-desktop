@@ -406,8 +406,10 @@ right edge, the Finder, Control Panels and the App Store, icons drawn in block c
 terminal speaking the Kitty graphics protocol (kitty, Ghostty, WezTerm, iTerm2 3.6) the icons of
 the desktop, of the Finder's folders, Applications and Control Panels among them, of the App
 Store and of alerts are images, sent by [[https://github.com/cashmeredev/kitty-graphics.el][kitty-graphics.el]], which LispM installs there.  Menus
-and alerts pop up as text with Emacs 31, in the minibuffer before.  Agents and shells run in the
-same terminal module.  The mouse works where the terminal reports it (=lispm-desktop-tty-mouse=):
+and alerts pop up as text with Emacs 31, in the minibuffer before.  When Emacs supports terminal
+child frames, the editor can float, return to full screen and roll up through its title boxes;
+on older builds it stays full screen.  Agents and shells run in the same terminal module.
+The mouse works where the terminal reports it (=lispm-desktop-tty-mouse=):
 iTerm2 does only where its profile says so, under Settings → Profiles → Terminal → Enable mouse
 reporting; without it a click selects text instead.  Hold Shift (Option in iTerm2) to select
 text the terminal's way.  Escape is typed twice in menus, as in Emacs's own.  Colours are exact
