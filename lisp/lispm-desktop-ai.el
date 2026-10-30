@@ -100,8 +100,8 @@ Focus keeps its listener; other desktop frames keep their session column."
   "Show agent BUFFER in its project's workspace and select it.
 In a workspace just created for it, BUFFER is shown alone; otherwise it is
 placed as `lispm-desktop-sidebar-show-in-main' places terminals.  This is
-the workspace branch of `lispm-agents-show-function'.  An open Agents sidebar stays
-open when the session belongs to another workspace."
+the workspace branch of `lispm-agents-show-function'.  An open Agents
+sidebar stays open when the session belongs to another workspace."
   (let* ((sidebar (and (eq (lispm-desktop-sidebar-current-view) 'agents)
                        (get-buffer-window (lispm-desktop-sidebar--list-buffer 'agents)
                                           (selected-frame))))
