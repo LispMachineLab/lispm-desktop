@@ -1082,7 +1082,9 @@ one of the desktop's, an extension loaded.  It is kept only once it takes
 part: a package that cannot be loaded is not left installed."
   (pcase-let ((`(,id . ,props) (lispm-desktop-store-job-item job)))
     (if-let* ((failure (lispm-desktop-store--failure-of (lambda () (lispm-desktop-store--register id props)))))
-        (progn
+        (if (lispm-desktop-store-job-repair job)
+            (lispm-desktop-store--rollback-and-fail
+             job (lispm-desktop-tr "It cannot be loaded: %s" failure))
           (when owned
             (lispm-desktop-store--quietly
               (lispm-desktop-store--delete-package (plist-get props :package))))
@@ -1139,7 +1141,9 @@ Nil installs them in this Emacs, which waits until each is done."
   "An install or an update the App Store was asked for."
   id item action group
   (state 'waiting) (stage 'waiting) (fraction 0.0)
-  process log file before pending installed error stopped then)
+  process log file before pending installed error stopped then
+  ;; Original commit and bytecode inventory when repairing an existing package.
+  repair repair-bytecode)
 
 (defvar lispm-desktop-store--jobs nil
   "The installs and updates asked for, in order, as `lispm-desktop-store-job's.
@@ -1185,8 +1189,51 @@ while it runs in the background, an update until it builds, as Mac OS
   (pcase (lispm-desktop-store-job-state job)
     ('waiting t)
     ('running (and (lispm-desktop-store-job-process job)
-                   (or (eq (lispm-desktop-store-job-action job) 'install)
+                   (or (and (eq (lispm-desktop-store-job-action job) 'install)
+                            (not (lispm-desktop-store-job-repair job)))
                        (memq (lispm-desktop-store-job-stage job) '(preparing archives download)))))))
+
+(defun lispm-desktop-store--missing-entry-p (props)
+  "Return non-nil when installed PROPS lacks its catalog entry library.
+An older package can predate the extension feature named by the catalog.
+Only packaged VC installs can be brought to the catalog pin automatically;
+source checkouts remain outside the Store's ownership."
+  (when-let* ((feature (plist-get props :feature))
+              (package (plist-get props :package))
+              ((consp package))
+              (desc (cadr (assq (car package) package-alist)))
+              ((package-vc-p desc)))
+    (not (locate-library (symbol-name feature)))))
+
+(defun lispm-desktop-store--repair-entry (job)
+  "Bring JOB's pre-existing VC package to its catalog pin before adoption.
+Remember its original commit for rollback and retain external ownership,
+so uninstalling the Store item later leaves this package installed.
+Tracked local modifications prevent automatic repair."
+  (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
+               (package (plist-get props :package))
+               (name (car package))
+               (desc (cadr (assq name package-alist)))
+               (directory (package-desc-dir desc))
+               (former (lispm-desktop-store--git directory "rev-parse" "HEAD"))
+               (task `(update ,name ,(plist-get (cdr package) :rev) ,former
+                              ,(plist-get (cdr package) :assets))))
+    (unless (string-empty-p (lispm-desktop-store--git
+                            directory "status" "--porcelain" "--untracked-files=no"))
+      (error "The installed package %s has local changes; update it first" name))
+    (setf (lispm-desktop-store-job-repair job) former
+          (lispm-desktop-store-job-repair-bytecode job)
+          (directory-files-recursively directory "\\.elc\\'")
+          (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
+    (if (lispm-desktop-store--background-p)
+        (lispm-desktop-store--spawn job task)
+      (condition-case err
+          (let ((installed (lispm-desktop-store--quietly
+                            (lispm-desktop-store-installer-call task))))
+            (lispm-desktop-store--adopt job)
+            (lispm-desktop-store--installed-as job installed nil))
+        (error
+         (lispm-desktop-store--rollback-and-fail job (error-message-string err)))))))
 
 (defun lispm-desktop-store--queue (items action &optional then before)
   "Install or update, as ACTION says, ITEMS, (ID . PROPERTIES), one after
@@ -1240,9 +1287,12 @@ is there already, or that has none, is installed at once."
           (pcase (lispm-desktop-store-job-action job)
             ('install
              (let ((present (lispm-desktop-store--package-present props)))
-               (if (or present (not (lispm-desktop-store--background-p)))
-                   (lispm-desktop-store--install-here job present)
-                 (lispm-desktop-store--spawn job `(install ,(plist-get props :package))))))
+               (cond ((and (eq present 'installed)
+                           (lispm-desktop-store--missing-entry-p props))
+                      (lispm-desktop-store--repair-entry job))
+                     ((or present (not (lispm-desktop-store--background-p)))
+                      (lispm-desktop-store--install-here job present))
+                     (t (lispm-desktop-store--spawn job `(install ,(plist-get props :package)))))))
             ('update
              (let ((package (plist-get props :package))
                    (former (plist-get (lispm-desktop-store--installed id) :installed)))
@@ -1293,6 +1343,15 @@ are not started."
            (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
            reason)
   (lispm-desktop-store--ended-job job))
+
+(defun lispm-desktop-store--rollback-and-fail (job reason)
+  "Roll JOB back, mark it failed for REASON, and continue the queue.
+If rollback itself fails, retain both errors in the failed job instead
+of allowing an asynchronous callback to leave it marked as running."
+  (let ((rollback (lispm-desktop-store--failure-of
+                   (lambda () (lispm-desktop-store--undo job)))))
+    (lispm-desktop-store--fail
+     job (if rollback (concat reason "; rollback failed: " rollback) reason))))
 
 (defun lispm-desktop-store--package-directories ()
   "Return the packages' directories in `package-user-dir', the archives'
@@ -1378,28 +1437,30 @@ lispm-desktop-store-installer.el, else what goes in its log."
       (setf (lispm-desktop-store-job-file job) nil))
     (cond
      ((lispm-desktop-store-job-stopped job)
-      (lispm-desktop-store--undo job)
-      (dolist (other lispm-desktop-store--jobs)
-        (when (and (eq (lispm-desktop-store-job-group other) (lispm-desktop-store-job-group job))
-                   (memq (lispm-desktop-store-job-state other) '(waiting running)))
-          (lispm-desktop-store--forget-job other)))
-      (lispm-desktop-store--render)
-      (lispm-desktop-store--next))
+      (if-let* ((rollback (lispm-desktop-store--failure-of
+                          (lambda () (lispm-desktop-store--undo job)))))
+          (lispm-desktop-store--fail job (concat "Rollback failed after stopping: " rollback))
+        (dolist (other lispm-desktop-store--jobs)
+          (when (and (eq (lispm-desktop-store-job-group other) (lispm-desktop-store-job-group job))
+                     (memq (lispm-desktop-store-job-state other) '(waiting running)))
+            (lispm-desktop-store--forget-job other)))
+        (lispm-desktop-store--render)
+        (lispm-desktop-store--next)))
      ((and (eql (process-exit-status process) 0) (lispm-desktop-store-job-installed job))
       (setf (lispm-desktop-store-job-stage job) 'finishing
             (lispm-desktop-store-job-fraction job) 0.95)
       (let ((installed (car (lispm-desktop-store-job-installed job))))
         (if-let* ((failure (lispm-desktop-store--failure-of (lambda () (lispm-desktop-store--adopt job)))))
-            (progn (lispm-desktop-store--undo job)
-                   (lispm-desktop-store--fail job failure))
+            (lispm-desktop-store--rollback-and-fail job failure)
           (pcase (lispm-desktop-store-job-action job)
-            ('install (lispm-desktop-store--installed-as job installed t))
+            ('install (lispm-desktop-store--installed-as
+                       job installed (not (lispm-desktop-store-job-repair job))))
             ('update (lispm-desktop-store--updated-as job installed))))))
      (t
-      (lispm-desktop-store--undo job)
-      (lispm-desktop-store--fail job (or (lispm-desktop-store-job-error job)
-                                         (lispm-desktop-store--last-said job)
-                                         (lispm-desktop-tr "Its Emacs stopped before it was done")))))))
+      (lispm-desktop-store--rollback-and-fail
+       job (or (lispm-desktop-store-job-error job)
+               (lispm-desktop-store--last-said job)
+               (lispm-desktop-tr "Its Emacs stopped before it was done")))))))
 
 (defun lispm-desktop-store--undo (job)
   "Undo what JOB, failed or stopped in the background, left: the packages
@@ -1417,7 +1478,24 @@ version it replaces only once the new one is installed."
       (when (and desc (consp package))
         (ignore-errors
           (lispm-desktop-store--git (package-desc-dir desc) "checkout" "--quiet" "--detach"
-                                    (plist-get (lispm-desktop-store--installed id) :installed)))))))
+                                    (plist-get (lispm-desktop-store--installed id) :installed))))))
+  (when-let* ((former (lispm-desktop-store-job-repair job)))
+    (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
+                 (name (lispm-desktop-store--package-name (plist-get props :package)))
+                 (desc (cadr (assq name package-alist))))
+      ;; Rebuild the restored version as well as moving HEAD: generated
+      ;; descriptors and bytecode must describe the retained package.
+      (lispm-desktop-store--unload (plist-get props :feature))
+      (lispm-desktop-store--quietly
+        (lispm-desktop-store-installer-call
+         `(update ,name ,former ,(lispm-desktop-store--git (package-desc-dir desc) "rev-parse" "HEAD"))))
+      ;; Git removes newly added sources but not their generated bytecode.
+      ;; Retain every pre-existing file; remove only new orphaned bytecode.
+      (dolist (file (directory-files-recursively (package-desc-dir desc) "\\.elc\\'"))
+        (unless (or (member file (lispm-desktop-store-job-repair-bytecode job))
+                    (file-exists-p (substring file 0 -1)))
+          (delete-file file)))
+      (lispm-desktop-store--adopt job))))
 
 (defun lispm-desktop-store--adopt (job)
   "Make what JOB's Emacs installed known to this one and take part, as
@@ -1430,7 +1508,8 @@ again."
                (name (lispm-desktop-store--package-name package))
                (before (lispm-desktop-store-job-before job))
                (former (assq name package-alist))
-               (again (and former (eq (lispm-desktop-store-job-action job) 'update)
+               (again (and former (or (eq (lispm-desktop-store-job-action job) 'update)
+                                     (lispm-desktop-store-job-repair job))
                            (package-desc-dir (cadr former))))
                (added nil)
                (changed nil)

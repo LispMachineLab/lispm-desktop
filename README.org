@@ -374,6 +374,12 @@ are built again first, and the checkouts wait while one fails, since a desktop r
 agent release.  A checkout with changes of its own is left alone.  A project too old for the
 desktop, as lispm-agent before 0.4.0, is brought up to date as LispM starts.  The App Store
 updates its applications, by itself once LispM is idle if you allow it.
+When an App Store item needs newer shared libraries, their installed VC packages
+are updated before the item loads. An existing package that predates its catalog
+entry library is brought to the catalog pin too; local edits prevent that repair,
+and removing the Store item later leaves the pre-existing package installed.
+On failure, the Store attempts to restore the original package and shows any
+rollback error in the failed job.
 =M-x lispm-desktop-update-now= checks from anywhere.
 
 * Mac OS and X

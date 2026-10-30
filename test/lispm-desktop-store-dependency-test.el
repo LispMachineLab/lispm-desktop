@@ -98,22 +98,45 @@
     (should (equal (package-desc-version desc) '(0 5 0)))))
 
 (ert-deftest lispm-desktop-test-store-dependency-update-rolls-back ()
-  "A dependency whose rebuild fails returns to its original git commit."
+  "Early and late rebuild failures restore source, descriptors and loaded code."
   (skip-unless (executable-find "git"))
   (let* ((root (make-temp-file "lispm-desktop-test-dependency-rollback" t))
          (source (expand-file-name "ui" root)))
     (unwind-protect
         (let ((old (lispm-desktop-test--dependency-repository source 'lispm-ui "0.5.0")))
           (lispm-desktop-test--dependency-repository source 'lispm-ui "0.6.0")
-          (lispm-desktop-test--dependency-child
-           root "elpa"
-           `(let ((lispm-desktop-store-installer-libraries '((lispm-ui :url ,(concat "file://" source)))))
-              (package-vc-install (car lispm-desktop-store-installer-libraries) "v0.5.0")
-              (cl-letf (((symbol-function 'package-vc-rebuild) (lambda (_) (error "Fixture rebuild failed"))))
-                (should-error (package-vc-install-dependencies '((lispm-ui (0 6 0))))))
-              (should (equal (lispm-desktop-store--git
-                              (package-desc-dir (cadr (assq 'lispm-ui package-alist))) "rev-parse" "HEAD")
-                             ,old)))))
+          (with-temp-file (expand-file-name "lispm-ui-new.el" source)
+            (insert ";;; lispm-ui-new.el --- New fixture -*- lexical-binding: t; -*-\n"
+                    "(provide 'lispm-ui-new)\n"))
+          (lispm-desktop-test--git source "add" "lispm-ui-new.el")
+          (lispm-desktop-test--git source "commit" "--quiet" "-m" "Add a library")
+          (lispm-desktop-test--git source "tag" "--force" "v0.6.0")
+          (dolist (late '(nil t))
+            (lispm-desktop-test--dependency-child
+             root (format "elpa-%s" late)
+             `(let ((lispm-desktop-store-installer-libraries '((lispm-ui :url ,(concat "file://" source))))
+                    (rebuild (symbol-function 'package-vc-rebuild)))
+                (package-vc-install (car lispm-desktop-store-installer-libraries) "v0.5.0")
+                (require 'lispm-ui)
+                (cl-letf (((symbol-function 'package-vc-rebuild)
+                           (lambda (desc)
+                             (if (equal (lispm-desktop-store--git (package-desc-dir desc) "rev-parse" "HEAD") ,old)
+                                 (funcall rebuild desc)
+                               ,@(when late '((funcall rebuild desc)))
+                               (error "Fixture rebuild failed")))))
+                  (should-error (package-vc-install-dependencies '((lispm-ui (0 6 0))))))
+                (should (equal (lispm-desktop-store--git
+                                (package-desc-dir (cadr (assq 'lispm-ui package-alist))) "rev-parse" "HEAD")
+                               ,old))
+                (should (equal (package-desc-version (cadr (assq 'lispm-ui package-alist))) '(0 5 0)))
+                (should (equal (lispm-ui-test-version) "0.5.0"))
+                (should-not (locate-library "lispm-ui-new"))
+                ;; The restored on-disk descriptor must also survive a restart.
+                (setq package-alist nil package-activated-list nil)
+                (package-initialize)
+                (should-not (package-installed-p 'lispm-ui '(0 6 0)))
+                (should-not (package-vc-install-dependencies '((lispm-ui (0 6 0)))))
+                (should (equal (lispm-ui-test-version) "0.6.0"))))))
       (delete-directory root t))))
 
 (ert-deftest lispm-desktop-test-store-dependency-adopts-rebuilt-library ()
@@ -223,6 +246,144 @@
             (dolist (feature (list 'lispm-desktop-test-pkg library))
               (when (featurep feature) (unload-feature feature t)))
             (delete-directory root t)))))))
+
+(defvar lispm-desktop-test-entry-fail nil
+  "Non-nil makes the temporary extension fail while it is activated.")
+
+(defmacro lispm-desktop-test--with-old-entry-package (&rest body)
+  "Run BODY with an old VC package and a catalog naming its new entry.
+Bind SOURCE, DIRECTORY, OLD and NEW to the temporary repository, installed
+package directory, original commit and catalog commit respectively."
+  (declare (indent 0))
+  `(lispm-desktop-test--with-store
+     (lispm-desktop-test--with-packages
+       (let* ((source (make-temp-file "lispm-desktop-test-entry-source" t))
+              (directory (expand-file-name "lispm-desktop-test-pkg" package-user-dir))
+              (user-emacs-directory (file-name-as-directory (expand-file-name "profile" source)))
+              (old (lispm-desktop-test--dependency-repository
+                    source 'lispm-desktop-test-pkg "0.1.0"))
+              (new nil)
+              (lispm-desktop-test-entry-fail nil))
+         (unwind-protect
+             (progn
+               (package-vc-install
+                (list 'lispm-desktop-test-pkg :url (concat "file://" source)) old)
+               (require 'lispm-desktop-test-pkg)
+               (should-not (locate-library "lispm-desktop-test-entry"))
+               (lispm-desktop-test--dependency-repository
+                source 'lispm-desktop-test-pkg "0.2.0")
+               (with-temp-file (expand-file-name "lispm-desktop-test-entry.el" source)
+                 (insert ";;; lispm-desktop-test-entry.el --- Fixture entry -*- lexical-binding: t; -*-\n"
+                         "(when (bound-and-true-p lispm-desktop-test-entry-fail) (error \"Fixture activation failed\"))\n"
+                         "(require 'lispm-desktop-test-pkg)\n"
+                         "(provide 'lispm-desktop-test-entry)\n"))
+               (lispm-desktop-test--git source "add" "lispm-desktop-test-entry.el")
+               (lispm-desktop-test--git source "commit" "--quiet" "-m" "Add extension entry")
+               (setq new (lispm-desktop-test--git source "rev-parse" "HEAD"))
+               (lispm-desktop-test--store-catalog
+                "https://example.org/store"
+                (list (list 'pkg :kind 'extension :name "Pkg"
+                            :feature 'lispm-desktop-test-entry
+                            :package (list 'lispm-desktop-test-pkg
+                                           :url (concat "file://" source) :rev new))))
+               ,@body)
+           (when (featurep 'lispm-desktop-test-entry)
+             (unload-feature 'lispm-desktop-test-entry t))
+           (delete-directory source t))))))
+
+(ert-deftest lispm-desktop-test-store-adopts-package-with-new-entry ()
+  "A missing entry is upgraded; later removal retains the pre-existing package."
+  (skip-unless (executable-find "git"))
+  (dolist (background '(nil t))
+    (lispm-desktop-test--with-old-entry-package
+      (let ((lispm-desktop-store-install-in-background background))
+        (lispm-desktop-store-install 'pkg t)
+        (lispm-desktop-test--store-wait)
+        (should (lispm-desktop-store-installed-p 'pkg))
+        (should (featurep 'lispm-desktop-test-entry))
+        (should (equal (lispm-desktop-store--git directory "rev-parse" "HEAD") new))
+        (should (equal (lispm-desktop-test-pkg-test-version) "0.2.0"))
+        (should-not (plist-get (lispm-desktop-store--installed 'pkg) :owned))
+        (lispm-desktop-store-uninstall 'pkg t)
+        (should-not (featurep 'lispm-desktop-test-entry))
+        (should (package-installed-p 'lispm-desktop-test-pkg '(0 2 0)))
+        (should (file-directory-p directory))))))
+
+(ert-deftest lispm-desktop-test-store-entry-failure-restores-old-package ()
+  "Failed entry activation restores source, descriptor, bytecode and live code."
+  (skip-unless (executable-find "git"))
+  (dolist (background '(nil t))
+    (lispm-desktop-test--with-old-entry-package
+      (let ((lispm-desktop-store-install-in-background background)
+            (lispm-desktop-test-entry-fail t))
+        (lispm-desktop-store-install 'pkg t)
+        (lispm-desktop-test--store-wait)
+        (should-not (lispm-desktop-store-installed-p 'pkg))
+        (should (eq (lispm-desktop-store-job-state (lispm-desktop-store--job 'pkg)) 'failed))
+        (should (equal (lispm-desktop-store--git directory "rev-parse" "HEAD") old))
+        (should (equal (lispm-desktop-test-pkg-test-version) "0.1.0"))
+        (should (equal (package-desc-version (cadr (assq 'lispm-desktop-test-pkg package-alist))) '(0 1 0)))
+        (should-not (featurep 'lispm-desktop-test-entry))
+        (should-not (locate-library "lispm-desktop-test-entry")))
+      ;; The failed job must not make the next Get adopt a leftover entry.
+      (lispm-desktop-store-install 'pkg t)
+      (lispm-desktop-test--store-wait)
+      (should (lispm-desktop-store-installed-p 'pkg))
+      (should (equal (lispm-desktop-test-pkg-test-version) "0.2.0")))))
+
+(ert-deftest lispm-desktop-test-store-entry-repair-keeps-local-changes ()
+  "An existing package with tracked edits is left untouched and unregistered."
+  (skip-unless (executable-find "git"))
+  (lispm-desktop-test--with-old-entry-package
+    (let ((file (expand-file-name "lispm-desktop-test-pkg.el" directory)))
+      (write-region "\n;; Local customization\n" nil file t 'silent)
+      (let ((edited (with-temp-buffer (insert-file-contents file) (buffer-string))))
+        (lispm-desktop-store-install 'pkg t)
+        (lispm-desktop-test--store-wait)
+        (should-not (lispm-desktop-store-installed-p 'pkg))
+        (should (eq (lispm-desktop-store-job-state (lispm-desktop-store--job 'pkg)) 'failed))
+        (should (equal (lispm-desktop-store--git directory "rev-parse" "HEAD") old))
+        (should (equal edited (with-temp-buffer (insert-file-contents file) (buffer-string))))))))
+
+(ert-deftest lispm-desktop-test-store-entry-rollback-failure-ends-job ()
+  "Rollback errors leave a visible failed job and let unrelated work continue."
+  (dolist (cause '(adoption child cancellation))
+    (lispm-desktop-test--with-store
+      (let* ((directory (make-temp-file "lispm-desktop-test-retained-package" t))
+             (package-user-dir directory)
+             (marker (expand-file-name "retained.el" directory))
+             (job (lispm-desktop-store--make-job
+                   :id 'pkg :action 'install :state 'running :repair "old"
+                   :group (list 'repair) :process 'fixture
+                   :item '(pkg :kind extension :name "Pkg"
+                               :feature lispm-desktop-test-entry
+                               :package (lispm-desktop-test-pkg :url "https://example.org/pkg" :rev "new"))
+                   :installed (and (eq cause 'adoption) '("new"))
+                   :stopped (eq cause 'cancellation)
+                   :error (and (eq cause 'child) "Fixture child failed"))))
+        (unwind-protect
+            (progn
+              (write-region ";; Existing package\n" nil marker nil 'silent)
+              (setq lispm-desktop-store--jobs (list job))
+              (lispm-desktop-store--queue
+               '((next :kind extension :name "Next" :feature cl-lib)) 'install)
+              (cl-letf (((symbol-function 'process-exit-status) (lambda (_) 0))
+                        ((symbol-function 'lispm-desktop-store--adopt)
+                         (lambda (_) (error "Fixture adoption failed")))
+                        ((symbol-function 'lispm-desktop-store--undo)
+                         (lambda (_) (error "Fixture rollback failed"))))
+                (lispm-desktop-store--ended job))
+              (should (eq (lispm-desktop-store-job-state job) 'failed))
+              (should-not (lispm-desktop-store--busy-p 'pkg))
+              (should (string-match-p "Fixture rollback failed"
+                                      (lispm-desktop-store-job-error job)))
+              (unless (eq cause 'cancellation)
+                (should (string-match-p
+                         (if (eq cause 'child) "Fixture child failed" "Fixture adoption failed")
+                         (lispm-desktop-store-job-error job))))
+              (should (lispm-desktop-store-installed-p 'next))
+              (should (file-exists-p marker)))
+          (delete-directory directory t))))))
 
 (provide 'lispm-desktop-store-dependency-test)
 ;;; lispm-desktop-store-dependency-test.el ends here
