@@ -97,7 +97,7 @@
 It is the title bar's height: the caption's colour, ACTIVE or not, over
 the black line under it.  LABEL, as Emacs would show it in the titles'
 face, is drawn from column LABEL-X in the caption's text colour."
-  (pcase-let* ((h lispm-desktop-platinum-title-bar-height)
+  (pcase-let* ((h lispm-ui-title-bar-height)
                (svg (svg-create width h))
                (`(,ground . ,ink) (lispm-desktop-pc-caption-colors palette active)))
     (lispm-ui-svg-paint svg 0 0 width (1- h) ground)
@@ -107,7 +107,7 @@ face, is drawn from column LABEL-X in the caption's text colour."
         (add-face-text-property 0 (length label) `(:foreground ,ink) nil label)
         (lispm-ui-svg-content
          svg label label-x 0 (1- h) ink
-         (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))))
+         (if active 'lispm-ui-title 'lispm-ui-title-inactive))))
     svg))
 
 (cl-defmethod lispm-desktop-pc-draw-system-box (palette &context (lispm-desktop-look (eql win3))
@@ -117,7 +117,7 @@ It is a grey square holding a white bar outlined in black, which casts a
 shadow down and right; PRESSED inverts the square, as the window's menu
 drops from it."
   (let* ((w lispm-desktop-win3-button-width)
-         (h lispm-desktop-platinum-title-bar-height)
+         (h lispm-ui-title-bar-height)
          (svg (svg-create (1+ w) h))
          (y (/ (- h 4) 2))
          (outline (plist-get palette :outline))
@@ -140,7 +140,7 @@ black arrowhead, pointing down to minimize and up to maximize.  PRESSED
 shades its top and left instead and moves the arrowhead a pixel down and
 right."
   (let* ((w lispm-desktop-win3-button-width)
-         (h lispm-desktop-platinum-title-bar-height)
+         (h lispm-ui-title-bar-height)
          (svg (svg-create (1+ w) h))
          (outline (plist-get palette :outline))
          (shift (if pressed 1 0)))
@@ -169,7 +169,7 @@ resizes from a corner.  The window stands at
          (svg (svg-create w h))
          (outline (plist-get palette :outline))
          (band (plist-get palette (if active :border :border-inactive)))
-         (title lispm-desktop-platinum-title-bar-height)
+         (title lispm-ui-title-bar-height)
          (corner (+ title 1)))
     (lispm-ui-svg-paint svg 0 0 w h band)
     (lispm-ui-svg-outline svg 0 0 w h outline)
@@ -365,13 +365,13 @@ frame round white, FRACTION of it filled in the highlight colour."
     (lispm-ui-svg-paint svg (1+ x) (1+ y) inner (- h 2) (plist-get palette :content))
     (lispm-ui-svg-paint svg (1+ x) (1+ y) filled (- h 2) (plist-get palette :highlight))))
 
-(cl-defmethod lispm-desktop-platinum-draw-list-header (palette columns
-                                                               &context (lispm-desktop-look (eql win3))
-                                                               &optional label-x)
+(cl-defmethod lispm-ui-draw-list-header (palette columns
+                                                 &context (lispm-ui-look (eql win3))
+                                                 &optional label-x)
   "Return a list's column headings as buttons in a row, in PALETTE.
 COLUMNS lists (LABEL WIDTH SORTED [X]); the sorted column's heading is
 drawn pushed in.  LABEL-X places labels, by default eight pixels in."
-  (let* ((h lispm-desktop-platinum-list-header-height)
+  (let* ((h lispm-ui-list-header-height)
          (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
          (svg (svg-create width h))
          (x 0))
@@ -386,17 +386,17 @@ drawn pushed in.  LABEL-X places labels, by default eight pixels in."
 
 ;;;; Scroll bars
 
-(cl-defmethod lispm-desktop-platinum-scroll-thumb (height start end min max
-                                                          &context (lispm-desktop-look (eql win3)))
+(cl-defmethod lispm-ui-scroll-thumb (height start end min max
+                                            &context (lispm-ui-look (eql win3)))
   "Return the thumb of a Windows 3.2 scroll bar HEIGHT pixels tall: a
 square as wide as the bar, standing as far along the track as START is
 along a buffer from MIN to MAX, END showing last; nil when everything
 shows, or the track is too short."
-  (let* ((layout (lispm-desktop-platinum-scroll-layout height))
+  (let* ((layout (lispm-ui-scroll-layout height))
          (track (plist-get layout :track-length))
          (size (- max min))
          (shown (- end start))
-         (length lispm-desktop-platinum-scroll-width))
+         (length lispm-ui-scroll-width))
     (when (and (> size 0) (> track (* 2 length)) (or (> start min) (< end max)))
       (let ((fraction (/ (float (- start min)) (max 1 (- size shown)))))
         (cons (+ (plist-get layout :track) (round (* (- track length) (min 1.0 fraction))))
@@ -406,19 +406,19 @@ shows, or the track is too short."
   "Draw on SVG from row Y a scroll bar's arrow button pointing DIRECTION,
 in PALETTE: outlined in black, raised, its arrowhead black when ENABLED
 and grey when not."
-  (lispm-desktop-pc-svg-raise svg 0 y lispm-desktop-platinum-scroll-width lispm-desktop-pc-scroll-button palette)
+  (lispm-desktop-pc-svg-raise svg 0 y lispm-ui-scroll-width lispm-desktop-pc-scroll-button palette)
   (lispm-ui-svg-arrow svg 4 (+ y 6) 4 direction
                       (if enabled (plist-get palette :outline) (lispm-desktop-pc-shadow palette))))
 
-(cl-defmethod lispm-desktop-platinum-draw-scroll-bar (palette height thumb active
-                                                              &context (lispm-desktop-look (eql win3)))
+(cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
+                                                &context (lispm-ui-look (eql win3)))
   "Return Windows 3.2's scroll bar HEIGHT pixels tall, in PALETTE: arrow
 buttons at both ends, the grey track between, outlined in black, and
 THUMB a raised square on it.  Nothing to scroll, THUMB nil, greys the
 arrows; an inactive bar, ACTIVE nil, shows no thumb."
-  (let* ((w lispm-desktop-platinum-scroll-width)
+  (let* ((w lispm-ui-scroll-width)
          (svg (svg-create w height))
-         (layout (lispm-desktop-platinum-scroll-layout height))
+         (layout (lispm-ui-scroll-layout height))
          (live (and active thumb)))
     (lispm-ui-svg-paint svg 0 0 w height (plist-get palette :chrome))
     (lispm-ui-svg-outline svg 0 0 w height (plist-get palette :outline))

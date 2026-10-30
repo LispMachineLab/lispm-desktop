@@ -339,10 +339,10 @@ speaks; the columns keep their English names, which sorting goes by."
     (propertize " " 'display
                 (lispm-ui-image
                  (list 'manager-header shown)
-                 (lambda () (lispm-desktop-platinum-draw-list-header lispm-ui-current-palette
-                                                                     shown
-                                                                     (* (frame-char-width)
-                                                                        (1+ tabulated-list-padding)))))
+                 (lambda () (lispm-ui-draw-list-header lispm-ui-current-palette
+                                                       shown
+                                                       (* (frame-char-width)
+                                                          (1+ tabulated-list-padding)))))
                 'lispm-desktop-buffer-manager-columns columns
                 'keymap lispm-desktop-buffer-manager-header-map
                 'pointer 'hand 'help-echo (lispm-desktop-tr "Sort by this column"))))

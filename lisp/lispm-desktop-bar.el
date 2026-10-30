@@ -411,7 +411,7 @@ without LispM Agent's bar, lispm-bar.el."
     (setq lispm-bar-read-function #'lispm-desktop-bar-read
           lispm-bar-show-function #'lispm-desktop-bar-show
           lispm-bar-hide-function #'lispm-desktop-bar-hide
-          lispm-bar-triangle-function #'lispm-desktop-platinum-triangle
+          lispm-bar-triangle-function #'lispm-ui-triangle
           lispm-bar-ask-icon (lambda () (lispm-ui-icon 'lambda)))
     (add-hook 'lispm-desktop-platinum-status-functions #'lispm-desktop-bar-status)
     (keymap-global-set "C-c l" #'lispm-ai)

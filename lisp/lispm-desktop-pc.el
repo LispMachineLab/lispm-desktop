@@ -129,9 +129,9 @@ the look's :box-width wide, in PALETTE, PRESSED or not.")
       (cons (plist-get palette :title) (plist-get palette :title-text))
     (cons (plist-get palette :title-inactive) (plist-get palette :title-inactive-text))))
 
-(cl-defmethod lispm-desktop-platinum-title-layout (width title-width
-                                                         &context (lispm-desktop-look (lispm-ui-look-family pc))
-                                                         &optional controls margins)
+(cl-defmethod lispm-ui-title-layout (width title-width
+                                           &context (lispm-ui-look (lispm-ui-look-family pc))
+                                           &optional controls margins)
   "Lay a PC title bar WIDTH pixels wide out for a title TITLE-WIDTH wide.
 The system menu box opens it, minimize and maximize close it, each the
 look's :box-width; the title is centred between them, narrowed to fit."
@@ -179,9 +179,9 @@ does, minimize collapses it and maximize zooms it; inactive windows keep
 their buttons, as Windows' and OS/2's did.  MODIFIED marks the title with
 a star; STATUS follows it."
   (pcase-let* ((label (concat title (when modified " *") (when status (concat "  " status))))
-               (face (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))
+               (face (if active 'lispm-ui-title 'lispm-ui-title-inactive))
                (`(,close ,zoom ,collapse) controls)
-               (layout (lispm-desktop-platinum-title-layout
+               (layout (lispm-ui-title-layout
                         width (lispm-ui-text-width label face) controls margins))
                (`(,lead . ,trail) (plist-get layout :margins))
                (start (plist-get layout :start))
@@ -313,7 +313,7 @@ look's :alert-gap apart and :alert-bottom over the border."
   (let* ((w lispm-desktop-look-alert-width)
          (border lispm-desktop-pc-alert-border)
          (gap (lispm-ui-look-metric :alert-gap))
-         (caption lispm-desktop-platinum-title-bar-height)
+         (caption lispm-ui-title-bar-height)
          (text-width (- w lispm-desktop-look-alert-text-x 20))
          (lines (lispm-ui-alert--wrap message text-width 'lispm-ui-title))
          (details (and detail (lispm-ui-alert--wrap detail text-width 'lispm-ui-list)))
@@ -351,7 +351,7 @@ keyboard."
          (b lispm-desktop-pc-alert-border)
          (box (lispm-ui-look-metric :box-width))
          (inset (lispm-ui-look-metric :dialog-inset))
-         (caption lispm-desktop-platinum-title-bar-height)
+         (caption lispm-ui-title-bar-height)
          (svg (svg-create w h))
          (y (+ b caption 16))
          (title lispm-desktop-look-alert-title))
@@ -529,8 +529,8 @@ ON; grey when STATE is `disabled', the circle's inside grey when
       (svg-circle svg middle middle (lispm-ui-look-metric :radio-dot) :fill ink))
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-triangle (palette open
-                                                            &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-draw-triangle (palette open
+                                              &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a tree's disclosure box in PALETTE, twelve pixels square: a box
 outlined in the look's :tree-box holding a minus when OPEN, a plus when
 closed."
@@ -548,7 +548,7 @@ closed."
 (defconst lispm-desktop-pc-scroll-button 16
   "Height in pixels of a scroll bar's arrow button, its outline included.")
 
-(cl-defmethod lispm-desktop-platinum-scroll-layout (height &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Lay a PC scroll bar HEIGHT pixels tall out: an arrow button at either
 end, the track between."
   (let ((b lispm-desktop-pc-scroll-button))

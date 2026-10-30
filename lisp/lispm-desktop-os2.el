@@ -114,7 +114,7 @@ grey and white, and return its fill."
 the bar's colour, ACTIVE or not, between grey lines along its top and
 bottom.  LABEL, as Emacs would show it in the titles' face, is drawn
 from column LABEL-X in the bar's text colour."
-  (pcase-let* ((h lispm-desktop-platinum-title-bar-height)
+  (pcase-let* ((h lispm-ui-title-bar-height)
                (svg (svg-create width h))
                (`(,ground . ,ink) (lispm-desktop-pc-caption-colors palette active))
                (shadow (lispm-desktop-pc-shadow palette)))
@@ -126,7 +126,7 @@ from column LABEL-X in the bar's text colour."
         (add-face-text-property 0 (length label) `(:foreground ,ink) nil label)
         (lispm-ui-svg-content
          svg label label-x 1 (- h 2) ink
-         (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))))
+         (if active 'lispm-ui-title 'lispm-ui-title-inactive))))
     svg))
 
 (cl-defmethod lispm-desktop-pc-draw-system-box (palette &context (lispm-desktop-look (eql os2))
@@ -135,7 +135,7 @@ from column LABEL-X in the bar's text colour."
 square, between the title bar's grey lines.  ICON is a string as Emacs
 would show it, its image included, or nil; PRESSED pushes it in."
   (let* ((w lispm-desktop-os2-button-width)
-         (h lispm-desktop-platinum-title-bar-height)
+         (h lispm-ui-title-bar-height)
          (svg (svg-create w h))
          (shadow (lispm-desktop-pc-shadow palette)))
     (lispm-ui-svg-paint svg 0 0 w h shadow)
@@ -153,7 +153,7 @@ raised between the title bar's grey lines: minimize holds a small window
 marked at its corners, maximize a large one outlined.  PRESSED pushes it
 in."
   (let* ((w lispm-desktop-os2-button-width)
-         (h lispm-desktop-platinum-title-bar-height)
+         (h lispm-ui-title-bar-height)
          (svg (svg-create w h))
          (ink (lispm-ui-legible (plist-get palette :chrome)
                                 (plist-get palette :outline) (plist-get palette :text)))
@@ -360,15 +360,15 @@ grey, FRACTION of it filled in the title bar's colour."
                         (list (plist-get palette :light)))
     (lispm-ui-svg-paint svg (1+ x) (1+ y) filled (- h 2) (plist-get palette :title))))
 
-(cl-defmethod lispm-desktop-platinum-draw-list-header (palette columns
-                                                               &context (lispm-desktop-look (eql os2))
-                                                               &optional label-x)
+(cl-defmethod lispm-ui-draw-list-header (palette columns
+                                                 &context (lispm-ui-look (eql os2))
+                                                 &optional label-x)
   "Return a details view's column titles in PALETTE, as OS/2 2.0 drew them:
 each centred over a grey line, on the view's ground.  COLUMNS lists
 \(LABEL WIDTH SORTED [X]); the sorted column's title is bold.  LABEL-X is
 not used: titles are centred."
   (ignore label-x)
-  (let* ((h lispm-desktop-platinum-list-header-height)
+  (let* ((h lispm-ui-list-header-height)
          (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
          (svg (svg-create width h))
          (x 0))
@@ -386,12 +386,12 @@ not used: titles are centred."
 
 ;;;; Scroll bars
 
-(cl-defmethod lispm-desktop-platinum-scroll-thumb (height start end min max
-                                                          &context (lispm-desktop-look (eql os2)))
+(cl-defmethod lispm-ui-scroll-thumb (height start end min max
+                                            &context (lispm-ui-look (eql os2)))
   "Return the thumb of an OS/2 2.0 scroll bar HEIGHT pixels tall, as long
 as the part of a buffer from MIN to MAX the window shows, START to END;
 nil when everything shows, or the track is too short."
-  (let* ((layout (lispm-desktop-platinum-scroll-layout height))
+  (let* ((layout (lispm-ui-scroll-layout height))
          (track (plist-get layout :track-length))
          (size (- max min))
          (shown (- end start)))
@@ -401,15 +401,15 @@ nil when everything shows, or the track is too short."
         (cons (+ (plist-get layout :track) (round (* (- track length) (min 1.0 fraction))))
               length)))))
 
-(cl-defmethod lispm-desktop-platinum-draw-scroll-bar (palette height thumb active
-                                                              &context (lispm-desktop-look (eql os2)))
+(cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
+                                                &context (lispm-ui-look (eql os2)))
   "Return OS/2 2.0's scroll bar HEIGHT pixels tall, in PALETTE: raised arrow
 buttons at both ends, a stippled track between, THUMB raised on it.
 Nothing to scroll, THUMB nil, greys the arrows; an inactive bar, ACTIVE
 nil, shows no thumb."
-  (let* ((w lispm-desktop-platinum-scroll-width)
+  (let* ((w lispm-ui-scroll-width)
          (svg (svg-create w height))
-         (layout (lispm-desktop-platinum-scroll-layout height))
+         (layout (lispm-ui-scroll-layout height))
          (b lispm-desktop-pc-scroll-button)
          (live (and active thumb))
          (shadow (lispm-desktop-pc-shadow palette)))

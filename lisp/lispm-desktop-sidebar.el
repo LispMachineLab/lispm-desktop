@@ -477,7 +477,7 @@ OPEN-HELP.  Without OPEN-ACTION that part of the row is not a button."
   (let ((beg (point)))
     (insert (lispm-desktop-sidebar--row
              (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
-                     (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-ui-list
+                     (propertize (lispm-ui-triangle open) 'face 'lispm-ui-list
                                  'lispm-desktop-sidebar-group-part 'triangle)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                      (propertize (lispm-desktop-platinum-folder-icon directory)

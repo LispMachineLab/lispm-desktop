@@ -210,9 +210,9 @@ Go Back button at the bottom right, when PAGE goes back."
                ;; bar, as `lispm-desktop-platinum-draw-window-frame' draws them.
                (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
                (cx (+ x left))
-               (cy (+ y top lispm-desktop-platinum-title-bar-height))
+               (cy (+ y top lispm-ui-title-bar-height))
                (cw (- w left right))
-               (ch (- h top bottom lispm-desktop-platinum-title-bar-height))
+               (ch (- h top bottom lispm-ui-title-bar-height))
                (margin 20)
                (count (length (plist-get page :choices)))
                (columns (if (> count 3) 2 count))
@@ -374,15 +374,15 @@ page with a :picture shows LispM's λ instead of choices, and its
                 (`(,cx ,cy ,cw ,ch) (plist-get layout :content)))
       (lispm-ui-svg-embed
        svg (lispm-desktop-platinum-draw-window-frame palette w h :active t) x y w h)
-      (let ((bar (lispm-desktop-platinum-title-layout
+      (let ((bar (lispm-ui-title-layout
                   cw (lispm-ui-text-width title 'lispm-ui-title)
                   '(nil nil nil))))
         (lispm-ui-svg-embed
-         svg (lispm-desktop-platinum-draw-title-part
+         svg (lispm-ui-draw-title-part
               palette cw :active t :ridges (plist-get bar :ridges)
               :label (lispm-desktop-platinum-fit title (plist-get bar :title))
               :label-x (plist-get bar :label-x))
-         cx (1+ y) cw lispm-desktop-platinum-title-bar-height))
+         cx (1+ y) cw lispm-ui-title-bar-height))
       (lispm-ui-svg-fill svg cx cy cw ch (lispm-ui-grey palette #xDD))
       ;; The icon, the question and what it is about.
       (if (plist-get page :picture)

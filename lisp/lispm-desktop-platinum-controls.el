@@ -396,7 +396,7 @@ outlined in a dark grey, its frame flat.  The middle is left clear."
          (svg (svg-create w h))
          (grey (lambda (level) (lispm-ui-grey palette level)))
          (outline (if active (plist-get palette :outline) (funcall grey #x55)))
-         (title lispm-desktop-platinum-title-bar-height)
+         (title lispm-ui-title-bar-height)
          (right (- w 2))
          (bottom (- h 2)))
     (cl-flet ((row (from to y color) (lispm-ui-svg-row svg from to y color))

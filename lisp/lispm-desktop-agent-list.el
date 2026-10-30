@@ -248,7 +248,7 @@ DIRECTORY is its directory."
                (beg (point)))
     (lispm-desktop-sidebar-insert-entry
      (if subtrees
-         (concat (propertize (lispm-desktop-platinum-triangle opened)
+         (concat (propertize (lispm-ui-triangle opened)
                              'lispm-desktop-agent-list-triangle t)
                  (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                  icon)
