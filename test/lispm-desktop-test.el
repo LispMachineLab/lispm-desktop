@@ -880,7 +880,8 @@ an error loading it is signalled once the redisplay is done."
 it installed first, from git at its latest release, or the commit that
 last changed its version before one; what is still missing is left for
 package-vc to say."
-  (let ((installed nil)
+  (let ((package-alist nil)
+        (installed nil)
         (release "v0.1.0"))
     (cl-letf (((symbol-function 'package-vc-install)
                (lambda (package rev) (push (list package rev) installed)))
