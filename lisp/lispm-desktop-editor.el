@@ -164,8 +164,32 @@ This is a `tab-bar-tab-post-select-functions' function."
 
 (defvar-keymap lispm-desktop-editor-tab-map
   :doc "Keymap of a tab of the editor's title strip."
-  "<down-mouse-1>" #'ignore
-  "<mouse-1>" #'lispm-desktop-editor-tab-click)
+  "<down-mouse-1>" #'lispm-desktop-editor-tab-press
+  "<mouse-1>" #'ignore
+  "<drag-mouse-1>" #'ignore)
+
+(defun lispm-desktop-editor--tab-at (position)
+  "Return the sidebar view at mouse POSITION, or nil outside a tab."
+  (let ((window (posn-window position))
+        (point (posn-point position)))
+    (when (and (window-live-p window) (integer-or-marker-p point))
+      (get-text-property point 'lispm-desktop-editor-view (window-buffer window)))))
+
+(defun lispm-desktop-editor-tab-press (event)
+  "Switch sidebar tabs when EVENT is released over the same tab.
+Moving within a label still chooses it; releasing outside it cancels."
+  (interactive "e")
+  (let* ((start (event-start event))
+         (window (posn-window start))
+         (view (lispm-desktop-editor--tab-at start))
+         (release (when view (lispm-ui-modal-read-event))))
+    (when (and (consp release)
+               (eq (event-basic-type release) 'mouse-1)
+               (window-live-p window)
+               (eq (posn-window (event-end release)) window)
+               (eq (lispm-desktop-editor--tab-at (event-end release)) view))
+      (with-selected-frame (window-frame window)
+        (lispm-desktop-sidebar-select view)))))
 
 (defun lispm-desktop-editor-tab-click (event)
   "Show the sidebar view whose tab EVENT clicked, or hide it when shown."
@@ -218,11 +242,10 @@ the edge of the windows below, which runs across the strip."
           (set-window-point strip (point-min))
           (set-window-hscroll strip 0))
         (setq lispm-desktop-platinum-window-title (lispm-desktop-editor--title)
-              ;; Only a floating window rolls up into its title bar; on
-              ;; a text terminal the editor stays full screen.
+              ;; Only a floating window rolls up into its title bar.
               lispm-desktop-platinum-box-functions
               `(:close lispm-desktop-editor--close-box
-                ,@(unless (lispm-desktop-tty-p frame) '(:zoom lispm-desktop-editor--zoom-box))
+                ,@(when (lispm-desktop-editor-can-float-p frame) '(:zoom lispm-desktop-editor--zoom-box))
                 ,@(when (lispm-desktop-editor-floating-p) '(:collapse lispm-desktop-editor--collapse-box))))
         (force-mode-line-update)
         ;; The tabs may have changed the strip's height.
@@ -543,12 +566,16 @@ return the strip's height: the editor rolls up to it."
   :after-make #'lispm-desktop-editor--set-buffer-predicate
   :roll #'lispm-desktop-editor--roll :follow nil)
 
+(defun lispm-desktop-editor-can-float-p (&optional frame)
+  "Return non-nil when FRAME can hold the editor in a child frame.
+Text terminals can do so when Emacs supports terminal child frames."
+  (or (not (lispm-desktop-tty-p frame)) (featurep 'tty-child-frames)))
+
 (defun lispm-desktop-editor-float ()
-  "Float the editor in a window of its own over the desktop.
-On a text terminal, where a window is a grid of cells, the editor stays
-full screen."
+  "Float the editor in a window of its own over the desktop."
   (interactive)
-  (unless (or (lispm-desktop-editor-floating-p) (lispm-desktop-tty-p (lispm-desktop-apps-screen)))
+  (unless (or (lispm-desktop-editor-floating-p)
+              (not (lispm-desktop-editor-can-float-p (lispm-desktop-apps-screen))))
     (let* ((screen (lispm-desktop-apps-screen))
            (lispm-desktop-editor--moving t)
            (_ (lispm-desktop-editor--take-off-chrome screen))
@@ -689,7 +716,7 @@ the editor full screen or floating."
                                    :checked (not (lispm-desktop-editor-floating-p)))
       ,(lispm-desktop-editor--item (lispm-desktop-tr "Floating Window") #'lispm-desktop-editor-float
                                    :checked (lispm-desktop-editor-floating-p)
-                                   :enabled (not (lispm-desktop-tty-p))))))
+                                   :enabled (lispm-desktop-editor-can-float-p)))))
 
 (defun lispm-desktop-editor--window-items ()
   "Return the items of the editor's Window menu: the buffer manager, then

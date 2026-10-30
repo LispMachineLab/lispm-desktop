@@ -469,6 +469,10 @@ faces this function never sets, so re-running it is idempotent."
                         :foreground (lispm-ui-grey lispm-ui-current-palette #xFF))
     (set-face-attribute 'window-divider-last-pixel nil
                         :foreground (lispm-ui-color :outline))
+    ;; Text terminals draw one glyph, not the graphical divider's pixels.
+    (set-face-attribute 'vertical-border nil
+                        :foreground (lispm-ui-color :outline)
+                        :background (lispm-ui-color :chrome))
     (lispm-desktop-platinum-apply-look-faces lispm-ui-current-palette)
     ;; The row of what is being worked on elsewhere: the list, as the
     ;; look drew it, tinted with the accent, as the desktop behind the

@@ -58,9 +58,13 @@
 (declare-function lispm-desktop-term-waiting-buffers "lispm-desktop-term" ())
 (declare-function lispm-desktop-platinum-main-window "lispm-desktop-platinum-titlebar" ())
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
+(declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
+(declare-function lispm-desktop-sidebar--list-buffer "lispm-desktop-sidebar" (view))
+(declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
 (declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional directory))
 (declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
+(declare-function lispm-terminal-p "lispm-terminal" (&optional frame))
 (defvar tabspaces-default-tab)
 (defvar lispm-desktop-term-exit-functions)
 
@@ -78,15 +82,55 @@ the repository's workspace; project-less chats share the default workspace."
       (cons (file-name-nondirectory root) root))))
 
 (defun lispm-desktop-agent--show (buffer)
+  "Show agent BUFFER in Focus's listener or its desktop workspace.
+Focus owns its frame layout; switching desktop workspaces there would
+replace its Sessions pane before the Agent display action can run."
+  (if (and (fboundp 'lispm-terminal-p) (lispm-terminal-p))
+      (pop-to-buffer-same-window buffer)
+    (lispm-desktop-agent--show-in-workspace buffer)))
+
+(defun lispm-desktop-agent--show-work (buffer)
+  "Show work view BUFFER in the host's existing session area.
+Focus keeps its listener; other desktop frames keep their session column."
+  (if (and (fboundp 'lispm-terminal-p) (lispm-terminal-p))
+      (pop-to-buffer-same-window buffer)
+    (lispm-desktop-sidebar-show-in-main buffer)))
+
+(defun lispm-desktop-agent--show-in-workspace (buffer)
   "Show agent BUFFER in its project's workspace and select it.
 In a workspace just created for it, BUFFER is shown alone; otherwise it is
 placed as `lispm-desktop-sidebar-show-in-main' places terminals.  This is
-`lispm-agents-show-function' on the desktop."
-  (pcase-let ((`(,name . ,root) (lispm-desktop-agent--workspace-name
-                                 (buffer-local-value 'default-directory buffer))))
-    (if (lispm-desktop-workspace-enter name root)
-        (lispm-desktop-workspace-show-alone buffer)
-      (lispm-desktop-sidebar-show-in-main buffer))))
+the workspace branch of `lispm-agents-show-function'.  An open Agents
+sidebar stays open when the session belongs to another workspace."
+  (let* ((sidebar (and (eq (lispm-desktop-sidebar-current-view) 'agents)
+                       (get-buffer-window (lispm-desktop-sidebar--list-buffer 'agents)
+                                          (selected-frame))))
+         (point (and sidebar (window-point sidebar)))
+         (start (and sidebar (window-start sidebar)))
+         (width (and sidebar (window-total-width sidebar))))
+    (prog1
+        (pcase-let ((`(,name . ,root) (lispm-desktop-agent--workspace-name
+                                     (buffer-local-value 'default-directory buffer))))
+          (if (lispm-desktop-workspace-enter name root)
+              (lispm-desktop-workspace-show-alone buffer)
+            (lispm-desktop-sidebar-show-in-main buffer)))
+      ;; A workspace restores its own windows, which may have no sidebar.
+      ;; Select only when missing: selecting an already open view hides it.
+      (when (and sidebar (not (eq (lispm-desktop-sidebar-current-view) 'agents)))
+        (save-selected-window
+          (lispm-desktop-sidebar-select 'agents)
+          (when-let* ((window (get-buffer-window (lispm-desktop-sidebar--list-buffer 'agents)
+                                                (selected-frame))))
+            (with-current-buffer (window-buffer window)
+              ;; The session-changed hook redraws from the buffer's point.
+              (goto-char (min point (point-max)))
+              (set-window-point window (point))
+              (set-window-start window (min start (point-max)) t))
+            ;; Sidebar windows preserve their width; restore the user's size
+            ;; while still respecting the destination frame's minimum sizes.
+            (let ((delta (window-resizable window (- width (window-total-width window))
+                                           t 'preserved)))
+              (unless (zerop delta) (window-resize window delta t 'preserved)))))))))
 
 (defun lispm-desktop-agent-next-waiting ()
   "Show the next terminal, or agent of LispM's, waiting for you.
@@ -125,6 +169,8 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
     (lispm-agents-icon (lispm-agents-of-buffer buffer))))
 
 (defvar lispm-agents-terminal-send-function)
+(defvar lispm-agents-work-display-function)
+(defvar lispm-desktop-conversation-modes)
 
 ;; On the desktop the agents run in its terminals and show in its windows.
 (setq lispm-agents-terminal-make-function #'lispm-desktop-terminal-make
@@ -132,9 +178,15 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
       lispm-agents-terminal-paste-function #'lispm-desktop-terminal-paste
       lispm-agents-terminal-send-function #'lispm-desktop-terminal-send
       lispm-agents-show-function #'lispm-desktop-agent--show
+      lispm-agents-work-display-function #'lispm-desktop-agent--show-work
       lispm-agents-main-window-function #'lispm-desktop-platinum-main-window
       lispm-agents-confirm-function #'lispm-desktop-agent--confirm
       lispm-agents-context-display-action '(lispm-desktop-main-area-display-file))
+;; Work views are session-area content.  This is host layout policy: the
+;; Agent list and its optional Office renderer remain ordinary Emacs modes.
+(with-eval-after-load 'lispm-desktop-interface
+  (dolist (mode '(lispm-agents-work-mode lispm-office-mode))
+    (add-to-list 'lispm-desktop-conversation-modes mode)))
 (dolist (mode lispm-desktop-terminal-major-modes)
   (add-to-list 'lispm-agents-terminal-modes mode))
 ;; The servers showing agents Emacs's state stop with their terminals.

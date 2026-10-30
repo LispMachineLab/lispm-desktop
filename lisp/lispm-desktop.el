@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.20.0
+;; Version: 0.21.0
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -308,6 +308,7 @@ are set up as there; then the first frame becomes the terminal, see
   (condition-case err
       (lispm-desktop-setup-lispm)
     (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
+  (lispm-desktop-store-startup t)
   (lispm-desktop-setup-kernel)
   (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
 

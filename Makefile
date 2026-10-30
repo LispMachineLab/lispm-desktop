@@ -13,6 +13,8 @@ LISPM_UI ?= ../lispm-ui
 # one, the tests of Stickies on the desktop run too.
 LISPM_STICKIES ?= ../lispm-stickies
 STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICKIES))
+# Package workflow tests must never discover the user's installed packages.
+TEST_PROFILE = --eval '(setq user-emacs-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-profile-" t)) package-user-dir (expand-file-name "elpa" user-emacs-directory) package-directory-list nil package-alist nil)'
 
 .PHONY: test compile i18n native native-test pin
 
@@ -20,15 +22,17 @@ STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICK
 # native compiler need not build trampolines for them, which takes seconds.
 # The terminals' tests use the module `make native' built, if any.
 test:
-	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
+	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
 	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -l test/lispm-desktop-store-defaults-test.el \
+	  -l test/lispm-desktop-store-dependency-test.el \
 	  -f ert-run-tests-batch-and-exit
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code
 # no longer gives; the tests fail on either.
 i18n:
-	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
+	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el \
 	  -f lispm-desktop-test-report-catalogs
 
