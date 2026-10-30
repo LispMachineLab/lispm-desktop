@@ -554,7 +554,8 @@ install_packages() {
     "$EMACS_PROGRAM" --batch --init-directory="$DESKTOP" \
       -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
       -L "$DESKTOP/lisp" -l lispm-desktop-deps -f lispm-desktop-deps-batch-progress \
-      -l "$DESKTOP/init.el" 2>>"$log" || status=$?
+      --eval '(setq user-init-file (expand-file-name "init.el" user-emacs-directory))' \
+      -l "$DESKTOP/init.el" -f lispm-desktop-store-install-defaults-batch 2>>"$log" || status=$?
     printf '\nLISPM-STATUS %s\n' "$status"
   } | show_packages "$log"; then
     tail -n 20 "$log" >&2

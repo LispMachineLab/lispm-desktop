@@ -880,7 +880,8 @@ an error loading it is signalled once the redisplay is done."
 it installed first, from git at its latest release, or the commit that
 last changed its version before one; what is still missing is left for
 package-vc to say."
-  (let ((installed nil)
+  (let ((package-alist nil)
+        (installed nil)
         (release "v0.1.0"))
     (cl-letf (((symbol-function 'package-vc-install)
                (lambda (package rev) (push (list package rev) installed)))
@@ -1070,7 +1071,7 @@ what to update."
                (lambda (file &rest _)
                  (pcase file
                    ("lispm.el" main)
-                   ("lispm-exec" (and agents "/elpa/lispm/lisp/lispm-exec.el")))))
+                   ("lispm-agents-work" (and agents "/elpa/lispm/lisp/lispm-agents-work.el")))))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release) (lambda (_) "0400"))
               ((symbol-function 'lispm-desktop-deps--git) (lambda (_directory &rest _) "0300"))
@@ -1084,7 +1085,7 @@ what to update."
       (should (= (length jobs) 1))
       ;; A checkout lacking it.
       (setq agents nil main "/src/lispm-agent/lisp/lispm.el")
-      (should (string-match-p "lispm-agent/lisp/ lacks lispm-exec"
+      (should (string-match-p "lispm-agent/lisp/ lacks lispm-agents-work"
                               (cadr (should-error (lispm-desktop-deps-ensure 'lispm)))))
       (should (= (length jobs) 1)))))
 
@@ -2874,6 +2875,100 @@ themselves, so its file names no agent and no shell."
   (with-temp-buffer
     (insert-file-contents (expand-file-name "lisp/lispm-desktop-sidebar.el" lispm-desktop-directory))
     (should-not (re-search-forward "lispm-desktop-\\(?:agent\\|shell\\)" nil t))))
+
+(ert-deftest lispm-desktop-test-agent-navigation-keeps-visible-sidebar ()
+  "Choosing a session keeps Agents open across new or restored workspaces,
+preserving the list viewport and the newly selected session.  A hidden
+sidebar stays hidden, and an already visible destination list is left alone."
+  (dolist (case '((agents nil nil) (agents nil t) (agents files nil)
+                  (agents agents nil) (nil nil nil) (files nil nil)
+                  (nil agents nil)))
+    (ert-info ((format "source/destination/new: %S" case))
+      (let* ((source (nth 0 case)) (destination (nth 1 case)) (fresh (nth 2 case))
+             (agents (generate-new-buffer " *sidebar navigation agents*"))
+             (files (generate-new-buffer " *sidebar navigation files*"))
+             (target (generate-new-buffer " *sidebar navigation target*"))
+             (lispm-desktop-sidebar-views nil)
+             (lispm-desktop-sidebar-prepare-function nil)
+             (lispm-desktop-sidebar-change-hook nil)
+             (renders 0) source-point source-start source-width
+             destination-point destination-start destination-width
+             (route nil))
+        (save-window-excursion
+          (delete-other-windows)
+          (let ((main (selected-window)))
+            (unwind-protect
+                (cl-flet ((render ()
+                            (cl-incf renders)
+                            (let ((inhibit-read-only t))
+                              (erase-buffer)
+                              (dotimes (i 60) (insert (format "Session %d\n" i)))))
+                          (show (buffer)
+                            (set-window-buffer main buffer)
+                            (select-window main)
+                            buffer))
+                  (lispm-desktop-sidebar-define-view
+                   'agents :buffer (buffer-name agents) :mode #'special-mode :render #'render)
+                  (lispm-desktop-sidebar-define-view
+                   'files :buffer (buffer-name files) :mode #'special-mode :render #'render)
+                  (when source
+                    (lispm-desktop-sidebar-select source)
+                    (let ((window (get-buffer-window (if (eq source 'agents) agents files))))
+                      (window-resize window -8 t)
+                      (set-window-point window 120)
+                      (set-window-start window 60 t)
+                      (setq source-point (window-point window)
+                            source-start (window-start window)
+                            source-width (window-total-width window))))
+                  (cl-letf (((symbol-function 'lispm-desktop-agent--workspace-name)
+                             (lambda (_) '("target" . "/tmp/")))
+                            ((symbol-function 'lispm-desktop-workspace-enter)
+                             (lambda (&rest _)
+                               ;; Restoring another workspace replaces its side windows.
+                               (dolist (buffer (list agents files))
+                                 (when-let* ((window (get-buffer-window buffer)))
+                                   (delete-window window)))
+                               (when destination
+                                 (lispm-desktop-sidebar-select destination)
+                                 (let ((window (get-buffer-window
+                                                (if (eq destination 'agents) agents files))))
+                                   (set-window-point window 80)
+                                   (set-window-start window 40 t)
+                                   (setq destination-point (window-point window)
+                                         destination-start (window-start window)
+                                         destination-width (window-total-width window))))
+                               fresh))
+                            ((symbol-function 'lispm-desktop-workspace-show-alone)
+                             (lambda (buffer) (setq route 'new) (show buffer)))
+                            ((symbol-function 'lispm-desktop-sidebar-show-in-main)
+                             (lambda (buffer) (setq route 'existing) (show buffer))))
+                    (should (eq (lispm-desktop-agent--show target) target)))
+                  (should (eq (selected-window) main))
+                  (should (eq (window-buffer main) target))
+                  (should (eq route (if fresh 'new 'existing)))
+                  (if (or (eq source 'agents) (eq destination 'agents))
+                      (let ((window (get-buffer-window agents)))
+                        (should (window-live-p window))
+                        (should-not (get-buffer-window files))
+                        (should (= (window-point window)
+                                   (if (eq destination 'agents) destination-point source-point)))
+                        (should (= (window-start window)
+                                   (if (eq destination 'agents) destination-start source-start)))
+                        (should (= (window-total-width window)
+                                   (if (eq destination 'agents) destination-width source-width)))
+                        (when (and (eq source 'agents) (not (eq destination 'agents)))
+                          ;; The public show command redraws after routing, using
+                          ;; buffer point to retain the selected session's line.
+                          (with-current-buffer agents
+                            (should (= (point) source-point))
+                            (let ((line (line-number-at-pos)))
+                              (lispm-desktop-sidebar-refresh-list 'agents)
+                              (should (= (line-number-at-pos) line))))))
+                    (should-not (lispm-desktop-sidebar-current-view)))
+                  ;; Existing destination Agents must not be toggled or redrawn.
+                  (when (eq destination 'agents)
+                    (should (= renders (+ (if source 1 0) 1)))))
+              (mapc #'kill-buffer (list agents files target)))))))))
 
 (ert-deftest lispm-desktop-test-sidebar-list-views ()
   "A list view gives only its buffer, mode and drawing: the sidebar shows it
@@ -7168,6 +7263,135 @@ and the clients after it wait too."
               (should (= (length lispm-desktop-term--pending) 1))))
         (mapc #'kill-buffer buffers)))))
 
+(ert-deftest lispm-desktop-test-sidebar-group-separates-disclosure-and-opening ()
+  "Mouse and keyboard activation distinguish the triangle from the folder row."
+  (with-temp-buffer
+    (let ((folds 0) (opens 0))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+        (lispm-desktop-sidebar-insert-group
+         t "Project" "Today" (lambda () (cl-incf folds)) "Fold project"
+         nil (lambda () (cl-incf opens)) "Open project"))
+      (let* ((triangle (text-property-any (point-min) (point-max)
+                                          'lispm-desktop-sidebar-group-part 'triangle))
+             (folder (text-property-any (point-min) (point-max)
+                                        'lispm-desktop-sidebar-group-part 'open))
+             (name (save-excursion (goto-char (point-min)) (search-forward "Project") (- (point) 7))))
+        (should (button-at triangle))
+        (should (button-at folder))
+        (should (< (button-end (button-at triangle)) (button-start (button-at folder))))
+        (button-activate (button-at name))
+        (button-activate (button-at folder))
+        (should (= opens 2))
+        (should (= folds 0))
+        (goto-char (point-min))
+        (forward-button 1)
+        (should (= (point) triangle))
+        (push-button)
+        (should (= folds 1))
+        (should (= opens 2))
+        (forward-button 1)
+        (should (= (point) folder))
+        (push-button)
+        (should (= folds 1))
+        (should (= opens 3))
+        (should (equal (button-get (button-at triangle) 'help-echo) "Fold project"))
+        (should (equal (button-get (button-at folder) 'help-echo) "Open project"))))))
+
+(ert-deftest lispm-desktop-test-sidebar-group-without-open-action-does-not-fold-name ()
+  "The previous argument list remains accepted, with disclosure on its triangle."
+  (with-temp-buffer
+    (let ((folds 0))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+        (lispm-desktop-sidebar-insert-group nil "Project" nil (lambda () (cl-incf folds)) "Open"))
+      (goto-char (point-min))
+      (search-forward "Project")
+      (should-not (button-at (1- (point))))
+      (let ((triangle (text-property-any (point-min) (point-max)
+                                         'lispm-desktop-sidebar-group-part 'triangle)))
+        (button-activate (button-at triangle))
+        (should (= folds 1))))))
+
+(ert-deftest lispm-desktop-test-agent-list-project-folder-opens-without-changing-fold ()
+  "Only the project triangle changes folding; folder/name delegate to Agent."
+  (with-temp-buffer
+    (let* ((now (float-time))
+           (group (list :key "/tmp/project" :dir "/tmp/project" :time now :sessions nil))
+           (opened nil) (redraws 0)
+           (lispm-agents-open-project-functions
+            (list (lambda (directory) (push directory opened) t))))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200))
+                ((symbol-function 'lispm-desktop-agent-list--redraw) (lambda () (cl-incf redraws)))
+                ((symbol-function 'dired-noselect) (lambda (&rest _) (ert-fail "Handled click fell back to Dired"))))
+        (lispm-desktop-agent-list--insert-project group now nil)
+        (let ((triangle (text-property-any (point-min) (point-max)
+                                           'lispm-desktop-sidebar-group-part 'triangle))
+              (folder (text-property-any (point-min) (point-max)
+                                         'lispm-desktop-sidebar-group-part 'open)))
+          (button-activate (button-at folder))
+          (should (equal opened '("/tmp/project")))
+          (should-not lispm-desktop-agent-list--folds)
+          (should (= redraws 0))
+          (button-activate (button-at triangle))
+          (should (lispm-desktop-agent-list--folded-p group now))
+          (should (= redraws 1))
+          (button-activate (button-at folder))
+          (should (lispm-desktop-agent-list--folded-p group now))
+          (should (= (length opened) 2))
+          (should (= redraws 1))
+          (button-activate (button-at triangle))
+          (should-not (lispm-desktop-agent-list--folded-p group now))
+          (should (= redraws 2)))))))
+
+(ert-deftest lispm-desktop-test-project-work-uses-session-area ()
+  "Agent and Office work modes follow host session layout without app markers."
+  (should (eq lispm-agents-work-display-function #'lispm-desktop-agent--show-work))
+  (dolist (mode '(lispm-agents-work-mode lispm-office-mode))
+    (with-temp-buffer
+      (setq major-mode mode)
+      (should-not lispm-desktop-conversation-buffer)
+      (should (lispm-desktop-terminal-buffer-p (current-buffer))))))
+
+(ert-deftest lispm-desktop-test-agent-focus-keeps-listener ()
+  "Focus's conversation and work displays never enter a desktop workspace."
+  (let ((source (generate-new-buffer " *Focus source*"))
+        (target (generate-new-buffer " *Focus target*"))
+        (side (generate-new-buffer " *Focus sessions*")))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (switch-to-buffer source)
+          (let* ((listener (selected-window))
+                 (sessions (display-buffer-in-side-window side '((side . left) (window-width . 20))))
+                 (windows (window-list)))
+            (cl-letf (((symbol-function 'lispm-terminal-p) (lambda (&optional _) t))
+                      ((symbol-function 'lispm-desktop-workspace-enter)
+                       (lambda (&rest _) (ert-fail "Focus switched desktop workspaces")))
+                      ((symbol-function 'lispm-desktop-sidebar-show-in-main)
+                       (lambda (&rest _) (ert-fail "Focus entered desktop column layout"))))
+              (dolist (show '(lispm-desktop-agent--show lispm-desktop-agent--show-work))
+                (funcall show target)
+                (should (eq (window-buffer listener) target))
+                (should (eq (window-buffer sessions) side))
+                (should (equal (window-list) windows))
+                (set-window-buffer listener source)))))
+      (mapc #'kill-buffer (list source target side)))))
+
+(ert-deftest lispm-desktop-test-agent-list-chats-delegates-to-agent ()
+  "The Chats folder delegates its home directory without choosing a session."
+  (with-temp-buffer
+    (let ((lispm-agents-open-project-functions
+           (list (lambda (directory)
+                   (should (equal directory (directory-file-name (expand-file-name "~/"))))
+                   'opened)))
+          (now (float-time)))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+        (lispm-desktop-agent-list--insert-project
+         (list :key 'chats :dir "~" :chats t :time now :sessions nil) now nil))
+      (let ((folder (text-property-any (point-min) (point-max)
+                                      'lispm-desktop-sidebar-group-part 'open)))
+        (should (eq (button-activate (button-at folder)) 'opened)))
+      (should-not lispm-desktop-agent-list--folds))))
+
 (ert-deftest lispm-desktop-test-agent-list-follows-the-agents ()
   "The agents sidebar draws a session the user acted on at once, and what
 the agents changed themselves once Emacs is idle, and only when it is up."
@@ -7731,29 +7955,23 @@ labelled idle and not counted as running; once the agent works, it is."
           (delete-file lispm-agents-state-file))))))
 
 (ert-deftest lispm-desktop-test-lispm-user-turn-unarchives ()
-  "A turn the user begins in an archived LispM session takes it out of the
-archive; the agent idling, as one resumed to be looked at, or working
-on another agent's message, leaves it archived."
+  "A user turn unarchives its real agent; idle and unattended turns do not."
   (let ((lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
         (lispm-agents--archived 'unloaded)
         (session '(:agent lispm :id "0300"))
-        (busy nil)
-        (attended nil))
+        (agent (lispm-agent--create :name 'archive-test :id "0300"
+                                    :state 'idle :attended nil)))
     (unwind-protect
         (dlet ((lispm-agents-changed-hook nil))
-          (cl-letf (((symbol-function 'lispm-agent-view) (lambda (_agent) nil))
-                    ((symbol-function 'lispm-agent-id) (lambda (_agent) "0300"))
-                    ((symbol-function 'lispm-agent-busy-p) (lambda (_agent) busy))
-                    ((symbol-function 'lispm-agent-attended) (lambda (_agent) attended)))
-            (lispm-agents--set-archived session t)
-            (lispm-desktop-lispm--changed 'agent)
-            (should (lispm-agents-archived-p session))
-            (setq busy t)
-            (lispm-desktop-lispm--changed 'agent)
-            (should (lispm-agents-archived-p session))
-            (setq attended t)
-            (lispm-desktop-lispm--changed 'agent)
-            (should-not (lispm-agents-archived-p session))))
+          (lispm-agents--set-archived session t)
+          (lispm-desktop-lispm--changed agent)
+          (should (lispm-agents-archived-p session))
+          (setf (lispm-agent-state agent) 'acting)
+          (lispm-desktop-lispm--changed agent)
+          (should (lispm-agents-archived-p session))
+          (setf (lispm-agent-attended agent) t)
+          (lispm-desktop-lispm--changed agent)
+          (should-not (lispm-agents-archived-p session)))
       (delete-file lispm-agents-state-file))))
 
 (ert-deftest lispm-desktop-test-agent-list-refreshes-on-status-changes ()
@@ -15401,7 +15619,7 @@ once the turn that asked is over and saved: then only, and once."
     lispm-desktop-setup-keymapping lispm-desktop-setup-plain-interface lispm-desktop-setup-update
     lispm-desktop-setup-emacs lispm-desktop-setup-startup lispm-desktop-setup-i18n
     lispm-desktop-setup-langs lispm-desktop-form-setup lispm-desktop-setup-lispm
-    lispm-desktop-setup-kernel)
+    lispm-desktop-store-startup lispm-desktop-setup-kernel)
   "What LispM's terminal sets up, in its order.")
 
 (defun lispm-desktop-test--setup-as (as)
@@ -15438,8 +15656,10 @@ frame.  The desktop sets up all it did, and opens no terminal."
   (pcase-let ((`(,steps . ,hook) (lispm-desktop-test--setup-as 'desktop)))
     (dolist (step lispm-desktop-test--desktop-only-setup)
       (should (equal (list step (and (memq step steps) t)) (list step t))))
-    ;; The desktop's interface sets up the plain one itself.
-    (should (equal (seq-difference (remq 'lispm-desktop-setup-plain-interface lispm-desktop-test--terminal-setup)
+    ;; The desktop's interface and Store setup call these steps themselves.
+    (should (equal (seq-difference (seq-difference lispm-desktop-test--terminal-setup
+                                                  '(lispm-desktop-setup-plain-interface
+                                                    lispm-desktop-store-startup))
                                    steps)
                    nil))
     (should (memq 'lispm-desktop-setup-exwm hook))
@@ -16236,6 +16456,110 @@ boxes."
       (should (string-match-p "x…" bar))
       (should (string-match-p "\\[■\\]" bar))
       (should (string-match-p "\\[↕\\]\\[─\\]" bar)))))
+
+(ert-deftest lispm-desktop-test-tty-editor-controls ()
+  "Terminal child frames keep the editor's zoom box and floating menu
+available; a floating editor also keeps its collapse box."
+  (lispm-desktop-test--on-tty
+    (let ((supports-children t)
+          (floating nil)
+          (feature-p (symbol-function 'featurep))
+          (buffer (generate-new-buffer " lispm-test-tty-editor")))
+      (unwind-protect
+          (cl-letf (((symbol-function 'featurep)
+                     (lambda (feature &optional subfeature)
+                       (if (eq feature 'tty-child-frames) supports-children
+                         (funcall feature-p feature subfeature))))
+                    ((symbol-function 'lispm-desktop-editor-frame) #'selected-frame)
+                    ((symbol-function 'lispm-desktop-editor-floating-p) (lambda () floating))
+                    ((symbol-function 'lispm-desktop-sidebar-current-view) #'ignore)
+                    ((symbol-function 'lispm-desktop-editor--title) (lambda () "Emacs"))
+                    ((symbol-function 'lispm-desktop-editor--in-editor) #'funcall))
+            (let ((lispm-desktop-editor-strip-buffer-name (buffer-name buffer)))
+              (lispm-desktop-editor--render-strip)
+              (with-current-buffer buffer
+                (should (plist-get lispm-desktop-platinum-box-functions :zoom))
+                (should-not (plist-get lispm-desktop-platinum-box-functions :collapse)))
+              (should (plist-get (car (last (lispm-desktop-editor--view-items))) :enabled))
+              (setq floating t)
+              (lispm-desktop-editor--render-strip)
+              (with-current-buffer buffer
+                (should (plist-get lispm-desktop-platinum-box-functions :collapse)))
+              (setq floating nil supports-children nil)
+              (lispm-desktop-editor--render-strip)
+              (with-current-buffer buffer
+                (should-not (plist-get lispm-desktop-platinum-box-functions :zoom)))
+              (should-not (plist-get (car (last (lispm-desktop-editor--view-items))) :enabled))))
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-tty-editor-float-capability ()
+  "Windowing reaches frame setup on capable terminals, not on older ones."
+  (lispm-desktop-test--on-tty
+    (let ((supports-children t)
+          (feature-p (symbol-function 'featurep))
+          reached)
+      (cl-letf (((symbol-function 'featurep)
+                 (lambda (feature &optional subfeature)
+                   (if (eq feature 'tty-child-frames) supports-children
+                     (funcall feature-p feature subfeature))))
+                ((symbol-function 'lispm-desktop-editor-floating-p) #'ignore)
+                ((symbol-function 'lispm-desktop-apps-screen) #'selected-frame)
+                ((symbol-function 'lispm-desktop-editor--take-off-chrome)
+                 (lambda (_frame) (setq reached t) (throw 'frame-setup t))))
+        (catch 'frame-setup (lispm-desktop-editor-float))
+        (should reached)
+        (setq supports-children nil reached nil)
+        (catch 'frame-setup (lispm-desktop-editor-float))
+        (should-not reached)))))
+
+(ert-deftest lispm-desktop-test-editor-tab-release ()
+  "A tab owns the press until release, including movement within its label."
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((buffer (generate-new-buffer " lispm-test-editor-tabs"))
+          (window (selected-window))
+          selected release)
+      (unwind-protect
+          (progn
+            (set-window-buffer window buffer)
+            (with-current-buffer buffer
+              (insert (propertize "Agents" 'lispm-desktop-editor-view 'agents)
+                      " " (propertize "Shells" 'lispm-desktop-editor-view 'shells)))
+            (cl-labels ((position (point) (list window point '(0 . 0) 0)))
+              (cl-letf (((symbol-function 'lispm-ui-modal-read-event) (lambda () release))
+                        ((symbol-function 'lispm-desktop-sidebar-select)
+                         (lambda (view) (setq selected view))))
+                (should (eq (lookup-key lispm-desktop-editor-tab-map [down-mouse-1])
+                            #'lispm-desktop-editor-tab-press))
+                (dolist (type '(mouse-1 drag-mouse-1))
+                  (setq selected nil
+                        release (if (eq type 'drag-mouse-1)
+                                    (list type (position 1) (position 3))
+                                  (list type (position 3))))
+                  (lispm-desktop-editor-tab-press (list 'down-mouse-1 (position 1)))
+                  (should (eq selected 'agents)))
+                ;; Neither a different tab nor the gap activates the pressed tab.
+                (dolist (point '(7 8))
+                  (setq selected nil release (list 'mouse-1 (position point)))
+                  (lispm-desktop-editor-tab-press (list 'down-mouse-1 (position 1)))
+                  (should-not selected))
+                (setq release ?\C-g selected nil)
+                (lispm-desktop-editor-tab-press (list 'down-mouse-1 (position 1)))
+                (should-not selected))))
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-tty-border-follows-palette ()
+  "The terminal's pane border takes the look's outline and chrome, rather
+than an unrelated theme's possibly invisible vertical-border face."
+  (lispm-desktop-test--on-tty
+    (let (border)
+      (cl-letf (((symbol-function 'set-face-attribute)
+                 (lambda (face _frame &rest attributes)
+                   (when (eq face 'vertical-border) (setq border attributes))))
+                ((symbol-function 'lispm-desktop-platinum-apply-look-faces) #'ignore))
+        (lispm-desktop-platinum-apply-faces)
+        (should (equal (plist-get border :foreground) (lispm-ui-color :outline)))
+        (should (equal (plist-get border :background) (lispm-ui-color :chrome)))))))
 
 (ert-deftest lispm-desktop-test-tty-menu-bar ()
   "On a text terminal a menu bar title is its label between blanks, in the

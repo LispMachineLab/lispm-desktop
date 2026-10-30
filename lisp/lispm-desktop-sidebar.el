@@ -468,26 +468,36 @@ while the list has the keyboard.  A list drawn anew is marked again."
         (overlay-put lispm-desktop-sidebar--current 'priority -60))
       (move-overlay lispm-desktop-sidebar--current beg end))))
 
-(defun lispm-desktop-sidebar-insert-group (open name meta action help &optional directory)
+(defun lispm-desktop-sidebar-insert-group (open name meta action help &optional directory open-action open-help)
   "Insert a group's row: a disclosure triangle, OPEN or not, a folder and NAME.
 The folder is badged when DIRECTORY is a git repository.  META sits in
-the right-hand column; clicking the row calls ACTION, described by HELP."
+the right-hand column.  Only the triangle calls ACTION, described by HELP.
+The folder, name and metadata call optional OPEN-ACTION, described by
+OPEN-HELP.  Without OPEN-ACTION that part of the row is not a button."
   (let ((beg (point)))
     (insert (lispm-desktop-sidebar--row
              (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
-                     (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-ui-list)
+                     (propertize (lispm-desktop-platinum-triangle open) 'face 'lispm-ui-list
+                                 'lispm-desktop-sidebar-group-part 'triangle)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
-                     (lispm-desktop-platinum-folder-icon directory)
+                     (propertize (lispm-desktop-platinum-folder-icon directory)
+                                 'lispm-desktop-sidebar-group-part 'open)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6)))))
              (propertize (lispm-desktop-sidebar-one-line name 200)
                          'face '(:inherit lispm-ui-list :weight bold))
              (propertize (or meta "") 'face 'shadow)
              (lispm-desktop-sidebar--row-width)))
-    (make-text-button beg (point)
-                      'action (lambda (_) (funcall action))
-                      'follow-link t
-                      'help-echo help
-                      'mouse-face 'highlight)
+    (let* ((end (point))
+           (triangle (text-property-any beg end 'lispm-desktop-sidebar-group-part 'triangle))
+           (triangle-end (next-single-property-change triangle 'lispm-desktop-sidebar-group-part nil end))
+           (folder (text-property-any beg end 'lispm-desktop-sidebar-group-part 'open)))
+      (make-text-button triangle triangle-end
+                        'action (lambda (_) (funcall action))
+                        'follow-link t 'help-echo help 'mouse-face 'highlight)
+      (when open-action
+        (make-text-button folder end
+                          'action (lambda (_) (funcall open-action))
+                          'follow-link t 'help-echo open-help 'mouse-face 'highlight)))
     (lispm-desktop-sidebar--mark-row beg (point))
     (insert "\n")))
 

@@ -9,6 +9,12 @@ as a workspace for coding agents, ready from the first start.  [[https://github.
 share its sidebar, [[https://github.com/LispMachineLab/lispm-browser][LispM Browser]] is its web browser, and its App Store installs more.  In
 code, the prefix is ~lispm-desktop-~.
 
+In the Agents sidebar, a folder's left triangle folds its sessions; clicking
+the folder opens the project's live agents through LispM Agent. Worktrees and
+subdirectories belong to their project. LispM Office supplies the pixel view
+when enabled; Agent supplies the default list when Office is absent. Desktop
+only places these views in the session area and handles sidebar hit regions.
+
 * The LispM projects
 
 | [[https://github.com/LispMachineLab/lispm-agent][lispm-agent]]     | AI agents inside Emacs                                            |
@@ -17,6 +23,13 @@ code, the prefix is ~lispm-desktop-~.
 | [[https://github.com/LispMachineLab/lispm-store][lispm-store]]     | the catalog LispM Desktop's App Store installs from               |
 
 The agents and the browser each stand on their own; LispM Desktop installs both at its first start.
+
+LispM Office is included as an optional App Store extension.  The distribution installer,
+or the first normal start from a checkout, installs it through the App Store.  Uninstalling
+it closes its Work views and keeps it removed across restarts and installer reruns; Get in
+the App Store installs it again.  ~lispm-desktop-store-default-items~ can be set to nil before
+setup to skip the defaults.  A failed first install remains available to retry in the Store,
+and is retried at the next start.
 
 * Installation
 
@@ -361,6 +374,12 @@ are built again first, and the checkouts wait while one fails, since a desktop r
 agent release.  A checkout with changes of its own is left alone.  A project too old for the
 desktop, as lispm-agent before 0.4.0, is brought up to date as LispM starts.  The App Store
 updates its applications, by itself once LispM is idle if you allow it.
+When an App Store item needs newer shared libraries, their installed VC packages
+are updated before the item loads. An existing package that predates its catalog
+entry library is brought to the catalog pin too; local edits prevent that repair,
+and removing the Store item later leaves the pre-existing package installed.
+On failure, the Store attempts to restore the original package and shows any
+rollback error in the failed job.
 =M-x lispm-desktop-update-now= checks from anywhere.
 
 * Mac OS and X
@@ -407,8 +426,10 @@ right edge, the Finder, Control Panels and the App Store, icons drawn in block c
 terminal speaking the Kitty graphics protocol (kitty, Ghostty, WezTerm, iTerm2 3.6) the icons of
 the desktop, of the Finder's folders, Applications and Control Panels among them, of the App
 Store and of alerts are images, sent by [[https://github.com/cashmeredev/kitty-graphics.el][kitty-graphics.el]], which LispM installs there.  Menus
-and alerts pop up as text with Emacs 31, in the minibuffer before.  Agents and shells run in the
-same terminal module.  The mouse works where the terminal reports it (=lispm-desktop-tty-mouse=):
+and alerts pop up as text with Emacs 31, in the minibuffer before.  When Emacs supports terminal
+child frames, the editor can float, return to full screen and roll up through its title boxes;
+on older builds it stays full screen.  Agents and shells run in the same terminal module.
+The mouse works where the terminal reports it (=lispm-desktop-tty-mouse=):
 iTerm2 does only where its profile says so, under Settings → Profiles → Terminal → Enable mouse
 reporting; without it a click selects text instead.  Hold Shift (Option in iTerm2) to select
 text the terminal's way.  Escape is typed twice in menus, as in Emacs's own.  Colours are exact
