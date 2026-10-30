@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: LispMachineLab/lispm-agent
+          # Public project work views; test the declared Agent 0.15.0 API.
+          ref: d0b924b0932097f5cee9f679fcae2aaf4fd8b166
           path: .deps/lispm-agent
       # LispM Kit, whose engine translates the desktop's words and the agent's.
       - uses: actions/checkout@v7

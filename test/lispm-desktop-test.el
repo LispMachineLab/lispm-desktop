@@ -7510,6 +7510,135 @@ and the clients after it wait too."
               (should (= (length lispm-desktop-term--pending) 1))))
         (mapc #'kill-buffer buffers)))))
 
+(ert-deftest lispm-desktop-test-sidebar-group-separates-disclosure-and-opening ()
+  "Mouse and keyboard activation distinguish the triangle from the folder row."
+  (with-temp-buffer
+    (let ((folds 0) (opens 0))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+        (lispm-desktop-sidebar-insert-group
+         t "Project" "Today" (lambda () (cl-incf folds)) "Fold project"
+         nil (lambda () (cl-incf opens)) "Open project"))
+      (let* ((triangle (text-property-any (point-min) (point-max)
+                                          'lispm-desktop-sidebar-group-part 'triangle))
+             (folder (text-property-any (point-min) (point-max)
+                                        'lispm-desktop-sidebar-group-part 'open))
+             (name (save-excursion (goto-char (point-min)) (search-forward "Project") (- (point) 7))))
+        (should (button-at triangle))
+        (should (button-at folder))
+        (should (< (button-end (button-at triangle)) (button-start (button-at folder))))
+        (button-activate (button-at name))
+        (button-activate (button-at folder))
+        (should (= opens 2))
+        (should (= folds 0))
+        (goto-char (point-min))
+        (forward-button 1)
+        (should (= (point) triangle))
+        (push-button)
+        (should (= folds 1))
+        (should (= opens 2))
+        (forward-button 1)
+        (should (= (point) folder))
+        (push-button)
+        (should (= folds 1))
+        (should (= opens 3))
+        (should (equal (button-get (button-at triangle) 'help-echo) "Fold project"))
+        (should (equal (button-get (button-at folder) 'help-echo) "Open project"))))))
+
+(ert-deftest lispm-desktop-test-sidebar-group-without-open-action-does-not-fold-name ()
+  "The previous argument list remains accepted, with disclosure on its triangle."
+  (with-temp-buffer
+    (let ((folds 0))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+        (lispm-desktop-sidebar-insert-group nil "Project" nil (lambda () (cl-incf folds)) "Open"))
+      (goto-char (point-min))
+      (search-forward "Project")
+      (should-not (button-at (1- (point))))
+      (let ((triangle (text-property-any (point-min) (point-max)
+                                         'lispm-desktop-sidebar-group-part 'triangle)))
+        (button-activate (button-at triangle))
+        (should (= folds 1))))))
+
+(ert-deftest lispm-desktop-test-agent-list-project-folder-opens-without-changing-fold ()
+  "Only the project triangle changes folding; folder/name delegate to Agent."
+  (with-temp-buffer
+    (let* ((now (float-time))
+           (group (list :key "/tmp/project" :dir "/tmp/project" :time now :sessions nil))
+           (opened nil) (redraws 0)
+           (lispm-agents-open-project-functions
+            (list (lambda (directory) (push directory opened) t))))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200))
+                ((symbol-function 'lispm-desktop-agent-list--redraw) (lambda () (cl-incf redraws)))
+                ((symbol-function 'dired-noselect) (lambda (&rest _) (ert-fail "Handled click fell back to Dired"))))
+        (lispm-desktop-agent-list--insert-project group now nil)
+        (let ((triangle (text-property-any (point-min) (point-max)
+                                           'lispm-desktop-sidebar-group-part 'triangle))
+              (folder (text-property-any (point-min) (point-max)
+                                         'lispm-desktop-sidebar-group-part 'open)))
+          (button-activate (button-at folder))
+          (should (equal opened '("/tmp/project")))
+          (should-not lispm-desktop-agent-list--folds)
+          (should (= redraws 0))
+          (button-activate (button-at triangle))
+          (should (lispm-desktop-agent-list--folded-p group now))
+          (should (= redraws 1))
+          (button-activate (button-at folder))
+          (should (lispm-desktop-agent-list--folded-p group now))
+          (should (= (length opened) 2))
+          (should (= redraws 1))
+          (button-activate (button-at triangle))
+          (should-not (lispm-desktop-agent-list--folded-p group now))
+          (should (= redraws 2)))))))
+
+(ert-deftest lispm-desktop-test-project-work-uses-session-area ()
+  "Agent and Office work modes follow host session layout without app markers."
+  (should (eq lispm-agents-work-display-function #'lispm-desktop-agent--show-work))
+  (dolist (mode '(lispm-agents-work-mode lispm-office-mode))
+    (with-temp-buffer
+      (setq major-mode mode)
+      (should-not lispm-desktop-conversation-buffer)
+      (should (lispm-desktop-terminal-buffer-p (current-buffer))))))
+
+(ert-deftest lispm-desktop-test-agent-focus-keeps-listener ()
+  "Focus's conversation and work displays never enter a desktop workspace."
+  (let ((source (generate-new-buffer " *Focus source*"))
+        (target (generate-new-buffer " *Focus target*"))
+        (side (generate-new-buffer " *Focus sessions*")))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (switch-to-buffer source)
+          (let* ((listener (selected-window))
+                 (sessions (display-buffer-in-side-window side '((side . left) (window-width . 20))))
+                 (windows (window-list)))
+            (cl-letf (((symbol-function 'lispm-terminal-p) (lambda (&optional _) t))
+                      ((symbol-function 'lispm-desktop-workspace-enter)
+                       (lambda (&rest _) (ert-fail "Focus switched desktop workspaces")))
+                      ((symbol-function 'lispm-desktop-sidebar-show-in-main)
+                       (lambda (&rest _) (ert-fail "Focus entered desktop column layout"))))
+              (dolist (show '(lispm-desktop-agent--show lispm-desktop-agent--show-work))
+                (funcall show target)
+                (should (eq (window-buffer listener) target))
+                (should (eq (window-buffer sessions) side))
+                (should (equal (window-list) windows))
+                (set-window-buffer listener source)))))
+      (mapc #'kill-buffer (list source target side)))))
+
+(ert-deftest lispm-desktop-test-agent-list-chats-delegates-to-agent ()
+  "The Chats folder delegates its home directory without choosing a session."
+  (with-temp-buffer
+    (let ((lispm-agents-open-project-functions
+           (list (lambda (directory)
+                   (should (equal directory (directory-file-name (expand-file-name "~/"))))
+                   'opened)))
+          (now (float-time)))
+      (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+        (lispm-desktop-agent-list--insert-project
+         (list :key 'chats :dir "~" :chats t :time now :sessions nil) now nil))
+      (let ((folder (text-property-any (point-min) (point-max)
+                                      'lispm-desktop-sidebar-group-part 'open)))
+        (should (eq (button-activate (button-at folder)) 'opened)))
+      (should-not lispm-desktop-agent-list--folds))))
+
 (ert-deftest lispm-desktop-test-agent-list-follows-the-agents ()
   "The agents sidebar draws a session the user acted on at once, and what
 the agents changed themselves once Emacs is idle, and only when it is up."
