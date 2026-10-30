@@ -2875,6 +2875,100 @@ themselves, so its file names no agent and no shell."
     (insert-file-contents (expand-file-name "lisp/lispm-desktop-sidebar.el" lispm-desktop-directory))
     (should-not (re-search-forward "lispm-desktop-\\(?:agent\\|shell\\)" nil t))))
 
+(ert-deftest lispm-desktop-test-agent-navigation-keeps-visible-sidebar ()
+  "Choosing a session keeps Agents open across new or restored workspaces,
+preserving the list viewport and the newly selected session.  A hidden
+sidebar stays hidden, and an already visible destination list is left alone."
+  (dolist (case '((agents nil nil) (agents nil t) (agents files nil)
+                  (agents agents nil) (nil nil nil) (files nil nil)
+                  (nil agents nil)))
+    (ert-info ((format "source/destination/new: %S" case))
+      (let* ((source (nth 0 case)) (destination (nth 1 case)) (fresh (nth 2 case))
+             (agents (generate-new-buffer " *sidebar navigation agents*"))
+             (files (generate-new-buffer " *sidebar navigation files*"))
+             (target (generate-new-buffer " *sidebar navigation target*"))
+             (lispm-desktop-sidebar-views nil)
+             (lispm-desktop-sidebar-prepare-function nil)
+             (lispm-desktop-sidebar-change-hook nil)
+             (renders 0) source-point source-start source-width
+             destination-point destination-start destination-width
+             (route nil))
+        (save-window-excursion
+          (delete-other-windows)
+          (let ((main (selected-window)))
+            (unwind-protect
+                (cl-flet ((render ()
+                            (cl-incf renders)
+                            (let ((inhibit-read-only t))
+                              (erase-buffer)
+                              (dotimes (i 60) (insert (format "Session %d\n" i)))))
+                          (show (buffer)
+                            (set-window-buffer main buffer)
+                            (select-window main)
+                            buffer))
+                  (lispm-desktop-sidebar-define-view
+                   'agents :buffer (buffer-name agents) :mode #'special-mode :render #'render)
+                  (lispm-desktop-sidebar-define-view
+                   'files :buffer (buffer-name files) :mode #'special-mode :render #'render)
+                  (when source
+                    (lispm-desktop-sidebar-select source)
+                    (let ((window (get-buffer-window (if (eq source 'agents) agents files))))
+                      (window-resize window -8 t)
+                      (set-window-point window 120)
+                      (set-window-start window 60 t)
+                      (setq source-point (window-point window)
+                            source-start (window-start window)
+                            source-width (window-total-width window))))
+                  (cl-letf (((symbol-function 'lispm-desktop-agent--workspace-name)
+                             (lambda (_) '("target" . "/tmp/")))
+                            ((symbol-function 'lispm-desktop-workspace-enter)
+                             (lambda (&rest _)
+                               ;; Restoring another workspace replaces its side windows.
+                               (dolist (buffer (list agents files))
+                                 (when-let* ((window (get-buffer-window buffer)))
+                                   (delete-window window)))
+                               (when destination
+                                 (lispm-desktop-sidebar-select destination)
+                                 (let ((window (get-buffer-window
+                                                (if (eq destination 'agents) agents files))))
+                                   (set-window-point window 80)
+                                   (set-window-start window 40 t)
+                                   (setq destination-point (window-point window)
+                                         destination-start (window-start window)
+                                         destination-width (window-total-width window))))
+                               fresh))
+                            ((symbol-function 'lispm-desktop-workspace-show-alone)
+                             (lambda (buffer) (setq route 'new) (show buffer)))
+                            ((symbol-function 'lispm-desktop-sidebar-show-in-main)
+                             (lambda (buffer) (setq route 'existing) (show buffer))))
+                    (should (eq (lispm-desktop-agent--show target) target)))
+                  (should (eq (selected-window) main))
+                  (should (eq (window-buffer main) target))
+                  (should (eq route (if fresh 'new 'existing)))
+                  (if (or (eq source 'agents) (eq destination 'agents))
+                      (let ((window (get-buffer-window agents)))
+                        (should (window-live-p window))
+                        (should-not (get-buffer-window files))
+                        (should (= (window-point window)
+                                   (if (eq destination 'agents) destination-point source-point)))
+                        (should (= (window-start window)
+                                   (if (eq destination 'agents) destination-start source-start)))
+                        (should (= (window-total-width window)
+                                   (if (eq destination 'agents) destination-width source-width)))
+                        (when (and (eq source 'agents) (not (eq destination 'agents)))
+                          ;; The public show command redraws after routing, using
+                          ;; buffer point to retain the selected session's line.
+                          (with-current-buffer agents
+                            (should (= (point) source-point))
+                            (let ((line (line-number-at-pos)))
+                              (lispm-desktop-sidebar-refresh-list 'agents)
+                              (should (= (line-number-at-pos) line))))))
+                    (should-not (lispm-desktop-sidebar-current-view)))
+                  ;; Existing destination Agents must not be toggled or redrawn.
+                  (when (eq destination 'agents)
+                    (should (= renders (+ (if source 1 0) 1)))))
+              (mapc #'kill-buffer (list agents files target)))))))))
+
 (ert-deftest lispm-desktop-test-sidebar-list-views ()
   "A list view gives only its buffer, mode and drawing: the sidebar shows it
 drawn anew, draws it again with point on the same line, and hides it.  A

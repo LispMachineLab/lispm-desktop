@@ -58,6 +58,9 @@
 (declare-function lispm-desktop-term-waiting-buffers "lispm-desktop-term" ())
 (declare-function lispm-desktop-platinum-main-window "lispm-desktop-platinum-titlebar" ())
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
+(declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
+(declare-function lispm-desktop-sidebar--list-buffer "lispm-desktop-sidebar" (view))
+(declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
 (declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional directory))
 (declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
@@ -81,12 +84,37 @@ the repository's workspace; project-less chats share the default workspace."
   "Show agent BUFFER in its project's workspace and select it.
 In a workspace just created for it, BUFFER is shown alone; otherwise it is
 placed as `lispm-desktop-sidebar-show-in-main' places terminals.  This is
-`lispm-agents-show-function' on the desktop."
-  (pcase-let ((`(,name . ,root) (lispm-desktop-agent--workspace-name
-                                 (buffer-local-value 'default-directory buffer))))
-    (if (lispm-desktop-workspace-enter name root)
-        (lispm-desktop-workspace-show-alone buffer)
-      (lispm-desktop-sidebar-show-in-main buffer))))
+`lispm-agents-show-function' on the desktop.  An open Agents sidebar stays
+open when the session belongs to another workspace."
+  (let* ((sidebar (and (eq (lispm-desktop-sidebar-current-view) 'agents)
+                       (get-buffer-window (lispm-desktop-sidebar--list-buffer 'agents)
+                                          (selected-frame))))
+         (point (and sidebar (window-point sidebar)))
+         (start (and sidebar (window-start sidebar)))
+         (width (and sidebar (window-total-width sidebar))))
+    (prog1
+        (pcase-let ((`(,name . ,root) (lispm-desktop-agent--workspace-name
+                                     (buffer-local-value 'default-directory buffer))))
+          (if (lispm-desktop-workspace-enter name root)
+              (lispm-desktop-workspace-show-alone buffer)
+            (lispm-desktop-sidebar-show-in-main buffer)))
+      ;; A workspace restores its own windows, which may have no sidebar.
+      ;; Select only when missing: selecting an already open view hides it.
+      (when (and sidebar (not (eq (lispm-desktop-sidebar-current-view) 'agents)))
+        (save-selected-window
+          (lispm-desktop-sidebar-select 'agents)
+          (when-let* ((window (get-buffer-window (lispm-desktop-sidebar--list-buffer 'agents)
+                                                (selected-frame))))
+            (with-current-buffer (window-buffer window)
+              ;; The session-changed hook redraws from the buffer's point.
+              (goto-char (min point (point-max)))
+              (set-window-point window (point))
+              (set-window-start window (min start (point-max)) t))
+            ;; Sidebar windows preserve their width; restore the user's size
+            ;; while still respecting the destination frame's minimum sizes.
+            (let ((delta (window-resizable window (- width (window-total-width window))
+                                           t 'preserved)))
+              (unless (zerop delta) (window-resize window delta t 'preserved)))))))))
 
 (defun lispm-desktop-agent-next-waiting ()
   "Show the next terminal, or agent of LispM's, waiting for you.
