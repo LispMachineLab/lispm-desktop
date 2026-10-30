@@ -308,6 +308,7 @@ are set up as there; then the first frame becomes the terminal, see
   (condition-case err
       (lispm-desktop-setup-lispm)
     (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
+  (lispm-desktop-store-startup t)
   (lispm-desktop-setup-kernel)
   (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
 

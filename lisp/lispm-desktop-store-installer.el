@@ -479,7 +479,8 @@ each, those it leaves uncompiled too."
 (defconst lispm-desktop-store-installer-libraries
   '((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt")
     (lispm-kit :url "https://github.com/LispMachineLab/lispm-kit")
-    (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui"))
+    (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui")
+    (lispm :url "https://github.com/LispMachineLab/lispm-agent" :lisp-dir "lisp"))
   "LispM's libraries a package may require that no package archive holds,
 \(NAME :url URL) each.  A package requiring one, in its Package-Requires,
 has it installed first, from git at its latest release.")
@@ -488,14 +489,29 @@ has it installed first, from git at its latest release.")
   "Install DEPS with INSTALL, `package-vc-install-dependencies', then those
 of them it could not that are LispM's libraries, from git at their latest
 release; return those still missing.
+An existing VC checkout is updated in place, with rollback on failure;
+without a release tag it is left alone, still missing at this version.
 This is around `package-vc-install-dependencies' in the App Store's Emacs."
   (seq-remove
    (pcase-lambda (`(,name ,version))
      (when-let* ((spec (alist-get name lispm-desktop-store-installer-libraries)))
-       (package-vc-install (cons name spec)
-                           (or (lispm-desktop-store--release-tag (plist-get spec :url)) :last-release))
+       (let ((release (lispm-desktop-store--release-tag (plist-get spec :url)))
+             (desc (cadr (assq name package-alist))))
+         (if (and desc (package-vc-p desc))
+             (when release
+               (lispm-desktop-store-installer--update
+                name release (lispm-desktop-store--git (package-desc-dir desc) "rev-parse" "HEAD")))
+           (package-vc-install (cons name spec) (or release :last-release))))
        (package-installed-p name version)))
-   (funcall install deps)))
+   ;; Emacs 30's resolver treats any installed version as satisfied.
+   ;; Check our libraries' requested minima even when it omitted them.
+   (seq-uniq
+    (append (funcall install deps)
+            (seq-filter (pcase-lambda (`(,name ,version))
+                          (and (assq name lispm-desktop-store-installer-libraries)
+                               (not (package-installed-p name version))))
+                        deps))
+    #'equal)))
 
 (defun lispm-desktop-store-installer--prepare ()
   "Make this Emacs install for the App Store: say how far it is, ask

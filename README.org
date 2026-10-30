@@ -24,6 +24,13 @@ only places these views in the session area and handles sidebar hit regions.
 
 The agents and the browser each stand on their own; LispM Desktop installs both at its first start.
 
+LispM Office is included as an optional App Store extension.  The distribution installer,
+or the first normal start from a checkout, installs it through the App Store.  Uninstalling
+it closes its Work views and keeps it removed across restarts and installer reruns; Get in
+the App Store installs it again.  ~lispm-desktop-store-default-items~ can be set to nil before
+setup to skip the defaults.  A failed first install remains available to retry in the Store,
+and is retried at the next start.
+
 * Installation
 
 ** LispM.app, on macOS

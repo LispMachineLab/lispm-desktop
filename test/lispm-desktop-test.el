@@ -880,7 +880,8 @@ an error loading it is signalled once the redisplay is done."
 it installed first, from git at its latest release, or the commit that
 last changed its version before one; what is still missing is left for
 package-vc to say."
-  (let ((installed nil)
+  (let ((package-alist nil)
+        (installed nil)
         (release "v0.1.0"))
     (cl-letf (((symbol-function 'package-vc-install)
                (lambda (package rev) (push (list package rev) installed)))
@@ -15883,7 +15884,7 @@ once the turn that asked is over and saved: then only, and once."
     lispm-desktop-setup-keymapping lispm-desktop-setup-plain-interface lispm-desktop-setup-update
     lispm-desktop-setup-emacs lispm-desktop-setup-startup lispm-desktop-setup-i18n
     lispm-desktop-setup-langs lispm-desktop-form-setup lispm-desktop-setup-lispm
-    lispm-desktop-setup-kernel)
+    lispm-desktop-store-startup lispm-desktop-setup-kernel)
   "What LispM's terminal sets up, in its order.")
 
 (defun lispm-desktop-test--setup-as (as)
@@ -15920,8 +15921,10 @@ frame.  The desktop sets up all it did, and opens no terminal."
   (pcase-let ((`(,steps . ,hook) (lispm-desktop-test--setup-as 'desktop)))
     (dolist (step lispm-desktop-test--desktop-only-setup)
       (should (equal (list step (and (memq step steps) t)) (list step t))))
-    ;; The desktop's interface sets up the plain one itself.
-    (should (equal (seq-difference (remq 'lispm-desktop-setup-plain-interface lispm-desktop-test--terminal-setup)
+    ;; The desktop's interface and Store setup call these steps themselves.
+    (should (equal (seq-difference (seq-difference lispm-desktop-test--terminal-setup
+                                                  '(lispm-desktop-setup-plain-interface
+                                                    lispm-desktop-store-startup))
                                    steps)
                    nil))
     (should (memq 'lispm-desktop-setup-exwm hook))
