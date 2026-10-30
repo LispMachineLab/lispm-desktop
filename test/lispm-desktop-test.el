@@ -16716,6 +16716,110 @@ boxes."
       (should (string-match-p "\\[■\\]" bar))
       (should (string-match-p "\\[↕\\]\\[─\\]" bar)))))
 
+(ert-deftest lispm-desktop-test-tty-editor-controls ()
+  "Terminal child frames keep the editor's zoom box and floating menu
+available; a floating editor also keeps its collapse box."
+  (lispm-desktop-test--on-tty
+    (let ((supports-children t)
+          (floating nil)
+          (feature-p (symbol-function 'featurep))
+          (buffer (generate-new-buffer " lispm-test-tty-editor")))
+      (unwind-protect
+          (cl-letf (((symbol-function 'featurep)
+                     (lambda (feature &optional subfeature)
+                       (if (eq feature 'tty-child-frames) supports-children
+                         (funcall feature-p feature subfeature))))
+                    ((symbol-function 'lispm-desktop-editor-frame) #'selected-frame)
+                    ((symbol-function 'lispm-desktop-editor-floating-p) (lambda () floating))
+                    ((symbol-function 'lispm-desktop-sidebar-current-view) #'ignore)
+                    ((symbol-function 'lispm-desktop-editor--title) (lambda () "Emacs"))
+                    ((symbol-function 'lispm-desktop-editor--in-editor) #'funcall))
+            (let ((lispm-desktop-editor-strip-buffer-name (buffer-name buffer)))
+              (lispm-desktop-editor--render-strip)
+              (with-current-buffer buffer
+                (should (plist-get lispm-desktop-platinum-box-functions :zoom))
+                (should-not (plist-get lispm-desktop-platinum-box-functions :collapse)))
+              (should (plist-get (car (last (lispm-desktop-editor--view-items))) :enabled))
+              (setq floating t)
+              (lispm-desktop-editor--render-strip)
+              (with-current-buffer buffer
+                (should (plist-get lispm-desktop-platinum-box-functions :collapse)))
+              (setq floating nil supports-children nil)
+              (lispm-desktop-editor--render-strip)
+              (with-current-buffer buffer
+                (should-not (plist-get lispm-desktop-platinum-box-functions :zoom)))
+              (should-not (plist-get (car (last (lispm-desktop-editor--view-items))) :enabled))))
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-tty-editor-float-capability ()
+  "Windowing reaches frame setup on capable terminals, not on older ones."
+  (lispm-desktop-test--on-tty
+    (let ((supports-children t)
+          (feature-p (symbol-function 'featurep))
+          reached)
+      (cl-letf (((symbol-function 'featurep)
+                 (lambda (feature &optional subfeature)
+                   (if (eq feature 'tty-child-frames) supports-children
+                     (funcall feature-p feature subfeature))))
+                ((symbol-function 'lispm-desktop-editor-floating-p) #'ignore)
+                ((symbol-function 'lispm-desktop-apps-screen) #'selected-frame)
+                ((symbol-function 'lispm-desktop-editor--take-off-chrome)
+                 (lambda (_frame) (setq reached t) (throw 'frame-setup t))))
+        (catch 'frame-setup (lispm-desktop-editor-float))
+        (should reached)
+        (setq supports-children nil reached nil)
+        (catch 'frame-setup (lispm-desktop-editor-float))
+        (should-not reached)))))
+
+(ert-deftest lispm-desktop-test-editor-tab-release ()
+  "A tab owns the press until release, including movement within its label."
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((buffer (generate-new-buffer " lispm-test-editor-tabs"))
+          (window (selected-window))
+          selected release)
+      (unwind-protect
+          (progn
+            (set-window-buffer window buffer)
+            (with-current-buffer buffer
+              (insert (propertize "Agents" 'lispm-desktop-editor-view 'agents)
+                      " " (propertize "Shells" 'lispm-desktop-editor-view 'shells)))
+            (cl-labels ((position (point) (list window point '(0 . 0) 0)))
+              (cl-letf (((symbol-function 'lispm-ui-modal-read-event) (lambda () release))
+                        ((symbol-function 'lispm-desktop-sidebar-select)
+                         (lambda (view) (setq selected view))))
+                (should (eq (lookup-key lispm-desktop-editor-tab-map [down-mouse-1])
+                            #'lispm-desktop-editor-tab-press))
+                (dolist (type '(mouse-1 drag-mouse-1))
+                  (setq selected nil
+                        release (if (eq type 'drag-mouse-1)
+                                    (list type (position 1) (position 3))
+                                  (list type (position 3))))
+                  (lispm-desktop-editor-tab-press (list 'down-mouse-1 (position 1)))
+                  (should (eq selected 'agents)))
+                ;; Neither a different tab nor the gap activates the pressed tab.
+                (dolist (point '(7 8))
+                  (setq selected nil release (list 'mouse-1 (position point)))
+                  (lispm-desktop-editor-tab-press (list 'down-mouse-1 (position 1)))
+                  (should-not selected))
+                (setq release ?\C-g selected nil)
+                (lispm-desktop-editor-tab-press (list 'down-mouse-1 (position 1)))
+                (should-not selected))))
+        (kill-buffer buffer)))))
+
+(ert-deftest lispm-desktop-test-tty-border-follows-palette ()
+  "The terminal's pane border takes the look's outline and chrome, rather
+than an unrelated theme's possibly invisible vertical-border face."
+  (lispm-desktop-test--on-tty
+    (let (border)
+      (cl-letf (((symbol-function 'set-face-attribute)
+                 (lambda (face _frame &rest attributes)
+                   (when (eq face 'vertical-border) (setq border attributes))))
+                ((symbol-function 'lispm-desktop-platinum-apply-look-faces) #'ignore))
+        (lispm-desktop-platinum-apply-faces)
+        (should (equal (plist-get border :foreground) (lispm-ui-color :outline)))
+        (should (equal (plist-get border :background) (lispm-ui-color :chrome)))))))
+
 (ert-deftest lispm-desktop-test-tty-menu-bar ()
   "On a text terminal a menu bar title is its label between blanks, in the
 menu titles' face, highlighted while its menu is open; the bar's stretch
