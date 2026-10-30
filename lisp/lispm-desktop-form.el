@@ -38,8 +38,8 @@
 ;;     system's panel, which an application shown on its own would hide.
 ;;
 ;; What LispM UI asks a person otherwise, an alert, a choice or a file
-;; (lispm-ui-ask.el), it asks in the desktop's alerts, menus and Choose a
-;; File dialog, and it speaks the desktop's language.
+;; (lispm-ui-ask.el), it draws itself, speaking the desktop's language.
+;; The file dialog is still supplied by the desktop.
 
 ;;; Code:
 
@@ -62,11 +62,11 @@
   "Open the desktop's menu of CHOICES of a form's pop-up menu, VALUE checked.
 LABEL, CHOICES, VALUE and EVENT are as `lispm-ui-form-choose-function'
 gives them.  Where no menu can be drawn, the form's own way is taken."
-  (if (lispm-desktop-popup-available-p)
-      (lispm-desktop-platinum-choose choices value
-                                     (or (and (mouse-event-p event) (posn-point (event-start event)))
-                                         (point))
-                                     label)
+  (if (lispm-ui-popup-available-p)
+      (lispm-ui-choose choices value
+                       (or (and (mouse-event-p event) (posn-point (event-start event)))
+                           (point))
+                       label)
     (lispm-ui-form-choose label choices value event)))
 
 (defun lispm-desktop-form-choose-file (type label file predicate)
@@ -101,14 +101,11 @@ narrower than Emacs's own, so its fields widen."
 
 (defun lispm-desktop-form-setup ()
   "Show LispM UI's forms in the desktop's windows, choosing in its menus and
-dialog, and have LispM UI ask what it asks in the desktop's alerts, menus
-and dialog, in its language."
+dialog, and have LispM UI speak the desktop's language."
   (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose
         lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--layout)
-  (setq lispm-ui-alert-function #'lispm-desktop-popup-alert
-        lispm-ui-choose-function #'lispm-desktop-platinum-choose
-        lispm-ui-choose-file-function #'lispm-desktop-choose-file)
+  (setq lispm-ui-choose-file-function #'lispm-desktop-choose-file)
   ;; Before LispM's agent's, which follows the desktop's too.
   (add-hook 'lispm-ui-language-functions #'lispm-desktop-current-language -50)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-ui-language-changed)

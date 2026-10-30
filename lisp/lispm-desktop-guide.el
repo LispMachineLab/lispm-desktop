@@ -190,7 +190,7 @@ whenever asked."
             ("C-g" ,(lispm-desktop-tr-noop "cancels")))))
   "The guide's steps, in order: (KEY . PROPERTIES).
 :title names a step, :text says what it shows, and :icon is its large
-icon, as `lispm-desktop-platinum-icon-file' takes it.  :mark is what the
+icon, as `lispm-ui-icon-file' takes it.  :mark is what the
 coach mark circles meanwhile, see lispm-desktop-platinum-coach.el: (menu
 . KEY), a menu bar title; (icon . KEY), an icon of the desktop; or (area
 . FUNCTION), the place on the screen FUNCTION returns.  A mark on the
@@ -321,7 +321,7 @@ the desktop, as an alert stands."
 
 (defun lispm-desktop-guide--icon (name)
   "Return the large icon NAME as a string showing it, 32 pixels square."
-  (let ((file (lispm-desktop-platinum-icon-file name)))
+  (let ((file (lispm-ui-icon-file name)))
     (if (and (display-images-p) (file-readable-p file))
         (propertize " " 'display (create-image file nil nil :width 32 :height 32 :ascent 'center))
       "")))
@@ -669,7 +669,7 @@ collapse box does."
   "Major mode of the guide's window: a step of the guide, its buttons under it.
 \\{lispm-desktop-guide-mode-map}"
   (setq-local lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "LispM Guide"))
-              lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "guide")
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "guide")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box)
               truncate-lines nil

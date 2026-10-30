@@ -60,7 +60,7 @@
 ;;   lispm-desktop-platinum-palette
 ;;   lispm-desktop-platinum-draw
 ;;   lispm-desktop-platinum-controls
-;;   lispm-desktop-platinum-icons (and lispm-desktop-platinum-raster)
+;;   lispm-desktop-platinum-icons (and lispm-ui-raster)
 ;;   lispm-desktop-platinum-frames
 ;;   lispm-desktop-platinum-titlebar
 ;;   lispm-desktop-platinum-coach
@@ -200,9 +200,9 @@ as the triangles take the theme's colour."
     (set-face-attribute 'treemacs-root-face nil :underline nil :weight 'bold :height 1.0)
     (let* ((gap (propertize " " 'display '(space :width (5))))
            (no-triangle (propertize " " 'display '(space :width (12))))
-           (row (lambda (lead icon) (concat lead gap (lispm-desktop-platinum-icon icon) gap)))
+           (row (lambda (lead icon) (concat lead gap (lispm-ui-icon icon) gap)))
            ;; What a text terminal shows, treemacs's fallback.
-           (text-row (lambda (lead icon) (concat lead " " (lispm-desktop-platinum--text-icon icon) " "))))
+           (text-row (lambda (lead icon) (concat lead " " (lispm-ui-text-icon icon) " "))))
       (eval
        `(treemacs-create-theme "lispm-desktop-platinum"
           :config
@@ -234,7 +234,7 @@ as the triangles take the theme's colour."
                                                "tif" "tiff" "ico" "heic"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-lisp")
                                   :fallback ,(funcall text-row " " "document-lisp")
-                                  :extensions ,lispm-desktop-platinum-lisp-extensions)
+                                  :extensions ,lispm-ui-lisp-extensions)
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-markdown")
                                   :fallback ,(funcall text-row " " "document-markdown")
                                   :extensions ("md" "markdown" "mkd"))
@@ -243,7 +243,7 @@ as the triangles take the theme's colour."
                                   :extensions ("org"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-code")
                                   :fallback ,(funcall text-row " " "document-code")
-                                  :extensions ,lispm-desktop-platinum-code-extensions)
+                                  :extensions ,lispm-ui-code-extensions)
             (treemacs-create-icon :icon ,(funcall row no-triangle "document")
                                   :fallback ,(funcall text-row " " "document")
                                   :extensions (fallback))))

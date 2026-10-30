@@ -215,7 +215,7 @@ folder's order: (KEY LABEL ICON LARGE-ICON PANELS).  KEY is the control
 panel's application, in `lispm-desktop-apps', and the kind of its window;
 LABEL its name, in English, translated where shown, see
 `lispm-desktop-settings-category-label'; ICON and LARGE-ICON its icons,
-as `lispm-desktop-platinum-icon-file' takes them, the large one in the
+as `lispm-ui-icon-file' takes them, the large one in the
 Control Panels folder; PANELS, keys of `lispm-desktop-settings-panels',
 its window's tabs in their order.  A control panel shows while one of
 its panels does.")
@@ -774,7 +774,7 @@ them use it, now and at later starts."
                       (posn-point (event-start last-input-event))
                     (point))))
     (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
-      (lispm-desktop-popup-menu items x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-ui-button-height 2)))))))
+      (lispm-ui-menu items x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-ui-button-height 2)))))))
 
 (defun lispm-desktop-settings--choose-model ()
   "Pop up the models to choose from under the button pressed, and have
@@ -1134,7 +1134,7 @@ them.  File names are separated by commas, domains by commas or spaces."
   "Make the Custom level's rules those of LEVEL, now and for later starts.
 Rules of the user's own are replaced only once the user says so."
   (when (or (null lispm-sandbox-custom)
-            (lispm-desktop-popup-alert
+            (lispm-ui-alert
              'caution (lispm-desktop-tr "Replace your Custom rules with %s's?" (lispm-sandbox-level-name level))
              `((,(lispm-desktop-tr "Cancel") nil cancel) (,(lispm-desktop-tr "Replace") t default))
              (lispm-desktop-tr "The rules you set are lost.")))
@@ -1935,8 +1935,8 @@ key of `lispm-desktop-settings-categories'."
         (with-current-buffer (get-buffer-create name)
           (lispm-desktop-settings-mode)
           (setq lispm-desktop-settings--category category
-                lispm-desktop-platinum-icon
-                (lispm-desktop-platinum-icon (nth 2 (assq category lispm-desktop-settings-categories))))
+                lispm-desktop-platinum-window-icon
+                (lispm-ui-icon (nth 2 (assq category lispm-desktop-settings-categories))))
           (current-buffer)))))
 
 (defun lispm-desktop-settings--default-geometry (category screen)

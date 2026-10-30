@@ -37,9 +37,9 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function tabspaces--buffer-list "tabspaces" (&optional frame tabnum))
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-desktop-popup-available-p "lispm-desktop-popup" ())
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
+(declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
 
 ;;;; What the desktop tells title bars
 
@@ -133,7 +133,7 @@ windows and the menu bar are left as they are, which
 
 (defun lispm-desktop-platinum--buffer-icon (buffer)
   "Return the proxy icon of BUFFER's window, as Finder's windows showed one."
-  (or (buffer-local-value 'lispm-desktop-platinum-icon buffer)
+  (or (buffer-local-value 'lispm-desktop-platinum-window-icon buffer)
       (lispm-desktop-platinum-buffer-icon buffer)))
 
 (defun lispm-desktop-platinum--window-command (command)
@@ -589,7 +589,7 @@ buffer whose process still runs asks before the process is stopped."
         (process (get-buffer-process buffer)))
     (cond
      ((and (buffer-file-name buffer) (buffer-modified-p buffer))
-      (pcase (lispm-desktop-popup-alert
+      (pcase (lispm-ui-alert
               'caution (lispm-desktop-tr "Save changes to the document “%s” before closing?" name)
               `((,(lispm-desktop-tr "Don’t Save") discard nil ?\M-d)
                 (,(lispm-desktop-tr "Cancel") cancel cancel)
@@ -598,7 +598,7 @@ buffer whose process still runs asks before the process is stopped."
         ('save (with-current-buffer buffer (save-buffer)) t)
         ('discard (with-current-buffer buffer (set-buffer-modified-p nil)) t)))
      ((and process (process-live-p process))
-      (eq 'close (lispm-desktop-popup-alert
+      (eq 'close (lispm-ui-alert
                   'caution (lispm-desktop-tr "Close “%s”?" name)
                   `((,(lispm-desktop-tr "Cancel") cancel cancel) (,(lispm-desktop-tr "Close") close default))
                   (lispm-desktop-tr "What runs in it will be stopped."))))
@@ -606,7 +606,7 @@ buffer whose process still runs asks before the process is stopped."
 
 (defun lispm-desktop-platinum--yes-or-no (prompt &rest _)
   "Ask PROMPT, a question answered yes or no, in an alert; non-nil for Yes."
-  (eq 'yes (lispm-desktop-popup-alert
+  (eq 'yes (lispm-ui-alert
             'caution
             (replace-regexp-in-string "\\s-*([^()]*)\\s-*\\'" "" (string-trim prompt))
             `((,(lispm-desktop-tr "No") no cancel ?n) (,(lispm-desktop-tr "Yes") yes default ?y)))))
@@ -653,7 +653,7 @@ whose programs are not Emacs's processes."
 RESTART'ing, as Mac OS 9 asked; return nil if one was cancelled."
   (catch 'cancel
     (dolist (buffer documents)
-      (pcase (lispm-desktop-popup-alert
+      (pcase (lispm-ui-alert
               'caution (if restart
                            (lispm-desktop-tr "Save changes to the document “%s” before restarting?"
                                              (lispm-desktop-platinum-buffer-title buffer))
@@ -674,7 +674,7 @@ instead of the minibuffer: whether to save each modified document, and
 whether to stop the programs still running, agents in terminals among
 them.  ARG saves every document unasked; RESTART starts
 Emacs again.  Where alerts cannot be drawn, QUIT asks."
-  (if (not (lispm-desktop-popup-available-p))
+  (if (not (lispm-ui-popup-available-p))
       (funcall quit arg restart)
     (cl-letf (((symbol-function 'yes-or-no-p) #'lispm-desktop-platinum--yes-or-no)
               ((symbol-function 'y-or-n-p) #'lispm-desktop-platinum--yes-or-no))
@@ -689,7 +689,7 @@ Emacs again.  Where alerts cannot be drawn, QUIT asks."
                             (funcall function nil arg))
                           t)
                    (or (null programs)
-                       (eq 'quit (lispm-desktop-popup-alert
+                       (eq 'quit (lispm-ui-alert
                                   'caution (if restart
                                                (lispm-desktop-tr "Restart Emacs while programs are running?")
                                              (lispm-desktop-tr "Quit Emacs while programs are running?"))
@@ -794,7 +794,7 @@ mouse, or UNDER-TITLE, from WINDOW's title, as it does interactively:
 from the keyboard, for the selected window."
   (interactive (list (selected-window) t))
   (pcase-let ((`(,x . ,y) (and under-title (lispm-desktop-platinum--title-xy window))))
-    (lispm-desktop-popup-menu
+    (lispm-ui-menu
      (if-let* ((function (buffer-local-value 'lispm-desktop-platinum-title-menu-function
                                              (window-buffer window))))
          (funcall function window)

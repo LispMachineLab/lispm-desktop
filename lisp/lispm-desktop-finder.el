@@ -63,9 +63,9 @@
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 (defconst lispm-desktop-finder-buffer-name " *Finder*"
   "Name of the Finder window's buffer.")
@@ -108,7 +108,7 @@ Mac OS 9's Control Panels folder was: (KEY . PROPERTIES).  KEY, a symbol,
 stands for the folder where a directory's name would.  :title names the
 folder, in English, translated where shown, see
 `lispm-desktop-finder--title'; :icon gives its small icon as
-`lispm-desktop-platinum-icon-file' takes it, and :items is a function
+`lispm-ui-icon-file' takes it, and :items is a function
 returning its items, each (NAME ICON ACTION TRASH APP): NAME as shown, in
 the language LispM speaks, ICON its large icon, ACTION a function opening
 it, TRASH, when given, a function throwing it away, returning non-nil
@@ -147,8 +147,8 @@ The virtual folders are `lispm-desktop-finder-folders'."
   (let ((path (expand-file-name (car item) directory)))
     (if (cdr item)
         (if (file-exists-p (expand-file-name ".git" path)) "folder-git-32" "folder-32")
-      (let ((name (concat (lispm-desktop-platinum-file-icon-name path) "-32")))
-        (if (file-exists-p (lispm-desktop-platinum-icon-file name)) name "document-32")))))
+      (let ((name (concat (lispm-ui-file-icon-name path) "-32")))
+        (if (file-exists-p (lispm-ui-icon-file name)) name "document-32")))))
 
 (defvar lispm-desktop-finder--icons (make-hash-table :test #'equal)
   "Large icon images by (FILE . SELECTED), kept by file, as another look
@@ -160,7 +160,7 @@ draws an icon of the same name from another.")
       (propertize " " 'display `(space :width (,lispm-desktop-finder-icon-size)))
     (propertize
      " " 'display
-     (let ((file (lispm-desktop-platinum-icon-file name)))
+     (let ((file (lispm-ui-icon-file name)))
        (or (gethash (cons file selected) lispm-desktop-finder--icons)
            (puthash (cons file selected)
                     (let ((svg (with-temp-buffer
@@ -268,14 +268,14 @@ the disk."
   "Insert the folder's items for WINDOW on a text terminal, as Finder's
 icon view: in rows of cells of `lispm-desktop-finder-text-cell-width',
 each the item's icon drawn in cells, see
-`lispm-desktop-platinum-icon-picture', or an image where the terminal
+`lispm-ui-icon-picture', or an image where the terminal
 shows images, see `lispm-desktop-tty-images-show', over its name; the
 item selected darkened, its name inverted.  PROPS returns the text
 properties of an item, by name, which its icon and name carry.  Return
 the columns."
   (let* ((cell lispm-desktop-finder-text-cell-width)
          (size lispm-desktop-finder-text-icon-size)
-         (picture-size (lispm-desktop-platinum-text-size size))
+         (picture-size (lispm-ui-text-size size))
          (lines (cdr picture-size))
          (images (lispm-desktop-tty-images-p))
          (icons nil)
@@ -300,8 +300,8 @@ the columns."
                                                    (car picture-size) lines)
                                              icons)
                                        (make-list lines (make-string (car picture-size) ?\s)))
-                              (or (lispm-desktop-platinum-icon-picture icon size selected background)
-                                  (list (substring-no-properties (lispm-desktop-platinum-icon icon))))))
+                              (or (lispm-ui-icon-picture icon size selected background)
+                                  (list (substring-no-properties (lispm-ui-icon icon))))))
                    (name (concat " " (truncate-string-to-width (car item) (- cell 4) nil nil "…") " ")))
               (seq-do-indexed (lambda (line index)
                                 (push (list (+ index (- lines (length picture)))
@@ -315,7 +315,7 @@ the columns."
                                  (funcall props (car item))))
                     pieces)))
           row)
-         (dolist (line (lispm-desktop-platinum-text-compose width (+ lines 2) pieces))
+         (dolist (line (lispm-ui-text-compose width (+ lines 2) pieces))
            (insert " " line "\n"))))
      (seq-partition lispm-desktop-finder--items columns))
     (lispm-desktop-tty-images-show window icons)
@@ -367,9 +367,9 @@ text terminal as rows of names, see `lispm-desktop-finder--text-items'."
            row)
           (insert "\n" (propertize " " 'display '(space :height (14))) "\n"))
         (setq lispm-desktop-platinum-window-title (lispm-desktop-finder--title lispm-desktop-finder--directory)
-              lispm-desktop-platinum-icon (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
-                                              (lispm-desktop-platinum-icon (plist-get folder :icon))
-                                            (lispm-desktop-platinum-folder-icon lispm-desktop-finder--directory))
+              lispm-desktop-platinum-window-icon (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
+                                (lispm-ui-icon (plist-get folder :icon))
+                              (lispm-desktop-platinum-folder-icon lispm-desktop-finder--directory))
               ;; The header counts the items; the bottom edge holds only
               ;; the grow box.
               lispm-desktop-platinum-info "")
@@ -585,9 +585,9 @@ is selected."
         (when (funcall action)
           (lispm-desktop-finder--go directory nil next))
       (error
-       (lispm-desktop-popup-alert 'stop (lispm-desktop-tr "“%s” could not be thrown away." name)
-                                  `((,(lispm-desktop-tr "OK") ok default))
-                                  (error-message-string err))))))
+       (lispm-ui-alert 'stop (lispm-desktop-tr "“%s” could not be thrown away." name)
+                       `((,(lispm-desktop-tr "OK") ok default))
+                       (error-message-string err))))))
 
 (defun lispm-desktop-finder-move-to-trash ()
   "Throw the selected item away, as Command-Delete did in Finder: a file or
@@ -726,7 +726,7 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
   (let* ((selected (lispm-desktop-finder--in lispm-desktop-finder--selected))
          (real (lispm-desktop-finder-real-p))
          (file (and selected real t)))
-    (lispm-desktop-popup-menu
+    (lispm-ui-menu
      `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-finder-open :enabled ,(and selected t))
        separator
        (:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder :enabled ,real)

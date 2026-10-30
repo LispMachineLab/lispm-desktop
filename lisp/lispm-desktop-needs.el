@@ -105,7 +105,7 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-catalog)
 
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 (declare-function lispm-desktop-app-ui-menus "lispm-desktop-app-ui" (app))
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
@@ -425,7 +425,7 @@ installed.  NEEDS nothing installs are said, with how to install them."
      ((null needs) (when then (funcall then t)))
      ((not (seq-every-p #'lispm-desktop-needs-installable-p needs))
       (let ((commands (delq nil (mapcar #'lispm-desktop-needs-install-command needs))))
-        (when (eq 'copy (lispm-desktop-popup-alert
+        (when (eq 'copy (lispm-ui-alert
                          'caution (lispm-desktop-tr "%s needs %s." who (lispm-desktop-needs--names needs))
                          (if commands
                              `((,(lispm-desktop-tr "Copy Command") copy) (,(lispm-desktop-tr "OK") ok default))
@@ -437,7 +437,7 @@ installed.  NEEDS nothing installs are said, with how to install them."
           (kill-new (string-join commands " && "))
           (message (lispm-desktop-tr "Copied: %s") (string-join commands " && "))))
       (when then (funcall then nil)))
-     ((eq 'install (lispm-desktop-popup-alert
+     ((eq 'install (lispm-ui-alert
                     'caution (lispm-desktop-tr-n "%s needs %s.  Install it?" "%s needs %s.  Install them?"
                                                  (length needs) who (lispm-desktop-needs--names needs))
                     `((,(lispm-desktop-tr "Not Now") cancel cancel) (,(lispm-desktop-tr "Install") install default))
@@ -798,7 +798,7 @@ says it; FAILED, by default that Homebrew failed, when it says nothing."
 
 (defun lispm-desktop-needs--offer-homebrew (job)
   "Ask whether to install Homebrew for JOB; install it in a terminal if so."
-  (if (eq 'install (lispm-desktop-popup-alert
+  (if (eq 'install (lispm-ui-alert
                     'caution (lispm-desktop-tr "Install Homebrew first?")
                     `((,(lispm-desktop-tr "Cancel") cancel cancel) (,(lispm-desktop-tr "Install Homebrew") install default))
                     (let ((name (lispm-desktop-needs-name (lispm-desktop-needs--job-need job))))

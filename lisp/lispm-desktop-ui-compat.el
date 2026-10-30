@@ -42,6 +42,10 @@
 (require 'lispm-ui-draw)
 (require 'lispm-ui-controls)
 (require 'lispm-ui-form)
+(require 'lispm-ui-icons)
+(require 'lispm-ui-menu)
+(require 'lispm-ui-ask)
+(require 'lispm-ui-alert)
 
 ;;;; Variables
 
@@ -58,6 +62,31 @@
 ;; The title a buffer's window shows, which had the name of the face of
 ;; titles.
 (defvaralias 'lispm-desktop-platinum-title 'lispm-desktop-platinum-window-title)
+;; The per-window icon is desktop state, separate from the UI icon function.
+(defvaralias 'lispm-desktop-platinum-icon 'lispm-desktop-platinum-window-icon)
+
+;; Icons, raster pictures, menus and alerts.
+(defvaralias 'lispm-desktop-platinum--icons 'lispm-ui--icons)
+(defvaralias 'lispm-desktop-platinum--icon-colors 'lispm-ui--icon-colors)
+(defvaralias 'lispm-desktop-platinum--icon-pictures 'lispm-ui--icon-pictures)
+(defvaralias 'lispm-desktop-platinum--rasters 'lispm-ui-raster--cache)
+(defvaralias 'lispm-desktop-platinum-raster-samples 'lispm-ui-raster-samples)
+(defvaralias 'lispm-desktop-platinum-text-cell 'lispm-ui-text-cell)
+(defvaralias 'lispm-desktop-platinum-lisp-extensions 'lispm-ui-lisp-extensions)
+(defvaralias 'lispm-desktop-platinum-code-extensions 'lispm-ui-code-extensions)
+(defvaralias 'lispm-desktop-popup-small 'lispm-ui-menu-small)
+(defvaralias 'lispm-desktop-popup-parent 'lispm-ui-menu-parent)
+(defvaralias 'lispm-desktop-popup-menu-bar-step 'lispm-ui-menu-bar-step)
+(defvaralias 'lispm-desktop-popup-item-height 'lispm-ui-menu-item-height)
+(defvaralias 'lispm-desktop-popup-separator-height 'lispm-ui-menu-separator-height)
+(defvaralias 'lispm-desktop-popup-label-x 'lispm-ui-menu-label-x)
+(defvaralias 'lispm-desktop-popup-key-margin 'lispm-ui-menu-key-margin)
+(defvaralias 'lispm-desktop-popup-icon-size 'lispm-ui-menu-icon-size)
+(defvaralias 'lispm-desktop-popup-typed-keys 'lispm-ui-menu-typed-keys)
+(defvaralias 'lispm-desktop-popup-alert-width 'lispm-ui-alert-width)
+(defvaralias 'lispm-desktop-popup-alert-text-x 'lispm-ui-alert-text-x)
+(defvaralias 'lispm-desktop-popup-button-gap 'lispm-ui-alert-button-gap)
+(defvaralias 'lispm-desktop-popup-text-alert-width 'lispm-ui-text-alert-width)
 
 ;;;; Faces
 
@@ -68,7 +97,10 @@
                                 (lispm-desktop-platinum-field-focused . lispm-ui-field-focused)
                                 (lispm-desktop-platinum-button . lispm-ui-button)
                                 (lispm-desktop-platinum-button-pressed . lispm-ui-button-pressed)
-                                (lispm-desktop-form-text-area . lispm-ui-form-text-area)))
+                                (lispm-desktop-form-text-area . lispm-ui-form-text-area)
+                                (lispm-desktop-popup-item . lispm-ui-menu-item)
+                                (lispm-desktop-popup-item-highlight . lispm-ui-menu-item-highlight)
+                                (lispm-desktop-popup-item-disabled . lispm-ui-menu-item-disabled)))
   (put old 'face-alias new))
 
 ;;;; Looks
@@ -93,6 +125,11 @@
 (defalias 'lispm-desktop-platinum-insert-radio-button #'lispm-ui-insert-radio-button)
 (defalias 'lispm-desktop-platinum-insert-check-box #'lispm-ui-insert-check-box)
 (defalias 'lispm-desktop-platinum-insert-popup-button #'lispm-ui-insert-popup-button)
+
+;;;; Questions and menus
+
+(defalias 'lispm-desktop-popup-alert #'lispm-ui-alert)
+(defalias 'lispm-desktop-popup-menu #'lispm-ui-menu)
 
 (provide 'lispm-desktop-ui-compat)
 ;;; lispm-desktop-ui-compat.el ends here

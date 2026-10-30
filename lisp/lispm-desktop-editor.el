@@ -66,7 +66,7 @@
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" ())
 (declare-function lispm-desktop-buffer-manager "lispm-desktop-buffer-manager" ())
-(declare-function lispm-desktop-popup-keyboard-p "lispm-desktop-popup" (keys))
+(declare-function lispm-ui-menu-keyboard-p "lispm-ui-menu" (keys))
 (declare-function tabspaces--current-tab-name "tabspaces" ())
 (declare-function tabspaces-local-buffer-list "tabspaces" (&optional frame tabnum))
 (declare-function tabspaces--set-buffer-predicate "tabspaces" (frame))
@@ -206,7 +206,7 @@ Moving within a label still chooses it; releasing outside it cancels."
 `lispm-desktop-platinum-tabs' takes it, its title and help in the language
 LispM speaks."
   (let ((spec (cdr view)))
-    (list (concat (lispm-desktop-platinum-icon (plist-get spec :icon)) " "
+    (list (concat (lispm-ui-icon (plist-get spec :icon)) " "
                   (lispm-desktop-tr (plist-get spec :title)))
           selected
           'lispm-desktop-editor-view (car view) 'keymap lispm-desktop-editor-tab-map
@@ -278,7 +278,7 @@ the edge of the windows below, which runs across the strip."
               right-fringe-width 0
               evil-emacs-state-cursor '(nil)
               evil-normal-state-cursor '(nil)
-              lispm-desktop-platinum-icon (lispm-desktop-platinum-icon 'emacs)
+              lispm-desktop-platinum-window-icon (lispm-ui-icon 'emacs)
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-editor--close-box
                                                          :zoom #'lispm-desktop-editor--zoom-box)
               lispm-desktop-platinum-active-function #'lispm-desktop-editor--active-p)
@@ -648,7 +648,7 @@ rolled a window up into its title bar."
 
 (defun lispm-desktop-editor--key (command)
   "Return the keys of COMMAND typed on the keyboard, as a menu shows them."
-  (when-let* ((keys (seq-find #'lispm-desktop-popup-keyboard-p (where-is-internal command))))
+  (when-let* ((keys (seq-find #'lispm-ui-menu-keyboard-p (where-is-internal command))))
     (key-description keys)))
 
 (defun lispm-desktop-editor--item (label command &rest properties)

@@ -37,8 +37,8 @@
 (require 'lispm-desktop-platinum-coach)
 (require 'lispm-desktop-i18n)
 
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 (declare-function lispm-desktop-platinum-menu-status "lispm-desktop-platinum-status" ())
 
@@ -193,9 +193,9 @@ so its lines run from edge to edge."
 (defun lispm-desktop-platinum--lambda ()
   "Return LispM's rainbow λ, the counterpart of Mac OS 9's rainbow Apple.
 Where images cannot be shown, a plain λ stands in."
-  (if (display-images-p) (lispm-desktop-platinum-icon 'lambda) "λ"))
+  (if (display-images-p) (lispm-ui-icon 'lambda) "λ"))
 
-(defvar lispm-desktop-popup-menu-bar-step)
+(defvar lispm-ui-menu-bar-step)
 
 (defvar lispm-desktop-theme)
 
@@ -209,11 +209,11 @@ text terminal the bar is a line of text, and the outline starts under it."
 
 (defvar lispm-desktop-platinum-lambda-items-function nil
   "Function returning the λ menu's items between About and Customize, as
-`lispm-desktop-popup-menu' takes them: what the desktop runs, as Mac OS
+`lispm-ui-menu' takes them: what the desktop runs, as Mac OS
 9's Apple menu listed its applications and control panels.")
 
 (defun lispm-desktop-platinum-lambda-items ()
-  "Return the items of the λ menu, as `lispm-desktop-popup-menu' takes them.
+  "Return the items of the λ menu, as `lispm-ui-menu' takes them.
 See `lispm-desktop-platinum-lambda-items-function'."
   `((:label ,(lispm-desktop-tr "About LispM") :action lispm-desktop-platinum-about)
     separator
@@ -226,7 +226,7 @@ See `lispm-desktop-platinum-lambda-items-function'."
   "Pop up the λ menu, LispM's counterpart of the Apple menu."
   (interactive)
   (lispm-desktop-platinum-with-open-menu 'lispm-desktop-lambda
-    (lispm-desktop-popup-menu (lispm-desktop-platinum-lambda-items) (lispm-desktop-px 4)
+    (lispm-ui-menu (lispm-desktop-platinum-lambda-items) (lispm-desktop-px 4)
                               (lispm-desktop-platinum--menu-y))))
 
 (defvar lispm-desktop-platinum-licence-function #'describe-copying
@@ -238,7 +238,7 @@ button calls: the desktop shows it in the editor.")
 and the GNU Emacs it runs on, free software under the GNU GPL; Licence
 shows the licence through `lispm-desktop-platinum-licence-function'."
   (interactive)
-  (when (eq (lispm-desktop-popup-alert
+  (when (eq (lispm-ui-alert
              'note (lispm-desktop-tr "LispM, a Lisp Machine for agents, inside Emacs.")
              `((,(lispm-desktop-tr "Licence") licence)
                (,(lispm-desktop-tr "OK") ok default))
@@ -252,7 +252,7 @@ shows the licence through `lispm-desktop-platinum-licence-function'."
   "Function returning the frontmost application's menus, or nil.
 The menus follow the λ menu in the menu bar, as Mac OS 9's menu bar held
 the frontmost application's: a list of (KEY TITLE ITEMS), ITEMS a function
-returning the items `lispm-desktop-popup-menu' takes.  Without it the menu bar
+returning the items `lispm-ui-menu' takes.  Without it the menu bar
 holds the λ menu alone.")
 
 (defvar lispm-desktop-platinum-application-function nil
@@ -272,7 +272,7 @@ its own instead, called with KEY, LEFT and the menu bar's bottom."
     (if (and (symbolp items) (get items 'lispm-desktop-platinum-panel))
         (funcall items key left (lispm-desktop-platinum--menu-y))
       (lispm-desktop-platinum-with-open-menu key
-        (lispm-desktop-popup-menu (funcall items) left (lispm-desktop-platinum--menu-y))))))
+        (lispm-ui-menu (funcall items) left (lispm-desktop-platinum--menu-y))))))
 
 (defun lispm-desktop-platinum--application-menus (menus left)
   "Return the menu bar titles of MENUS, the first starting LEFT pixels in.
@@ -305,7 +305,7 @@ current one checked."
   (let ((current (tab-bar--current-tab-index))
         (tabs (funcall tab-bar-tabs-function)))
     (lispm-desktop-platinum-with-open-menu 'lispm-desktop-application
-      (lispm-desktop-popup-menu
+      (lispm-ui-menu
        (if lispm-desktop-platinum-applications-function
            (funcall lispm-desktop-platinum-applications-function)
          `(,@(seq-map-indexed
@@ -333,7 +333,7 @@ project's folder for a project's.  Clicked, it lists every workspace."
            'lispm-desktop-application
            (concat (cond (application (car application))
                          ((equal name (bound-and-true-p tabspaces-default-tab))
-                          (lispm-desktop-platinum-icon "disk"))
+                          (lispm-ui-icon "disk"))
                          (t (lispm-desktop-platinum-folder-icon
                              (car (rassoc name (bound-and-true-p tabspaces-project-tab-map))))))
                    " " (or (cdr application) name))
@@ -372,8 +372,8 @@ of that window."
         step)
     (unwind-protect
         (let ((lispm-desktop-platinum--menu-bar-walk t))
-          (while (setq step (catch 'lispm-desktop-popup-menu-bar-step
-                              (let ((lispm-desktop-popup-menu-bar-step t))
+          (while (setq step (catch 'lispm-ui-menu-bar-step
+                              (let ((lispm-ui-menu-bar-step t))
                                 (call-interactively (cdr (nth index menus))))
                               nil))
             (setq index (mod (+ index step) (length menus)))))

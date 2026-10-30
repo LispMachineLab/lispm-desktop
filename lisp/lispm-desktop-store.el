@@ -147,8 +147,8 @@
 (require 'lispm-desktop-markdown)
 (require 'lispm-desktop-tty-images)
 
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
 (declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
@@ -518,7 +518,7 @@ with, its 32-pixel one when LARGE, or nil when its clone holds none."
 
 (defun lispm-desktop-store--icon (props &optional large)
   "Return the icon of the item of PROPS, its 32-pixel one when LARGE, as
-`lispm-desktop-platinum-icon-file' takes it: its catalog's drawing, or
+`lispm-ui-icon-file' takes it: its catalog's drawing, or
 one standing for its kind."
   (or (lispm-desktop-store--catalog-icon props large)
       (pcase (plist-get props :kind)
@@ -853,9 +853,9 @@ going on."
   (lispm-desktop-store--call-with-preview
    preview
    (lambda ()
-     (eq 'go (lispm-desktop-popup-alert 'caution question
-                                        `((,(lispm-desktop-tr "Cancel") cancel cancel) (,action go default))
-                                        detail)))))
+     (eq 'go (lispm-ui-alert 'caution question
+                             `((,(lispm-desktop-tr "Cancel") cancel cancel) (,action go default))
+                             detail)))))
 
 (defconst lispm-desktop-store-preview-buffer-name " *App Store Preview*"
   "Name of the buffer showing what an item brings while an alert asks.")
@@ -1829,7 +1829,7 @@ words do."
         (detail (lispm-desktop-store--remove-detail id props)))
     (if (not (or needs packages))
         (and (lispm-desktop-store--confirm question detail nil (lispm-desktop-tr "Uninstall")) 'item)
-      (pcase (lispm-desktop-popup-alert
+      (pcase (lispm-ui-alert
               'caution question
               `((,(lispm-desktop-tr "Uninstall All") all nil ?\M-a) (,(lispm-desktop-tr "Cancel") cancel cancel)
                 (,(lispm-desktop-tr "Uninstall") item default))
@@ -2175,9 +2175,9 @@ background; what goes wrong is said in an alert."
                                  (lispm-desktop-store--add-catalog url))
                                 (t (lispm-desktop-store--install-repository url repository))))
                       (user-error
-                       (lispm-desktop-popup-alert 'stop (lispm-desktop-tr "Nothing could be installed from %s." url)
-                                                  `((,(lispm-desktop-tr "OK") ok default))
-                                                  (error-message-string err)))))
+                       (lispm-ui-alert 'stop (lispm-desktop-tr "Nothing could be installed from %s." url)
+                                       `((,(lispm-desktop-tr "OK") ok default))
+                                       (error-message-string err)))))
                 (delete-directory directory t))))))
       (error (lispm-desktop-loading-stop loading)
              (lispm-desktop-store--status nil)
@@ -2520,7 +2520,7 @@ pixels a cell.")
   "Return the height in pixels of a line of the grid; on a text terminal,
 in lines: an item's icon, its name, subtitle and button, and a blank."
   (if (lispm-desktop-tty-p)
-      (+ (cdr (lispm-desktop-platinum-text-size lispm-desktop-store-text-icon-size)) 4)
+      (+ (cdr (lispm-ui-text-size lispm-desktop-store-text-icon-size)) 4)
     lispm-desktop-store-tile-height))
 
 (defun lispm-desktop-store--grid (width)
@@ -2734,7 +2734,7 @@ when selected, its subtitle and its button, or its progress bar."
          (highlight (lispm-desktop-store--selected-face))
          (face 'lispm-ui-list)
          (small 'lispm-ui-small))
-    (lispm-desktop-store--draw-icon svg (lispm-desktop-platinum-icon-file (plist-get tile :icon))
+    (lispm-desktop-store--draw-icon svg (lispm-ui-icon-file (plist-get tile :icon))
                                     (- center 16) 8 32 selected)
     (let* ((name (lispm-desktop-store--fit (plist-get tile :name) (- width 10) face))
            (w (lispm-ui-text-width name face))
@@ -2809,7 +2809,7 @@ between the list and what is beside it."
 text WIDTH cells wide and as many lines as a page of HEIGHT lines takes:
 the categories down the left, a line each, and beside them the items in
 rows, each its icon drawn in cells, see
-`lispm-desktop-platinum-icon-picture', over its name, its subtitle and
+`lispm-ui-icon-picture', over its name, its subtitle and
 its button, or how far it is installed; the item selected is darkened
 and its name highlighted.  Each part carries what it is as its
 `lispm-desktop-store-hit' property, as `lispm-desktop-store--hit' says
@@ -2820,7 +2820,7 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                (empty (and (null items) (lispm-desktop-store--empty-text)))
                (dim `(:foreground ,(lispm-ui-color :muted)))
                (size lispm-desktop-store-text-icon-size)
-               (icon-lines (cdr (lispm-desktop-platinum-text-size size)))
+               (icon-lines (cdr (lispm-ui-text-size size)))
                (background (lispm-ui-color :chrome))
                (tile (lispm-desktop-store--tile-height))
                (tiles (mapcar #'lispm-desktop-store--tile items)))
@@ -2834,11 +2834,11 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                   (item (cons 'item id))
                   (picture (or (lispm-desktop-tty-images-blank
                                 (cons 'tile id) (plist-get tile :icon) (plist-get tile :selected)
-                                (car (lispm-desktop-platinum-text-size size)) icon-lines)
-                               (lispm-desktop-platinum-icon-picture (plist-get tile :icon) size
-                                                                    (plist-get tile :selected) background)
+                                (car (lispm-ui-text-size size)) icon-lines)
+                               (lispm-ui-icon-picture (plist-get tile :icon) size
+                                                      (plist-get tile :selected) background)
                                (list (substring-no-properties
-                                      (lispm-desktop-platinum-icon (plist-get tile :icon))))))
+                                      (lispm-ui-icon (plist-get tile :icon))))))
                   (button (if-let* ((progress (plist-get tile :progress)))
                               (lispm-desktop-store--text-progress progress)
                             (lispm-ui-text-button
@@ -2873,7 +2873,7 @@ it: (category . CATEGORY), (item . ID) or (button . ID)."
                                                       'keymap lispm-desktop-store-grid-map
                                                       'pointer 'arrow))
              (insert "\n")))
-         (lispm-desktop-platinum-text-compose (* columns tile-width) tile pieces))))))
+         (lispm-ui-text-compose (* columns tile-width) tile pieces))))))
 
 (defun lispm-desktop-store--insert-grid (width height)
   "Insert the categories and the page of the grid holding the item
@@ -3518,7 +3518,7 @@ is installed or updated."
          (text (plist-get palette :text))
          (grey (lispm-ui-grey palette #x66))
          (small 'lispm-ui-small))
-    (lispm-desktop-store--draw-icon svg (lispm-desktop-platinum-icon-file (plist-get head :icon)) x 10 64)
+    (lispm-desktop-store--draw-icon svg (lispm-ui-icon-file (plist-get head :icon)) x 10 64)
     (lispm-ui-svg-content
      svg (lispm-desktop-store--fit (plist-get head :name) room '(:weight bold :height 1.5))
      tx 10 26 text 'lispm-ui-list)
@@ -3658,12 +3658,12 @@ the one
          (notes (string-trim (concat (lispm-desktop-store--failure id) (lispm-desktop-store--notes props))))
          ;; The head: the icon, its name, subtitle, catalog and how far
          ;; it is installed beside it.
-         (picture-size (lispm-desktop-platinum-text-size lispm-desktop-store-text-icon-size))
+         (picture-size (lispm-ui-text-size lispm-desktop-store-text-icon-size))
          (picture (or (lispm-desktop-tty-images-blank 'head (plist-get head :icon) nil
                                                       (car picture-size) (cdr picture-size))
-                      (lispm-desktop-platinum-icon-picture (plist-get head :icon) lispm-desktop-store-text-icon-size
-                                                           nil (lispm-ui-color :chrome))
-                      (list (substring-no-properties (lispm-desktop-platinum-icon (plist-get head :icon))))))
+                      (lispm-ui-icon-picture (plist-get head :icon) lispm-desktop-store-text-icon-size
+                                             nil (lispm-ui-color :chrome))
+                      (list (substring-no-properties (lispm-ui-icon (plist-get head :icon))))))
          (picture-width (apply #'max (mapcar #'string-width picture)))
          (beside `(,(propertize (plist-get head :name) 'face '(:weight bold))
                    ,(propertize (or (plist-get head :subtitle) "") 'face dim)
@@ -4497,7 +4497,7 @@ Control click."
     (`(,(or 'item 'button) . ,id)
      (lispm-desktop-store--select id)
      (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
-       (lispm-desktop-popup-menu (lispm-desktop-store--item-items) x y)))))
+       (lispm-ui-menu (lispm-desktop-store--item-items) x y)))))
 
 (defun lispm-desktop-store--keyboard-menu ()
   "Pop up the menu of the item selected from the keyboard, see
@@ -4519,14 +4519,14 @@ under its icon on its page."
                                            (/ index columns)))))
            (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy line)))
              ;; Under the item's button, its tile's third line from the bottom.
-             (lispm-desktop-popup-menu (lispm-desktop-store--item-items)
-                                       (+ x gx (* (% index columns) tw))
-                                       (+ y (if (eq lispm-desktop-store--view 'item) 1
-                                              (1- (lispm-desktop-store--tile-height))))))))
+             (lispm-ui-menu (lispm-desktop-store--item-items)
+                            (+ x gx (* (% index columns) tw))
+                            (+ y (if (eq lispm-desktop-store--view 'item) 1
+                                   (1- (lispm-desktop-store--tile-height))))))))
         ((eq lispm-desktop-store--view 'item)
            (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy
                                     (text-property-not-all (point-min) (point-max) 'lispm-desktop-store-top nil))))
-             (lispm-desktop-popup-menu (lispm-desktop-store--item-items) (+ x gx) (+ y 76))))
+             (lispm-ui-menu (lispm-desktop-store--item-items) (+ x gx) (+ y 76))))
         (t
          (let ((index (or (seq-position (mapcar #'car (lispm-desktop-store--page-items))
                                         lispm-desktop-store--selected)
@@ -4538,8 +4538,8 @@ under its icon on its page."
                                         (car (lispm-desktop-store--action
                                               lispm-desktop-store--selected
                                               (cdr (assq lispm-desktop-store--selected (lispm-desktop-store-items))))))))
-             (lispm-desktop-popup-menu (lispm-desktop-store--item-items)
-                                       (+ x bx) (+ y by lispm-ui-button-height))))))))))
+             (lispm-ui-menu (lispm-desktop-store--item-items)
+                            (+ x bx) (+ y by lispm-ui-button-height))))))))))
 
 (defvar-keymap lispm-desktop-store-grid-map
   :doc "Keymap of the App Store's grid, for the mouse.  The second click of
@@ -4629,7 +4629,7 @@ a grid of icons in pages, or an item's page in its place.
               lispm-desktop-context-menu-function #'lispm-desktop-store--keyboard-menu
               lispm-desktop-platinum-info #'lispm-desktop-store--placard
               lispm-desktop-platinum-window-title "App Store"
-              lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "app-store")
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "app-store")
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-store--close-box
                                                          :collapse #'lispm-desktop-app-window-collapse-box))
   (add-hook 'window-size-change-functions #'lispm-desktop-store--refit nil t)

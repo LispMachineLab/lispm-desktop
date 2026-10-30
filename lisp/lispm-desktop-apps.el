@@ -62,7 +62,7 @@
              :activate lispm-desktop-browser-show :visible lispm-browser-available-p
              :running lispm-browser-tabs))
   "The applications, in the Application menu's order: (KEY . PROPERTIES).
-:name and :icon (see `lispm-desktop-platinum-icon-file') name an application,
+:name and :icon (see `lispm-ui-icon-file') name an application,
 :name in English, translated where shown, see `lispm-desktop-apps-name';
 :menus is a function returning its menus as
 `lispm-desktop-platinum-menus-function' does, :activate brings it in front,
@@ -414,7 +414,7 @@ Application menu lists it."
 
 (defun lispm-desktop-apps-large-icon (app)
   "Return the large icon of APP, a key of `lispm-desktop-apps', as
-`lispm-desktop-platinum-icon-file' takes it: its :folder icon, built in,
+`lispm-ui-icon-file' takes it: its :folder icon, built in,
 else its :large-icon, or nil when it has none."
   (let ((props (alist-get app lispm-desktop-apps)))
     (or (plist-get props :folder) (plist-get props :large-icon))))
@@ -454,7 +454,7 @@ LispM speaks, or nil."
 (defun lispm-desktop-apps-application ()
   "Return the frontmost application as (ICON . NAME), for the Application menu."
   (let ((app (lispm-desktop-apps-frontmost)))
-    (cons (lispm-desktop-platinum-icon (plist-get (alist-get app lispm-desktop-apps) :icon))
+    (cons (lispm-ui-icon (plist-get (alist-get app lispm-desktop-apps) :icon))
           (lispm-desktop-apps-name app))))
 
 (declare-function lispm-desktop-coherence-available-p "lispm-desktop-coherence" (&optional screen))

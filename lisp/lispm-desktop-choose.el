@@ -302,7 +302,7 @@ beside it, and the buttons at the bottom right, the default
           :scroll (list (- (+ 15 list-w) lispm-desktop-platinum-scroll-width) rows-y
                         lispm-desktop-platinum-scroll-width (1+ rows-h))
           :preview (list pane-x list-y (- right pane-x) list-h)
-          :cancel (list (- choose-x 3 lispm-desktop-popup-button-gap cancel-w) buttons-y cancel-w
+          :cancel (list (- choose-x 3 lispm-ui-alert-button-gap cancel-w) buttons-y cancel-w
                         lispm-ui-button-height)
           :choose (list choose-x buttons-y choose-w lispm-ui-button-height))))
 
@@ -416,7 +416,7 @@ folder's icon and name, and the menu's arrows."
                (state (and (eq (lispm-desktop-choose--dialog-pressed dialog) 'location) 'pressed))
                (directory (lispm-desktop-choose--dialog-directory dialog))
                (name (or (file-name-nondirectory (directory-file-name directory)) ""))
-               (label (concat (lispm-desktop-platinum-icon "folder") " "
+               (label (concat (lispm-ui-icon "folder") " "
                               (lispm-desktop-platinum-fit
                                (propertize (if (string-empty-p name) "/" name) 'face 'lispm-ui-title)
                                (- w 52)))))
@@ -437,7 +437,7 @@ and the small arrow of a button popping up a menu."
     (lispm-ui-svg-embed svg (lispm-ui-draw-bevel-button palette w h :state state)
                         x y w h)
     (if (eq kind 'shortcuts)
-        (lispm-ui-svg-icon svg (lispm-desktop-platinum-icon-file "disk") (+ x 5) (+ y 5) 16)
+        (lispm-ui-svg-icon svg (lispm-ui-icon-file "disk") (+ x 5) (+ y 5) 16)
       (let ((cx (+ x 13)) (cy (+ y 13)))
         (svg-circle svg cx cy 6.5 :fill (if (eq state 'disabled)
                                              (lispm-ui-grey palette #xDD)
@@ -490,7 +490,7 @@ bar."
                                                           (- name-w 34)))
                        (label-w (lispm-ui-text-width label 'lispm-ui-list)))
             (lispm-ui-svg-icon
-             svg (lispm-desktop-platinum-icon-file (if folder "folder" (lispm-desktop-platinum-file-icon-name file)))
+             svg (lispm-ui-icon-file (if folder "folder" (lispm-ui-file-icon-name file)))
              (+ rx 8) (+ y 2) 16)
             (when selected
               (lispm-ui-svg-fill svg (+ rx 26) (+ y 2) (+ label-w 4) 15 (plist-get palette :outline)))
@@ -551,7 +551,7 @@ and right; the controls as Navigation Services drew them."
 
 (defun lispm-desktop-choose--show (frame dialog)
   "Show DIALOG in its popup FRAME, drawn anew."
-  (lispm-desktop-popup-fill
+  (lispm-ui-popup-fill
    frame (propertize " " 'display (svg-image (lispm-desktop-choose-draw dialog lispm-ui-current-palette)
                                              :ascent 100 :scale 1)))
   (redisplay t))
@@ -582,12 +582,12 @@ menu is open; return the item chosen, or nil."
     (setf (lispm-desktop-choose--dialog-pressed dialog) (intern (substring (symbol-name part) 1)))
     (lispm-desktop-choose--show frame dialog)
     (unwind-protect
-        (lispm-desktop-popup-choose items (+ fx x) (+ fy y h))
+        (lispm-ui-menu-choose items (+ fx x) (+ fy y h))
       (setf (lispm-desktop-choose--dialog-pressed dialog) nil))))
 
 (defun lispm-desktop-choose--folder-icon ()
   "Return the image of a folder's small icon, for a menu item."
-  (create-image (lispm-desktop-platinum-icon-file "folder") nil nil :ascent 'center))
+  (create-image (lispm-ui-icon-file "folder") nil nil :ascent 'center))
 
 (defun lispm-desktop-choose--path-items (dialog)
   "Return the menu of the folders holding the one DIALOG shows, it first."
@@ -608,7 +608,7 @@ to the one chosen.  KEYBOARD says the keyboard asked: nothing is held."
   (when-let* ((item (if keyboard
                         (pcase-let ((`(,x ,y ,_ ,h) (plist-get (lispm-desktop-choose--layout) :shortcuts))
                                     (`(,fx . ,fy) (frame-position frame)))
-                          (lispm-desktop-popup-choose (lispm-desktop-choose--place-items) (+ fx x) (+ fy y h)))
+                          (lispm-ui-menu-choose (lispm-desktop-choose--place-items) (+ fx x) (+ fy y h)))
                       (lispm-desktop-choose--menu frame dialog :shortcuts
                                                   (lispm-desktop-choose--place-items)))))
     (lispm-desktop-choose--go dialog (plist-get item :value))))
@@ -661,8 +661,8 @@ Return the file chosen, `cancel', or nil while the dialog stays."
                           frame dialog :recent
                           (mapcar (lambda (file)
                                     (list :label (file-name-nondirectory file) :value file
-                                          :icon (create-image (lispm-desktop-platinum-icon-file
-                                                               (lispm-desktop-platinum-file-icon-name file))
+                                          :icon (create-image (lispm-ui-icon-file
+                                                               (lispm-ui-file-icon-name file))
                                                               nil nil :ascent 'center)))
                                   files))))
          ;; The file is shown selected, its preview beside it, to be chosen.
@@ -754,25 +754,25 @@ OS 9's dialogs sat on the screen.  Where no dialog can be drawn, the
 file is read in the minibuffer."
   (let ((title (or title (lispm-desktop-tr "Choose a File")))
         (directory (or (and file (file-name-directory file)) directory default-directory)))
-    (if (not (lispm-desktop-popup-graphic-p))
+    (if (not (lispm-ui-popup-graphic-p))
         (lispm-desktop-choose--fallback title file directory predicate)
       (let* ((dialog (lispm-desktop-choose--make-dialog :title title :predicate predicate :preview preview))
              (parent (selected-frame))
              (frame (progn (lispm-desktop-choose--go dialog directory (and file (file-name-nondirectory file)))
-                           (lispm-desktop-popup-make-frame parent)))
+                           (lispm-ui-popup-make-frame parent)))
              (layout (lispm-desktop-choose--layout)))
         (unwind-protect
             (progn
               (lispm-desktop-choose--show frame dialog)
-              (lispm-desktop-popup-set-size frame (plist-get layout :width) (plist-get layout :height))
-              (lispm-desktop-popup-show frame
-                                        (/ (- (frame-pixel-width parent) (plist-get layout :width)) 2)
-                                        (max 0 (/ (- (frame-pixel-height parent) (plist-get layout :height)) 3))
-                                        'alert)
+              (lispm-ui-popup-set-size frame (plist-get layout :width) (plist-get layout :height))
+              (lispm-ui-popup-show frame
+                                   (/ (- (frame-pixel-width parent) (plist-get layout :width)) 2)
+                                   (max 0 (/ (- (frame-pixel-height parent) (plist-get layout :height)) 3))
+                                   'alert)
               (when-let* ((chosen (lispm-desktop-choose--loop frame dialog)))
                 (lispm-desktop-choose--remember chosen)
                 chosen))
-          (lispm-desktop-popup-dispose frame))))))
+          (lispm-ui-popup-dispose frame))))))
 
 (provide 'lispm-desktop-choose)
 ;;; lispm-desktop-choose.el ends here

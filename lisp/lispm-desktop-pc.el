@@ -156,7 +156,7 @@ disabled, in the look's own words, its :system-menu."
                (margins (lispm-desktop-platinum-window-box-margins window))
                (`(,restore ,minimize ,maximize ,close)
                 (mapcar #'lispm-desktop-tr (lispm-ui-look-get :system-menu))))
-    (lispm-desktop-popup-menu
+    (lispm-ui-menu
      (list (list :label restore
                  :enabled (and zoom (frame-parameter nil 'lispm-desktop-platinum-unzoom) t)
                  :action (lambda () (lispm-desktop-platinum-zoom-window window)))
@@ -235,8 +235,8 @@ a star; STATUS follows it."
     (add-face-text-property 0 (length label) `(:foreground ,ink) nil label)
     label))
 
-(cl-defmethod lispm-desktop-popup-draw-menu (palette items width highlight
-                                                     &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-draw-menu (palette items width highlight
+                                          &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a PC menu of ITEMS WIDTH pixels wide, in PALETTE.
 The menu colour inside the outline the menu's frame draws, framed in the
 look's :menu bevel; the item under the mouse, HIGHLIGHT, in the
@@ -244,9 +244,9 @@ highlight colour, its :menu-inset in from the sides; check marks before
 checked items, key equivalents flush right, arrows on those holding
 submenus, on a button where the look's :submenu-button says, separators
 its :menu-separator, disabled items grey."
-  (pcase-let* ((`(,tops . ,height) (lispm-desktop-popup--rows items))
+  (pcase-let* ((`(,tops . ,height) (lispm-ui-menu--rows items))
                (svg (svg-create width height))
-               (icons (lispm-desktop-popup--icon-room items))
+               (icons (lispm-ui-menu--icon-room items))
                (shadow (lispm-desktop-pc-shadow palette))
                (inset (lispm-ui-look-metric :menu-inset))
                (`(,line-inset . ,lines) (lispm-ui-look-metric :menu-separator)))
@@ -255,31 +255,31 @@ its :menu-separator, disabled items grey."
     (seq-do-indexed
      (lambda (item index)
        (let ((top (nth index tops)))
-         (if (lispm-desktop-popup--separator-p item)
+         (if (lispm-ui-menu--separator-p item)
              (seq-do-indexed (lambda (color i)
                                (lispm-ui-svg-paint
-                                svg line-inset (+ top (/ lispm-desktop-popup-separator-height 2) (- 1 (length lines)) i)
+                                svg line-inset (+ top (/ lispm-ui-menu-separator-height 2) (- 1 (length lines)) i)
                                 (- width line-inset line-inset) 1 color))
                              (lispm-desktop-pc-colors palette lines))
-           (let* ((h (lispm-desktop-popup--item-height))
+           (let* ((h (lispm-ui-menu--item-height))
                   (lit (eql index highlight))
-                  (enabled (lispm-desktop-popup--enabled-p item))
+                  (enabled (lispm-ui-menu--enabled-p item))
                   (ink (cond (lit (plist-get palette :highlight-text))
                              (enabled (plist-get palette :menu-text))
                              (t shadow)))
-                  (face (lispm-desktop-popup--face (or lit enabled)))
-                  (key (and (not (plist-get item :submenu)) (lispm-desktop-popup--key item))))
+                  (face (lispm-ui-menu--face (or lit enabled)))
+                  (key (and (not (plist-get item :submenu)) (lispm-ui-menu--key item))))
              (when lit
                (lispm-ui-svg-paint svg inset top (- width inset inset) h (plist-get palette :highlight)))
              (when (plist-get item :checked)
                (lispm-ui-svg-content svg (propertize "✓" 'face `(:foreground ,ink))
-                                     (if lispm-desktop-popup-small 3 5) top h ink face))
+                                     (if lispm-ui-menu-small 3 5) top h ink face))
              (when-let* ((icon (plist-get item :icon))
-                         (size (min lispm-desktop-popup-icon-size h)))
-               (lispm-ui-svg-emacs-image svg icon (lispm-desktop-popup--label-x)
+                         (size (min lispm-ui-menu-icon-size h)))
+               (lispm-ui-svg-emacs-image svg icon (lispm-ui-menu--label-x)
                                          (+ top (/ (- h size) 2)) size size))
              (lispm-ui-svg-content svg (lispm-desktop-pc-menu-label (plist-get item :label) ink)
-                                   (+ (lispm-desktop-popup--label-x) icons) top h ink face)
+                                   (+ (lispm-ui-menu--label-x) icons) top h ink face)
              (cond ((and (plist-get item :submenu) (lispm-ui-look-metric :submenu-button))
                     (let ((s (- h 4)))
                       (lispm-desktop-pc-svg-raise svg (- width s 4) (+ top 2) s s palette)
@@ -290,7 +290,7 @@ its :menu-separator, disabled items grey."
                    (key
                     (lispm-ui-svg-content
                      svg (propertize key 'face `(:foreground ,ink))
-                     (- width (lispm-desktop-popup--key-margin) (lispm-desktop-popup--label-width key))
+                     (- width (lispm-ui-menu--key-margin) (lispm-ui-menu--label-width key))
                      top h ink face)))))))
      items)
     svg))
@@ -304,8 +304,8 @@ its :menu-separator, disabled items grey."
   "Draw the look's message box ICON on SVG, its top left at X, Y:
 `stop', `note' or `caution', thirty-two pixels square.")
 
-(cl-defmethod lispm-desktop-popup--alert-layout (message detail buttons
-                                                         &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-alert-layout (message detail buttons
+                                             &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Lay a PC message box of MESSAGE, DETAIL and BUTTONS out.
 Under the caption, the icon at the top left and the message beside it;
 the buttons in a row centred along the bottom, the default first, the
@@ -315,8 +315,8 @@ look's :alert-gap apart and :alert-bottom over the border."
          (gap (lispm-ui-look-metric :alert-gap))
          (caption lispm-desktop-platinum-title-bar-height)
          (text-width (- w lispm-desktop-look-alert-text-x 20))
-         (lines (lispm-desktop-popup--wrap message text-width 'lispm-ui-title))
-         (details (and detail (lispm-desktop-popup--wrap detail text-width 'lispm-ui-list)))
+         (lines (lispm-ui-alert--wrap message text-width 'lispm-ui-title))
+         (details (and detail (lispm-ui-alert--wrap detail text-width 'lispm-ui-list)))
          (body (+ border caption 16))
          (text-bottom (+ body (* 16 (length lines)) (if details (+ 6 (* 16 (length details))) 0)))
          (top (+ (max text-bottom (+ body 32)) 16))
@@ -337,15 +337,15 @@ look's :alert-gap apart and :alert-bottom over the border."
                                                                (lambda (b value) (equal (nth 1 b) value))))
                                 #'< placed))))
 
-(cl-defmethod lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused
-                                                      &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(cl-defmethod lispm-ui-draw-alert (palette icon message detail buttons pressed focused
+                                           &context (lispm-ui-look (lispm-ui-look-family pc)))
   "Return a PC message box of ICON, MESSAGE, DETAIL and BUTTONS.
 Its :dialog-ground framed in its :dialog bevel, the caption with its
 system menu box, a body of its :dialog-body holding the icon, the
-message and the buttons, see `lispm-desktop-popup--alert-layout'.
+message and the buttons, see `lispm-ui-alert-layout'.
 PRESSED and FOCUSED are values of buttons, held down or holding the
 keyboard."
-  (let* ((layout (lispm-desktop-popup--alert-layout message detail buttons))
+  (let* ((layout (lispm-ui-alert-layout message detail buttons))
          (w (plist-get layout :width))
          (h (plist-get layout :height))
          (b lispm-desktop-pc-alert-border)
@@ -370,8 +370,8 @@ keyboard."
       (dom-set-attribute (cdr part) 'y b)
       (dom-append-child svg (cdr part)))
     (lispm-desktop-pc-svg-alert-icon svg icon (+ b 16) y)
-    (lispm-desktop-popup-svg-alert-contents svg layout lispm-desktop-look-alert-text-x y palette
-                                            pressed focused)
+    (lispm-ui-svg-alert-contents svg layout lispm-desktop-look-alert-text-x y palette
+                                 pressed focused)
     svg))
 
 ;;;; Controls

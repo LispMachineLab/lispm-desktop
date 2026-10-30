@@ -549,7 +549,7 @@ of sight and out of the Dock.  This is around `x-focus-frame'."
 ;;;; Menus and the cursor
 
 (defun lispm-desktop-display--menu-items (client items)
-  "Return ITEMS, as `lispm-desktop-popup-menu' takes them, as JSON for
+  "Return ITEMS, as `lispm-ui-menu' takes them, as JSON for
 CLIENT's process, each action numbered and kept."
   (let ((items (if (functionp items) (funcall items) items)))
     (vconcat

@@ -447,14 +447,14 @@ Progress alone changes no label, so it never re-renders the sidebar."
 
 (defun lispm-desktop-agent-list-context-menu (event)
   "Pop up the actions for the session clicked by mouse EVENT.
-It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'."
+It is drawn as Mac OS 9's contextual menus were, see `lispm-ui-menu'."
   (interactive "e")
   (let* ((posn (event-start event))
          (session (with-current-buffer (window-buffer (posn-window posn))
                     (get-text-property (posn-point posn) 'lispm-agents-session))))
     (when session
       (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
-        (lispm-desktop-popup-menu
+        (lispm-ui-menu
          (mapcar (lambda (entry)
                    (if (eq entry 'separator)
                        entry

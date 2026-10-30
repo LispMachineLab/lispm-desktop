@@ -63,7 +63,7 @@
 (declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
 (declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional directory))
 (declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
-(declare-function lispm-desktop-popup-alert "lispm-desktop-popup" (icon message buttons &optional detail))
+(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-terminal-p "lispm-terminal" (&optional frame))
 (defvar tabspaces-default-tab)
 (defvar lispm-desktop-term-exit-functions)
@@ -157,7 +157,7 @@ repeating the command goes on to the next one."
 (defun lispm-desktop-agent--confirm (question detail action)
   "Ask QUESTION, with DETAIL, in a stop alert offering ACTION or Cancel.
 This is `lispm-agents-confirm-function' on the desktop."
-  (eq 'go (lispm-desktop-popup-alert
+  (eq 'go (lispm-ui-alert
            'stop question
            `((,(lispm-desktop-tr "Cancel") cancel cancel) (,action go default))
            detail)))

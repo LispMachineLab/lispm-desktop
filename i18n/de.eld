@@ -724,7 +724,6 @@
   ("Really restart Emacs? " . "Emacs wirklich neu starten? ")
   ("Really quit Emacs? " . "Emacs wirklich beenden? ")
   ("Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars" . "Das Platinum-Erscheinungsbild von Mac OS 9: abgeschrägte Grautöne, Titelleisten mit Nadelstreifen")
-  ("Menu: " . "Menü: ")
   ("Point is not in sight" . "Die Cursorposition ist nicht sichtbar")
   ("Appearance" . "Erscheinungsbild")
   ("Keyboard" . "Tastatur")
