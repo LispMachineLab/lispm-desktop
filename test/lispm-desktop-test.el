@@ -1071,7 +1071,7 @@ what to update."
                (lambda (file &rest _)
                  (pcase file
                    ("lispm.el" main)
-                   ("lispm-exec" (and agents "/elpa/lispm/lisp/lispm-exec.el")))))
+                   ("lispm-agents-work" (and agents "/elpa/lispm/lisp/lispm-agents-work.el")))))
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
               ((symbol-function 'lispm-desktop-deps--release) (lambda (_) "0400"))
               ((symbol-function 'lispm-desktop-deps--git) (lambda (_directory &rest _) "0300"))
@@ -1085,7 +1085,7 @@ what to update."
       (should (= (length jobs) 1))
       ;; A checkout lacking it.
       (setq agents nil main "/src/lispm-agent/lisp/lispm.el")
-      (should (string-match-p "lispm-agent/lisp/ lacks lispm-exec"
+      (should (string-match-p "lispm-agent/lisp/ lacks lispm-agents-work"
                               (cadr (should-error (lispm-desktop-deps-ensure 'lispm)))))
       (should (= (length jobs) 1)))))
 
@@ -8203,29 +8203,23 @@ labelled idle and not counted as running; once the agent works, it is."
           (delete-file lispm-agents-state-file))))))
 
 (ert-deftest lispm-desktop-test-lispm-user-turn-unarchives ()
-  "A turn the user begins in an archived LispM session takes it out of the
-archive; the agent idling, as one resumed to be looked at, or working
-on another agent's message, leaves it archived."
+  "A user turn unarchives its real agent; idle and unattended turns do not."
   (let ((lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
         (lispm-agents--archived 'unloaded)
         (session '(:agent lispm :id "0300"))
-        (busy nil)
-        (attended nil))
+        (agent (lispm-agent--create :name 'archive-test :id "0300"
+                                    :state 'idle :attended nil)))
     (unwind-protect
         (dlet ((lispm-agents-changed-hook nil))
-          (cl-letf (((symbol-function 'lispm-agent-view) (lambda (_agent) nil))
-                    ((symbol-function 'lispm-agent-id) (lambda (_agent) "0300"))
-                    ((symbol-function 'lispm-agent-busy-p) (lambda (_agent) busy))
-                    ((symbol-function 'lispm-agent-attended) (lambda (_agent) attended)))
-            (lispm-agents--set-archived session t)
-            (lispm-desktop-lispm--changed 'agent)
-            (should (lispm-agents-archived-p session))
-            (setq busy t)
-            (lispm-desktop-lispm--changed 'agent)
-            (should (lispm-agents-archived-p session))
-            (setq attended t)
-            (lispm-desktop-lispm--changed 'agent)
-            (should-not (lispm-agents-archived-p session))))
+          (lispm-agents--set-archived session t)
+          (lispm-desktop-lispm--changed agent)
+          (should (lispm-agents-archived-p session))
+          (setf (lispm-agent-state agent) 'acting)
+          (lispm-desktop-lispm--changed agent)
+          (should (lispm-agents-archived-p session))
+          (setf (lispm-agent-attended agent) t)
+          (lispm-desktop-lispm--changed agent)
+          (should-not (lispm-agents-archived-p session)))
       (delete-file lispm-agents-state-file))))
 
 (ert-deftest lispm-desktop-test-agent-list-refreshes-on-status-changes ()
