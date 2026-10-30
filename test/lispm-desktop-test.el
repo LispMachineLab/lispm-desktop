@@ -16597,7 +16597,36 @@ LispM's agent's, which follows the desktop's too; told when it changes."
     (should (equal lispm-ui-choose-recent '("/tmp/old.png")))
     (lispm-ui-file-dialog--remember "/tmp/new.png")
     (should (equal (symbol-value old) '("/tmp/new.png" "/tmp/old.png")))
-    (should (memq 'lispm-ui-choose-recent savehist-additional-variables))))
+    (should (memq 'lispm-ui-choose-recent savehist-additional-variables))
+    ;; savehist can also restore the old name before the desktop loads.
+    ;; A separate Emacs starts without this one's compatibility aliases.
+    (pcase-dolist (`(,previous ,current ,expected)
+                   '((("/tmp/old.png") nil ("/tmp/old.png"))
+                     (("/tmp/shared.png" "/tmp/old.png")
+                      ("/tmp/new.png" "/tmp/shared.png")
+                      ("/tmp/new.png" "/tmp/shared.png" "/tmp/old.png"))))
+      (with-temp-buffer
+        (should
+         (eq 0 (call-process
+                (expand-file-name invocation-name invocation-directory) nil t nil
+                "-Q" "--batch"
+                "-L" (expand-file-name "lisp" lispm-desktop-directory)
+                "-L" (file-name-directory (locate-library "lispm-kit-i18n"))
+                "-L" (file-name-directory (locate-library "lispm-ui-file-dialog"))
+                "--eval"
+                (prin1-to-string
+                 `(progn
+                    (setq ,old ',previous lispm-ui-choose-recent ',current)
+                    (require 'lispm-desktop-ui-compat)
+                    (let ((restored (list (symbol-value ',old) lispm-ui-choose-recent)))
+                      (setq lispm-ui-choose-recent '("/tmp/fresh.png"))
+                      (load "lispm-desktop-ui-compat" nil t)
+                      (prin1 (list restored (symbol-value ',old) lispm-ui-choose-recent))))))))
+        (should
+         (string-suffix-p
+          (prin1-to-string (list (list expected expected)
+                                '("/tmp/fresh.png") '("/tmp/fresh.png")))
+          (buffer-string)))))))
 
 (defmacro lispm-desktop-test--with-characters (&rest body)
   "Run BODY with LispM's characters in a scratch directory, their applications

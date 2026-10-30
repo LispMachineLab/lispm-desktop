@@ -103,6 +103,15 @@
 (defvaralias 'lispm-desktop-choose-rows 'lispm-ui-file-dialog-rows)
 (defvaralias 'lispm-desktop-choose-row-height 'lispm-ui-file-dialog-row-height)
 (defvaralias 'lispm-desktop-choose-preview-limit 'lispm-ui-file-dialog-preview-limit)
+;; savehist may restore the old name before the desktop loads.  Keep
+;; current UI choices first, and migrate only before the names are aliases.
+(when (and (boundp 'lispm-desktop-choose-recent)
+           (not (eq (indirect-variable 'lispm-desktop-choose-recent)
+                    (indirect-variable 'lispm-ui-choose-recent))))
+  (setq lispm-ui-choose-recent
+        (delete-dups (append lispm-ui-choose-recent
+                             (symbol-value 'lispm-desktop-choose-recent) nil)))
+  (set 'lispm-desktop-choose-recent lispm-ui-choose-recent))
 (defvaralias 'lispm-desktop-choose-recent 'lispm-ui-choose-recent)
 (defvaralias 'lispm-desktop-choose-recent-count 'lispm-ui-choose-recent-count)
 
