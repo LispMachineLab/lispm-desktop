@@ -51,6 +51,33 @@
 (require 'lispm-ui-window)
 (require 'lispm-ui-file-dialog)
 
+(defvar savehist-file)
+
+(defun lispm-desktop-ui-compat--restore-recent ()
+  "Recover both Recent lists from the first savehist restoration.
+An old file can assign both names, which are now aliases.  Read only
+their quoted lists of file names; never evaluate the history file."
+  (when (bound-and-true-p savehist-mode)
+    (remove-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent)
+    (let (saved)
+      (condition-case nil
+          (with-temp-buffer
+            (insert-file-contents savehist-file)
+            (let ((read-circle nil))
+              (while t
+                (pcase (read (current-buffer))
+                  (`(setq ,name ',files)
+                   (when (and (memq name '(lispm-desktop-choose-recent lispm-ui-choose-recent))
+                              (proper-list-p files) (seq-every-p #'stringp files))
+                     (setf (alist-get name saved) files)))))))
+        (error nil))
+      (when (assq 'lispm-desktop-choose-recent saved)
+        ;; UI's choices come first regardless of the assignments' order.
+        (setq lispm-ui-choose-recent
+              (delete-dups (append (alist-get 'lispm-ui-choose-recent saved)
+                                   lispm-ui-choose-recent
+                                   (alist-get 'lispm-desktop-choose-recent saved) nil)))))))
+
 ;;;; Variables
 
 (defvaralias 'lispm-desktop-platinum-current-palette 'lispm-ui-current-palette)
@@ -105,13 +132,18 @@
 (defvaralias 'lispm-desktop-choose-preview-limit 'lispm-ui-file-dialog-preview-limit)
 ;; savehist may restore the old name before the desktop loads.  Keep
 ;; current UI choices first, and migrate only before the names are aliases.
-(when (and (boundp 'lispm-desktop-choose-recent)
-           (not (eq (indirect-variable 'lispm-desktop-choose-recent)
-                    (indirect-variable 'lispm-ui-choose-recent))))
-  (setq lispm-ui-choose-recent
-        (delete-dups (append lispm-ui-choose-recent
-                             (symbol-value 'lispm-desktop-choose-recent) nil)))
-  (set 'lispm-desktop-choose-recent lispm-ui-choose-recent))
+(unless (eq (indirect-variable 'lispm-desktop-choose-recent)
+            (indirect-variable 'lispm-ui-choose-recent))
+  (when (boundp 'lispm-desktop-choose-recent)
+    (setq lispm-ui-choose-recent
+          (delete-dups (append lispm-ui-choose-recent
+                               (symbol-value 'lispm-desktop-choose-recent) nil)))
+    (set 'lispm-desktop-choose-recent lispm-ui-choose-recent))
+  ;; If savehist has yet to restore, recover dual-name files once it does.
+  ;; A reload or a later mode toggle must not resurrect discarded entries.
+  (unless (or (bound-and-true-p savehist-mode)
+              (and (boundp 'savehist-loaded) (symbol-value 'savehist-loaded)))
+    (add-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent)))
 (defvaralias 'lispm-desktop-choose-recent 'lispm-ui-choose-recent)
 (defvaralias 'lispm-desktop-choose-recent-count 'lispm-ui-choose-recent-count)
 

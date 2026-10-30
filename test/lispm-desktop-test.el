@@ -16649,6 +16649,71 @@ LispM's agent's, which follows the desktop's too; told when it changes."
                                 '("/tmp/fresh.png") '("/tmp/fresh.png")))
           (buffer-string)))))))
 
+(ert-deftest lispm-desktop-test-file-dialog-savehist-compat ()
+  "Both Recent names in an old savehist file survive either load order."
+  (let* ((old (with-temp-buffer
+                (insert-file-contents
+                 (expand-file-name "scripts/lispm-ui-renames.eld" lispm-desktop-directory))
+                (intern (car (rassoc "lispm-ui-choose-recent" (read (current-buffer)))))))
+         (folder (make-temp-file "lispm-desktop-test-history" t))
+         (file (expand-file-name "history" folder)))
+    (unwind-protect
+        (dolist (restore '(before after stopped))
+          (dolist (variables `((,old lispm-ui-choose-recent)
+                              (lispm-ui-choose-recent ,old)
+                              (,old)))
+            (dolist (current '(nil ("/tmp/new.png" "/tmp/shared.png")))
+              (when (or (cdr variables) (null current))
+                (with-temp-buffer
+                  (should
+                   (eq 0 (call-process
+                          (expand-file-name invocation-name invocation-directory) nil t nil
+                          "-Q" "--batch"
+                          "-L" (expand-file-name "lisp" lispm-desktop-directory)
+                          "-L" (file-name-directory (locate-library "lispm-kit-i18n"))
+                          "-L" (file-name-directory (locate-library "lispm-ui-file-dialog"))
+                          "--eval"
+                          (prin1-to-string
+                           `(progn
+                              (require 'lispm-ui-file-dialog)
+                              (require 'savehist)
+                              (setq savehist-file ,file
+                                    savehist-autosave-interval nil
+                                    savehist-save-minibuffer-history nil
+                                    savehist-additional-variables ',variables
+                                    ,old '("/tmp/shared.png" "/tmp/old.png")
+                                    lispm-ui-choose-recent ',current
+                                    lispm-desktop-test-history-evaluations 0)
+                              (savehist-save)
+                              ;; savehist evaluates this once; the migration
+                              ;; must only read its data, never evaluate it.
+                              (with-temp-buffer
+                                (insert "\n(setq lispm-desktop-test-history-evaluations (1+ lispm-desktop-test-history-evaluations))\n")
+                                (append-to-file (point-min) (point-max) savehist-file))
+                              (setq ,old nil lispm-ui-choose-recent nil)
+                              ,@(when (memq restore '(before stopped))
+                                  '((savehist-mode 1)))
+                              ,@(when (eq restore 'stopped) '((savehist-mode -1)))
+                              (require 'lispm-desktop-ui-compat)
+                              ,@(when (eq restore 'after) '((savehist-mode 1)))
+                              (let ((restored (list (symbol-value ',old) lispm-ui-choose-recent)))
+                                (setq lispm-ui-choose-recent '("/tmp/fresh.png"))
+                                (load "lispm-desktop-ui-compat" nil t)
+                                (savehist-mode -1)
+                                (savehist-mode 1)
+                                (prin1 (list restored (symbol-value ',old) lispm-ui-choose-recent
+                                             (not (memq #'lispm-desktop-ui-compat--restore-recent
+                                                        savehist-mode-hook))
+                                             lispm-desktop-test-history-evaluations))))))))
+                  (let ((expected (delete-dups
+                                   (append current '("/tmp/shared.png" "/tmp/old.png") nil))))
+                    (should
+                     (string-suffix-p
+                      (prin1-to-string (list (list expected expected)
+                                            '("/tmp/fresh.png") '("/tmp/fresh.png") t 1))
+                      (buffer-string)))))))))
+      (delete-directory folder t))))
+
 (defmacro lispm-desktop-test--with-characters (&rest body)
   "Run BODY with LispM's characters in a scratch directory, their applications
 followed, and the applications and icons of the test's own."
