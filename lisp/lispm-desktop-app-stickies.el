@@ -59,6 +59,7 @@
 (defvar lispm-stickies-hide-note-function)
 (defvar lispm-stickies-shown-function)
 (defvar lispm-stickies-front-note-function)
+(defvar lispm-stickies-confirm-function)
 (defvar lispm-stickies-place-function)
 (defvar lispm-stickies-changed-hook)
 (declare-function lispm-stickies "ext:lispm-stickies" ())
@@ -724,6 +725,10 @@ front's checked."
 
 ;;;; Taking part
 
+(defun lispm-desktop-app-stickies--confirm-legacy (question detail)
+  "Ask QUESTION with DETAIL in LispM UI for Stickies before 0.2.0."
+  (lispm-ui-confirm question detail "Throw Away"))
+
 (defun lispm-desktop-app-stickies-setup ()
   "Show Stickies' notes on the desktop, and make it one of the desktop's
 applications, once lispm-stickies is loaded.  A Stickies that makes
@@ -735,6 +740,10 @@ as it is."
           lispm-stickies-shown-function #'lispm-desktop-app-stickies--frame
           lispm-stickies-front-note-function #'lispm-desktop-app-stickies--front-note
           lispm-stickies-place-function #'lispm-desktop-app-stickies--place)
+    ;; An installed Stickies need not update with the desktop.  Only its
+    ;; old default needs adapting; newer defaults and user hooks stay put.
+    (when (eq lispm-stickies-confirm-function 'lispm-stickies-yes-or-no-p)
+      (setq lispm-stickies-confirm-function #'lispm-desktop-app-stickies--confirm-legacy))
     (add-hook 'lispm-stickies-changed-hook #'lispm-desktop-app-stickies--changed)
     (keymap-set lispm-stickies-note-mode-map "C-c C-r" #'lispm-desktop-app-stickies-roll)
     (keymap-set lispm-stickies-note-mode-map "C-c C-z" #'lispm-desktop-app-stickies-zoom)

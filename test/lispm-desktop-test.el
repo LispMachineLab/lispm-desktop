@@ -13555,10 +13555,31 @@ idle."
                            '("File" "Edit" "Note" "Color")))
             (should-not (funcall (plist-get props :running)))
             (should (eq lispm-stickies-show-note-function #'lispm-desktop-app-stickies--show))
-            (should (eq lispm-stickies-confirm-function #'lispm-stickies-confirm))
-            (let ((lispm-stickies-confirm-function #'ignore))
+            (should (eq lispm-stickies-confirm-function
+                        (if (fboundp 'lispm-stickies-confirm)
+                            #'lispm-stickies-confirm
+                          #'lispm-desktop-app-stickies--confirm-legacy)))
+            (dolist (confirm '(lispm-stickies-confirm ignore))
+              (let ((lispm-stickies-confirm-function confirm))
+                (lispm-desktop-app-stickies-setup)
+                (should (eq lispm-stickies-confirm-function confirm))))
+            ;; Loading an older Stickies retains the same alert without
+            ;; overriding a custom hook or the newer Stickies default.
+            (let* ((lispm-stickies-confirm-function 'lispm-stickies-yes-or-no-p)
+                   (asked nil)
+                   (answer 'cancel)
+                   (lispm-ui-alert-function
+                    (lambda (&rest args) (setq asked args) answer)))
               (lispm-desktop-app-stickies-setup)
-              (should (eq lispm-stickies-confirm-function #'ignore)))
+              (should (eq lispm-stickies-confirm-function #'lispm-desktop-app-stickies--confirm-legacy))
+              (should-not (funcall lispm-stickies-confirm-function "Throw this note away?"
+                                  "Its text will be lost."))
+              (should (equal asked '(caution "Throw this note away?"
+                                     (("Cancel" cancel cancel) ("Throw Away" agree default))
+                                     "Its text will be lost.")))
+              (setq answer 'agree)
+              (should (funcall lispm-stickies-confirm-function "Throw this note away?"
+                               "Its text will be lost.")))
             (should (eq (keymap-lookup lispm-stickies-note-mode-map "C-c C-r") #'lispm-desktop-app-stickies-roll))
             (should (memq #'lispm-desktop-app-stickies--moved lispm-desktop-platinum-frame-moved-functions))
             (let ((lispm-stickies-file (expand-file-name "stickies.org" dir))
