@@ -16680,7 +16680,10 @@ LispM's agent's, which follows the desktop's too; told when it changes."
                               (setq savehist-file ,file
                                     savehist-autosave-interval nil
                                     savehist-save-minibuffer-history nil
-                                    savehist-additional-variables ',variables
+                                    savehist-additional-variables
+                                    '(lispm-desktop-test-history-shared ,@variables)
+                                    lispm-desktop-test-history-shared
+                                    (let ((shared (list "same"))) (list shared shared))
                                     ,old '("/tmp/shared.png" "/tmp/old.png")
                                     lispm-ui-choose-recent ',current
                                     lispm-desktop-test-history-evaluations 0)

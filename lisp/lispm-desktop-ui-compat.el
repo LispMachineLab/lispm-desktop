@@ -63,7 +63,7 @@ their quoted lists of file names; never evaluate the history file."
       (condition-case nil
           (with-temp-buffer
             (insert-file-contents savehist-file)
-            (let ((read-circle nil))
+            (let ((read-circle t))
               (while t
                 (pcase (read (current-buffer))
                   (`(setq ,name ',files)
