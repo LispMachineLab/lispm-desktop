@@ -25,6 +25,7 @@ test:
 	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
 	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -l test/lispm-desktop-store-defaults-test.el \
 	  -l test/lispm-desktop-store-dependency-test.el \
 	  -f ert-run-tests-batch-and-exit
 

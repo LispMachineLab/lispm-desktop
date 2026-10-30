@@ -40,6 +40,7 @@
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-i18n)
+(require 'lispm-agents-work)
 
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
@@ -144,7 +145,10 @@ Finder list; its sessions are rows one level in, newest first."
            (folded (lispm-desktop-tr "Open %s" directory))
            (chats (lispm-desktop-tr "Close project-less conversations"))
            (t (lispm-desktop-tr "Close %s" directory)))
-     (unless chats directory))
+     (unless chats directory)
+     (apply-partially #'lispm-agents-open-project directory)
+     (if chats (lispm-desktop-tr "Open project-less conversations")
+       (lispm-desktop-tr "Open %s" directory)))
     (unless folded
       ;; A terminal whose session is already listed shows as that session's
       ;; running row; only terminals without a recorded session list here.

@@ -79,7 +79,9 @@
 ;; it gives agents, and the alerts installing and uninstalling it say
 ;; they come and go.
 ;;
-;; Nothing new is installed unasked: where a package comes from is shown
+;; The distribution's default items are installed once in the background;
+;; removing one keeps it removed at later starts and installer runs.
+;; Beyond those defaults, nothing new is installed unasked: where a package comes from is shown
 ;; under the window while an alert asks, as before an update asked for,
 ;; with what changes.  The updates of what was installed install by
 ;; themselves, unless `lispm-desktop-store-update-automatically' says
@@ -194,6 +196,24 @@ or version; and :owned, non-nil when the App Store installed the item's
 package itself, so that it deletes it too."
   :type '(alist :key-type symbol :value-type plist)
   :group 'lispm-desktop-store)
+
+(defcustom lispm-desktop-store-default-items '(office)
+  "Items the distribution installs once, through the App Store.
+Removing one in the App Store keeps it removed at subsequent starts.
+Set this to nil to install no defaults."
+  :type '(repeat symbol)
+  :group 'lispm-desktop-store)
+
+(defcustom lispm-desktop-store-defaults-installed nil
+  "Default items that were installed successfully at least once.
+This history is kept when an item is removed, so starting LispM or
+running its installer again does not undo the user's removal."
+  :type '(repeat symbol)
+  :group 'lispm-desktop-store)
+
+(defvar lispm-desktop-store--defaults-attempted nil
+  "Default items whose installation was attempted during this Emacs.
+Failures can be retried in the App Store or at the next start.")
 
 (defconst lispm-desktop-store-kinds
   `((app ,(lispm-desktop-tr-noop "Applications") ,(lispm-desktop-tr-noop "Application"))
@@ -994,10 +1014,14 @@ Saving it is not said in the echo area: the window shows it."
      (append (assq-delete-all id (copy-alist lispm-desktop-store-installed))
              (list (cons id (append installed (lispm-desktop-store--plist-without
                                                props :installed :owned))))))
+    (lispm-desktop-store--remember-default id)
     (lispm-desktop-store--applications-changed)))
 
 (defun lispm-desktop-store--forget (id)
   "Forget that the item ID is installed."
+  ;; An older profile may remove its existing item before the first idle
+  ;; bootstrap has recorded that it was already installed.
+  (lispm-desktop-store--remember-default id)
   (customize-save-variable 'lispm-desktop-store-installed
                            (assq-delete-all id (copy-alist lispm-desktop-store-installed)))
   (lispm-desktop-store--applications-changed))
@@ -2011,7 +2035,8 @@ themselves, or say they are there."
       (message "%s" (lispm-desktop-tr-n "App Store: %s can be updated, in its Updates"
                                         "App Store: %s can be updated, in its Updates"
                                         (length ids) (lispm-desktop-store--update-names ids)))))
-  (run-hooks 'lispm-desktop-update-changed-hook))
+  (run-hooks 'lispm-desktop-update-changed-hook)
+  (lispm-desktop-store--install-defaults))
 
 (defun lispm-desktop-store--archive-packages ()
   "Return the packages from the package archives of the items installed."
@@ -2261,10 +2286,12 @@ them where they are missing."
     ('extension (require (plist-get props :feature))
                 (lispm-desktop-needs-guard-all (plist-get props :needs) (plist-get props :name)))))
 
-(defun lispm-desktop-store--register-installed ()
-  "Make the applications and extensions installed take part, as at every start."
+(defun lispm-desktop-store--register-installed (&optional extensions-only)
+  "Make installed items take part, as at every start.
+With EXTENSIONS-ONLY, do not register applications or their windows."
   (pcase-dolist (`(,id . ,props) lispm-desktop-store-installed)
-    (when (lispm-desktop-store--kind-p (cons id props))
+    (when (and (lispm-desktop-store--kind-p (cons id props))
+               (or (not extensions-only) (eq (plist-get props :kind) 'extension)))
       (condition-case err
           (lispm-desktop-store--register id props)
         (error (message (lispm-desktop-tr "App Store: %s: %s") id (error-message-string err)))))))
@@ -4721,6 +4748,80 @@ page's."
 
 ;;;; Setup
 
+(defvar lispm-desktop-store--startup-scheduled nil
+  "Non-nil once this Emacs has scheduled the Store's startup work.")
+
+(defun lispm-desktop-store-startup (&optional extensions-only)
+  "Load installed items and schedule their skills and defaults once.
+With EXTENSIONS-ONLY, load extensions without application windows or
+Desktop chrome, as in the distribution's terminal startup mode."
+  (lispm-desktop-store--register-installed extensions-only)
+  (unless lispm-desktop-store--startup-scheduled
+    (setq lispm-desktop-store--startup-scheduled t)
+    ;; The catalog may take a moment to read.  Agents can use the skills
+    ;; already copied while this work waits for the first idle period.
+    (run-with-idle-timer 2 nil #'lispm-desktop-store--sync-skills-at-start)
+    (unless noninteractive
+      (run-with-idle-timer 2 nil #'lispm-desktop-store--start-defaults))))
+
+(defun lispm-desktop-store--remember-default (id)
+  "Remember that default ID was installed, even if it is later removed."
+  (when (and (memq id lispm-desktop-store-default-items)
+             (not (memq id lispm-desktop-store-defaults-installed)))
+    (let ((inhibit-message t))
+      (customize-save-variable 'lispm-desktop-store-defaults-installed
+                               (append lispm-desktop-store-defaults-installed (list id))))))
+
+(defun lispm-desktop-store--pending-defaults ()
+  "Return defaults not installed before, including on older profiles."
+  (dolist (id lispm-desktop-store-default-items)
+    (when (lispm-desktop-store-installed-p id)
+      (lispm-desktop-store--remember-default id)))
+  (seq-difference lispm-desktop-store-default-items lispm-desktop-store-defaults-installed))
+
+(defun lispm-desktop-store--install-defaults ()
+  "Queue defaults found in the catalogs, at most once per start.
+The usual install path records success; a failed attempt remains in
+the App Store for inspection and can be retried at the next start."
+  (dolist (id (lispm-desktop-store--pending-defaults))
+    (when (and (assq id (lispm-desktop-store-items))
+               (not (memq id lispm-desktop-store--defaults-attempted))
+               (not (lispm-desktop-store--busy-p id)))
+      (push id lispm-desktop-store--defaults-attempted)
+      (condition-case err
+          (lispm-desktop-store-install id t)
+        (error (message (lispm-desktop-tr "App Store: %s: %s") id (error-message-string err)))))))
+
+(defun lispm-desktop-store--start-defaults ()
+  "Begin installing defaults without waiting for the network.
+Use cached catalogs first; fetch them when a pending default is absent.
+The catalog-ready path queues any defaults found after the fetch."
+  (when (lispm-desktop-store--pending-defaults)
+    (lispm-desktop-store-read-catalogs)
+    (lispm-desktop-store--install-defaults)
+    (when (and (not lispm-desktop-store--checking)
+               (seq-some (lambda (id) (not (assq id (lispm-desktop-store-items))))
+                          (lispm-desktop-store--pending-defaults)))
+      (condition-case err
+          (lispm-desktop-store-check-for-updates)
+        (error (message (lispm-desktop-tr "App Store: %s: %s")
+                        (mapconcat #'symbol-name (lispm-desktop-store--pending-defaults) ", ")
+                        (error-message-string err)))))))
+
+(defun lispm-desktop-store-install-defaults-batch ()
+  "Install the distribution's defaults before its batch installer exits.
+Use the same catalog and background jobs as a normal startup.  A
+failed install signals an error, and is retried at a later start."
+  (unless noninteractive
+    (error "This entry point is only for the batch installer"))
+  (lispm-desktop-store--start-defaults)
+  (while (or lispm-desktop-store--checking
+              (seq-some #'lispm-desktop-store--busy-p lispm-desktop-store-default-items))
+    (accept-process-output nil 0.1))
+  (when-let* ((pending (lispm-desktop-store--pending-defaults)))
+    (error "Default App Store items could not be installed: %s"
+           (mapconcat #'symbol-name pending ", "))))
+
 (defun lispm-desktop-setup-store ()
   "Make the App Store an application, the Applications folder a folder of
 the Finder, and the applications and extensions installed take part,
@@ -4732,10 +4833,7 @@ with their skills."
   (setf (alist-get 'applications lispm-desktop-finder-folders)
         `(:title ,(lispm-desktop-tr-noop "Applications") :icon "applications"
                  :items lispm-desktop-store--folder-items :trash ,(lispm-desktop-tr-noop "Uninstall…")))
-  (lispm-desktop-store--register-installed)
-  ;; Reading the catalogs takes a moment: the skills wait for Emacs to be
-  ;; idle, and LispM's agents find those copied before meanwhile.
-  (run-with-idle-timer 2 nil #'lispm-desktop-store--sync-skills-at-start)
+  (lispm-desktop-store-startup)
   (add-hook 'lispm-desktop-update-check-hook #'lispm-desktop-store--check-along)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-store--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop-store--render)) 95))
