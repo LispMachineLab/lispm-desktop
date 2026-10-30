@@ -53,12 +53,22 @@
 
 (defvar savehist-file)
 
+(defvar lispm-desktop-ui-compat--live-recent nil
+  "Recent choices from before the first savehist restoration.
+Dynamically bound while `savehist-mode' runs its restoration hook.")
+
+(defun lispm-desktop-ui-compat--capture-recent (mode &rest arguments)
+  "Keep live Recent choices while MODE restores history with ARGUMENTS."
+  (let ((lispm-desktop-ui-compat--live-recent (copy-sequence lispm-ui-choose-recent)))
+    (apply mode arguments)))
+
 (defun lispm-desktop-ui-compat--restore-recent ()
-  "Recover both Recent lists from the first savehist restoration.
+  "Merge live choices and both Recent lists at the first savehist restoration.
 An old file can assign both names, which are now aliases.  Read only
 their quoted lists of file names; never evaluate the history file."
   (when (bound-and-true-p savehist-mode)
     (remove-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent)
+    (advice-remove 'savehist-mode #'lispm-desktop-ui-compat--capture-recent)
     (let (saved)
       (condition-case nil
           (with-temp-buffer
@@ -71,12 +81,13 @@ their quoted lists of file names; never evaluate the history file."
                               (proper-list-p files) (seq-every-p #'stringp files))
                      (setf (alist-get name saved) files)))))))
         (error nil))
-      (when (assq 'lispm-desktop-choose-recent saved)
-        ;; UI's choices come first regardless of the assignments' order.
-        (setq lispm-ui-choose-recent
-              (delete-dups (append (alist-get 'lispm-ui-choose-recent saved)
-                                   lispm-ui-choose-recent
-                                   (alist-get 'lispm-desktop-choose-recent saved) nil)))))))
+      ;; Live choices are newest; saved UI choices precede the old desktop's
+      ;; regardless of the assignments' order in the history file.
+      (setq lispm-ui-choose-recent
+            (delete-dups (append lispm-desktop-ui-compat--live-recent
+                                 (alist-get 'lispm-ui-choose-recent saved)
+                                 lispm-ui-choose-recent
+                                 (alist-get 'lispm-desktop-choose-recent saved) nil))))))
 
 ;;;; Variables
 
@@ -139,11 +150,13 @@ their quoted lists of file names; never evaluate the history file."
           (delete-dups (append lispm-ui-choose-recent
                                (symbol-value 'lispm-desktop-choose-recent) nil)))
     (set 'lispm-desktop-choose-recent lispm-ui-choose-recent))
-  ;; If savehist has yet to restore, recover dual-name files once it does.
+  ;; If savehist has yet to restore, preserve live choices and recover
+  ;; dual-name files before ordinary mode hooks inspect the merged history.
   ;; A reload or a later mode toggle must not resurrect discarded entries.
   (unless (or (bound-and-true-p savehist-mode)
               (and (boundp 'savehist-loaded) (symbol-value 'savehist-loaded)))
-    (add-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent)))
+    (advice-add 'savehist-mode :around #'lispm-desktop-ui-compat--capture-recent)
+    (add-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent -90)))
 (defvaralias 'lispm-desktop-choose-recent 'lispm-ui-choose-recent)
 (defvaralias 'lispm-desktop-choose-recent-count 'lispm-ui-choose-recent-count)
 

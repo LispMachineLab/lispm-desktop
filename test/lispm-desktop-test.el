@@ -16717,6 +16717,71 @@ LispM's agent's, which follows the desktop's too; told when it changes."
                       (buffer-string)))))))))
       (delete-directory folder t))))
 
+(ert-deftest lispm-desktop-test-file-dialog-live-history ()
+  "Choices made before savehist restores stay ahead of the saved history."
+  (let* ((old (with-temp-buffer
+                (insert-file-contents
+                 (expand-file-name "scripts/lispm-ui-renames.eld" lispm-desktop-directory))
+                (intern (car (rassoc "lispm-ui-choose-recent" (read (current-buffer)))))))
+         (folder (make-temp-file "lispm-desktop-test-live-history" t))
+         (file (expand-file-name "history" folder)))
+    (unwind-protect
+        (dolist (variables `((,old) (,old lispm-ui-choose-recent)
+                             (lispm-ui-choose-recent ,old)
+                             (lispm-ui-choose-recent) nil))
+          (if variables
+              (with-temp-file file
+                (dolist (variable variables)
+                  (prin1 `(setq ,variable
+                                ',(if (eq variable old)
+                                      '("/tmp/shared.png" "/tmp/old.png")
+                                    '("/tmp/shared.png" "/tmp/saved-ui.png")))
+                         (current-buffer))
+                  (insert "\n")))
+            (delete-file file))
+          (with-temp-buffer
+            (should
+             (eq 0 (call-process
+                    (expand-file-name invocation-name invocation-directory) nil t nil
+                    "-Q" "--batch"
+                    "-L" (expand-file-name "lisp" lispm-desktop-directory)
+                    "-L" (file-name-directory (locate-library "lispm-kit-i18n"))
+                    "-L" (file-name-directory (locate-library "lispm-ui-file-dialog"))
+                    "--eval"
+                    (prin1-to-string
+                     `(progn
+                        (require 'lispm-ui-file-dialog)
+                        (setq savehist-file ,file savehist-autosave-interval nil)
+                        (lispm-ui-file-dialog--remember "/tmp/before.png")
+                        (require 'lispm-desktop-ui-compat)
+                        (lispm-ui-file-dialog--remember "/tmp/shared.png")
+                        ;; Exercise the savehist autoload and a disable call
+                        ;; before its first restoration, with more choices later.
+                        (savehist-mode -1)
+                        (lispm-ui-file-dialog--remember "/tmp/after.png")
+                        (savehist-mode 1)
+                        (let ((restored (list (symbol-value ',old) lispm-ui-choose-recent)))
+                          (setq lispm-ui-choose-recent nil)
+                          (load "lispm-desktop-ui-compat" nil t)
+                          (savehist-mode -1)
+                          (savehist-mode 1)
+                          (princ (format "\n%S" (list restored
+                                                      (symbol-value ',old) lispm-ui-choose-recent
+                                                      (not (memq #'lispm-desktop-ui-compat--restore-recent
+                                                                 savehist-mode-hook))
+                                                      (not (advice-member-p
+                                                            #'lispm-desktop-ui-compat--capture-recent
+                                                            'savehist-mode)))))
+                          (savehist-mode -1)))))))
+            (let ((expected (append '("/tmp/after.png" "/tmp/shared.png" "/tmp/before.png")
+                                    (and (memq 'lispm-ui-choose-recent variables)
+                                         '("/tmp/saved-ui.png"))
+                                    (and (memq old variables) '("/tmp/old.png")))))
+              (should (string-suffix-p
+                       (prin1-to-string (list (list expected expected) nil nil t t))
+                       (buffer-string))))))
+      (delete-directory folder t))))
+
 (defmacro lispm-desktop-test--with-characters (&rest body)
   "Run BODY with LispM's characters in a scratch directory, their applications
 followed, and the applications and icons of the test's own."
