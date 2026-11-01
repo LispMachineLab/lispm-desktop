@@ -8138,10 +8138,11 @@ of transcript updates."
 (ert-deftest lispm-desktop-test-lispm-tags-opened-session-once ()
   "Tagging a newly opened or cleared session records its position once;
 repeated state changes and transcript updates do not move it."
-  (let ((id "original") (now 10) opened)
-    (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () 'agent))
-              ((symbol-function 'lispm-agent-id) (lambda (_agent) id))
-              ((symbol-function 'lispm-agent-name) (lambda (_agent) 'assistant))
+  ;; The accessors are inlined into `lispm-desktop-lispm--tag-buffer', so a
+  ;; stub of `lispm-agent-id' would not be called: use a real agent.
+  (let ((now 10) opened
+        (agent (lispm-agent--create :id "original" :name 'assistant)))
+    (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () agent))
               ((symbol-function 'float-time) (lambda (&optional _time) now))
               ((symbol-function 'lispm-agents-session-opened)
                (lambda (agent session time) (push (list agent session time) opened))))
@@ -8152,7 +8153,7 @@ repeated state changes and transcript updates do not move it."
         (lispm-desktop-lispm--tag-buffer)
         (should (= lispm-agents-buffer-launched 10))
         (should (= (length opened) 1))
-        (setq id "cleared")
+        (setq agent (lispm-agent--create :id "cleared" :name 'assistant))
         (lispm-desktop-lispm--tag-buffer)
         (should (= lispm-agents-buffer-launched 20))
         (should (equal opened '((lispm "cleared" 20) (lispm "original" 10)))))
@@ -17129,7 +17130,11 @@ ends at single characters."
                    (lispm-ui-menu . "lispm-ui-menu.el")
                    (lispm-ui-icon . "lispm-ui-icons.el")
                    (lispm-ui-raster . "lispm-ui-raster.el")))
-    (should (equal (file-name-nondirectory (symbol-file (car entry) 'defun)) (cdr entry))))
+    ;; An installed copy defines the function in its .elc, which names the
+    ;; same file: compare without the extension.
+    (should (equal (file-name-sans-extension
+                    (file-name-nondirectory (symbol-file (car entry) 'defun)))
+                   (file-name-sans-extension (cdr entry)))))
   (should-not (memq #'lispm-desktop-popup-apply-faces enable-theme-functions))
   (should-not (boundp 'lispm-ui-icon))
   (with-temp-buffer
