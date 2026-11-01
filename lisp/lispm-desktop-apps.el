@@ -564,13 +564,30 @@ This is `lispm-desktop-platinum-licence-function'."
   (lispm-desktop-apps-activate 'editor)
   (describe-copying))
 
+(defun lispm-desktop-apps-window-area (frame)
+  "Return where FRAME, one of the desktop's windows, may zoom to: (LEFT
+TOP WIDTH HEIGHT), in the space `lispm-desktop-platinum-window-position'
+counts a window's place in.  Out on the computer's screen it is that
+screen's work area, as the window system's green button gives it; over the
+desktop it is the desktop's area, less what the desktop keeps around its
+windows.
+This is `lispm-desktop-platinum-window-area-function'."
+  (if (lispm-desktop-apps-out-p frame)
+      (lispm-desktop-apps--workarea frame)
+    (let ((screen (lispm-desktop-apps-window-screen frame)))
+      (pcase-let ((`(,inner-left ,inner-top ,inner-right ,inner-bottom)
+                   (lispm-desktop-apps-desktop-edges screen)))
+        (list inner-left inner-top (- inner-right inner-left)
+              (- inner-bottom inner-top))))))
+
 (defun lispm-desktop-setup-apps ()
   "Draw the menu bar and the Application menu from the application in front."
   (setq lispm-desktop-platinum-menus-function #'lispm-desktop-apps-menus
         lispm-desktop-platinum-lambda-items-function #'lispm-desktop-lambda-items
         lispm-desktop-platinum-application-function #'lispm-desktop-apps-application
         lispm-desktop-platinum-applications-function #'lispm-desktop-apps-application-items
-        lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence)
+        lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence
+        lispm-desktop-platinum-window-area-function #'lispm-desktop-apps-window-area)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-apps--follow-workspace)
   (add-hook 'window-selection-change-functions #'lispm-desktop-apps--follow-window)
   (add-hook 'window-size-change-functions #'lispm-desktop-apps--screen-resized)

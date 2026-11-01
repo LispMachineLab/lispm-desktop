@@ -63,6 +63,13 @@ its own.")
 dropped on another by its title bar trades places with it only when
 both are of one kind.  Sessions keep to the left of the main area this way.")
 
+(defvar lispm-desktop-platinum-window-area-function nil
+  "Function of a floating window saying where it may zoom to: (LEFT TOP
+WIDTH HEIGHT), in the space `lispm-desktop-platinum-window-position'
+counts a window's place in.  The desktop tells platinum this of its own
+windows: an application's, out on the computer's screen, zooms to that
+screen's work area, a window over the desktop to the desktop's area.")
+
 (defvar lispm-desktop-platinum-side-window-close-function #'delete-window
   "Function closing a side window from its close box, called with the
 window.  The sidebar hides its view.")
@@ -82,14 +89,16 @@ Side windows and chrome windows, such as the browser's address window
   (not (or (window-parameter window 'window-side)
            (window-parameter window 'lispm-desktop-chrome))))
 
-(defun lispm-desktop-platinum-main-windows ()
-  "Return the live windows of the main area, left to right."
-  (sort (seq-filter #'lispm-desktop-platinum-main-window-p (window-list nil 'no-mini))
+(defun lispm-desktop-platinum-main-windows (&optional frame)
+  "Return the live windows of the main area of FRAME, left to right.
+FRAME defaults to the selected one."
+  (sort (seq-filter #'lispm-desktop-platinum-main-window-p (window-list frame 'no-mini))
         (lambda (a b) (< (car (window-edges a)) (car (window-edges b))))))
 
-(defun lispm-desktop-platinum-main-window ()
-  "Return the most recently used window of the main area of this frame."
-  (or (car (sort (lispm-desktop-platinum-main-windows)
+(defun lispm-desktop-platinum-main-window (&optional frame)
+  "Return the most recently used window of the main area of FRAME.
+FRAME defaults to the selected one."
+  (or (car (sort (lispm-desktop-platinum-main-windows frame)
                  (lambda (a b) (> (window-use-time a) (window-use-time b)))))
       (selected-window)))
 
@@ -711,18 +720,72 @@ Emacs again.  Where alerts cannot be drawn, QUIT asks."
 
 (defun lispm-desktop-platinum-zoom-window (window)
   "Zoom WINDOW to the whole main area, or back to where it was.
-The sidebar stays, as `delete-other-windows' leaves side windows be."
-  (let ((saved (frame-parameter nil 'lispm-desktop-platinum-unzoom)))
+The sidebar stays, as `delete-other-windows' leaves side windows be.  A
+window in a frame of its own, an application's or a game's, zooms its
+frame instead, see `lispm-desktop-platinum-zoom-frame'."
+  (let* ((frame (window-frame window))
+         (saved (frame-parameter frame 'lispm-desktop-platinum-unzoom)))
     (cond
      ((lispm-desktop-platinum--box-function window :zoom)
       (funcall (lispm-desktop-platinum--box-function window :zoom) window))
-     ((and saved (eq (car saved) window) (not (cdr (lispm-desktop-platinum-main-windows))))
-      (set-frame-parameter nil 'lispm-desktop-platinum-unzoom nil)
+     ((frame-parameter frame 'lispm-desktop-window)
+      (lispm-desktop-platinum-zoom-frame frame))
+     ((and saved (eq (car saved) window)
+           (not (cdr (lispm-desktop-platinum-main-windows frame))))
+      (set-frame-parameter frame 'lispm-desktop-platinum-unzoom nil)
       (set-window-configuration (cdr saved)))
      (t
-      (set-frame-parameter nil 'lispm-desktop-platinum-unzoom
-                           (cons window (current-window-configuration)))
+      (set-frame-parameter frame 'lispm-desktop-platinum-unzoom
+                           (cons window (current-window-configuration frame)))
       (delete-other-windows window)))))
+
+(defun lispm-desktop-platinum-zoom-frame (frame)
+  "Zoom FRAME, a floating window, over the screen it is on, or back to its
+own size and place.  Out on the computer's screen it takes the screen's
+work area, as the window system's green button does; over the desktop it
+takes the desktop's area, as Mac OS 9's windows took it.
+
+FRAME's text gets no larger than its cells allow, so a window whose
+buffer keeps a size of its own, as a game's board does, may not fill it.
+This is what the zoom box of a window without a `:zoom' function of its
+own does."
+  (if-let* ((saved (frame-parameter frame 'lispm-desktop-platinum-zoom)))
+      (progn
+        (set-frame-parameter frame 'lispm-desktop-platinum-zoom nil)
+        (lispm-desktop-platinum--set-frame-geometry
+         frame (car saved) (cadr saved) (caddr saved)))
+    (when-let* ((place (lispm-desktop-platinum--zoom-place frame)))
+      (pcase-let ((`(,position ,width ,height) place))
+        (set-frame-parameter frame 'lispm-desktop-platinum-zoom
+                             (list (lispm-desktop-platinum-window-position frame)
+                                   (frame-text-width frame)
+                                   (frame-text-height frame)))
+        (lispm-desktop-platinum--set-frame-geometry frame position width height)))))
+
+(defun lispm-desktop-platinum--zoom-place (frame)
+  "Return where FRAME, a floating window, goes when zoomed: (POSITION
+WIDTH HEIGHT), the position its outer frame takes, as
+`lispm-desktop-platinum-window-position' counts it, and the size of its
+text in pixels; nil when the desktop says nothing of where its windows
+may stand, see `lispm-desktop-platinum-window-area-function'."
+  (let ((area (and lispm-desktop-platinum-window-area-function
+                   (funcall lispm-desktop-platinum-window-area-function frame))))
+    (when area
+      (pcase-let* ((`(,left ,top ,width ,height) area)
+                   (`(,frame-left ,frame-top ,frame-right ,frame-bottom)
+                    (lispm-desktop-platinum-window-margins frame))
+                   (extra-width (- (frame-pixel-width frame) (frame-text-width frame)))
+                   (extra-height (- (frame-pixel-height frame) (frame-text-height frame))))
+        (list (cons (+ left frame-left) (+ top frame-top))
+              (max 200 (- width frame-left frame-right extra-width))
+              (max 100 (- height frame-top frame-bottom extra-height)))))))
+
+(defun lispm-desktop-platinum--set-frame-geometry (frame position width height)
+  "Give floating window FRAME the text size WIDTH by HEIGHT pixels at
+POSITION, where `lispm-desktop-platinum-window-position' counts it."
+  (set-frame-size frame width height t)
+  (lispm-desktop-platinum-move-window frame (car position) (cdr position))
+  (lispm-desktop-platinum-frame-update frame))
 
 (defun lispm-desktop-platinum-collapse-window (window)
   "Roll WINDOW up to its title bar, or down again, as a window shade.

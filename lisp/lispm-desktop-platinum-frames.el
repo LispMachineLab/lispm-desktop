@@ -64,6 +64,13 @@ by default the current buffer's, or nil."
 its outline, from its title bar, its frame or its grow box, so it can be
 kept in place.")
 
+(defvar lispm-desktop-platinum-window-framed-functions nil
+  "Functions called with a floating window once a frame is drawn for it,
+in `lispm-desktop-platinum-frame-window'.  What shows the window elsewhere,
+as an application's process does, draws it again, its frame with it, now
+that the window stands in one: what the process shows of the window has to
+be of its frame.")
+
 (defun lispm-desktop-platinum--movable-p (frame)
   "Return non-nil when FRAME moves by its title bar: a child frame, or a
 floating window out on the computer's screen."
@@ -470,7 +477,8 @@ Return FRAME."
       (modify-frame-parameters frame `((parent-frame . ,outer)))
       ;; Emacs takes a frame just given a parent to be where it was asked
       ;; to be before.
-      (lispm-desktop-platinum--stand-in-frame frame)))
+      (lispm-desktop-platinum--stand-in-frame frame))
+    (run-hook-with-args 'lispm-desktop-platinum-window-framed-functions frame))
   frame)
 
 (defun lispm-desktop-platinum--stand-in-frame (frame)
