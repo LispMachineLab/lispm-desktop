@@ -323,18 +323,26 @@ it, and the process leaves."
            (message (lispm-desktop-tr "LispM has no application %s to open") app)
            (lispm-desktop-display--send client :op "bye"))
           (t
-           (let ((lispm-desktop-display--opening client))
-             (lispm-desktop-apps-activate app))
-           (let ((frame (lispm-desktop-display--app-frame app)))
-             (cond ((and frame (eq frame (process-get client :frame))
-                         (frame-live-p frame)))
-                   ;; Opened while it was shown, see
-                   ;; `lispm-desktop-display--presented'.
-                   ((and frame (lispm-desktop-apps-out-p frame))
-                    (lispm-desktop-display--attach client frame))
-                   (t
-                    ;; Over the desktop, or a window LispM draws itself.
-                    (lispm-desktop-display--send client :op "desktop"))))))))
+           (condition-case err
+               (progn
+                 (let ((lispm-desktop-display--opening client))
+                   (lispm-desktop-apps-activate app))
+                 (let ((frame (lispm-desktop-display--app-frame app)))
+                   (cond ((and frame (eq frame (process-get client :frame))
+                               (frame-live-p frame)))
+                         ;; Opened while it was shown, see
+                         ;; `lispm-desktop-display--presented'.
+                         ((and frame (lispm-desktop-apps-out-p frame))
+                          (lispm-desktop-display--attach client frame))
+                         (t
+                          ;; Over the desktop, or a window LispM draws itself.
+                          (lispm-desktop-display--send client :op "desktop")))))
+             (error
+              ;; The process waits for an answer that would never come, as
+              ;; it did for a quit with no window to close: let it go.
+              (message (lispm-desktop-tr "LispM could not open %s: %s")
+                       app (error-message-string err))
+              (lispm-desktop-display--detach client "bye")))))))
 
 (defun lispm-desktop-display--presented (present id)
   "Show the window of kind ID, as PRESENT does, drawing it out in the
@@ -704,16 +712,24 @@ now.  This is one of `post-command-hook'."
 
 (defun lispm-desktop-display-quit (event)
   "Close the windows of the application EVENT's process quits; it leaves
-once they are closed, and stays when one is kept open."
+once they are closed, and stays when one is kept open.  With no window
+left for it, there is nothing to keep it alive: it leaves, as it would
+wait forever, out of sight, for an answer that never came."
   (interactive "e")
   (let* ((client (nth 1 event))
          (app (process-get client :app)))
     (dolist (frame (frame-list))
       (when (and (frame-live-p frame) (frame-parameter frame 'lispm-desktop-window)
                  (eq (frame-parameter frame 'lispm-desktop-app) app))
-        (lispm-desktop-standalone--close frame)))
+        (condition-case err
+            (lispm-desktop-standalone--close frame)
+          (error (message "LispM could not close %s: %s"
+                          frame (error-message-string err))))))
     (when (memq client lispm-desktop-display--clients)
-      (lispm-desktop-display--send client :op "stay"))))
+      (if (frame-live-p (process-get client :frame))
+          ;; A window was kept open, as an alert asked.
+          (lispm-desktop-display--send client :op "stay")
+        (lispm-desktop-display--detach client "bye")))))
 
 (defun lispm-desktop-display-desktop (_event)
   "Show LispM's desktop, as an application's process asked: the windows of

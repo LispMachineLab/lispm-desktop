@@ -44,6 +44,7 @@
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
 (declare-function lispm-agents-session-model-resumable-p "lispm-agents" (session))
+(declare-function lispm-agents-session-opened-time "lispm-agents" (session))
 
 ;;;; Agent session sidebar
 
@@ -68,7 +69,8 @@ Directories absent from it use `lispm-desktop-agent-list--default-folded-p'.")
 Groups without running terminals and idle for
 `lispm-desktop-agent-list-fold-age' fold."
   (and (null (plist-get group :running))
-       (> (- now (plist-get group :time)) lispm-desktop-agent-list-fold-age)))
+       (> (- now (max (plist-get group :time) (or (plist-get group :opened) 0)))
+          lispm-desktop-agent-list-fold-age)))
 
 (defun lispm-desktop-agent-list--folded-p (group now)
   "Return non-nil when GROUP is folded at time NOW."
@@ -126,6 +128,28 @@ program or one of LispM's agents, else \"running\"."
   "<down-mouse-3>" #'ignore
   "<mouse-3>" #'lispm-desktop-agent-list-context-menu)
 
+(defun lispm-desktop-agent-list--ordered-rows (buffers trees)
+  "Merge unrecorded BUFFERS and recorded session TREES in opening order.
+Unknown timestamps sort last, with stable keys breaking ties so focusing
+a terminal cannot change its position."
+  (mapcar
+   #'caddr
+   (sort
+    (mapcar (lambda (row)
+              (if (bufferp row)
+                  (list (or (buffer-local-value 'lispm-agents-buffer-launched row) 0)
+                        (concat "buffer:" (buffer-name row)) row)
+                (let ((session (car row)))
+                  (list (if (fboundp 'lispm-agents-session-opened-time)
+                            (lispm-agents-session-opened-time session)
+                          (or (plist-get session :started) 0))
+                        (format "%s:%s" (plist-get session :agent) (plist-get session :id))
+                        row))))
+            (append buffers trees))
+    (lambda (a b)
+      (if (= (car a) (car b)) (string< (cadr a) (cadr b))
+        (> (car a) (car b)))))))
+
 (defun lispm-desktop-agent-list--insert-project (group now running-ids)
   "Insert project GROUP, its running terminals and a preview of its sessions.
 NOW dates the sessions; RUNNING-IDS are the ids of sessions live terminals
@@ -146,32 +170,32 @@ Finder list; its sessions are rows one level in, newest first."
            (t (lispm-desktop-tr "Close %s" directory)))
      (unless chats directory))
     (unless folded
-      ;; A terminal whose session is already listed shows as that session's
-      ;; running row; only terminals without a recorded session list here.
-      (dolist (buffer (seq-remove
-                       (lambda (buffer)
-                         (when-let* ((id (buffer-local-value 'lispm-agents-buffer-session-id buffer)))
-                           (seq-some (lambda (session) (equal (plist-get session :id) id))
-                                     sessions)))
-                       (plist-get group :running)))
-        (lispm-desktop-sidebar-insert-entry
-         (lispm-agents-icon (lispm-agents-of-buffer buffer))
-         (lispm-agents-buffer-label buffer)
-         (lispm-desktop-agent-list--running-label buffer)
-         (apply-partially #'lispm-agents-show buffer)
-         (lispm-desktop-tr "Show this terminal")
-         (list 'lispm-desktop-agent-list-buffer buffer) 1))
       ;; The sessions are a tree: one a session started goes under it,
-      ;; and the preview counts the sessions nobody started.  Those
-      ;; waiting for the user come first.
+      ;; and the preview counts recorded root sessions.  New terminals
+      ;; without transcripts remain visible, merged in opening order.
       (let* ((expanded (member (plist-get group :key) lispm-desktop-agent-list--expanded))
-             (trees (seq-sort-by (lambda (tree)
-                                   (if (lispm-desktop-agent-list--waiting-p (car tree) running-ids) 0 1))
-                                 #'< (lispm-agents-session-tree sessions)))
+             (trees (lispm-agents-session-tree sessions))
              (shown (if expanded trees
-                      (seq-take trees lispm-desktop-agent-list-project-preview))))
-        (dolist (tree shown)
-          (lispm-desktop-agent-list--insert-session tree 1 now running-ids chats directory))
+                      (seq-take trees lispm-desktop-agent-list-project-preview)))
+             (unrecorded
+              (seq-remove
+               (lambda (buffer)
+                 (when-let* ((id (buffer-local-value 'lispm-agents-buffer-session-id buffer)))
+                   (seq-some (lambda (session)
+                               (and (eq (plist-get session :agent) (lispm-agents-of-buffer buffer))
+                                    (equal (plist-get session :id) id)))
+                             sessions)))
+               (plist-get group :running))))
+        (dolist (row (lispm-desktop-agent-list--ordered-rows unrecorded shown))
+          (if (bufferp row)
+              (lispm-desktop-sidebar-insert-entry
+               (lispm-agents-icon (lispm-agents-of-buffer row))
+               (lispm-agents-buffer-label row)
+               (lispm-desktop-agent-list--running-label row)
+               (apply-partially #'lispm-agents-show row)
+               (lispm-desktop-tr "Show this terminal")
+               (list 'lispm-desktop-agent-list-buffer row) 1)
+            (lispm-desktop-agent-list--insert-session row 1 now running-ids chats directory)))
         (when (or expanded (> (length trees) (length shown)))
           (lispm-desktop-sidebar-insert-entry
            ""

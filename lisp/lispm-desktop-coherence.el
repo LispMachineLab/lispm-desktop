@@ -48,7 +48,10 @@
 ;; The desktop's minibuffer is the screen's, in the Dock while it is
 ;; hidden, so the windows out share one of their own, a small window that
 ;; shows at the top of the computer's screen while it is read from, and
-;; for a few seconds when it echoes a message.
+;; for a few seconds when it echoes a message.  A window out drawn in an
+;; application's process, see lispm-desktop-display, has its minibuffer in
+;; its own window instead, a field at its bottom: a window of its own
+;; there would stand apart from the window it belongs to.
 ;;
 ;; Where windows go out:
 ;;
@@ -72,6 +75,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-field)
 
 (declare-function lispm-desktop-editor-float "lispm-desktop-editor" ())
 (declare-function lispm-desktop-editor-full-screen "lispm-desktop-editor" ())
@@ -80,6 +84,7 @@
 (declare-function lispm-desktop-browser-full-screen "lispm-desktop-browser" ())
 (declare-function lispm-desktop-browser-floating-p "lispm-desktop-browser" ())
 (declare-function lispm-desktop-activate "lispm-desktop-surface" ())
+(declare-function lispm-desktop-display-backend-p "lispm-desktop-display" ())
 (declare-function lispm-ui-color "lispm-desktop-platinum-palette" (key))
 (defvar lispm-desktop-platinum-frame-moved-functions)
 (defvar exwm-wm-mode)
@@ -158,6 +163,13 @@ Both are (X Y WIDTH HEIGHT)."
 ;; A frame of its own minibuffer, rather than a minibuffer-only frame:
 ;; there Vertico loses track of point while it reads a file's name.  Its
 ;; one other window shows which window asks, as a title over the field.
+;;
+;; A window out drawn in an application's process reads and echoes in a
+;; field under its own frame instead, at its bottom inside the
+;; application's window, a minibuffer-only frame: drawn in that window
+;; with it, it is no window of its own on the computer's screen.  LispM UI
+;; makes the field (lispm-ui-field.el), as it does for any window drawn
+;; inside another; here it is given the screen its window is out on.
 
 (defvar lispm-desktop-coherence--minibuffers nil
   "The minibuffer frames of the screens' windows out: (SCREEN . FRAME).")
@@ -204,6 +216,29 @@ computer's screen as Spotlight's field, and hides again once done."
   "Return non-nil when FRAME is the minibuffer of a screen's windows out."
   (rassq frame lispm-desktop-coherence--minibuffers))
 
+(defun lispm-desktop-coherence--field (window screen)
+  "Return the field WINDOW, a window out on SCREEN, reads and echoes in,
+made when missing: a frame under WINDOW, at its bottom, as wide as it,
+drawn in WINDOW's window as part of it.  WINDOW is drawn in an
+application's process."
+  (let ((field (lispm-ui-field-make window)))
+    (set-frame-parameter field 'lispm-desktop-out screen)
+    field))
+
+(defun lispm-desktop-coherence--application-runtime-p ()
+  "Return non-nil in the private runtime of standalone applications, see
+lispm-desktop-display."
+  (and (fboundp 'lispm-desktop-display-backend-p)
+       (lispm-desktop-display-backend-p)))
+
+(defun lispm-desktop-coherence--minibuffer-for (frame screen)
+  "Return the minibuffer window FRAME, a window out over SCREEN, reads
+from: that of its field when it is drawn in an application's process,
+else that of the windows out of SCREEN."
+  (if (lispm-desktop-coherence--application-runtime-p)
+      (minibuffer-window (lispm-desktop-coherence--field frame screen))
+    (minibuffer-window (lispm-desktop-coherence--minibuffer screen))))
+
 (defun lispm-desktop-coherence--fit-minibuffer ()
   "Make the minibuffer of the windows out as tall as what it shows, the
 field and the candidates under it, under its title."
@@ -239,17 +274,21 @@ computer's screen that window is on."
 (defun lispm-desktop-coherence--place-minibuffer ()
   "Show the minibuffer of the windows out over the top of the computer's
 screen the asking window is on, titled with the window's name, and keep
-it as tall as what it shows.  This is a `minibuffer-setup-hook' function,
-run after Vertico's."
+it as tall as what it shows; from a window out drawn in an application's
+process, show its field in that window.  This is a
+`minibuffer-setup-hook' function, run after Vertico's."
   (let ((frame (window-frame (minibuffer-window))))
-    (when (lispm-desktop-coherence--minibuffer-frame-p frame)
+    (cond
+     ((lispm-desktop-coherence--minibuffer-frame-p frame)
       (lispm-desktop-coherence--stop-echo)
       (add-hook 'post-command-hook #'lispm-desktop-coherence--fit-minibuffer 90 t)
       (lispm-desktop-coherence--fit-minibuffer)
       (lispm-desktop-coherence--title-minibuffer frame (window-frame (minibuffer-selected-window)))
       (make-frame-visible frame)
       ;; Once Vertico has drawn its candidates.
-      (run-at-time 0 nil #'lispm-desktop-coherence--fit-minibuffer))))
+      (run-at-time 0 nil #'lispm-desktop-coherence--fit-minibuffer))
+     ((lispm-ui-field-p frame)
+      (lispm-ui-field-setup)))))
 
 (defun lispm-desktop-coherence--hide-minibuffer ()
   "Hide the minibuffer of the windows out once nothing is read from it.
@@ -257,6 +296,7 @@ This is a `minibuffer-exit-hook' function."
   (run-at-time 0 nil
                (lambda ()
                  (when (zerop (minibuffer-depth))
+                   (lispm-ui-field-hide-all)
                    (dolist (entry lispm-desktop-coherence--minibuffers)
                      (when (and (frame-live-p (cdr entry)) (frame-visible-p (cdr entry)))
                        (make-frame-invisible (cdr entry) t)))))))
@@ -278,17 +318,23 @@ This is a `minibuffer-exit-hook' function."
   (setq lispm-desktop-coherence--echo-timer nil))
 
 (defun lispm-desktop-coherence--echo (message)
-  "Show MESSAGE, echoed for a window out, under the window's name in the
-minibuffer of the windows out, for `lispm-desktop-coherence-echo-seconds'.
-Emacs shows the frame a message goes to by itself; this titles it, sizes
-it to the message and hides it again.  This is one of
-`set-message-functions'; it lets the message be displayed as usual."
-  (let ((asking (selected-frame)))
-    (when-let* (((not (active-minibuffer-window)))
-                (screen (lispm-desktop-apps-out-p asking))
-                (frame (alist-get screen lispm-desktop-coherence--minibuffers))
-                ((frame-live-p frame))
-                ((eq (window-frame (minibuffer-window asking)) frame)))
+  "Show MESSAGE, echoed for a window out, in the minibuffer of the
+windows out, under the window's name, or in that window's field when it
+is drawn in an application's process, for
+`lispm-desktop-coherence-echo-seconds'.  Emacs shows the frame a message
+goes to by itself; this titles it, sizes it to the message and hides it
+again.  This is one of `set-message-functions'; it lets the message be
+displayed as usual."
+  (let* ((asking (selected-frame))
+         (mini (and (not (active-minibuffer-window)) (minibuffer-window asking)))
+         (frame (and mini (window-frame mini))))
+    (cond
+     ((and frame (lispm-ui-field-p frame))
+      (lispm-ui-field-echo message))
+     ((and frame
+           (lispm-desktop-apps-out-p asking)
+           (eq frame (alist-get (lispm-desktop-apps-out-p asking)
+                                lispm-desktop-coherence--minibuffers)))
       (lispm-desktop-coherence--title-minibuffer frame asking)
       (set-frame-height frame (+ 1 (min 5 (1+ (cl-count ?\n message)))))
       (lispm-desktop-coherence--stop-echo)
@@ -298,7 +344,7 @@ it to the message and hides it again.  This is one of
                               (setq lispm-desktop-coherence--echo-timer nil)
                               (when (and (frame-live-p frame) (not (active-minibuffer-window)))
                                 (make-frame-invisible frame t)))))))
-  nil)
+    nil))
 
 (defun lispm-desktop-coherence--quiet-selection (set-region click)
   "Select as SET-REGION does for CLICK, a double or triple click or a drag,
@@ -325,7 +371,8 @@ place would be skipped, so FRAME is moved by a pixel first."
 (defun lispm-desktop-coherence-take-out (frame)
   "Take FRAME, a floating window over its screen, out on the computer's
 screen: in a frame of its own, where it was, reading from the minibuffer
-of the windows out.  The frame carrying it goes out, it in the frame,
+of the windows out, or from its own field when it is drawn in an
+application's process.  The frame carrying it goes out, it in the frame,
 its Mac OS 9 frame kept."
   (when-let* ((screen (lispm-desktop-platinum-window-parent frame))
               ((frame-parameter frame 'lispm-desktop-window)))
@@ -334,7 +381,7 @@ its Mac OS 9 frame kept."
                 (visible (frame-visible-p frame)))
       ;; The window and its frame alike: a message echoed with the frame
       ;; selected would show the screen from the Dock.
-      (let ((minibuffer (minibuffer-window (lispm-desktop-coherence--minibuffer screen))))
+      (let ((minibuffer (lispm-desktop-coherence--minibuffer-for frame screen)))
         (dolist (each (delete-dups (list frame outer)))
           (set-frame-parameter each 'minibuffer minibuffer)))
       (set-frame-parameter frame 'lispm-desktop-out screen)
@@ -347,13 +394,14 @@ its Mac OS 9 frame kept."
 
 (defun lispm-desktop-coherence-bring-in (frame)
   "Bring FRAME, a window out, back over its screen, where it is now, the
-frame carrying it in again."
+frame carrying it in again, reading from the screen's minibuffer."
   (when-let* ((screen (and (not (lispm-desktop-platinum-window-parent frame))
                            (lispm-desktop-apps-out-p frame))))
     (pcase-let ((`(,x ,y . ,_) (lispm-desktop-coherence--outer-rectangle frame))
                 (`(,ox . ,oy) (lispm-desktop-apps--screen-origin screen))
                 (outer (lispm-desktop-platinum-window-outer frame))
                 (visible (frame-visible-p frame)))
+      (lispm-ui-field-dispose frame)
       (modify-frame-parameters outer `((parent-frame . ,screen) (lispm-desktop-out . nil)))
       (set-frame-parameter frame 'lispm-desktop-out nil)
       (dolist (each (delete-dups (list frame outer)))

@@ -22,7 +22,7 @@ STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICK
 test:
 	$(EMACS) -Q --batch --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el -l test/lispm-desktop-app-manager-test.el \
 	  -f ert-run-tests-batch-and-exit
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code

@@ -142,7 +142,10 @@ Optional, used when present:
 - *Control Panels*, one for each category, a few tabs each: Appearance (Appearance, Desktop),
   General (Language, Keyboard, Startup), Internet (Internet, Network), Agents (LispM: LispM
   Agent's model, permissions, memory, roles and skills; Sandbox) and System (Kernel, Software
-  Update), plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
+  Update), and Apps, an independent manager for installed applications and extensions:
+  search or filter the list, inspect versions and sources, open, update or uninstall with
+  confirmation.  Built-in applications are listed too, but cannot be uninstalled.
+  Plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
   Traditional; the computer's by default, asked at the first start.
 - *The App Store*: applications (Elfeed, EMMS, ERC, Slack, Telega, Calc, games, Classic AI's
@@ -173,7 +176,10 @@ Optional, used when present:
   own tile in the Dock, its own menu bar and its own place in =⌘-Tab=, while LispM, started for
   it with its desktop out of sight and out of the Dock, draws its window, as an X server draws
   its clients': the window's layers are shown in the application's process, and what is typed
-  and clicked there comes back to LispM.  =⌘Q= quits that application alone; Show Desktop, in
+  and clicked there comes back to LispM.  A private LispM Runtime, with its own application
+  identity and socket, keeps these applications separate from the system's Emacs, whichever
+  is opened first; it uses a copy of Emacs's resources, not its running process.  =⌘Q= quits that
+  application alone; Show Desktop, in
   its application menu, brings the desktop back.  Both halves (=native/lispm-desktop-display=)
   are built with the command line tools' clang the first time.
 - *A watch on the pointer* while Emacs is busy, in the classic style.
