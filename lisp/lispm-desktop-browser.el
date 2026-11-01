@@ -91,9 +91,9 @@
 (declare-function xwidget-webkit-estimated-load-progress "xwidget.c" (xwidget))
 (defvar xwidget-webkit-mode-map)
 (defvar xwidget-webkit--loading-p)
-(declare-function lispm-desktop-platinum-icon "lispm-desktop-platinum-icons" (name))
+(declare-function lispm-ui-icon "lispm-ui-icons" (name))
 (defvar lispm-desktop-platinum-window-title)
-(defvar lispm-desktop-platinum-icon)
+(defvar lispm-desktop-platinum-window-icon)
 (defvar lispm-desktop-platinum-box-functions)
 
 (defconst lispm-desktop-browser-workspace-name "Browser"
@@ -151,7 +151,7 @@ an address is searched for, see `lispm-browser-input-url'."
 (declare-function lispm-desktop-browser--bookmark-items "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser--places-shown "lispm-desktop-browser-places" ())
 (declare-function lispm-desktop-browser--personal-toolbar "lispm-desktop-browser-places" ())
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 
 (defun lispm-desktop-browser--file-items ()
   "Return the items of the browser's File menu."
@@ -585,7 +585,7 @@ the page's `lispm-browser-status-note'."
 (declare-function lispm-browser-extensions-button-anchor "lispm-browser-extensions" (window top height id))
 (declare-function lispm-browser-extensions-event-anchor "lispm-browser-extensions" (event))
 (defvar lispm-browser-extensions-anchor-function)
-(defvar lispm-desktop-popup-parent)
+(defvar lispm-ui-menu-parent)
 
 (defconst lispm-desktop-browser-extension-size 24
   "Size in pixels of an extension's button on the location toolbar.")
@@ -649,8 +649,8 @@ pushed in when PRESSED."
 its frame, see `lispm-browser-extensions-anchor-function': flush with its
 right edge, as the buttons end the toolbar."
   (pcase-let ((`(,frame ,x ,y ,width ,height) anchor))
-    (let ((lispm-desktop-popup-parent frame))
-      (lispm-desktop-popup-menu items (+ x width) (+ y height) 'right))))
+    (let ((lispm-ui-menu-parent frame))
+      (lispm-ui-menu items (+ x width) (+ y height) 'right))))
 
 (defun lispm-desktop-browser-extensions-menu (&optional event)
   "Pop up the Extensions menu under the location toolbar's Extensions
@@ -660,7 +660,7 @@ button, or at mouse EVENT."
                     (lispm-desktop-browser--extension-anchor 'menu))))
     (if anchor
         (lispm-desktop-browser--popup-at (lispm-browser-extensions-menu-items) anchor)
-      (lispm-desktop-popup-menu (lispm-browser-extensions-menu-items)))))
+      (lispm-ui-menu (lispm-browser-extensions-menu-items)))))
 
 (defun lispm-desktop-browser--extension-menu (id event)
   "Pop up the menu of extension ID's button, clicked with EVENT."
@@ -771,7 +771,7 @@ An edited address is kept while the page stays put; see
 (defun lispm-desktop-browser-bookmarks-menu (&optional _event)
   "Pop up the Bookmarks menu, as the location toolbar's Bookmarks button did."
   (interactive (list last-nonmenu-event))
-  (lispm-desktop-popup-menu (lispm-desktop-browser--bookmark-items)))
+  (lispm-ui-menu (lispm-desktop-browser--bookmark-items)))
 
 (defun lispm-desktop-browser--bookmarks-button ()
   "Return the location toolbar's Bookmarks button: a bevel button holding
@@ -807,7 +807,7 @@ inhibited and the edit mark cleared."
                                                :ascent 65))
               (lispm-desktop-browser--bookmarks-button)
               (lispm-desktop-platinum-space 10)
-              (or (and page (lispm-browser-favicon page)) (lispm-desktop-platinum-icon "globe"))
+              (or (and page (lispm-browser-favicon page)) (lispm-ui-icon "globe"))
               " "
               (propertize (lispm-desktop-tr "Location:") 'face 'lispm-desktop-platinum-toolbar-label)
               " ")
@@ -971,7 +971,7 @@ toolbar.
               truncate-lines t
               cursor-type 'bar
               lispm-desktop-platinum-window-title #'lispm-desktop-browser--no-page-title
-              lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "netscape")
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "netscape")
               lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes))
   ;; Its height is the toolbars': a frame growing, as on a tall screen,
   ;; gives its height to the page, the toolbars fitted again at once.
@@ -1018,8 +1018,8 @@ buffer, whose name WebKit prefixes."
       (with-current-buffer buffer
         (setq lispm-desktop-platinum-window-title (if shown (lispm-browser-title shown)
                                                     #'lispm-desktop-browser--no-page-title)
-              lispm-desktop-platinum-icon (or (and shown (lispm-browser-favicon shown))
-                                              (lispm-desktop-platinum-icon "globe")))))))
+              lispm-desktop-platinum-window-icon (or (and shown (lispm-browser-favicon shown))
+                                (lispm-ui-icon "globe")))))))
 
 (defun lispm-desktop-browser--redraw-tabs ()
   "Redraw the browser window's title bar and tabs, leaving the address alone."
@@ -1044,7 +1044,7 @@ too."
                             (lispm-browser-tab-command #'lispm-browser-select-tab buffer))))
                   (keymap-set map "<tab-line> <down-mouse-2>" #'ignore)
                   (keymap-set map "<tab-line> <mouse-2>" close)
-                  (list (concat (or (lispm-browser-favicon buffer) (lispm-desktop-platinum-icon "globe"))
+                  (list (concat (or (lispm-browser-favicon buffer) (lispm-ui-icon "globe"))
                                 " "
                                 (truncate-string-to-width (lispm-browser-title buffer)
                                                           lispm-browser-tab-width nil nil "…"))

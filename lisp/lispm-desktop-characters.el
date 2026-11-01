@@ -214,7 +214,7 @@ Run from `lispm-desktop-apps-changed-hook'."
             (lispm-define-app-character
              key :title (lispm-desktop-tr (plist-get props :name)) :skill skill
              :description (plist-get props :description)
-             :avatar (ignore-errors (lispm-desktop-platinum-icon-file
+             :avatar (ignore-errors (lispm-ui-icon-file
                                      (or (plist-get props :large-icon) (plist-get props :icon))))))))
       (dolist (key lispm-desktop-characters--apps)
         (unless (memq key now)
@@ -258,8 +258,8 @@ deletes it.
 (defun lispm-desktop-characters--icon (character height)
   "CHARACTER's picture, or a person's, HEIGHT pixels tall, as a string."
   (if (or (lispm-desktop-tty-p) (not (display-images-p)))
-      (lispm-desktop-platinum-icon 'character)
-    (propertize " " 'display (create-image (lispm-desktop-platinum-icon-file
+      (lispm-ui-icon 'character)
+    (propertize " " 'display (create-image (lispm-ui-icon-file
                                             (cdr (lispm-desktop-characters--icons character)))
                                            nil nil :height height :ascent 'center))))
 

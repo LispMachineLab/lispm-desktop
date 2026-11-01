@@ -40,7 +40,7 @@
 ;; included, see `lispm-desktop-tty-images--before-redisplay'.  An image
 ;; is clear round its icon, and a pixel icon's pixels are squares of
 ;; whole device pixels, so that they stay crisp, see
-;; `lispm-desktop-platinum-raster-png'.
+;; `lispm-ui-raster-png'.
 ;;
 ;; A cleared screen loses the placements, as Emacs clears it after a
 ;; resize or a full redraw: they are placed again after each command and
@@ -52,7 +52,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-core)
-(require 'lispm-desktop-platinum-raster)
+(require 'lispm-ui-raster)
 (require 'lispm-desktop-platinum-icons)
 (require 'lispm-desktop-i18n)
 
@@ -67,7 +67,7 @@
   "Non-nil shows the desktop's icons as images on a text terminal that
 can show them: one speaking the Kitty graphics protocol.  Elsewhere,
 and with this nil, they are block characters, see
-`lispm-desktop-platinum-icon-picture'."
+`lispm-ui-icon-picture'."
   :type 'boolean
   :group 'lispm-desktop)
 
@@ -184,14 +184,14 @@ images, see `lispm-desktop-tty-images'."
 SELECTED, clear round it, as (FILE WIDTH HEIGHT); made once.  It is as
 many device pixels as the cells are, the icon nine tenths of it: a
 pixel icon at a whole multiple of its own size, any other drawn at half
-and doubled.  NAME is as `lispm-desktop-platinum-icon-file' takes it."
+and doubled.  NAME is as `lispm-ui-icon-file' takes it."
   (let* ((terminal (terminal-parameter nil 'lispm-desktop-tty-images))
          (scale (plist-get terminal :scale))
          (width (round (* scale columns (plist-get terminal :width))))
          (height (round (* scale rows (plist-get terminal :height))))
-         (source (lispm-desktop-platinum-icon-file name))
+         (source (lispm-ui-icon-file name))
          (fit (floor (* 0.9 (min width height))))
-         (own (lispm-desktop-platinum-raster-pixel-size source))
+         (own (lispm-ui-raster-pixel-size source))
          (size (or own (max 1 (/ fit 2))))
          (factor (if own (max 1 (/ fit own)) 2))
          (key (md5 (prin1-to-string
@@ -199,16 +199,16 @@ and doubled.  NAME is as `lispm-desktop-platinum-icon-file' takes it."
                           size factor width height (and selected t)))))
          (file (expand-file-name (concat key ".png") (lispm-desktop-tty-images-directory))))
     (unless (file-exists-p file)
-      (when-let* ((pixels (lispm-desktop-platinum-raster source size)))
+      (when-let* ((pixels (lispm-ui-raster source size)))
         (when selected
           (setq pixels (vconcat (mapcar (lambda (row)
                                           (vconcat (mapcar (lambda (pixel)
-                                                             (and pixel (lispm-desktop-platinum--darker pixel)))
+                                                             (and pixel (lispm-ui-raster-darker pixel)))
                                                            row)))
                                         pixels))))
         (make-directory (file-name-directory file) t)
         (let ((coding-system-for-write 'binary))
-          (write-region (lispm-desktop-platinum-raster-png pixels factor width height)
+          (write-region (lispm-ui-raster-png pixels factor width height)
                         nil file nil 'silent))))
     (and (file-exists-p file) (list file width height))))
 
@@ -439,6 +439,10 @@ after `pre-redisplay-function'."
     (add-hook 'suspend-hook #'lispm-desktop-tty-images--take-away)
     (add-hook 'suspend-resume-hook #'lispm-desktop-tty-images--refresh)
     (add-hook 'kill-emacs-hook #'lispm-desktop-tty-images--take-away)))
+
+;; LispM UI's alerts and file dialog use the desktop's terminal renderer.
+(setq lispm-ui-tty-image-function #'lispm-desktop-tty-images-blank
+      lispm-ui-tty-image-show-function #'lispm-desktop-tty-images-show-marked)
 
 (provide 'lispm-desktop-tty-images)
 ;;; lispm-desktop-tty-images.el ends here

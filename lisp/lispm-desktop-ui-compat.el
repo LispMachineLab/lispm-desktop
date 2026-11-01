@@ -42,6 +42,52 @@
 (require 'lispm-ui-draw)
 (require 'lispm-ui-controls)
 (require 'lispm-ui-form)
+(require 'lispm-ui-icons)
+(require 'lispm-ui-menu)
+(require 'lispm-ui-ask)
+(require 'lispm-ui-alert)
+(require 'lispm-ui-list)
+(require 'lispm-ui-scroll)
+(require 'lispm-ui-window)
+(require 'lispm-ui-file-dialog)
+
+(defvar savehist-file)
+
+(defvar lispm-desktop-ui-compat--live-recent nil
+  "Recent choices from before the first savehist restoration.
+Dynamically bound while `savehist-mode' runs its restoration hook.")
+
+(defun lispm-desktop-ui-compat--capture-recent (mode &rest arguments)
+  "Keep live Recent choices while MODE restores history with ARGUMENTS."
+  (let ((lispm-desktop-ui-compat--live-recent (copy-sequence lispm-ui-choose-recent)))
+    (apply mode arguments)))
+
+(defun lispm-desktop-ui-compat--restore-recent ()
+  "Merge live choices and both Recent lists at the first savehist restoration.
+An old file can assign both names, which are now aliases.  Read only
+their quoted lists of file names; never evaluate the history file."
+  (when (bound-and-true-p savehist-mode)
+    (remove-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent)
+    (advice-remove 'savehist-mode #'lispm-desktop-ui-compat--capture-recent)
+    (let (saved)
+      (condition-case nil
+          (with-temp-buffer
+            (insert-file-contents savehist-file)
+            (let ((read-circle t))
+              (while t
+                (pcase (read (current-buffer))
+                  (`(setq ,name ',files)
+                   (when (and (memq name '(lispm-desktop-choose-recent lispm-ui-choose-recent))
+                              (proper-list-p files) (seq-every-p #'stringp files))
+                     (setf (alist-get name saved) files)))))))
+        (error nil))
+      ;; Live choices are newest; saved UI choices precede the old desktop's
+      ;; regardless of the assignments' order in the history file.
+      (setq lispm-ui-choose-recent
+            (delete-dups (append lispm-desktop-ui-compat--live-recent
+                                 (alist-get 'lispm-ui-choose-recent saved)
+                                 lispm-ui-choose-recent
+                                 (alist-get 'lispm-desktop-choose-recent saved) nil))))))
 
 ;;;; Variables
 
@@ -58,17 +104,76 @@
 ;; The title a buffer's window shows, which had the name of the face of
 ;; titles.
 (defvaralias 'lispm-desktop-platinum-title 'lispm-desktop-platinum-window-title)
+;; The per-window icon is desktop state, separate from the UI icon function.
+(defvaralias 'lispm-desktop-platinum-icon 'lispm-desktop-platinum-window-icon)
+
+;; Icons, raster pictures, menus and alerts.
+(defvaralias 'lispm-desktop-platinum--icons 'lispm-ui--icons)
+(defvaralias 'lispm-desktop-platinum--icon-colors 'lispm-ui--icon-colors)
+(defvaralias 'lispm-desktop-platinum--icon-pictures 'lispm-ui--icon-pictures)
+(defvaralias 'lispm-desktop-platinum--rasters 'lispm-ui-raster--cache)
+(defvaralias 'lispm-desktop-platinum-raster-samples 'lispm-ui-raster-samples)
+(defvaralias 'lispm-desktop-platinum-text-cell 'lispm-ui-text-cell)
+(defvaralias 'lispm-desktop-platinum-lisp-extensions 'lispm-ui-lisp-extensions)
+(defvaralias 'lispm-desktop-platinum-code-extensions 'lispm-ui-code-extensions)
+(defvaralias 'lispm-desktop-popup-small 'lispm-ui-menu-small)
+(defvaralias 'lispm-desktop-popup-parent 'lispm-ui-menu-parent)
+(defvaralias 'lispm-desktop-popup-menu-bar-step 'lispm-ui-menu-bar-step)
+(defvaralias 'lispm-desktop-popup-item-height 'lispm-ui-menu-item-height)
+(defvaralias 'lispm-desktop-popup-separator-height 'lispm-ui-menu-separator-height)
+(defvaralias 'lispm-desktop-popup-label-x 'lispm-ui-menu-label-x)
+(defvaralias 'lispm-desktop-popup-key-margin 'lispm-ui-menu-key-margin)
+(defvaralias 'lispm-desktop-popup-icon-size 'lispm-ui-menu-icon-size)
+(defvaralias 'lispm-desktop-popup-typed-keys 'lispm-ui-menu-typed-keys)
+(defvaralias 'lispm-desktop-popup-alert-width 'lispm-ui-alert-width)
+(defvaralias 'lispm-desktop-popup-alert-text-x 'lispm-ui-alert-text-x)
+(defvaralias 'lispm-desktop-popup-button-gap 'lispm-ui-alert-button-gap)
+(defvaralias 'lispm-desktop-popup-text-alert-width 'lispm-ui-text-alert-width)
+
+;; Lists, scroll bars, title drawing and the file dialog.
+(defvaralias 'lispm-desktop-platinum-list-header-height 'lispm-ui-list-header-height)
+(defvaralias 'lispm-desktop-platinum-scroll-width 'lispm-ui-scroll-width)
+(defvaralias 'lispm-desktop-platinum-scroll-arrow 'lispm-ui-scroll-arrow)
+(defvaralias 'lispm-desktop-platinum-title-bar-height 'lispm-ui-title-bar-height)
+(defvaralias 'lispm-desktop-platinum-box-size 'lispm-ui-title-box-size)
+(defvaralias 'lispm-desktop-platinum-box-margin 'lispm-ui-title-box-margin)
+(defvaralias 'lispm-desktop-choose-width 'lispm-ui-file-dialog-width)
+(defvaralias 'lispm-desktop-choose-rows 'lispm-ui-file-dialog-rows)
+(defvaralias 'lispm-desktop-choose-row-height 'lispm-ui-file-dialog-row-height)
+(defvaralias 'lispm-desktop-choose-preview-limit 'lispm-ui-file-dialog-preview-limit)
+;; savehist may restore the old name before the desktop loads.  Keep
+;; current UI choices first, and migrate only before the names are aliases.
+(unless (eq (indirect-variable 'lispm-desktop-choose-recent)
+            (indirect-variable 'lispm-ui-choose-recent))
+  (when (boundp 'lispm-desktop-choose-recent)
+    (setq lispm-ui-choose-recent
+          (delete-dups (append lispm-ui-choose-recent
+                               (symbol-value 'lispm-desktop-choose-recent) nil)))
+    (set 'lispm-desktop-choose-recent lispm-ui-choose-recent))
+  ;; If savehist has yet to restore, preserve live choices and recover
+  ;; dual-name files before ordinary mode hooks inspect the merged history.
+  ;; A reload or a later mode toggle must not resurrect discarded entries.
+  (unless (or (bound-and-true-p savehist-mode)
+              (and (boundp 'savehist-loaded) (symbol-value 'savehist-loaded)))
+    (advice-add 'savehist-mode :around #'lispm-desktop-ui-compat--capture-recent)
+    (add-hook 'savehist-mode-hook #'lispm-desktop-ui-compat--restore-recent -90)))
+(defvaralias 'lispm-desktop-choose-recent 'lispm-ui-choose-recent)
+(defvaralias 'lispm-desktop-choose-recent-count 'lispm-ui-choose-recent-count)
 
 ;;;; Faces
 
 (pcase-dolist (`(,old . ,new) '((lispm-desktop-platinum-title . lispm-ui-title)
+                                (lispm-desktop-platinum-title-inactive . lispm-ui-title-inactive)
                                 (lispm-desktop-platinum-list . lispm-ui-list)
                                 (lispm-desktop-platinum-small . lispm-ui-small)
                                 (lispm-desktop-platinum-field . lispm-ui-field)
                                 (lispm-desktop-platinum-field-focused . lispm-ui-field-focused)
                                 (lispm-desktop-platinum-button . lispm-ui-button)
                                 (lispm-desktop-platinum-button-pressed . lispm-ui-button-pressed)
-                                (lispm-desktop-form-text-area . lispm-ui-form-text-area)))
+                                (lispm-desktop-form-text-area . lispm-ui-form-text-area)
+                                (lispm-desktop-popup-item . lispm-ui-menu-item)
+                                (lispm-desktop-popup-item-highlight . lispm-ui-menu-item-highlight)
+                                (lispm-desktop-popup-item-disabled . lispm-ui-menu-item-disabled)))
   (put old 'face-alias new))
 
 ;;;; Looks
@@ -93,6 +198,14 @@
 (defalias 'lispm-desktop-platinum-insert-radio-button #'lispm-ui-insert-radio-button)
 (defalias 'lispm-desktop-platinum-insert-check-box #'lispm-ui-insert-check-box)
 (defalias 'lispm-desktop-platinum-insert-popup-button #'lispm-ui-insert-popup-button)
+
+;;;; Questions and menus
+
+(defalias 'lispm-desktop-popup-alert #'lispm-ui-alert)
+(defalias 'lispm-desktop-popup-menu #'lispm-ui-menu)
+;;;; File dialogs
+
+(defalias 'lispm-desktop-choose-file #'lispm-ui-choose-file)
 
 (provide 'lispm-desktop-ui-compat)
 ;;; lispm-desktop-ui-compat.el ends here

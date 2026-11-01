@@ -64,10 +64,6 @@ does; users rarely need to."
 
 ;;;; Faces
 
-(defface lispm-desktop-platinum-title-inactive '((t :weight bold :inherit shadow))
-  "Face of an inactive window's title."
-  :group 'lispm-desktop-platinum)
-
 (defface lispm-desktop-platinum-menu-title '((t :weight bold))
   "Face of a menu bar title."
   :group 'lispm-desktop-platinum)
@@ -86,6 +82,16 @@ does; users rarely need to."
 
 (defface lispm-desktop-platinum-row nil
   "Face of a list's row: a lit line atop it parts it from the row above."
+  :group 'lispm-desktop-platinum)
+
+(defface lispm-desktop-platinum-row-selected '((t :extend t))
+  "Face of a list's selected row at point.
+Prefer the theme's region when visible and preserving every row
+foreground's full contrast; otherwise tint or shade the accent.
+An underline identifies selection even when contrast permits only a
+subtle fill.  Only when no distinct background can preserve the text
+colours use a dark selection with white text.  The underline separates
+selection from `lispm-desktop-platinum-row-current'."
   :group 'lispm-desktop-platinum)
 
 (defface lispm-desktop-platinum-row-current '((t :inherit secondary-selection :extend t))

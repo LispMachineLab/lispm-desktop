@@ -190,14 +190,14 @@ draw the chrome again in a new language as it is chosen."
 
 ;;;; Parts shared by looks
 
-(defvar lispm-desktop-platinum-box-margin)
+(defvar lispm-ui-title-box-margin)
 
 (defun lispm-desktop-look-box-margin (margin)
   "Return how far in from its end a title bar stands its buttons, given
 MARGIN, Mac OS 9's or more, see `lispm-desktop-platinum--box-margins':
 Windows and OS/2 put them at the very ends, unless the window system
 takes presses there."
-  (if (> margin lispm-desktop-platinum-box-margin) margin 0))
+  (if (> margin lispm-ui-title-box-margin) margin 0))
 
 (defconst lispm-desktop-look-alert-width 364
   "Width in pixels of a Windows or OS/2 message box inside its outline.")

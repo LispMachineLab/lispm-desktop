@@ -339,10 +339,10 @@ speaks; the columns keep their English names, which sorting goes by."
     (propertize " " 'display
                 (lispm-ui-image
                  (list 'manager-header shown)
-                 (lambda () (lispm-desktop-platinum-draw-list-header lispm-ui-current-palette
-                                                                     shown
-                                                                     (* (frame-char-width)
-                                                                        (1+ tabulated-list-padding)))))
+                 (lambda () (lispm-ui-draw-list-header lispm-ui-current-palette
+                                                       shown
+                                                       (* (frame-char-width)
+                                                          (1+ tabulated-list-padding)))))
                 'lispm-desktop-buffer-manager-columns columns
                 'keymap lispm-desktop-buffer-manager-header-map
                 'pointer 'hand 'help-echo (lispm-desktop-tr "Sort by this column"))))
@@ -386,7 +386,7 @@ speaks; the columns keep their English names, which sorting goes by."
         tabulated-list-padding 1
         tabulated-list-sort-key '("Memory" . t))
   (setq-local lispm-desktop-platinum-window-title (lambda () (lispm-desktop-tr "Buffer Manager"))
-              lispm-desktop-platinum-icon (lispm-desktop-platinum-icon "computer"))
+              lispm-desktop-platinum-window-icon (lispm-ui-icon "computer"))
   ;; One line per buffer, cut at the window's edge rather than wrapped;
   ;; turning visual line mode off restores the lines it found, so it goes
   ;; first.

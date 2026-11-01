@@ -85,7 +85,7 @@ The shell is the user's, run as an independent process in a terminal, see
       (dolist (buffer shells)
         (let ((directory (buffer-local-value 'default-directory buffer)))
           (lispm-desktop-sidebar-insert-entry
-           (lispm-desktop-platinum-icon "computer")
+           (lispm-ui-icon "computer")
            (string-trim (buffer-name buffer) "\\*" "\\*")
            (file-name-nondirectory (directory-file-name directory))
            (apply-partially #'lispm-desktop-sidebar-show-in-main buffer)

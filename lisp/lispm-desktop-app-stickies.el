@@ -238,15 +238,6 @@ This is `lispm-stickies-hide-note-function' on the desktop."
       (delete-frame frame))
     (lispm-desktop-app-stickies--forget buffer)))
 
-(defun lispm-desktop-app-stickies--confirm (question detail)
-  "Ask QUESTION, DETAIL under it, in a caution alert; return non-nil when
-its answer is to go on.
-This is `lispm-stickies-confirm-function' on the desktop."
-  (eq (lispm-desktop-popup-alert 'caution question
-                                 '(("Cancel" keep cancel) ("Throw Away" throw default))
-                                 detail)
-      'throw))
-
 (defun lispm-desktop-app-stickies-open ()
   "Open Stickies on the desktop: its notes come back where they were, the
 note in front with the keyboard; a first note opens when there is none.
@@ -734,6 +725,10 @@ front's checked."
 
 ;;;; Taking part
 
+(defun lispm-desktop-app-stickies--confirm-legacy (question detail)
+  "Ask QUESTION with DETAIL in LispM UI for Stickies before 0.2.0."
+  (lispm-ui-confirm question detail "Throw Away"))
+
 (defun lispm-desktop-app-stickies-setup ()
   "Show Stickies' notes on the desktop, and make it one of the desktop's
 applications, once lispm-stickies is loaded.  A Stickies that makes
@@ -744,8 +739,11 @@ as it is."
           lispm-stickies-hide-note-function #'lispm-desktop-app-stickies--hide
           lispm-stickies-shown-function #'lispm-desktop-app-stickies--frame
           lispm-stickies-front-note-function #'lispm-desktop-app-stickies--front-note
-          lispm-stickies-confirm-function #'lispm-desktop-app-stickies--confirm
           lispm-stickies-place-function #'lispm-desktop-app-stickies--place)
+    ;; An installed Stickies need not update with the desktop.  Only its
+    ;; old default needs adapting; newer defaults and user hooks stay put.
+    (when (eq lispm-stickies-confirm-function 'lispm-stickies-yes-or-no-p)
+      (setq lispm-stickies-confirm-function #'lispm-desktop-app-stickies--confirm-legacy))
     (add-hook 'lispm-stickies-changed-hook #'lispm-desktop-app-stickies--changed)
     (keymap-set lispm-stickies-note-mode-map "C-c C-r" #'lispm-desktop-app-stickies-roll)
     (keymap-set lispm-stickies-note-mode-map "C-c C-z" #'lispm-desktop-app-stickies-zoom)

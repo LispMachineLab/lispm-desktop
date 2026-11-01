@@ -56,7 +56,7 @@ by default the current buffer's, or nil."
         (with-current-buffer (or buffer (current-buffer)) (funcall title))
       title)))
 
-(defvar-local lispm-desktop-platinum-icon nil
+(defvar-local lispm-desktop-platinum-window-icon nil
   "Icon the window of this buffer shows before its title, a string.")
 
 (defvar lispm-desktop-platinum-frame-moved-functions nil
@@ -1157,7 +1157,7 @@ up.  Return non-nil when the window moved or grew."
          (width (frame-pixel-width outer))
          (height (frame-pixel-height outer))
          (text (cons (frame-text-width frame) (frame-text-height frame)))
-         (title (and (eq kind 'grow) (not (eq outer frame)) lispm-desktop-platinum-title-bar-height))
+         (title (and (eq kind 'grow) (not (eq outer frame)) lispm-ui-title-bar-height))
          (least (let ((smallest (lispm-desktop-platinum--window-min-size frame)))
                   (cons (- (car smallest) (car text)) (- (cdr smallest) (cdr text)))))
          (rectangle

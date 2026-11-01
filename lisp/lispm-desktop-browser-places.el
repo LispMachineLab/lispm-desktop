@@ -44,7 +44,7 @@
 (require 'lispm-desktop-browser)
 (require 'lispm-desktop-i18n)
 
-(declare-function lispm-desktop-popup-menu "lispm-desktop-popup" (items &optional x y align))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-sidebar-toolbar-button "lispm-desktop-sidebar" (label command help row &optional state))
 
 ;;;; The Bookmarks menu
@@ -273,7 +273,7 @@ toolbar."
         (goto-char (posn-point position)))
       (when-let* ((url (lispm-desktop-browser--place-at)))
         (let ((bookmark (get-text-property (point) 'lispm-desktop-browser-bookmark)))
-          (lispm-desktop-popup-menu
+          (lispm-ui-menu
            `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-browser-places-open)
              (:label ,(lispm-desktop-tr "Open in New Tab") :action lispm-desktop-browser-places-open-new-tab)
              separator

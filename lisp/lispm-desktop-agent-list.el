@@ -40,6 +40,7 @@
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-i18n)
+(require 'lispm-agents-work)
 
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
 (declare-function lispm-desktop-term-status-label "lispm-desktop-term" (record &optional brief))
@@ -168,7 +169,10 @@ Finder list; its sessions are rows one level in, newest first."
            (folded (lispm-desktop-tr "Open %s" directory))
            (chats (lispm-desktop-tr "Close project-less conversations"))
            (t (lispm-desktop-tr "Close %s" directory)))
-     (unless chats directory))
+     (unless chats directory)
+     (apply-partially #'lispm-agents-open-project directory)
+     (if chats (lispm-desktop-tr "Open project-less conversations")
+       (lispm-desktop-tr "Open %s" directory)))
     (unless folded
       ;; The sessions are a tree: one a session started goes under it,
       ;; and the preview counts recorded root sessions.  New terminals
@@ -268,7 +272,7 @@ DIRECTORY is its directory."
                (beg (point)))
     (lispm-desktop-sidebar-insert-entry
      (if subtrees
-         (concat (propertize (lispm-desktop-platinum-triangle opened)
+         (concat (propertize (lispm-ui-triangle opened)
                              'lispm-desktop-agent-list-triangle t)
                  (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
                  icon)
@@ -467,14 +471,14 @@ Progress alone changes no label, so it never re-renders the sidebar."
 
 (defun lispm-desktop-agent-list-context-menu (event)
   "Pop up the actions for the session clicked by mouse EVENT.
-It is drawn as Mac OS 9's contextual menus were, see `lispm-desktop-popup-menu'."
+It is drawn as Mac OS 9's contextual menus were, see `lispm-ui-menu'."
   (interactive "e")
   (let* ((posn (event-start event))
          (session (with-current-buffer (window-buffer (posn-window posn))
                     (get-text-property (posn-point posn) 'lispm-agents-session))))
     (when session
       (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
-        (lispm-desktop-popup-menu
+        (lispm-ui-menu
          (mapcar (lambda (entry)
                    (if (eq entry 'separator)
                        entry

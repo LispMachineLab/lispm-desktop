@@ -60,7 +60,7 @@
 ;;   lispm-desktop-platinum-palette
 ;;   lispm-desktop-platinum-draw
 ;;   lispm-desktop-platinum-controls
-;;   lispm-desktop-platinum-icons (and lispm-desktop-platinum-raster)
+;;   lispm-desktop-platinum-icons (and lispm-ui-raster)
 ;;   lispm-desktop-platinum-frames
 ;;   lispm-desktop-platinum-titlebar
 ;;   lispm-desktop-platinum-coach
@@ -71,10 +71,12 @@
 
 ;;; Code:
 
+(require 'lispm-ui-list)
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
 (require 'svg)
+(require 'color)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum-palette)
@@ -117,52 +119,11 @@ Mac OS 9's Finder listed files in Geneva."
 (defconst lispm-desktop-platinum-column-width 11
   "Width in columns of a list's right-hand column, the one it is sorted by.")
 
-(defconst lispm-desktop-platinum-list-header-height 21
-  "Height in pixels of a list's row of column headings.")
-
-(defconst lispm-desktop-platinum--sort-glyph
-  '("      #" "     ##" "    ###" "   ####" "  #####" " ######" "#######")
-  "The glyph of a list's sort-direction button, a row of pixels a string.")
-
-(cl-defgeneric lispm-desktop-platinum-draw-list-header (palette columns &optional label-x)
-  "Return an SVG of a list's row of column headings, in PALETTE.
-COLUMNS lists (LABEL WIDTH SORTED [X]) from left to right; a
-sixteen-pixel sort-direction button ends the row.  Each heading is a
-bevelled cell, its label in the list's font X pixels in, by default
-LABEL-X or eight; the heading of the SORTED column is drawn pushed in
-and darker, as Mac OS 9 drew the column a list was sorted by."
-  (let* ((h lispm-desktop-platinum-list-header-height)
-         (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
-         (svg (svg-create width h))
-         (grey (lambda (level) (lispm-ui-grey palette level)))
-         (x 0))
-    (pcase-dolist (`(,label ,w ,sorted ,x-in) (append columns '((nil 16 nil))))
-      (cl-flet ((row (y level) (lispm-ui-svg-row svg x (+ x w -1) y (funcall grey level)))
-                (column (cx level) (lispm-ui-svg-column svg (+ x cx) 0 (1- h) (funcall grey level))))
-        (if sorted
-            (progn
-              (lispm-ui-svg-fill svg x 0 w h (funcall grey #x88))
-              (row (- h 2) #xAA) (column (- w 2) #xAA)
-              (row (1- h) #x44) (column (1- w) #x44)
-              (row 1 #x55) (column 1 #x55)
-              (row 0 #x11) (column 0 #x11))
-          (lispm-ui-svg-fill svg x 0 w h (funcall grey #xCC))
-          (row (- h 2) #x88) (row (1- h) #x33)
-          (row 1 #xFF) (column 1 #xFF)
-          (row 0 #x66) (column 0 #x66)))
-      (when label
-        (lispm-ui-svg-content svg label (+ x (or x-in label-x 8)) 1 (- h 3)
-                                              (plist-get palette :text) 'lispm-ui-list))
-      (setq x (+ x w)))
-    (lispm-ui-svg-pixel-map svg (- width 12) 7 lispm-desktop-platinum--sort-glyph
-                                      `((?# . ,(plist-get palette :text))))
-    svg))
-
 (defun lispm-desktop-platinum-columns (name meta width meta-width &optional label-x)
   "Return a list's column headings NAME and META as a line WIDTH pixels wide.
 META is the right-hand column, META-WIDTH pixels wide with the
 sort-direction button, the column the list is sorted by; NAME is
-LABEL-X pixels in.  See `lispm-desktop-platinum-draw-list-header'.  On a
+LABEL-X pixels in.  See `lispm-ui-draw-list-header'.  On a
 text terminal the headings are text, the widths cells."
   (let ((name-width (- width meta-width)))
     (if (lispm-desktop-tty-p)
@@ -176,7 +137,7 @@ text terminal the headings are text, the widths cells."
                         (lispm-ui-image
                          (list 'list-header name meta width meta-width label-x)
                          (lambda ()
-                           (lispm-desktop-platinum-draw-list-header
+                           (lispm-ui-draw-list-header
                             lispm-ui-current-palette
                             (list (list name name-width nil) (list meta (- meta-width 16) t 4))
                             label-x))))
@@ -199,29 +160,29 @@ as the triangles take the theme's colour."
     (set-face-attribute 'treemacs-root-face nil :underline nil :weight 'bold :height 1.0)
     (let* ((gap (propertize " " 'display '(space :width (5))))
            (no-triangle (propertize " " 'display '(space :width (12))))
-           (row (lambda (lead icon) (concat lead gap (lispm-desktop-platinum-icon icon) gap)))
+           (row (lambda (lead icon) (concat lead gap (lispm-ui-icon icon) gap)))
            ;; What a text terminal shows, treemacs's fallback.
-           (text-row (lambda (lead icon) (concat lead " " (lispm-desktop-platinum--text-icon icon) " "))))
+           (text-row (lambda (lead icon) (concat lead " " (lispm-ui-text-icon icon) " "))))
       (eval
        `(treemacs-create-theme "lispm-desktop-platinum"
           :config
           (progn
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "disk")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle t) "disk")
                                   :fallback ,(funcall text-row "▾" "disk")
                                   :extensions (root-open))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "disk")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle nil) "disk")
                                   :fallback ,(funcall text-row "▸" "disk")
                                   :extensions (root-closed))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "folder")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle t) "folder")
                                   :fallback ,(funcall text-row "▾" "folder")
                                   :extensions (dir-open))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "folder")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle nil) "folder")
                                   :fallback ,(funcall text-row "▸" "folder")
                                   :extensions (dir-closed))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle t) "document-blank")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle t) "document-blank")
                                   :fallback ,(funcall text-row "▾" "document-blank")
                                   :extensions (tag-open))
-            (treemacs-create-icon :icon ,(funcall row (lispm-desktop-platinum-triangle nil) "document-blank")
+            (treemacs-create-icon :icon ,(funcall row (lispm-ui-triangle nil) "document-blank")
                                   :fallback ,(funcall text-row "▸" "document-blank")
                                   :extensions (tag-closed))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-blank")
@@ -233,7 +194,7 @@ as the triangles take the theme's colour."
                                                "tif" "tiff" "ico" "heic"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-lisp")
                                   :fallback ,(funcall text-row " " "document-lisp")
-                                  :extensions ,lispm-desktop-platinum-lisp-extensions)
+                                  :extensions ,lispm-ui-lisp-extensions)
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-markdown")
                                   :fallback ,(funcall text-row " " "document-markdown")
                                   :extensions ("md" "markdown" "mkd"))
@@ -242,7 +203,7 @@ as the triangles take the theme's colour."
                                   :extensions ("org"))
             (treemacs-create-icon :icon ,(funcall row no-triangle "document-code")
                                   :fallback ,(funcall text-row " " "document-code")
-                                  :extensions ,lispm-desktop-platinum-code-extensions)
+                                  :extensions ,lispm-ui-code-extensions)
             (treemacs-create-icon :icon ,(funcall row no-triangle "document")
                                   :fallback ,(funcall text-row " " "document")
                                   :extensions (fallback))))
@@ -280,6 +241,129 @@ cannot.  Emacs keeps `unspecified' for new frames as `:ignore-defface',
 then looks that up as a fontset's name and fails."
   (when (display-graphic-p)
     (list :fontset (or (lispm-desktop-platinum--cjk-fontset family) 'reset))))
+
+(defun lispm-desktop-platinum--color-distance (a b)
+  "Return the perceptual CIE76 distance between colours A and B, or nil.
+Unlike raw RGB distance, this accounts for the chroma of Platinum's
+lavender selection as well as its lightness against the list body."
+  (when-let* ((rgb-a (lispm-ui-rgb a))
+              (rgb-b (lispm-ui-rgb b)))
+    (sqrt (apply #'+
+                 (cl-mapcar (lambda (x y) (expt (- x y) 2))
+                            (apply #'color-srgb-to-lab rgb-a)
+                            (apply #'color-srgb-to-lab rgb-b))))))
+
+(defun lispm-desktop-platinum--linear-component (component)
+  "Return the linear-light value of an sRGB COMPONENT."
+  (if (<= component 0.04045) (/ component 12.92)
+    (expt (/ (+ component 0.055) 1.055) 2.4)))
+
+(defun lispm-desktop-platinum--relative-luminance (color)
+  "Return COLOR's WCAG relative luminance, or nil if unresolved."
+  (when-let* ((rgb (lispm-ui-rgb color)))
+    (apply #'+ (cl-mapcar #'* '(0.2126 0.7152 0.0722)
+                          (mapcar #'lispm-desktop-platinum--linear-component rgb)))))
+
+(defun lispm-desktop-platinum--text-contrast (a b)
+  "Return the WCAG contrast ratio of colours A and B, or nil."
+  (when-let* ((x (lispm-desktop-platinum--relative-luminance a))
+              (y (lispm-desktop-platinum--relative-luminance b)))
+    (/ (+ (max x y) 0.05) (+ (min x y) 0.05))))
+
+(defun lispm-desktop-platinum--row-foregrounds ()
+  "Return foregrounds used by sidebar text, statuses and agent icons."
+  (let ((faces (append '(default shadow success warning error)
+                       (and (boundp 'lispm-agents-label-faces) lispm-agents-label-faces)
+                       (mapcar (lambda (agent) (nth 2 (plist-get (cdr agent) :icon)))
+                               (and (boundp 'lispm-agents-defined) lispm-agents-defined))
+                       (seq-filter (lambda (face)
+                                     (string-match-p "\\`lispm-agents-.*-icon\\'" (symbol-name face)))
+                                   (face-list)))))
+    (delete-dups (delq nil (mapcar (lambda (face)
+                                    (when (and face (facep face))
+                                      (face-foreground face nil t))) faces)))))
+
+(defun lispm-desktop-platinum--selection-luminances (body foregrounds)
+  "Return closed luminance intervals preserving FOREGROUNDS on BODY.
+For each foreground, the contrast inequality permits a dark interval
+and a light interval.  Intersect those intervals instead of searching
+a coarse colour grid, which cannot establish whether a solution exists."
+  (when-let* ((ground (lispm-desktop-platinum--relative-luminance body)))
+    (let ((intervals (list (cons 0.0 1.0))))
+      (dolist (foreground foregrounds intervals)
+        (when-let* ((ink (lispm-desktop-platinum--relative-luminance foreground)))
+          (let* ((ratio (/ (+ (max ink ground) 0.05) (+ (min ink ground) 0.05)))
+                 (dark (- (/ (+ ink 0.05) ratio) 0.05))
+                 (light (- (* ratio (+ ink 0.05)) 0.05))
+                 (allowed (append (and (>= dark -1e-12)
+                                       (list (cons 0.0 (max 0.0 dark))))
+                                  (and (<= light (+ 1.0 1e-12))
+                                       (list (cons (min 1.0 light) 1.0)))))
+                 next)
+            (dolist (interval intervals)
+              (dolist (range allowed)
+                (let ((low (max (car interval) (car range)))
+                      (high (min (cdr interval) (cdr range))))
+                  (when (<= low (+ high 1e-12))
+                    (push (cons low (max low high)) next)))))
+            (setq intervals (delete-dups (nreverse next)))))))))
+
+(defun lispm-desktop-platinum--color-at-luminance (color luminance)
+  "Tint or shade COLOR to LUMINANCE in linear light, preserving its hue.
+Return a normal 24-bit colour; callers check contrast after rounding."
+  (when-let* ((rgb (lispm-ui-rgb color))
+              (light (lispm-desktop-platinum--relative-luminance color)))
+    (let* ((end (if (< light luminance) 1.0 0.0))
+           (fraction (if (= light end) 0.0 (/ (- luminance light) (- end light)))))
+      (apply #'format "#%02x%02x%02x"
+             (mapcar
+              (lambda (component)
+                (let* ((linear (lispm-desktop-platinum--linear-component component))
+                       (mixed (+ linear (* fraction (- end linear))))
+                       (srgb (if (<= mixed 0.0031308) (* mixed 12.92)
+                               (- (* 1.055 (expt mixed (/ 1.0 2.4))) 0.055))))
+                  (round (* 255 (max 0.0 (min 1.0 srgb)))))) rgb)))))
+
+(defun lispm-desktop-platinum--selection-background (body accent region foregrounds current)
+  "Choose a selection on BODY preserving every FOREGROUNDS contrast.
+Prefer REGION, then an ACCENT tint or shade in an allowed luminance
+interval.  An underline distinguishes selection from CURRENT even
+where preserving dim text permits only a subtle background change.
+Return nil only when the allowed luminance is solely BODY's pure black
+or white: no other colour can satisfy it.  If 24-bit rounding prevents
+an accent tint from fitting a narrow interval, retain BODY and its
+text colours; the underline still identifies the selected row."
+  (let* ((tint (lispm-ui-blend body accent 0.60))
+         (ground (lispm-desktop-platinum--relative-luminance body))
+         (intervals (lispm-desktop-platinum--selection-luminances body foregrounds)))
+    (cond
+     ;; Unresolved terminal colours retain the theme's background.
+     ((not (and tint ground (lispm-ui-rgb current))) region)
+     ((and (or (= ground 0.0) (= ground 1.0))
+           (seq-every-p (lambda (range)
+                          (and (< (abs (- (car range) ground)) 1e-12)
+                               (< (abs (- (cdr range) ground)) 1e-12))) intervals))
+      nil)
+     (t
+      (cl-labels ((suitable (candidate)
+                    (when-let* ((light (lispm-desktop-platinum--relative-luminance candidate)))
+                      (seq-some (lambda (range)
+                                  (<= (- (car range) 1e-12) light (+ (cdr range) 1e-12)))
+                                intervals))))
+        (or (and (suitable region)
+                 (> (or (lispm-desktop-platinum--color-distance body region) 0) 3)
+                 region)
+            (and (suitable tint) tint)
+            (catch 'found
+              (dolist (range intervals)
+                ;; Interior samples avoid 24-bit rounding across a bound;
+                ;; these are projections of the accent, not gamut searches.
+                (dolist (fraction '(0.5 0.25 0.75))
+                  (let ((candidate
+                         (lispm-desktop-platinum--color-at-luminance
+                          accent (+ (car range) (* fraction (- (cdr range) (car range)))))))
+                    (when (suitable candidate) (throw 'found candidate))))))
+            body))))))
 
 (defun lispm-desktop-platinum-apply-faces ()
   "Set every chrome face in the palette just derived from the active theme,
@@ -343,12 +427,10 @@ faces this function never sets, so re-running it is idempotent."
                         :foreground (lispm-ui-color :muted) :height 0.95
                         :box `(:line-width (1 . 1)
                                :color ,(lispm-ui-grey lispm-ui-current-palette #x99)))
-    (dolist (face '(lispm-ui-title lispm-desktop-platinum-title-inactive
+    (dolist (face '(lispm-ui-title lispm-ui-title-inactive
                     lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
       (apply #'set-face-attribute face nil :family (or system 'unspecified) :height 120
              :weight 'bold (lispm-desktop-platinum--fontset-attribute system)))
-    (set-face-attribute 'lispm-desktop-platinum-title-inactive nil
-                        :foreground (lispm-ui-color :muted) :inherit 'unspecified)
     ;; Menu bar titles are drawn as images in these faces; menus'
     ;; items inherit them.
     (set-face-attribute 'lispm-desktop-platinum-menu-title nil
@@ -387,6 +469,10 @@ faces this function never sets, so re-running it is idempotent."
                         :foreground (lispm-ui-grey lispm-ui-current-palette #xFF))
     (set-face-attribute 'window-divider-last-pixel nil
                         :foreground (lispm-ui-color :outline))
+    ;; Text terminals draw one glyph, not the graphical divider's pixels.
+    (set-face-attribute 'vertical-border nil
+                        :foreground (lispm-ui-color :outline)
+                        :background (lispm-ui-color :chrome))
     (lispm-desktop-platinum-apply-look-faces lispm-ui-current-palette)
     ;; The row of what is being worked on elsewhere: the list, as the
     ;; look drew it, tinted with the accent, as the desktop behind the
@@ -394,12 +480,40 @@ faces this function never sets, so re-running it is idempotent."
     ;; theme's, as Dracula's, is barely lighter than its list.  Where
     ;; colours cannot be blended, as on a text terminal, the secondary
     ;; selection stands in.
-    (let ((tinted (lispm-ui-blend (face-background 'lispm-desktop-platinum-list-body nil t)
-                                  (lispm-ui-color :accent)
-                                  0.25)))
+    (let* ((body (face-background 'lispm-desktop-platinum-list-body nil t))
+           (accent (lispm-ui-color :accent))
+           (tinted (lispm-ui-blend body accent 0.25))
+           (region (face-background 'region nil t))
+           (preserved (lispm-desktop-platinum--selection-background
+                       body accent region (lispm-desktop-platinum--row-foregrounds) tinted))
+           ;; Some light palettes leave no room for a distinct background
+           ;; while preserving both default and dim text.  Only then use
+           ;; a conventional selection with its own contrasting text.
+           (selected (or preserved
+                         (if (and (>= (or (lispm-desktop-platinum--text-contrast
+                                            region "#ffffff") 0) 4.5)
+                                  (> (or (lispm-desktop-platinum--color-distance body region) 0) 3))
+                             region
+                           (lispm-desktop-platinum--color-at-luminance accent 0.10))))
+           (foreground (and (not preserved) selected "#ffffff"))
+           ;; A focus edge remains clear when light themes allow only a
+           ;; near-white fill.  It does not cover icon or status colours,
+           ;; or change row height as a box around the row would.
+           (edge (and tinted selected
+                      (if (>= (or (lispm-desktop-platinum--text-contrast accent selected) 0) 3)
+                          accent
+                        (or foreground text)))))
       (set-face-attribute 'lispm-desktop-platinum-row-current nil
                           :inherit (if tinted 'unspecified 'secondary-selection)
-                          :background (or tinted 'unspecified)))))
+                          :background (or tinted 'unspecified))
+      ;; Never inherit region's foreground.  Reset an exceptional text
+      ;; colour on theme/look changes so the normal path keeps row colours.
+      (set-face-attribute 'lispm-desktop-platinum-row-selected nil
+                          :inherit 'unspecified
+                          :background (or selected 'unspecified)
+                          :foreground (or foreground 'unspecified)
+                          :underline (if edge `(:color ,edge :style line) 'unspecified)
+                          :extend t))))
 
 ;; Before LispM UI draws its forms again, at 90: they are measured in the
 ;; fonts set here.

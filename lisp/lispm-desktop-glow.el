@@ -205,7 +205,7 @@ pixels: glass makes it clear."
 bar TOTAL pixels wide starting at column X of it, ACTIVE or not.
 Phosphor scans an active bar with lines; neon runs it from :title to
 :title-end along its whole width."
-  (let ((h lispm-desktop-platinum-title-bar-height))
+  (let ((h lispm-ui-title-bar-height))
     (if (not active)
         (lispm-ui-svg-paint svg 0 0 width h (plist-get palette :title-inactive))
       (pcase (lispm-ui-look-metric :title-style)
@@ -240,7 +240,7 @@ as Emacs would show it in the titles' face, is drawn from the bar's
 column LABEL-X, TITLE-WIDTH pixels wide; an active phosphor bar draws
 ridges either side of it, an active neon bar the data strip before END,
 where the bar's boxes begin."
-  (let* ((h lispm-desktop-platinum-title-bar-height)
+  (let* ((h lispm-ui-title-bar-height)
          (svg (lispm-desktop-glow--create width h))
          (ink (plist-get palette (if active :title-text :title-inactive-text))))
     (lispm-desktop-glow--caption-ground svg palette x width total active)
@@ -268,7 +268,7 @@ where the bar's boxes begin."
         (lispm-ui-svg-content
          (if active (lispm-desktop-glow--glowing svg) svg)
          label (- label-x x) 0 (1- h) ink
-         (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))))
+         (if active 'lispm-ui-title 'lispm-ui-title-inactive))))
     svg))
 
 (defun lispm-desktop-glow-draw-box (palette kind x total active &optional pressed)
@@ -276,7 +276,7 @@ where the bar's boxes begin."
 `zoom', standing at column X of a bar TOTAL pixels wide: a square on the
 bar's ground, filled when PRESSED.  Collapse holds a bar, zoom a square."
   (let* ((w lispm-desktop-glow-box-width)
-         (h lispm-desktop-platinum-title-bar-height)
+         (h lispm-ui-title-bar-height)
          (svg (lispm-desktop-glow--create w h))
          (ink (plist-get palette (if active :title-text :title-inactive-text)))
          (accent (lispm-desktop-glow-color palette :glow))
@@ -292,9 +292,9 @@ bar's ground, filled when PRESSED.  Collapse holds a bar, zoom a square."
         ('zoom (lispm-ui-svg-paint svg (+ bx 3) (+ by 3) 5 5 ink))))
     svg))
 
-(cl-defmethod lispm-desktop-platinum-title-layout (width title-width
-                                                         &context (lispm-desktop-look (lispm-ui-look-family glow))
-                                                         &optional controls margins)
+(cl-defmethod lispm-ui-title-layout (width title-width
+                                           &context (lispm-ui-look (lispm-ui-look-family glow))
+                                           &optional controls margins)
   "Lay a glowing title bar WIDTH pixels wide out for a title TITLE-WIDTH wide.
 The close box opens it, zoom and collapse close it; phosphor centres the
 title between them, neon puts it after the close box."
@@ -320,9 +320,9 @@ title between them, neon puts it after the close box."
 The close box closes the window, collapse rolls it up and zoom zooms it.
 MODIFIED marks the title with a star; STATUS follows it."
   (pcase-let* ((label (concat title (when modified " *") (when status (concat "  " status))))
-               (face (if active 'lispm-ui-title 'lispm-desktop-platinum-title-inactive))
+               (face (if active 'lispm-ui-title 'lispm-ui-title-inactive))
                (`(,close ,zoom ,collapse) controls)
-               (layout (lispm-desktop-platinum-title-layout
+               (layout (lispm-ui-title-layout
                         width (lispm-ui-text-width label face) controls margins))
                (`(,lead . ,trail) (plist-get layout :margins))
                (start (plist-get layout :start))
@@ -438,46 +438,46 @@ drawn."
          0 (- h 2) ink 'lispm-desktop-platinum-menu-title)))
     svg))
 
-(cl-defmethod lispm-desktop-popup-draw-menu (palette items width highlight
-                                                     &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-draw-menu (palette items width highlight
+                                          &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a glowing menu of ITEMS WIDTH pixels wide, in PALETTE.
 On the menu colour, a bar of light down its left; the item under the
 mouse, HIGHLIGHT, filled, its corners cut; key equivalents flush right
 in the glow colour, arrows on those holding submenus, separators dashed,
 disabled items dim.  The menu's frame draws the line round it."
-  (pcase-let* ((`(,tops . ,height) (lispm-desktop-popup--rows items))
+  (pcase-let* ((`(,tops . ,height) (lispm-ui-menu--rows items))
                (svg (lispm-desktop-glow--create width height))
-               (icons (lispm-desktop-popup--icon-room items))
+               (icons (lispm-ui-menu--icon-room items))
                (glow (lispm-desktop-glow-color palette :glow)))
     (lispm-ui-svg-paint svg 0 0 width height (plist-get palette :menu))
     (lispm-ui-svg-paint svg 0 0 3 height (lispm-desktop-glow-color palette :title-end))
     (seq-do-indexed
      (lambda (item index)
        (let ((top (nth index tops)))
-         (if (lispm-desktop-popup--separator-p item)
-             (lispm-desktop-glow--line svg 10 (+ top (/ lispm-desktop-popup-separator-height 2) 0.5)
-                                       (- width 10) (+ top (/ lispm-desktop-popup-separator-height 2) 0.5)
+         (if (lispm-ui-menu--separator-p item)
+             (lispm-desktop-glow--line svg 10 (+ top (/ lispm-ui-menu-separator-height 2) 0.5)
+                                       (- width 10) (+ top (/ lispm-ui-menu-separator-height 2) 0.5)
                                        (plist-get palette :border-inactive) 1 "2,3")
-           (let* ((h (lispm-desktop-popup--item-height))
+           (let* ((h (lispm-ui-menu--item-height))
                   (lit (eql index highlight))
-                  (enabled (lispm-desktop-popup--enabled-p item))
+                  (enabled (lispm-ui-menu--enabled-p item))
                   (ink (cond (lit (plist-get palette :highlight-text))
                              (enabled (plist-get palette :menu-text))
                              (t (plist-get palette :border-inactive))))
-                  (face (lispm-desktop-popup--face (or lit enabled)))
-                  (key (and (not (plist-get item :submenu)) (lispm-desktop-popup--key item)))
+                  (face (lispm-ui-menu--face (or lit enabled)))
+                  (key (and (not (plist-get item :submenu)) (lispm-ui-menu--key item)))
                   (label (propertize (plist-get item :label) 'face `(:foreground ,ink))))
              (when lit
                (lispm-desktop-glow--path svg (lispm-desktop-glow-chamfer 5 top (- width 10) h 4 '(tl br))
                                          :fill (plist-get palette :highlight)))
              (when (plist-get item :checked)
                (lispm-ui-svg-content svg (propertize "✓" 'face `(:foreground ,ink))
-                                     (if lispm-desktop-popup-small 5 7) top h ink face))
+                                     (if lispm-ui-menu-small 5 7) top h ink face))
              (when-let* ((icon (plist-get item :icon))
-                         (size (min lispm-desktop-popup-icon-size h)))
-               (lispm-ui-svg-emacs-image svg icon (lispm-desktop-popup--label-x)
+                         (size (min lispm-ui-menu-icon-size h)))
+               (lispm-ui-svg-emacs-image svg icon (lispm-ui-menu--label-x)
                                          (+ top (/ (- h size) 2)) size size))
-             (lispm-ui-svg-content svg label (+ (lispm-desktop-popup--label-x) icons)
+             (lispm-ui-svg-content svg label (+ (lispm-ui-menu--label-x) icons)
                                    top h ink face)
              (cond ((plist-get item :submenu)
                     (lispm-ui-svg-arrow svg (- width 12) (+ top (/ (- h 7) 2)) 4 'right ink))
@@ -485,7 +485,7 @@ disabled items dim.  The menu's frame draws the line round it."
                     (let ((key-ink (cond (lit ink) (enabled glow) (t ink))))
                       (lispm-ui-svg-content
                        svg (propertize key 'face `(:foreground ,key-ink))
-                       (- width (lispm-desktop-popup--key-margin) (lispm-desktop-popup--label-width key))
+                       (- width (lispm-ui-menu--key-margin) (lispm-ui-menu--label-width key))
                        top h key-ink face))))))))
      items)
     svg))
@@ -520,16 +520,16 @@ cross."
                  :fill (lispm-desktop-glow--on hot)
                  :font-family font :font-size 18 :font-weight "bold")))))
 
-(cl-defmethod lispm-desktop-popup-draw-alert (palette icon message detail buttons pressed focused
-                                                      &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-draw-alert (palette icon message detail buttons pressed focused
+                                           &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a glowing alert of ICON, MESSAGE, DETAIL and BUTTONS, in PALETTE.
-Laid out as Mac OS 9's, see `lispm-desktop-popup--alert-layout': a dark
+Laid out as Mac OS 9's, see `lispm-ui-alert-layout': a dark
 body inside a glowing line, a striped band along its top, the icon, the
 message and the buttons; neon splits the line into cyan and magenta
 ghosts.  PRESSED and FOCUSED are values of buttons, held down or
 holding the keyboard."
-  (let* ((layout (lispm-desktop-popup--alert-layout message detail buttons))
-         (w (or (plist-get layout :width) lispm-desktop-popup-alert-width))
+  (let* ((layout (lispm-ui-alert-layout message detail buttons))
+         (w (or (plist-get layout :width) lispm-ui-alert-width))
          (h (plist-get layout :height))
          (svg (lispm-desktop-glow--create w h))
          (c 10)
@@ -552,8 +552,8 @@ holding the keyboard."
       (cl-loop for x from (+ c 4) below (- w 8) by 8
                do (lispm-desktop-glow--path stripes (format "M%s,4 h4 l-3,5 h-4 Z" (+ x 3)))))
     (lispm-desktop-glow--svg-alert-icon svg icon 25 y palette)
-    (lispm-desktop-popup-svg-alert-contents svg layout lispm-desktop-popup-alert-text-x y palette
-                                            pressed focused (plist-get palette :muted))
+    (lispm-ui-svg-alert-contents svg layout lispm-ui-alert-text-x y palette
+                                 pressed focused (plist-get palette :muted))
     svg))
 
 ;;;; Controls
@@ -817,8 +817,8 @@ track outlined dimly, FRACTION of it a glowing bar."
     (when (> filled 0)
       (lispm-ui-svg-paint svg (+ x 2) (+ y 3) filled (- h 6) (lispm-desktop-glow-color palette :glow)))))
 
-(cl-defmethod lispm-desktop-platinum-draw-triangle (palette open
-                                                            &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-draw-triangle (palette open
+                                              &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a list's disclosure mark, twelve pixels square: a chevron in the
 glow colour, pointing down when OPEN, right when not."
   (let ((svg (svg-create 12 12)))
@@ -826,14 +826,14 @@ glow colour, pointing down when OPEN, right when not."
                               :fill "none" :stroke (lispm-desktop-glow-color palette :glow) :stroke-width 1.5)
     svg))
 
-(cl-defmethod lispm-desktop-platinum-draw-list-header (palette columns
-                                                               &context (lispm-desktop-look (lispm-ui-look-family glow))
-                                                               &optional label-x)
+(cl-defmethod lispm-ui-draw-list-header (palette columns
+                                                 &context (lispm-ui-look (lispm-ui-look-family glow))
+                                                 &optional label-x)
   "Return a list's column headings in a glowing row: dim labels between dim
 lines, the sorted column's label in the glow colour and underlined.
 COLUMNS lists (LABEL WIDTH SORTED [X]); LABEL-X places labels, by
 default eight pixels in."
-  (let* ((h lispm-desktop-platinum-list-header-height)
+  (let* ((h lispm-ui-list-header-height)
          (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
          (svg (svg-create width h))
          (glow (lispm-desktop-glow-color palette :glow))
@@ -858,19 +858,19 @@ default eight pixels in."
 (defconst lispm-desktop-glow--scroll-arrow 16
   "Height in pixels of a glowing scroll bar's arrow box.")
 
-(cl-defmethod lispm-desktop-platinum-scroll-layout (height &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Lay a glowing scroll bar HEIGHT pixels tall out: an arrow at either end,
 the track between."
   (let ((a lispm-desktop-glow--scroll-arrow))
     (list :track a :track-length (max 0 (- height a a)) :up 0 :down (- height a) :arrow a)))
 
-(cl-defmethod lispm-desktop-platinum-scroll-thumb (height start end min max
-                                                          &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-scroll-thumb (height start end min max
+                                            &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return the thumb of a glowing scroll bar HEIGHT pixels tall, as long as
 the part of the buffer from MIN to MAX shown, START to END, is of it,
 twenty pixels at least; nil when everything shows, or the track is too
 short."
-  (let* ((layout (lispm-desktop-platinum-scroll-layout height))
+  (let* ((layout (lispm-ui-scroll-layout height))
          (track (plist-get layout :track-length))
          (size (- max min))
          (shown (- end start)))
@@ -891,16 +891,16 @@ square outlined in the glow colour holding a chevron, dim when not LIVE."
                                     (format "M4,%s L8,%s L12,%s" (+ y 6) (+ y 10) (+ y 6)))
                               :fill "none" :stroke ink :stroke-width 1.6)))
 
-(cl-defmethod lispm-desktop-platinum-draw-scroll-bar (palette height thumb active
-                                                              &context (lispm-desktop-look (lispm-ui-look-family glow)))
+(cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
+                                                &context (lispm-ui-look (lispm-ui-look-family glow)))
   "Return a glowing scroll bar HEIGHT pixels tall, in PALETTE: arrow boxes at
 both ends, the dark track between marked every eight pixels, THUMB on it,
 its corners cut and three grips across it; neon fills it.  Nothing to
 scroll, THUMB nil, dims the arrows; an inactive bar, ACTIVE nil, shows no
 thumb."
-  (let* ((w lispm-desktop-platinum-scroll-width)
+  (let* ((w lispm-ui-scroll-width)
          (svg (lispm-desktop-glow--create w height))
-         (layout (lispm-desktop-platinum-scroll-layout height))
+         (layout (lispm-ui-scroll-layout height))
          (live (and active thumb))
          (glow (lispm-desktop-glow-color palette :glow))
          (line (plist-get palette :border-inactive)))

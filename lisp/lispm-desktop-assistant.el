@@ -210,9 +210,9 @@ Go Back button at the bottom right, when PAGE goes back."
                ;; bar, as `lispm-desktop-platinum-draw-window-frame' draws them.
                (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
                (cx (+ x left))
-               (cy (+ y top lispm-desktop-platinum-title-bar-height))
+               (cy (+ y top lispm-ui-title-bar-height))
                (cw (- w left right))
-               (ch (- h top bottom lispm-desktop-platinum-title-bar-height))
+               (ch (- h top bottom lispm-ui-title-bar-height))
                (margin 20)
                (count (length (plist-get page :choices)))
                (columns (if (> count 3) 2 count))
@@ -323,8 +323,8 @@ picture of its appearance, if any, drawn in PALETTE when the appearance
 names no colours, its label and the lines of its text, centred."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (preview (alist-get (plist-get properties :preview) lispm-desktop-assistant--previews))
-               (lines (lispm-desktop-popup--wrap (or (plist-get properties :text) "") (- w 32)
-                                                 'lispm-ui-list))
+               (lines (lispm-ui-alert--wrap (or (plist-get properties :text) "") (- w 32)
+                                            'lispm-ui-list))
                (label (propertize (plist-get properties :label) 'face '(:height 1.25)))
                (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2))))
     (when preview
@@ -374,36 +374,36 @@ page with a :picture shows LispM's λ instead of choices, and its
                 (`(,cx ,cy ,cw ,ch) (plist-get layout :content)))
       (lispm-ui-svg-embed
        svg (lispm-desktop-platinum-draw-window-frame palette w h :active t) x y w h)
-      (let ((bar (lispm-desktop-platinum-title-layout
+      (let ((bar (lispm-ui-title-layout
                   cw (lispm-ui-text-width title 'lispm-ui-title)
                   '(nil nil nil))))
         (lispm-ui-svg-embed
-         svg (lispm-desktop-platinum-draw-title-part
+         svg (lispm-ui-draw-title-part
               palette cw :active t :ridges (plist-get bar :ridges)
               :label (lispm-desktop-platinum-fit title (plist-get bar :title))
               :label-x (plist-get bar :label-x))
-         cx (1+ y) cw lispm-desktop-platinum-title-bar-height))
+         cx (1+ y) cw lispm-ui-title-bar-height))
       (lispm-ui-svg-fill svg cx cy cw ch (lispm-ui-grey palette #xDD))
       ;; The icon, the question and what it is about.
       (if (plist-get page :picture)
-          (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
+          (svg-embed svg (lispm-ui-icon-file 'lambda)
                      "image/png" nil :x (+ cx 20) :y (+ cy 18) :width 32 :height 32)
         (lispm-ui-svg-icon
-         svg (lispm-desktop-platinum-icon-file (plist-get page :icon))
+         svg (lispm-ui-icon-file (plist-get page :icon))
          (+ cx 20) (+ cy 18) 32))
       (let ((heading (propertize (plist-get page :title) 'face '(:height 1.4)))
             (top (+ cy 42)))
         (lispm-ui-svg-content svg heading (+ cx 68) (+ cy 14) 26 text
                                               'lispm-ui-title)
-        (dolist (line (lispm-desktop-popup--wrap (plist-get page :detail) (- cw 88)
-                                                 'lispm-ui-list))
+        (dolist (line (lispm-ui-alert--wrap (plist-get page :detail) (- cw 88)
+                                            'lispm-ui-list))
           (lispm-ui-svg-content svg line (+ cx 68) top 16 text 'lispm-ui-list)
           (setq top (+ top 16))))
       (if (plist-get page :picture)
           ;; The λ and the status under it, in the middle of what is left.
           (let* ((size 96)
                  (top (+ cy 70 (/ (- ch 70 size 12 16) 2))))
-            (svg-embed svg (lispm-desktop-platinum-icon-file 'lambda)
+            (svg-embed svg (lispm-ui-icon-file 'lambda)
                        "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
             (when-let* ((status (plist-get page :status)))
               (lispm-ui-svg-content

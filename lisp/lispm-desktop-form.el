@@ -33,13 +33,10 @@
 ;;     own, makes them;
 ;;   - a pop-up menu's choices open as the desktop's menu, from the mouse
 ;;     or the keyboard (`lispm-ui-form-choose-function');
-;;   - a picture is chosen in the desktop's own dialog, the picture
-;;     selected previewed (`lispm-ui-form-choose-file-function'), never in the
-;;     system's panel, which an application shown on its own would hide.
+;;   - a picture is chosen in LispM UI's dialog, with its preview.
 ;;
 ;; What LispM UI asks a person otherwise, an alert, a choice or a file
-;; (lispm-ui-ask.el), it asks in the desktop's alerts, menus and Choose a
-;; File dialog, and it speaks the desktop's language.
+;; (lispm-ui-ask.el), it draws itself, speaking the desktop's language.
 
 ;;; Code:
 
@@ -49,7 +46,6 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
-(require 'lispm-desktop-choose)
 (require 'lispm-desktop-i18n)
 (require 'lispm-ui-form)
 (require 'lispm-ui-ask)
@@ -62,24 +58,12 @@
   "Open the desktop's menu of CHOICES of a form's pop-up menu, VALUE checked.
 LABEL, CHOICES, VALUE and EVENT are as `lispm-ui-form-choose-function'
 gives them.  Where no menu can be drawn, the form's own way is taken."
-  (if (lispm-desktop-popup-available-p)
-      (lispm-desktop-platinum-choose choices value
-                                     (or (and (mouse-event-p event) (posn-point (event-start event)))
-                                         (point))
-                                     label)
+  (if (lispm-ui-popup-available-p)
+      (lispm-ui-choose choices value
+                       (or (and (mouse-event-p event) (posn-point (event-start event)))
+                           (point))
+                       label)
     (lispm-ui-form-choose label choices value event)))
-
-(defun lispm-desktop-form-choose-file (type label file predicate)
-  "Show the desktop's dialog choosing a file for a form's field of TYPE and
-LABEL, FILE chosen now, among the files PREDICATE takes; return the file
-chosen, or nil.  A picture's is titled so, and previews the picture
-selected.  TYPE, LABEL, FILE and PREDICATE are as
-`lispm-ui-form-choose-file-function' gives them."
-  (ignore label)
-  (lispm-desktop-choose-file :title (if (eq type 'picture)
-                                        (lispm-desktop-tr "Choose a Picture")
-                                      (lispm-desktop-tr "Choose a File"))
-                             :file file :predicate predicate :preview (eq type 'picture)))
 
 ;;;; Showing
 
@@ -100,15 +84,9 @@ narrower than Emacs's own, so its fields widen."
               word-wrap t))
 
 (defun lispm-desktop-form-setup ()
-  "Show LispM UI's forms in the desktop's windows, choosing in its menus and
-dialog, and have LispM UI ask what it asks in the desktop's alerts, menus
-and dialog, in its language."
-  (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose
-        lispm-ui-form-choose-file-function #'lispm-desktop-form-choose-file)
+  "Show LispM UI's forms in the desktop's windows and language."
+  (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--layout)
-  (setq lispm-ui-alert-function #'lispm-desktop-popup-alert
-        lispm-ui-choose-function #'lispm-desktop-platinum-choose
-        lispm-ui-choose-file-function #'lispm-desktop-choose-file)
   ;; Before LispM's agent's, which follows the desktop's too.
   (add-hook 'lispm-ui-language-functions #'lispm-desktop-current-language -50)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-ui-language-changed)

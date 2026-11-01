@@ -87,13 +87,12 @@ while LispM Kit, which translates them, is being installed."
                ;; Newer than 0.1.0, whose engine translates nothing.
                :needs "lispm-kit-i18n")
     (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
-              ;; Its palette, looks and drawing, which the desktop's chrome
-              ;; is drawn with.
-              :version "0.2.1")
+              ;; Its palette, drawing, icons, alerts and menus.
+              :version "0.5.1")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
-           ;; Newer than lispm-agents, which the desktop needs too.
-           :needs "lispm-exec")
+           ;; Agent owns project views and their optional renderer dispatch.
+           :needs "lispm-agents-work" :version "0.15.0")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"

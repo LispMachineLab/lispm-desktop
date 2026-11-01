@@ -287,7 +287,7 @@ and the buttons.  LAYOUTS are their layouts, CURRENT the name of the one
 in front, SELECTED the index chosen, WIDTH the panel's in pixels."
   (let ((rows (seq-partition (seq-map-indexed #'cons names) lispm-desktop-workspaces-columns)))
     (concat
-     (lispm-desktop-platinum-draw-title-bar width t (lispm-desktop-platinum-icon 'emacs)
+     (lispm-desktop-platinum-draw-title-bar width t (lispm-ui-icon 'emacs)
                                              (lispm-desktop-tr "Workspaces") nil
                                              '(off off off))
      "\n"
@@ -379,19 +379,19 @@ X, Y of the screen frame, or stands over its upper middle."
          (columns (min lispm-desktop-workspaces-columns (max 1 count)))
          (width (lispm-desktop-workspaces--width columns))
          (lispm-desktop-workspaces--images nil)
-         (popup (lispm-desktop-popup-make-frame screen))
+         (popup (lispm-ui-popup-make-frame screen))
          (choice nil))
     (when names
       (unwind-protect
           (cl-flet ((redraw ()
-                      (lispm-desktop-popup-fill popup (lispm-desktop-workspaces--text names layouts current
+                      (lispm-ui-popup-fill popup (lispm-desktop-workspaces--text names layouts current
                                                                                        selected width))
                       (redisplay t)))
             (redraw)
-            (lispm-desktop-popup-set-size popup width 400)
-            (lispm-desktop-popup-set-size popup width (cdr (window-text-pixel-size
+            (lispm-ui-popup-set-size popup width 400)
+            (lispm-ui-popup-set-size popup width (cdr (window-text-pixel-size
                                                          (frame-root-window popup) nil nil nil nil)))
-            (lispm-desktop-popup-show popup (or x (/ (- (frame-pixel-width screen) width) 2))
+            (lispm-ui-popup-show popup (or x (/ (- (frame-pixel-width screen) width) 2))
                                        (or y (/ (frame-pixel-height screen) 6)))
             (track-mouse
               (catch 'done
@@ -412,10 +412,10 @@ X, Y of the screen frame, or stands over its upper middle."
                       (throw 'done nil))
                      ;; Walking the menu bar, Left and Right go to the
                      ;; menus beside; Tab still moves among workspaces.
-                     ((and lispm-desktop-popup-menu-bar-step (eq role 'right))
-                      (throw 'lispm-desktop-popup-menu-bar-step 1))
-                     ((and lispm-desktop-popup-menu-bar-step (eq role 'left))
-                      (throw 'lispm-desktop-popup-menu-bar-step -1))
+                     ((and lispm-ui-menu-bar-step (eq role 'right))
+                      (throw 'lispm-ui-menu-bar-step 1))
+                     ((and lispm-ui-menu-bar-step (eq role 'left))
+                      (throw 'lispm-ui-menu-bar-step -1))
                      (move
                       (setq selected (lispm-ui-modal-cycle selected move count)) (redraw))
                      ((and (characterp event) (<= ?1 event ?9) (<= (- event ?0) count))
@@ -447,12 +447,12 @@ X, Y of the screen frame, or stands over its upper middle."
                       ;; the menu bar comes as `tab-bar', then the release.
                       (push event unread-command-events)
                       (throw 'done nil))))))))
-        (lispm-desktop-popup-dispose popup)))
+        (lispm-ui-popup-dispose popup)))
     choice))
 
 (defun lispm-desktop-workspaces--open (step &optional x y)
   "Choose a workspace from the panel, STEP from the one in front, and go."
-  (if (not (lispm-desktop-popup-graphic-p))
+  (if (not (lispm-ui-popup-graphic-p))
       (lispm-desktop-workspaces-select (completing-read (lispm-desktop-tr "Workspace: ")
                                                         (lispm-desktop-editor-workspaces) nil t))
     (pcase (lispm-desktop-workspaces-choose step x y)

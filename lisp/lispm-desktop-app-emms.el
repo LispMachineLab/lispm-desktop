@@ -322,7 +322,7 @@ letting it."
           (application (lispm-desktop-app-emms--application)))
       (if (eq (lispm-desktop-app-emms-readable-p files) 'denied)
           (lispm-desktop-app-emms--open-media-settings
-           (lispm-desktop-popup-alert
+           (lispm-ui-alert
             'caution (lispm-desktop-tr-n "%s song and %s came from Music, but %s may not read them."
                                          "%s songs and %s came from Music, but %s may not read them."
                                          songs number lists application)
@@ -331,7 +331,7 @@ letting it."
 Music folder.  Turn %s on in Privacy & Security, Media & Apple Music, or add it there with +, then play \
 the songs."
                               application)))
-        (lispm-desktop-popup-alert
+        (lispm-ui-alert
          'note (lispm-desktop-tr-n "%s song and %s came from Music." "%s songs and %s came from Music."
                                    songs number lists)
          `((,(lispm-desktop-tr "OK") ok default))
@@ -402,7 +402,7 @@ alone, then call THEN; say why when it cannot be built."
                     (funcall then))
            (let ((why (with-current-buffer log (string-trim (buffer-string)))))
              (kill-buffer log)
-             (when (eq (lispm-desktop-popup-alert
+             (when (eq (lispm-ui-alert
                         'stop (lispm-desktop-tr "The reader of the Music library could not be built.")
                         `((,(lispm-desktop-tr "Copy Command") copy) (,(lispm-desktop-tr "OK") ok default))
                         (concat (lispm-desktop-tr "It needs Xcode's command line tools; install them with: %s"
@@ -435,7 +435,7 @@ parsed into plists."
 the reader wrote, or nil; most often it was not let read the media
 library, so a button opens the settings letting it."
   (lispm-desktop-app-emms--open-media-settings
-   (lispm-desktop-popup-alert
+   (lispm-ui-alert
     'stop (lispm-desktop-tr "The Music library could not be read.")
     `((,(lispm-desktop-tr "Open Privacy Settings") settings) (,(lispm-desktop-tr "OK") ok default))
     ;; What the reader said is its own words.

@@ -585,7 +585,7 @@ propose it."
   (pcase (nth column (nth row (lispm-desktop-app-games--mpuz-cells)))
     (`(,text unsolved)
      (let ((letter (string-to-char text)))
-       (lispm-desktop-popup-menu
+       (lispm-ui-menu
         (mapcar (lambda (digit)
                   (list :label (lispm-desktop-tr "%s is %d" text digit)
                         :action (lambda () (mpuz-try-proposal letter (+ ?0 digit)))))
