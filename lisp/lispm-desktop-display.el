@@ -323,13 +323,59 @@ it, and the process leaves."
            (message (lispm-desktop-tr "LispM has no application %s to open") app)
            (lispm-desktop-display--send client :op "bye"))
           (t
-           (let ((lispm-desktop-display--opening client))
-             (lispm-desktop-apps-activate app))
-           (let ((frame (lispm-desktop-display--app-frame app)))
-             (if (and frame (lispm-desktop-apps-out-p frame))
-                 (lispm-desktop-display--attach client frame)
-               ;; Over the desktop, or a window LispM draws itself.
-               (lispm-desktop-display--send client :op "desktop")))))))
+           (condition-case err
+               (progn
+                 (let ((lispm-desktop-display--opening client))
+                   (lispm-desktop-apps-activate app))
+                 (let ((frame (lispm-desktop-display--app-frame app)))
+                   (cond ((and frame (eq frame (process-get client :frame))
+                               (frame-live-p frame)))
+                         ;; Opened while it was shown, see
+                         ;; `lispm-desktop-display--presented'.
+                         ((and frame (lispm-desktop-apps-out-p frame))
+                          (lispm-desktop-display--attach client frame))
+                         (t
+                          ;; Over the desktop, or a window LispM draws itself.
+                          (lispm-desktop-display--send client :op "desktop")))))
+             (error
+              ;; The process waits for an answer that would never come, as
+              ;; it did for a quit with no window to close: let it go.
+              (message (lispm-desktop-tr "LispM could not open %s: %s")
+                       app (error-message-string err))
+              (lispm-desktop-display--detach client "bye")))))))
+
+(defun lispm-desktop-display--presented (present id)
+  "Show the window of kind ID, as PRESENT does, drawing it out in the
+process opening its application as soon as it shows: a game asks whether
+it plays first before its board is drawn, and the alert asking it is over
+the game's window, which the process must have by then to show it.
+This is around `lispm-desktop-app-window-present'."
+  (let ((frame (funcall present id)))
+    (when-let* ((client lispm-desktop-display--opening)
+                ((process-live-p client))
+                ((frame-live-p frame))
+                ((eq (process-get client :app)
+                     (frame-parameter frame 'lispm-desktop-app)))
+                ((lispm-desktop-apps-out-p frame))
+                ((not (eq frame (process-get client :frame)))))
+      (lispm-desktop-display--attach client frame))
+    frame))
+
+(defun lispm-desktop-display--asked (ask prompt)
+  "Ask PROMPT as ASK does, drawing first in the process opening its
+application the window the alert is asked over: an application asks
+questions before its window is shown, a game whether it plays first, and
+the alert asking one is over that window, which the process must have by
+then to show it.  This is around `lispm-desktop-app-ui-ask'."
+  (when-let* ((client lispm-desktop-display--opening)
+              ((process-live-p client))
+              ((frame-live-p (selected-frame)))
+              ((eq (process-get client :app)
+                   (frame-parameter (selected-frame) 'lispm-desktop-app)))
+              ((lispm-desktop-apps-out-p (selected-frame)))
+              ((not (eq (selected-frame) (process-get client :frame)))))
+    (lispm-desktop-display--attach client (selected-frame)))
+  (funcall ask prompt))
 
 (defun lispm-desktop-display--attach (client frame)
   "Draw FRAME, an application's window out, in CLIENT's process."
@@ -367,6 +413,21 @@ longer.")
     (lispm-desktop-display--send client :op message))
   (setq lispm-desktop-display--clients (delq client lispm-desktop-display--clients))
   (run-hooks 'lispm-desktop-display-changed-hook))
+
+(defun lispm-desktop-display--framed (frame)
+  "Draw FRAME in its process again now that a frame is drawn for it: the
+window standing in FRAME, with that frame around it, is what the process
+shows, not FRAME as it stood before.
+This is `lispm-desktop-platinum-window-framed-functions'."
+  (when-let* ((client (seq-find (lambda (client)
+                                  (eq (process-get client :frame) frame))
+                                lispm-desktop-display--clients))
+              (context (process-get client :context))
+              ((not (eq (process-get client :outer)
+                        (lispm-desktop-platinum-window-outer frame)))))
+    (process-put client :context nil)
+    (lispm-desktop-display-module-unexport context)
+    (lispm-desktop-display--attach client frame)))
 
 ;;;; The process's own menu
 
@@ -415,7 +476,29 @@ the point in it: (FRAME X . Y)."
 (defun lispm-desktop-display--posn (client x y)
   "Return the position X, Y of CLIENT's window, as a click's."
   (pcase-let ((`(,frame ,fx . ,fy) (lispm-desktop-display--frame-at client x y)))
-    (posn-at-x-y (max 0 fx) (max 0 fy) frame)))
+    (posn-at-x-y (max 0 (floor fx)) (max 0 (floor fy)) frame)))
+
+(defun lispm-desktop-display--teach-mouse-events ()
+  "Give the mouse events LispM makes the kind a mouse event of Emacs's own
+would have given them: `event-kind' `mouse-click'.
+Emacs marks `mouse-1', `down-mouse-1' and the like as clicks only when a
+mouse event of its own creates them, see `modify_event_symbol'.  The runtime
+that draws the applications' windows takes their clicks from the processes
+and can go a whole session without a mouse event of its own, and then
+`read-key-sequence' does not turn a click in a tab line, header line or mode
+line into `<tab-line> <mouse-1>' -- the keymaps the title bar's close and
+zoom boxes, its drag area, the grow box and the toolbar are bound in are
+never reached, while clicks in the buffer still work.  This is idempotent,
+and leaves a kind Emacs already set alone."
+  (dotimes (button 3)
+    (dolist (stem '("mouse" "down-mouse" "drag-mouse" "double-mouse"
+                    "double-down-mouse" "triple-mouse" "triple-down-mouse"))
+      (let ((symbol (intern (format "%s-%d" stem (1+ button)))))
+        (unless (get symbol 'event-kind)
+          (put symbol 'event-kind 'mouse-click)))))
+  (dolist (symbol '(wheel-up wheel-down wheel-left wheel-right))
+    (unless (get symbol 'event-kind)
+      (put symbol 'event-kind 'mouse-click))))
 
 (defun lispm-desktop-display--mouse (client message)
   "Turn MESSAGE, the mouse pressed, moved or let go in CLIENT's window, into
@@ -629,16 +712,24 @@ now.  This is one of `post-command-hook'."
 
 (defun lispm-desktop-display-quit (event)
   "Close the windows of the application EVENT's process quits; it leaves
-once they are closed, and stays when one is kept open."
+once they are closed, and stays when one is kept open.  With no window
+left for it, there is nothing to keep it alive: it leaves, as it would
+wait forever, out of sight, for an answer that never came."
   (interactive "e")
   (let* ((client (nth 1 event))
          (app (process-get client :app)))
     (dolist (frame (frame-list))
       (when (and (frame-live-p frame) (frame-parameter frame 'lispm-desktop-window)
                  (eq (frame-parameter frame 'lispm-desktop-app) app))
-        (lispm-desktop-standalone--close frame)))
+        (condition-case err
+            (lispm-desktop-standalone--close frame)
+          (error (message "LispM could not close %s: %s"
+                          frame (error-message-string err))))))
     (when (memq client lispm-desktop-display--clients)
-      (lispm-desktop-display--send client :op "stay"))))
+      (if (frame-live-p (process-get client :frame))
+          ;; A window was kept open, as an alert asked.
+          (lispm-desktop-display--send client :op "stay")
+        (lispm-desktop-display--detach client "bye")))))
 
 (defun lispm-desktop-display-desktop (_event)
   "Show LispM's desktop, as an application's process asked: the windows of
@@ -652,11 +743,20 @@ the processes come over it, LispM's own, and the processes leave."
 
 ;;;; The socket
 
-(defun lispm-desktop-display-socket ()
-  "Return the socket LispM listens on for its applications' processes: one
-for each init directory, as LispM.app and an Emacs of one's own differ."
-  (expand-file-name (format "lispm-display-%s"
-                            (substring (md5 (expand-file-name user-emacs-directory)) 0 8))
+(defconst lispm-desktop-display-backend-switch "--lispm-app-backend"
+  "The option identifying the private runtime of standalone applications.")
+
+(defun lispm-desktop-display-backend-p ()
+  "Return non-nil in the private runtime of standalone applications."
+  (and (member lispm-desktop-display-backend-switch command-line-args) t))
+
+(defun lispm-desktop-display-socket (&optional backend)
+  "Return this runtime's socket, separate for each init directory and role.
+BACKEND asks for the private standalone runtime's socket even in an ordinary
+Emacs.  The private runtime always uses its own socket."
+  (expand-file-name (format "lispm-display-%s%s"
+                            (substring (md5 (expand-file-name user-emacs-directory)) 0 8)
+                            (if (or backend (lispm-desktop-display-backend-p)) "-apps" ""))
                     temporary-file-directory))
 
 (defvar lispm-desktop-display--server nil
@@ -684,6 +784,7 @@ the windows it showed close."
   "Listen for the applications' processes, unless LispM does, or cannot draw
 their windows here; return non-nil while it listens.  Where the display
 is still to be built, it is, in the background, and LispM listens after."
+  (lispm-desktop-display--teach-mouse-events)
   (or (process-live-p lispm-desktop-display--server)
       (if (not (lispm-desktop-display-load))
           (progn (lispm-desktop-display-build (lambda ()
@@ -716,9 +817,12 @@ soon as read, even while a key sequence or an alert waits."
   (add-hook 'window-size-change-functions #'lispm-desktop-display--frame-changed)
   (add-hook 'delete-frame-functions #'lispm-desktop-display--frame-deleted)
   (add-hook 'lispm-desktop-coherence-changed-hook #'lispm-desktop-display--desktop-changed)
+  (add-hook 'lispm-desktop-platinum-window-framed-functions #'lispm-desktop-display--framed)
   (add-hook 'post-command-hook #'lispm-desktop-display--after-command)
   (advice-add 'x-focus-frame :around #'lispm-desktop-display--x-focus-frame)
-  (advice-add 'lispm-desktop-platinum-drag-outline :around #'lispm-desktop-display--drag-outline))
+  (advice-add 'lispm-desktop-platinum-drag-outline :around #'lispm-desktop-display--drag-outline)
+  (advice-add 'lispm-desktop-app-window-present :around #'lispm-desktop-display--presented)
+  (advice-add 'lispm-desktop-app-ui-ask :around #'lispm-desktop-display--asked))
 
 (provide 'lispm-desktop-display)
 ;;; lispm-desktop-display.el ends here

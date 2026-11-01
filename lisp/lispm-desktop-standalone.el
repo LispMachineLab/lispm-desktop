@@ -59,16 +59,20 @@
 ;;                    started out of sight shows, as windows go out on
 ;;                    the computer's screen only on macOS
 ;;
-;; LispM.app's applications start LispM.app.  An Emacs that loads LispM
-;; from an init of its own makes applications that start that Emacs, its
-;; init directory named.  iconutil and codesign finish them in the
-;; background, in lispm-kernel when it runs (`lispm-exec').
+;; LispM.app's applications start a private runtime of it, made beside the
+;; display's executable: Emacs's own executable, its resources copied, under
+;; an identity and a socket that ordinary Emacs never answers for, sealed
+;; with codesign before it takes its place.  An Emacs that loads LispM from
+;; an init of its own has one made from that Emacs, its init directory
+;; named.  iconutil and codesign finish the applications in the background,
+;; in lispm-kernel when it runs (`lispm-exec').
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'xml)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-coherence)
@@ -361,7 +365,10 @@ of sight and, for an Emacs that is not LispM.app, name this init directory
 unless it is Emacs's own default.  Nil outside an application bundle."
   (let ((directory (directory-file-name (file-truename invocation-directory))))
     (when (string-match "\\`\\(.*\\.app\\)/Contents/MacOS\\'" directory)
-      (let ((application (match-string 1 directory)))
+      (let ((application (if (lispm-desktop-display-backend-p)
+                             (or (lispm-desktop-standalone--made-from (match-string 1 directory))
+                                 (match-string 1 directory))
+                           (match-string 1 directory))))
         `(,application
           ,lispm-desktop-standalone-switch
           ;; LispM.app's own executable names the init directory.
@@ -369,6 +376,110 @@ unless it is Emacs's own default.  Nil outside an application bundle."
                         (member (file-name-as-directory (expand-file-name user-emacs-directory))
                                 (mapcar #'expand-file-name '("~/.emacs.d/" "~/.config/emacs/"))))
               (list (concat "--init-directory=" (expand-file-name user-emacs-directory)))))))))
+
+(defun lispm-desktop-standalone--made-from (bundle)
+  "Return where BUNDLE, a private runtime, was made from, or nil."
+  (let ((plist (expand-file-name "Contents/Info.plist" bundle)))
+    (when (file-readable-p plist)
+      (with-temp-buffer
+        (insert-file-contents plist)
+        (when (re-search-forward "<key>LispMSource</key>[ \t\n]*<string>\\([^<]*\\)</string>" nil t)
+          (xml-substitute-special (match-string 1)))))))
+
+(defun lispm-desktop-standalone--copy (from to)
+  "Copy FROM, a file or directory, to TO as real files.
+Codesign seals a bundle only where nothing in it links out of itself, so
+the private runtime holds copies of Emacs's resources, cloned where the
+file system can.  Return non-nil when TO is there."
+  (unless (and (eq system-type 'darwin)
+               (eql 0 (ignore-errors (call-process "/bin/cp" nil nil nil "-Rc" from to))))
+    (when (file-exists-p to)
+      (delete-directory to t))
+    (if (file-directory-p from)
+        (copy-directory from to t t)
+      (copy-file from to t t)))
+  (file-exists-p to))
+
+(defconst lispm-desktop-standalone--runtime "LispM Runtime.app"
+  "The private runtime's name, beside the applications' executable.")
+
+(defun lispm-desktop-standalone--backend (emacs executable)
+  "Return how to start EMACS's private runtime, and the one still to seal.
+EMACS is as `lispm-desktop-standalone--emacs' returns it, EXECUTABLE the
+applications' host, whose directory holds the runtime.  The runtime is
+Emacs's own, copied under an identity of its own: AppKit and Launch
+Services then tell it from ordinary Emacs, whichever opens first.  Value
+is (ARGUMENTS . NEW), ARGUMENTS starting the runtime, NEW the one just
+made, to seal and rename to its place, or nil when the runtime is as it
+should be; nil when Emacs's runtime is not found."
+  (let* ((source (car emacs))
+         (source-contents (expand-file-name "Contents/" source))
+         (bundle (expand-file-name lispm-desktop-standalone--runtime
+                                   (file-name-directory executable)))
+         (runtime (expand-file-name (concat "MacOS/" invocation-name) source-contents))
+         (stamp (secure-hash 'sha1
+                            (prin1-to-string
+                             (list source invocation-name
+                                   (file-attribute-modification-time (file-attributes runtime))
+                                   (file-attribute-modification-time
+                                    (file-attributes (expand-file-name "Info.plist" source-contents)))))))
+         (arguments (list (directory-file-name bundle)
+                          lispm-desktop-standalone-switch
+                          lispm-desktop-display-backend-switch
+                          (concat "--init-directory=" (expand-file-name user-emacs-directory)))))
+    (cond
+     ((not (file-executable-p runtime))
+      (message (lispm-desktop-tr "LispM cannot find its runtime executable: %s")
+               (abbreviate-file-name runtime))
+      nil)
+     ((equal (lispm-desktop-standalone--made-stamp bundle) stamp)
+      (cons arguments nil))
+     (t
+      (let* ((new (concat (directory-file-name bundle) ".new"))
+             (new-contents (expand-file-name "Contents/" new)))
+        (when (file-directory-p new)
+          (delete-directory new t))
+        (make-directory (expand-file-name "MacOS" new-contents) t)
+        ;; Keep the executable in this bundle, not a link resolved back to
+        ;; Emacs.app: AppKit must see this application's identity.
+        (copy-file runtime (expand-file-name (concat "MacOS/" invocation-name) new-contents) t t)
+        (dolist (name '("Resources" "Frameworks" "MacOS/bin" "MacOS/libexec"))
+          (let ((from (expand-file-name name source-contents)))
+            (when (file-exists-p from)
+              (lispm-desktop-standalone--copy from (expand-file-name name new-contents)))))
+        (with-temp-buffer
+          (insert-file-contents (expand-file-name "Info.plist" source-contents))
+          ;; Preserve Emacs's resource and permission declarations, but do not
+          ;; register its document types, URL handlers or services a second time.
+          (let* ((tree (car (xml-parse-region (point-min) (point-max))))
+                 (dict (car (xml-get-children tree 'dict)))
+                 (nodes (seq-filter #'listp (xml-node-children dict)))
+                 (kept nil))
+            (while nodes
+              (let ((key (pop nodes)) (value (pop nodes)))
+                (unless (member (car (xml-node-children key))
+                                '("CFBundleIdentifier" "CFBundleName" "CFBundleDisplayName"
+                                  "CFBundleExecutable" "CFBundleDocumentTypes" "CFBundleURLTypes"
+                                  "NSServices" "UTExportedTypeDeclarations" "LSUIElement" "LispMStamp"
+                                  "LispMSource"))
+                  (setq kept (append kept (list key value))))))
+            (setcdr (cdr dict)
+                    (append kept
+                            `((key nil "CFBundleIdentifier")
+                              (string nil ,(concat "org.lispmachinelab.lispm.runtime."
+                                                   (substring (md5 (expand-file-name user-emacs-directory))
+                                                              0 8)))
+                              (key nil "CFBundleName") (string nil "LispM Runtime")
+                              (key nil "CFBundleExecutable") (string nil ,invocation-name)
+                              (key nil "LSUIElement") (true nil)
+                              (key nil "LispMSource") (string nil ,(file-truename source))
+                              (key nil "LispMStamp") (string nil ,stamp))))
+            (erase-buffer)
+            (insert "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+            (xml-print (list tree))
+            (let ((coding-system-for-write 'utf-8-unix))
+              (write-region nil nil (expand-file-name "Info.plist" new-contents) nil 'silent))))
+        (cons arguments new))))))
 
 (defun lispm-desktop-standalone--identifier (app)
   "Return the bundle identifier of the computer's application for APP."
@@ -386,8 +497,8 @@ it changes, the application is made anew.  EMACS is as
 `lispm-desktop-standalone--emacs' returns it, EXECUTABLE the one built."
   (let ((icon (lispm-desktop-standalone--source-icon app)))
     (secure-hash 'sha1 (prin1-to-string
-                        (list 2 app (lispm-desktop-standalone--file-name app) emacs executable
-                              (lispm-desktop-display-socket) icon
+                        (list 3 app (lispm-desktop-standalone--file-name app) emacs executable
+                              (lispm-desktop-display-socket t) icon
                               (and icon (file-attribute-modification-time (file-attributes icon))))))))
 
 (defun lispm-desktop-standalone--info-plist (app emacs stamp)
@@ -427,7 +538,7 @@ EMACS, as `lispm-desktop-standalone--emacs' returns it; STAMP its stamp."
 	<key>LispMApp</key>
 	<string>" (lispm-desktop-standalone--xml (symbol-name app)) "</string>
 	<key>LispMSocket</key>
-	<string>" (lispm-desktop-standalone--xml (lispm-desktop-display-socket)) "</string>
+	<string>" (lispm-desktop-standalone--xml (lispm-desktop-display-socket t)) "</string>
 	<key>LispMApplication</key>
 	<string>" (lispm-desktop-standalone--xml (car emacs)) "</string>
 	<key>LispMArguments</key>
@@ -544,20 +655,46 @@ directory, or nil when it could not be made, saying why."
 `again' when they are to be made again once done.")
 
 (defun lispm-desktop-standalone-sync ()
-  "Make the computer's applications for LispM's as they should be: one for
-each of `lispm-desktop-standalone-apps', made anew where what it is made
-from changed, and none for another, see `lispm-desktop-standalone-launchers'."
+  "Prepare the private runtime, then synchronize standalone applications."
   (interactive)
   (if-let* ((why (lispm-desktop-standalone-unsupported)))
       (when (called-interactively-p 'interactive)
         (user-error (lispm-desktop-tr "Applications cannot open on their own: %s") why))
-    (let ((emacs (lispm-desktop-standalone--emacs))
-          (executable (and lispm-desktop-standalone-launchers
-                           (or (lispm-desktop-display-executable)
-                               ;; Made once it is built.
-                               (progn (lispm-desktop-display-build #'lispm-desktop-standalone--schedule-sync)
-                                      nil))))
-          (directory (file-name-as-directory (expand-file-name lispm-desktop-standalone-directory))))
+    (cond (lispm-desktop-standalone--syncing
+           (setq lispm-desktop-standalone--syncing 'again))
+          ((not lispm-desktop-standalone-launchers)
+           (lispm-desktop-standalone--sync-apps nil nil))
+          ((when-let* ((emacs (lispm-desktop-standalone--emacs))
+                       (executable (lispm-desktop-display-executable)))
+             (when-let* ((backend (lispm-desktop-standalone--backend emacs executable)))
+               (pcase-let ((`(,arguments . ,new) backend))
+                 (if (not new)
+                     (lispm-desktop-standalone--sync-apps arguments executable)
+                   (setq lispm-desktop-standalone--syncing t)
+                   (lispm-exec
+                    "codesign" (list "--force" "--sign" "-" new)
+                    (lambda (status _output error-output)
+                      (let ((again (eq lispm-desktop-standalone--syncing 'again)))
+                        (setq lispm-desktop-standalone--syncing nil)
+                        (if (zerop status)
+                            (progn
+                              (when (file-directory-p (car arguments))
+                                (delete-directory (car arguments) t))
+                              (rename-file new (car arguments))
+                              (lispm-desktop-standalone--sync-apps arguments executable))
+                          (message (lispm-desktop-tr "LispM could not sign its private runtime: %s")
+                                   (string-trim error-output))
+                          (delete-directory new t))
+                        (when again
+                          (lispm-desktop-standalone--schedule-sync))))))))
+             t))
+          (t (lispm-desktop-display-build #'lispm-desktop-standalone--schedule-sync)))))
+
+(defun lispm-desktop-standalone--sync-apps (emacs executable)
+  "Make the computer's applications for LispM's as they should be: one for
+each of `lispm-desktop-standalone-apps', made anew where what it is made
+from changed, and none for another, see `lispm-desktop-standalone-launchers'."
+  (let ((directory (file-name-as-directory (expand-file-name lispm-desktop-standalone-directory))))
       (if lispm-desktop-standalone--syncing
           (setq lispm-desktop-standalone--syncing 'again)
         (setq lispm-desktop-standalone--syncing t)
@@ -594,7 +731,7 @@ from changed, and none for another, see `lispm-desktop-standalone-launchers'."
                   (condition-case err
                       (lispm-desktop-standalone--ensure app emacs executable #'made)
                     (error (lispm-desktop-standalone--not-made app err)
-                           (made nil))))))))))))
+                           (made nil)))))))))))
 
 (defvar lispm-desktop-standalone--sync-timer nil
   "Timer making the computer's applications once Emacs is idle.")
@@ -622,6 +759,7 @@ processes and listen for them; dress the Dock as windows come and go;
 applications made."
   ;; Taken, not visited as a file.
   (add-to-list 'command-switch-alist (cons lispm-desktop-standalone-switch #'ignore))
+  (add-to-list 'command-switch-alist (cons lispm-desktop-display-backend-switch #'ignore))
   (lispm-desktop-setup-display)
   ;; Last, once the desktop is drawn and put in front, its Control Strip shown.
   (add-hook 'window-setup-hook #'lispm-desktop-standalone--hide-at-start 100)

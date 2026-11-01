@@ -17,6 +17,13 @@ skill gives you tools over them, and names the functions behind them for ~eval_e
   its window.  An application the App Store lists but did not install is not there yet: the skill
   app-store installs it.
 
+Control Panels includes ~settings-apps~, the independent Apps manager.  Open it with
+~desktop_open~ or ~M-x lispm-desktop-app-manager~ to search/filter installed applications and
+extensions, inspect their versions and sources, and open, update or uninstall them.  Built-in
+applications are protected from removal.  Installed entries remain visible even when their
+catalog no longer lists them or their library failed to load; updating and uninstalling still
+use the App Store's confirmation flow.
+
 * Folders
 
 - ~desktop_folder~ FOLDER: show a folder in the Finder window, the desktop in front: a directory,

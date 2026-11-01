@@ -289,6 +289,15 @@ with the keyboard; put its application in front.  Return the window."
     (lispm-desktop-apps-set-frontmost (lispm-desktop-app-window--app id))
     frame))
 
+(defun lispm-desktop-app-window--opening-p (id)
+  "Return non-nil while an application's process opens the window of kind ID.
+The process has to have the window before SETUP runs: it may ask
+something first, which shows in the window's own field while the desktop
+stays out of sight, and not in the desktop's minibuffer, out of sight."
+  (let ((client (bound-and-true-p lispm-desktop-display--opening)))
+    (and client (process-live-p client)
+         (eq (process-get client :app) (lispm-desktop-app-window--app id)))))
+
 (cl-defun lispm-desktop-app-window-show (id &key name buffer setup size)
   "Open the window of kind ID over the desktop, or bring it in front; return it.
 NAME titles the window the window system knows.  The first time it
@@ -304,6 +313,12 @@ does; SIZE, (WIDTH . HEIGHT) in pixels, sizes it, by default the kind's
                (set-window-buffer window buffer)
                (set-window-dedicated-p window t))
               (setup
+               ;; The process opening this window may ask before the window
+               ;; is filled, Gomoku whether it plays first: show the window
+               ;; first, that its questions show in it rather than nowhere,
+               ;; and wait in it, unanswered, with the desktop out of sight.
+               (when (lispm-desktop-app-window--opening-p id)
+                 (lispm-desktop-app-window-present id))
                (lispm-desktop-app-window--run-setup window setup)))))
     (lispm-desktop-app-window-present id)))
 

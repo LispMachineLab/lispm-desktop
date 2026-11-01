@@ -495,6 +495,29 @@ installed from elsewhere, as from a git URL."
         (push (lispm-desktop-store-job-item job) items)))
     (nreverse items)))
 
+(defvar lispm-desktop-store-changed-hook nil
+  "Hook run when installed items or their installation/update status change.
+Observers should refresh existing views only, without opening windows.")
+
+(defun lispm-desktop-store-installed-items ()
+  "Return installed applications and extensions as (ID . PROPERTIES).
+Include items absent from current catalogs or unable to load.  Companion
+skills are not independent items.  Treat the returned records as read-only."
+  (seq-filter #'lispm-desktop-store--kind-p lispm-desktop-store-installed))
+
+(defun lispm-desktop-store-installed-info (id)
+  "Return installed item ID's metadata and management status, or nil.
+The fresh plist includes :version and :origin for display, :busy while an
+install/update is queued or running, and :update-available when an update
+is known.  Querying does not fetch catalogs or change installation state."
+  (when-let* ((props (lispm-desktop-store--installed id)))
+    (append (list :version (or (plist-get props :installed)
+                              (lispm-desktop-store--version id props))
+                  :origin (lispm-desktop-store--origin props)
+                  :busy (and (lispm-desktop-store--busy-p id) t)
+                  :update-available (and (lispm-desktop-store-update-available-p id) t))
+            props)))
+
 (defun lispm-desktop-store-installed-p (id)
   "Return non-nil when the App Store installed the item ID."
   (and (assq id lispm-desktop-store-installed) t))
@@ -1030,7 +1053,8 @@ Saving it is not said in the echo area: the window shows it."
   "Show the applications installed as they are now in the Applications
 folder, when the Finder window shows it."
   (when (fboundp 'lispm-desktop-finder-folder-changed)
-    (lispm-desktop-finder-folder-changed 'applications)))
+    (lispm-desktop-finder-folder-changed 'applications))
+  (run-hooks 'lispm-desktop-store-changed-hook))
 
 (defun lispm-desktop-store--package-present (props)
   "Return where the package of the item of PROPS is already: `built-in' for
@@ -3807,6 +3831,7 @@ the page drawn before, point stays too; a page shown anew shows its
 first page.  The window shows its buffer from its start: it never
 scrolls.  While an input method composes in the field, it is drawn once
 the composing ends."
+  (run-hooks 'lispm-desktop-store-changed-hook)
   (when-let* ((buffer (get-buffer lispm-desktop-store-buffer-name)))
     (with-current-buffer buffer
       (if (lispm-desktop-store--composing-p)

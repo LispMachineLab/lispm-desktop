@@ -64,6 +64,10 @@
 ;;                 installs them by itself, see lispm-desktop-update.el;
 ;;                 whether the App Store's applications update by
 ;;                 themselves, and which can be
+;;   Apps
+;;     Apps        installed applications and extensions, their versions
+;;                 and sources, opening, updating and uninstalling them,
+;;                 see lispm-desktop-app-manager.el
 ;;
 ;; Each choice takes effect at once where it can, and is saved for the next
 ;; start with Customize, as the menus' choices are; personal.el can still
@@ -82,6 +86,7 @@
 (require 'lispm-desktop-emacs)
 (require 'lispm-desktop-kernel)
 (require 'lispm-desktop-store)
+(require 'lispm-desktop-app-manager)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-startup)
 (require 'lispm-desktop-loading)
@@ -191,7 +196,8 @@
              lispm-desktop-settings--sandbox-p)
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
     (kernel ,(lispm-desktop-tr-noop "Kernel") lispm-desktop-settings--kernel "kernel-32")
-    (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32"))
+    (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32")
+    (apps ,(lispm-desktop-tr-noop "Apps") lispm-desktop-app-manager-insert "applications-32"))
   "The panels: (KEY LABEL INSERT ICON [VISIBLE]).
 LABEL is in English, translated where shown, see
 `lispm-desktop-settings-panel-label'.  INSERT fills the window with the
@@ -209,7 +215,9 @@ a control panel, see `lispm-desktop-settings-categories'.")
     (settings-agents ,(lispm-desktop-tr-noop "Agents") "lispm" "lispm-32"
                      (lispm sandbox))
     (settings-system ,(lispm-desktop-tr-noop "System") "computer" "kernel-32"
-                     (kernel update)))
+                     (kernel update))
+    (settings-apps ,(lispm-desktop-tr-noop "Apps") "applications" "applications-32"
+                   (apps)))
   "The control panels, a category of settings each, in the Control Panels
 folder's order: (KEY LABEL ICON LARGE-ICON PANELS).  KEY is the control
 panel's application, in `lispm-desktop-apps', and the kind of its window;

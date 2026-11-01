@@ -6142,6 +6142,55 @@ its own, its View menu its own panels."
   (should (= 0.0 (lispm-desktop-coherence-inside-fraction '(1200 0 200 100) '(0 0 1000 800))))
   (should (= 0.0 (lispm-desktop-coherence-inside-fraction '(0 0 0 100) '(0 0 1000 800)))))
 
+(ert-deftest lispm-desktop-test-coherence-minibuffer-of-a-window-out ()
+  "A window out drawn in an application's process reads in a field of its
+own, drawn in the application's window; one drawn here reads in the
+minibuffer the windows out share over the screen."
+  (let ((application nil))
+    (cl-letf (((symbol-function 'lispm-desktop-coherence--application-runtime-p)
+               (lambda () application))
+              ((symbol-function 'lispm-desktop-coherence--field)
+               (lambda (window screen) (list 'field window screen)))
+              ((symbol-function 'lispm-desktop-coherence--minibuffer)
+               (lambda (screen) `(shared ,screen)))
+              ((symbol-function 'minibuffer-window)
+               (lambda (frame) (list 'window frame))))
+      (should (equal (lispm-desktop-coherence--minibuffer-for 'window 'screen)
+                     '(window (shared screen))))
+      (setq application t)
+      (should (equal (lispm-desktop-coherence--minibuffer-for 'window 'screen)
+                     '(window (field window screen)))))))
+
+(ert-deftest lispm-desktop-test-coherence-field-is-a-lisp-ui-field ()
+  "A window out drawn in an application's process reads and echoes in a
+field LispM UI makes, marked with the screen its window is out on."
+  (let (made parameters)
+    (cl-letf (((symbol-function 'lispm-ui-field-make)
+               (lambda (frame) (push frame made) 'field))
+              ((symbol-function 'set-frame-parameter)
+               (lambda (frame parameter value)
+                 (push (list frame parameter value) parameters))))
+      (should (eq (lispm-desktop-coherence--field 'window 'screen) 'field))
+      (should (equal made '(window)))
+      (should (equal parameters '((field lispm-desktop-out screen)))))))
+
+(ert-deftest lispm-desktop-test-coherence-lets-lisp-ui-show-fields ()
+  "Reading and echoing in a field are LispM UI's work."
+  (let (echoed set-up)
+    (cl-letf (((symbol-function 'lispm-ui-field-p) #'always)
+              ((symbol-function 'lispm-ui-field-setup)
+               (lambda () (setq set-up t)))
+              ((symbol-function 'lispm-ui-field-echo)
+               (lambda (message) (push message echoed)))
+              ((symbol-function 'window-frame) (lambda (&optional _) 'field))
+              ((symbol-function 'minibuffer-window) (lambda (&optional _) 'field-mini))
+              ((symbol-function 'active-minibuffer-window) #'ignore)
+              ((symbol-function 'selected-frame) #'ignore))
+      (lispm-desktop-coherence--place-minibuffer)
+      (should set-up)
+      (lispm-desktop-coherence--echo "Your move?")
+      (should (equal echoed '("Your move?"))))))
+
 (defmacro lispm-desktop-test--with-drop (spec &rest body)
   "Run BODY with a window dropped as SPEC says: :child, a child of the
 screen rather than out; :inside, its fraction over the screen; :hidden,
@@ -6427,7 +6476,7 @@ and written as XML."
                   'rock '("/Applications/LispM.app" "--lispm-hidden" "--init-directory=/a&b/") "STAMP")))
       (should (string-match-p "<string>Rock &amp; Roll-Jazz- &lt;Live&gt;</string>" plist))
       (should (string-match-p "<key>LispMApp</key>\n\t<string>rock</string>" plist))
-      (should (string-match-p (regexp-quote (lispm-desktop-display-socket)) plist))
+      (should (string-match-p (regexp-quote (lispm-desktop-display-socket t)) plist))
       (should (string-match-p "<key>LispMApplication</key>\n\t<string>/Applications/LispM.app</string>" plist))
       (should (string-match-p "<array>\n\t\t<string>--lispm-hidden</string>\n\t\t<string>--init-directory=/a&amp;b/</string>\n\t</array>" plist))
       (should-not (string-match-p "LSUIElement" plist))
@@ -6546,6 +6595,134 @@ icon."
       (should-not (equal one two))
       (should (< (length one) 104)))))
 
+(ert-deftest lispm-desktop-test-display-backend-socket ()
+  "A hidden backend and ordinary Emacs never claim the same socket."
+  (let* ((user-emacs-directory "/some/init/")
+         (command-line-args '("emacs"))
+         (ordinary (lispm-desktop-display-socket))
+         (backend (lispm-desktop-display-socket t)))
+    (should-not (equal ordinary backend))
+    (let ((command-line-args '("emacs" "--lispm-hidden" "--lispm-app-backend")))
+      (should (lispm-desktop-display-backend-p))
+      (should (equal (lispm-desktop-display-socket) backend)))
+    (should (equal (lispm-desktop-display-socket) ordinary))))
+
+(ert-deftest lispm-desktop-test-standalone-private-runtime ()
+  "The runtime has its own identity, resources and explicit init directory,
+and is staged unsigned until sealed."
+  (let* ((root (make-temp-file "lispm-test-runtime" t))
+         (source (expand-file-name "Emacs.app" root))
+         (invocation-name "Emacs")
+         (invocation-directory (expand-file-name "Contents/MacOS/" source))
+         (user-emacs-directory (expand-file-name "init/" root))
+         (command-line-args '("emacs"))
+         (host (expand-file-name "build/lispm-app" root)))
+    (unwind-protect
+        (progn
+          (make-directory invocation-directory t)
+          (make-directory (expand-file-name "Contents/Resources" source) t)
+          (make-directory (expand-file-name "Contents/Frameworks" source) t)
+          (write-region "runtime" nil (expand-file-name "Emacs" invocation-directory) nil 'silent)
+          (set-file-modes (expand-file-name "Emacs" invocation-directory) #o755)
+          (write-region "framework" nil (expand-file-name "Contents/Frameworks/libx.dylib" source) nil 'silent)
+          (write-region "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>
+<key>CFBundleIdentifier</key><string>org.gnu.Emacs</string>
+<key>CFBundleExecutable</key><string>Emacs</string>
+<key>CFBundleName</key><string>Emacs</string>
+<key>NSPrincipalClass</key><string>EmacsApp</string>
+<key>CFBundleDocumentTypes</key><array/>
+<key>NSServices</key><array/>
+</dict></plist>" nil (expand-file-name "Contents/Info.plist" source) nil 'silent)
+          (pcase-let ((`(,arguments . ,new) (lispm-desktop-standalone--backend (list source) host)))
+            (let* ((bundle (car arguments))
+                   (target (expand-file-name "Contents/MacOS/Emacs" (concat (directory-file-name bundle) ".new"))))
+              (should-not (equal bundle source))
+              ;; Staged: not in place until sealed.
+              (should-not (file-exists-p bundle))
+              (should new)
+              (should (file-executable-p target))
+              (should-not (file-symlink-p target))
+              ;; Copied, not linked: codesign seals no bundle that links out.
+              (dolist (name '("Contents/Resources" "Contents/Frameworks"))
+                (should (file-directory-p (expand-file-name name new)))
+                (should-not (file-symlink-p (expand-file-name name new))))
+              (should (equal (with-temp-buffer
+                               (insert-file-contents (expand-file-name "Contents/Frameworks/libx.dylib" new))
+                               (buffer-string))
+                             "framework"))
+              (should (equal (cdr arguments)
+                             (list "--lispm-hidden" "--lispm-app-backend"
+                                   (concat "--init-directory=" user-emacs-directory))))
+              (with-temp-buffer
+                (insert-file-contents (expand-file-name "Contents/Info.plist" new))
+                (should (search-forward "org.lispmachinelab.lispm.runtime." nil t))
+                (should-not (search-forward "org.gnu.Emacs" nil t))
+                (goto-char (point-min))
+                (should (search-forward "EmacsApp" nil t))
+                (should-not (search-forward "NSServices" nil t)))
+              ;; Where it was made from, so a runtime knows Emacs from itself.
+              (should (equal (lispm-desktop-standalone--made-from new) (file-truename source)))
+              ;; Sealed and put in place, it stays as it is.
+              (rename-file new bundle)
+              (let ((before (file-attribute-modification-time
+                             (file-attributes (expand-file-name "Contents/MacOS/Emacs" bundle)))))
+                (should (equal (lispm-desktop-standalone--backend (list source) host)
+                               (cons arguments nil)))
+                (should (equal before (file-attribute-modification-time
+                                       (file-attributes (expand-file-name "Contents/MacOS/Emacs" bundle))))))
+              (let ((command-line-args '("emacs" "--lispm-app-backend"))
+                    (invocation-directory (expand-file-name "Contents/MacOS/" bundle)))
+                (should (equal (car (lispm-desktop-standalone--emacs)) (file-truename source)))))))
+      (delete-directory root t))))
+
+(ert-deftest lispm-desktop-test-standalone-private-runtime-sealed ()
+  "A private runtime made anew is signed before it takes its place, and the
+applications are made from it only once signed."
+  (lispm-desktop-test--with-exec ran
+    (let* ((root (make-temp-file "lispm-test-runtime-seal" t))
+           (source (expand-file-name "Emacs.app" root))
+           (invocation-name "Emacs")
+           (host (expand-file-name "build/lispm-app" root))
+           (bundle (expand-file-name "LispM Runtime.app" (file-name-directory host)))
+           (new (concat (directory-file-name bundle) ".new"))
+           (user-emacs-directory (expand-file-name "init/" root))
+           (lispm-desktop-standalone-launchers t)
+           (lispm-desktop-standalone--syncing nil)
+           (syncs nil))
+      (unwind-protect
+          (progn
+            (make-directory (expand-file-name "Contents/MacOS" source) t)
+            (write-region "runtime" nil (expand-file-name "Contents/MacOS/Emacs" source) nil 'silent)
+            (set-file-modes (expand-file-name "Contents/MacOS/Emacs" source) #o755)
+            (write-region "<plist version=\"1.0\"><dict></dict></plist>" nil
+                          (expand-file-name "Contents/Info.plist" source) nil 'silent)
+            (cl-letf (((symbol-function 'lispm-desktop-standalone-unsupported) #'ignore)
+                      ((symbol-function 'lispm-desktop-standalone--emacs) (lambda () (list source)))
+                      ((symbol-function 'lispm-desktop-display-executable) (lambda () host))
+                      ((symbol-function 'lispm-desktop-standalone--sync-apps)
+                       (lambda (emacs executable) (push (list 'apps emacs executable) syncs))))
+              (lispm-desktop-standalone-sync)
+              (pcase-let ((`(,program ,args ,answer) (car ran)))
+                (should (equal program "codesign"))
+                (should (equal args (list "--force" "--sign" "-" new)))
+                ;; Not in place until sealed.
+                (should-not (file-exists-p bundle))
+                (should-not syncs)
+                (funcall answer 0 "" ""))
+              (should (file-directory-p bundle))
+              (should-not (file-exists-p new))
+              (should (equal (car syncs)
+                             (list 'apps (list (directory-file-name bundle) "--lispm-hidden"
+                                               "--lispm-app-backend"
+                                               (concat "--init-directory=" user-emacs-directory))
+                                   host)))
+              ;; Nothing to make again: the runtime is sealed already.
+              (setq syncs nil)
+              (lispm-desktop-standalone-sync)
+              (should (= (length ran) 1))
+              (should (= (length syncs) 1))))
+        (delete-directory root t)))))
+
 (ert-deftest lispm-desktop-test-display-build-plan ()
   "The display is built with clang from its two sources, the module with
 this Emacs's header, in a directory named by what it is built from."
@@ -6625,6 +6802,40 @@ special event of its own, run from the command loop."
       (let ((special-event-map (make-sparse-keymap)))
         (lispm-desktop-display--bind-events)
         (should (lookup-key special-event-map (vector event)))))))
+
+(ert-deftest lispm-desktop-test-display-fractional-position ()
+  "AppKit's fractional coordinates become nonnegative integer pixels."
+  (let ((frame (selected-frame)) (positions nil))
+    (cl-letf (((symbol-function 'lispm-desktop-display--frame-at)
+               (lambda (_client x y) (cons frame (cons x y))))
+              ((symbol-function 'posn-at-x-y)
+               (lambda (x y target)
+                 (should (fixnump x))
+                 (should (fixnump y))
+                 (should (eq target frame))
+                 (push (list x y) positions))))
+      (lispm-desktop-display--posn nil 12.5 18.75)
+      (lispm-desktop-display--posn nil -0.5 -2.25)
+      (lispm-desktop-display--posn nil 12 18)
+      (should (equal (reverse positions) '((12 18) (0 0) (12 18)))))))
+
+(ert-deftest lispm-desktop-test-display-fractional-mouse-and-wheel ()
+  "Clicks and wheel messages use the real integer position conversion."
+  (lispm-desktop-test--with-display-client
+    (let ((frame (selected-frame)) (position '(position)))
+      (cl-letf (((symbol-function 'lispm-desktop-display--frame-at)
+                 (lambda (_client x y) (cons frame (cons x y))))
+                ((symbol-function 'posn-at-x-y)
+                 (lambda (x y _frame)
+                   (should (fixnump x))
+                   (should (fixnump y))
+                   position)))
+        (dolist (kind '("down" "up"))
+          (lispm-desktop-display--handle
+           client (list :op "mouse" :kind kind :button 1 :x 12.5 :y 18.75 :clicks 1)))
+        (lispm-desktop-display--handle client '(:op "wheel" :x 12.5 :y 18.75 :lines 1))
+        (should (equal unread-command-events
+                       `((down-mouse-1 ,position) (mouse-1 ,position) (wheel-up ,position))))))))
 
 (ert-deftest lispm-desktop-test-display-mouse ()
   "A press is a down event, a release where it was a click, double and
@@ -7526,6 +7737,7 @@ first, then those failed or done, and round again."
 
 (ert-deftest lispm-desktop-test-agent-list-trees-sessions ()
   "A session an agent started is drawn under the session that started it,
+even from a different working directory,
 once that one is opened by its triangle or the right arrow, and hidden
 again by the left arrow; one that cannot be resumed says it is opened as
 its transcript, and gets no Resume in its menu."
@@ -7535,12 +7747,12 @@ its transcript, and gets no Resume in its menu."
                :sessions ,(lambda ()
                             (let ((now (float-time)))
                               (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
-                                          :title "Fix the build" :time (- now 30))
-                                    (list :agent 'codex :id "0200" :cwd "/tmp/project/"
-                                          :title "Find the failing test" :time (- now 20)
+                                          :title "Fix the build" :started (- now 30) :time (- now 30))
+                                    (list :agent 'codex :id "0200" :cwd "/tmp/child-worktree/"
+                                          :title "Find the failing test" :started (- now 20) :time (- now 20)
                                           :parent "0199")
                                     (list :agent 'codex :id "0201" :cwd "/tmp/project/"
-                                          :title "Ship it" :time (- now 10)))))))
+                                          :title "Ship it" :started (- now 10) :time (- now 10)))))))
     (let ((lispm-agents--session-readers nil)
           (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
           (lispm-agents--archived 'unloaded))
@@ -7641,19 +7853,20 @@ and transcripts that cannot be resumed do not offer it."
                 (should-not (menu '(:agent claude :id "stopped")))
                 (should (equal (plist-get (car shown) :label) "Resume"))))))))))
 
-(ert-deftest lispm-desktop-test-agent-list-puts-waiting-first ()
-  "A session whose agent waits for the user, as its terminal reports or
-one of LispM's agents says, comes first in its project, in bold, with
-its state as its label, and the bottom edge counts it; LispM's agents
-report themselves through the same functions as terminals."
+(ert-deftest lispm-desktop-test-agent-list-keeps-launch-order-while-waiting ()
+  "Waiting and recent output do not move an older session above a newer
+one.  The waiting session remains bold, with its state as its label,
+and the bottom edge counts it."
   (lispm-desktop-test--with-agents
       `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
                :sessions ,(lambda ()
                             (let ((now (float-time)))
                               (list (list :agent 'codex :id "0199" :cwd "/tmp/project/"
-                                          :title "Fix the build" :time (- now 30))
+                                          :title "Fix the build" :started (- now 30)
+                                          :time now)
                                     (list :agent 'codex :id "0200" :cwd "/tmp/project/"
-                                          :title "Ship it" :time (- now 10)))))))
+                                          :title "Ship it" :started (- now 10)
+                                          :time (- now 10)))))))
     (let ((lispm-agents--session-readers nil)
           (lispm-agents-state-file (make-temp-file "lispm-desktop-test-sessions"))
           (lispm-agents--archived 'unloaded)
@@ -7675,7 +7888,7 @@ report themselves through the same functions as terminals."
                     (lispm-desktop-agent-list--render)
                     (let ((fix (save-excursion (goto-char (point-min)) (search-forward "Fix the build")))
                           (ship (save-excursion (goto-char (point-min)) (search-forward "Ship it"))))
-                      (should (< fix ship))
+                      (should (< ship fix))
                       ;; The row's own faces are layered over the title's.
                       (should (string-search ":weight bold" (format "%S" (get-text-property (1- fix) 'face))))
                       (should-not (string-search ":weight bold" (format "%S" (get-text-property (1- ship) 'face))))
@@ -7683,6 +7896,77 @@ report themselves through the same functions as terminals."
                 (kill-buffer))))
         (kill-buffer terminal)
         (delete-file lispm-agents-state-file)))))
+
+(ert-deftest lispm-desktop-test-agent-list-merges-unrecorded-terminals-by-opening ()
+  "New terminals and resumed sessions share one opening order, regardless
+of buffer focus.  The preview still counts only recorded root sessions."
+  (let* ((now (float-time))
+         (older (generate-new-buffer "*codex:older-unrecorded*"))
+         (newer (generate-new-buffer "*codex:newer-unrecorded*"))
+         (live (list older newer))
+         (lispm-agents-terminal-live-p-function #'buffer-live-p)
+         (lispm-agents--session-readers nil)
+         (lispm-agents--archived nil)
+         (lispm-agents-state-file (make-temp-file "lispm-desktop-test-opening"))
+         (lispm-desktop-agent-list-project-preview 1))
+    (unwind-protect
+        (lispm-desktop-test--with-agents
+            `((codex :name "Codex" :program "emacs" :icon (identity "◎" nil)
+                     :sessions ,(lambda ()
+                                  (list (list :agent 'codex :id "recorded" :cwd "/tmp/project/"
+                                              :title "Resumed session" :started (- now 3600)
+                                              :time (- now 3600))
+                                        (list :agent 'codex :id "hidden" :cwd "/tmp/project/"
+                                              :title "Older recorded session" :started (- now 7200)
+                                              :time (- now 7200))))))
+          (with-temp-file lispm-agents-state-file (insert "(:archived nil)"))
+          (lispm-agents-session-opened 'codex "recorded" (- now 10))
+          (cl-loop for terminal in live
+                   for time in (list (- now 20) (- now 5))
+                   for title in '("Older new terminal" "Newer new terminal")
+                   do (with-current-buffer terminal
+                        (setq major-mode 'lispm-desktop-term-mode
+                              default-directory "/tmp/project/"
+                              lispm-agents-buffer-agent 'codex
+                              lispm-agents-buffer-title title
+                              lispm-agents-buffer-launched time)))
+          (cl-letf (((symbol-function 'lispm-agents-live-buffers) (lambda () live))
+                    ((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
+            (with-temp-buffer
+              (lispm-desktop-agent-list-mode)
+              (lispm-desktop-agent-list--render)
+              (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+                (should (< (string-search "Newer new terminal" text)
+                           (string-search "Resumed session" text)))
+                (should (< (string-search "Resumed session" text)
+                           (string-search "Older new terminal" text)))
+                (should-not (string-search "Older recorded session" text))
+                (should (string-search "1 more…" text))
+                ;; Selecting another terminal reverses buffer-list's MRU order.
+                (setq live (reverse live))
+                (lispm-desktop-agent-list--render)
+                (should (equal text (buffer-substring-no-properties (point-min) (point-max)))))
+              ;; A later resume moves the recorded session above both terminals.
+              (lispm-agents-session-opened 'codex "recorded" now)
+              (lispm-desktop-agent-list--render)
+              (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+                (should (< (string-search "Resumed session" text)
+                           (string-search "Newer new terminal" text)))))))
+      (mapc #'kill-buffer (list older newer))
+      (delete-file lispm-agents-state-file))))
+
+(ert-deftest lispm-desktop-test-agent-list-recent-resume-keeps-project-open ()
+  "An old transcript resumed recently remains visible after its terminal
+closes; explicit folding still wins."
+  (let* ((now (float-time))
+         (group (list :key "project" :time (- now (* 30 86400))
+                      :opened (- now 10) :running nil)))
+    (with-temp-buffer
+      (should-not (lispm-desktop-agent-list--default-folded-p group now))
+      (setq lispm-desktop-agent-list--folds '(("project" . t)))
+      (should (lispm-desktop-agent-list--folded-p group now)))
+    (plist-put group :opened (- now (* 8 86400)))
+    (should (lispm-desktop-agent-list--default-folded-p group now))))
 
 (ert-deftest lispm-desktop-test-agent-list-marks-the-session-at-work ()
   "The row of the agent buffer being worked on stands out in the agent
@@ -7837,6 +8121,47 @@ labelled idle and not counted as running; once the agent works, it is."
                   (kill-buffer))))
           (kill-buffer chat)
           (delete-file lispm-agents-state-file))))))
+
+(ert-deftest lispm-desktop-test-lispm-keeps-session-start-time ()
+  "LispM's creation time reaches the common session sorter independently
+of transcript updates."
+  (let ((sessions (mapcar #'lispm-desktop-lispm--session
+                          '((:id "older" :root "/tmp/project/" :title "Older"
+                             :started 10 :time 30 :parent "parent")
+                            (:id "newer" :root "/tmp/project/" :title "Newer"
+                             :started 20 :time 20)))))
+    (should (equal (plist-get (car sessions) :parent) "parent"))
+    (should (equal (mapcar (lambda (session) (plist-get session :id))
+                          (lispm-agents--sort-sessions sessions))
+                   '("newer" "older")))))
+
+(ert-deftest lispm-desktop-test-lispm-tags-opened-session-once ()
+  "Tagging a newly opened or cleared session records its position once;
+repeated state changes and transcript updates do not move it."
+  ;; The accessors are inlined into `lispm-desktop-lispm--tag-buffer', so a
+  ;; stub of `lispm-agent-id' would not be called: use a real agent.
+  (let ((now 10) opened
+        (agent (lispm-agent--create :id "original" :name 'assistant)))
+    (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () agent))
+              ((symbol-function 'float-time) (lambda (&optional _time) now))
+              ((symbol-function 'lispm-agents-session-opened)
+               (lambda (agent session time) (push (list agent session time) opened))))
+      (with-temp-buffer
+        (lispm-desktop-lispm--tag-buffer)
+        (should (equal opened '((lispm "original" 10))))
+        (setq now 20)
+        (lispm-desktop-lispm--tag-buffer)
+        (should (= lispm-agents-buffer-launched 10))
+        (should (= (length opened) 1))
+        (setq agent (lispm-agent--create :id "cleared" :name 'assistant))
+        (lispm-desktop-lispm--tag-buffer)
+        (should (= lispm-agents-buffer-launched 20))
+        (should (equal opened '((lispm "cleared" 20) (lispm "original" 10)))))
+      ;; Opening the recorded session in a new chat is a resume.
+      (setq now 30)
+      (with-temp-buffer
+        (lispm-desktop-lispm--tag-buffer)
+        (should (equal (car opened) '(lispm "cleared" 30)))))))
 
 (ert-deftest lispm-desktop-test-lispm-user-turn-unarchives ()
   "A user turn unarchives its real agent; idle and unattended turns do not."
@@ -16805,7 +17130,11 @@ ends at single characters."
                    (lispm-ui-menu . "lispm-ui-menu.el")
                    (lispm-ui-icon . "lispm-ui-icons.el")
                    (lispm-ui-raster . "lispm-ui-raster.el")))
-    (should (equal (file-name-nondirectory (symbol-file (car entry) 'defun)) (cdr entry))))
+    ;; An installed copy defines the function in its .elc, which names the
+    ;; same file: compare without the extension.
+    (should (equal (file-name-sans-extension
+                    (file-name-nondirectory (symbol-file (car entry) 'defun)))
+                   (file-name-sans-extension (cdr entry)))))
   (should-not (memq #'lispm-desktop-popup-apply-faces enable-theme-functions))
   (should-not (boundp 'lispm-ui-icon))
   (with-temp-buffer
