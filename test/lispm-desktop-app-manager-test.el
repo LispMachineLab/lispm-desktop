@@ -23,6 +23,14 @@
          (lispm-desktop-store--jobs nil))
      ,@body))
 
+(defun lispm-desktop-app-manager-test--fill ()
+  "Draw the Apps panel here as a settings fill does, with its field dressed."
+  (let ((inhibit-read-only t)
+        (inhibit-modification-hooks t))
+    (erase-buffer)
+    (lispm-desktop-app-manager-insert))
+  (lispm-desktop-app-manager--after-fill))
+
 (ert-deftest lispm-desktop-app-manager-test-inventory ()
   (lispm-desktop-app-manager-test--inventory
     (let ((items (lispm-desktop-app-manager-items)))
@@ -93,6 +101,29 @@
           (setq lispm-desktop-app-manager--selected 'absent)
           (should-error (lispm-desktop-app-manager-action 'uninstall) :type 'user-error))))))
 
+(ert-deftest lispm-desktop-app-manager-test-page-size-follows-window ()
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) 'window))
+              ((symbol-function 'window-body-height) (lambda (_) 26)))
+      (should (= (lispm-desktop-app-manager--page-size) 13))
+      ;; The field is part of the panel's first rows, not a row of its own,
+      ;; so a search never takes room from the list.
+      (setq lispm-desktop-app-manager--search "calculator")
+      (should (= (lispm-desktop-app-manager--page-size) 13))
+      (setq lispm-desktop-app-manager--search ""))
+    ;; A shorter window keeps at least the minimum, a tall one no more.
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) 'window))
+              ((symbol-function 'window-body-height) (lambda (_) 8)))
+      (should (= (lispm-desktop-app-manager--page-size)
+                 lispm-desktop-app-manager--page-minimum)))
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) 'window))
+              ((symbol-function 'window-body-height) (lambda (_) 200)))
+      (should (= (lispm-desktop-app-manager--page-size)
+                 lispm-desktop-app-manager--page-maximum)))
+    ;; Without a window, the inventory still pages by a full panel's worth.
+    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) nil)))
+      (should (= (lispm-desktop-app-manager--page-size) 11)))))
+
 (ert-deftest lispm-desktop-app-manager-test-render-and-selection ()
   (lispm-desktop-app-manager-test--inventory
     (let ((name (lispm-desktop-settings--buffer-name 'settings-apps)))
@@ -101,6 +132,10 @@
             (lispm-desktop-settings-select 'apps)
             (with-current-buffer name
               (should (equal (lispm-desktop-platinum-title-text) "Apps"))
+              ;; The settings fill runs the after-fill hook, which puts the
+              ;; field's own drawing on it.
+              (should (equal (overlay-get lispm-desktop-app-manager--field 'help-echo)
+                             (lispm-desktop-tr "Search the installed applications")))
               (setq lispm-desktop-app-manager--selected 'missing)
               (lispm-desktop-app-manager-refresh)
               (should (eq lispm-desktop-app-manager--selected 'missing))
@@ -117,38 +152,88 @@
               (should (= lispm-desktop-app-manager--page 0))))
         (when (get-buffer name) (kill-buffer name))))))
 
-(ert-deftest lispm-desktop-app-manager-test-search-button-and-pagination ()
+(ert-deftest lispm-desktop-app-manager-test-search-field-and-pagination ()
+  (lispm-desktop-app-manager-test--inventory
+    (with-temp-buffer
+      (lispm-desktop-settings-mode)
+      (setq lispm-desktop-settings--category 'settings-apps)
+      (cl-letf (((symbol-function 'lispm-desktop-app-manager--page-size) (lambda () 2)))
+        (let ((inhibit-read-only t)
+              choices choose-action refreshed)
+          (cl-letf (((symbol-function 'lispm-desktop-app-manager-refresh)
+                     (lambda (&rest _) (setq refreshed t)))
+                    ((symbol-function 'run-with-timer)
+                     (lambda (_delay _repeat function) (funcall function)))
+                    ((symbol-function 'lispm-ui-insert-popup-button)
+                     (lambda (_label options action &rest _)
+                       (setq choices options choose-action action))))
+            (lispm-desktop-app-manager-test--fill)
+            ;; The field is always there, empty, with the filters beside it:
+            ;; no Search button opens a minibuffer to take the search.
+            (should (equal (buffer-substring-no-properties
+                            lispm-desktop-app-manager--field-start
+                            lispm-desktop-app-manager--field-end)
+                           ""))
+            (should (equal (mapcar #'car choices) '(all app extension builtin)))
+            (should-not (string-search "Search…" (buffer-string)))
+            ;; What is typed into the field is the search, at once.
+            (goto-char lispm-desktop-app-manager--field-end)
+            (insert "Harness")
+            (should refreshed)
+            (should (equal lispm-desktop-app-manager--search "Harness"))
+            (should (equal (buffer-substring-no-properties
+                            lispm-desktop-app-manager--field-start
+                            lispm-desktop-app-manager--field-end)
+                           "Harness"))
+            ;; The panel around the field stays the panel's, not the
+            ;; keyboard's: only the field can be typed in.
+            (should-not (get-text-property lispm-desktop-app-manager--field-start
+                                           'read-only))
+            (should (get-text-property lispm-desktop-app-manager--field-end
+                                       'read-only))
+            (should (get-text-property (point-min) 'read-only))
+            (setq refreshed nil)
+            (funcall choose-action 'extension)
+            (should refreshed)
+            (should (eq lispm-desktop-app-manager--filter 'extension))
+            (should (equal (mapcar #'car (lispm-desktop-app-manager--matches))
+                           '(extension)))
+            (setq lispm-desktop-app-manager--search "" lispm-desktop-app-manager--filter 'all)
+            (lispm-desktop-app-manager--turn 1)
+            (lispm-desktop-app-manager-test--fill)
+            (should (eq lispm-desktop-app-manager--selected 'extension))))
+        ;; Removing the selected item keeps the list usable on its page.
+        (setq lispm-desktop-store-installed (assq-delete-all 'extension lispm-desktop-store-installed))
+        (lispm-desktop-app-manager-test--fill)
+        (should (eq lispm-desktop-app-manager--selected 'editor))))))
+
+(ert-deftest lispm-desktop-app-manager-test-fill-keeps-the-field-focused ()
+  "A redraw puts point back in the field while it had the keyboard."
   (lispm-desktop-app-manager-test--inventory
     (with-temp-buffer
       (lispm-desktop-settings-mode)
       (setq lispm-desktop-settings--category 'settings-apps)
       (let ((inhibit-read-only t)
-            (lispm-desktop-app-manager--page-size 2)
-            search-action choices choose-action refreshed)
-        (cl-letf (((symbol-function 'lispm-desktop-app-manager-refresh)
-                   (lambda (&rest _) (setq refreshed t)))
-                  ((symbol-function 'lispm-desktop-app-manager--button)
-                   (lambda (label action &optional _disabled)
-                     (when (equal label "Search…") (setq search-action action))))
-                  ((symbol-function 'lispm-ui-insert-popup-button)
-                   (lambda (_label options action &rest _)
-                     (setq choices options choose-action action))))
-          (lispm-desktop-app-manager-insert)
-          (should (equal (mapcar #'car choices) '(all app extension builtin)))
-          (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "Harness")))
-            (funcall search-action))
-          (should refreshed)
-          (should (equal lispm-desktop-app-manager--search "Harness"))
-          (funcall choose-action 'extension)
-          (should (eq lispm-desktop-app-manager--filter 'extension))
-          (setq lispm-desktop-app-manager--search "" lispm-desktop-app-manager--filter 'all)
-          (lispm-desktop-app-manager--turn 1)
-          (let ((inhibit-read-only t)) (erase-buffer) (lispm-desktop-app-manager-insert))
-          (should (eq lispm-desktop-app-manager--selected 'extension))
-          ;; Removing the selected item keeps the list usable on its page.
-          (setq lispm-desktop-store-installed (assq-delete-all 'extension lispm-desktop-store-installed))
-          (let ((inhibit-read-only t)) (erase-buffer) (lispm-desktop-app-manager-insert))
-          (should (eq lispm-desktop-app-manager--selected 'editor)))))))
+            (inhibit-modification-hooks t))
+        (lispm-desktop-app-manager-insert))
+      (lispm-desktop-app-manager--after-fill)
+      (set-window-buffer (selected-window) (current-buffer))
+      (setq lispm-desktop-app-manager--search "Harness")
+      (lispm-desktop-app-manager-test--fill)
+      (let ((end (cdr (lispm-desktop-app-manager--field-bounds))))
+        (goto-char end)
+        (set-window-point (selected-window) end)
+        (lispm-desktop-app-manager--follow-focus))
+      (should lispm-desktop-app-manager--field-focused)
+      (lispm-desktop-app-manager-test--fill)
+      (should lispm-desktop-app-manager--field-focused)
+      (should (lispm-desktop-app-manager--in-field-p (window-point))))))
+
+(ert-deftest lispm-desktop-app-manager-test-yank-stays-on-one-line ()
+  "A paste into the field is one line, whatever the clipboard holds."
+  (should (equal (lispm-desktop-app-manager--yank-text "one\ntwo\tthree\r\nfour")
+                 "one two three four"))
+  (should (equal (lispm-desktop-app-manager--yank-text "one line") "one line")))
 
 (ert-deftest lispm-desktop-app-manager-test-refresh-does-not-reopen ()
   (let ((name (lispm-desktop-settings--buffer-name 'settings-apps)))
