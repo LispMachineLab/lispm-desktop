@@ -6184,6 +6184,47 @@ it is does not: the item is found again by that."
               (should (= reads 2)))))
       (kill-buffer lispm-desktop-finder-buffer-name))))
 
+(ert-deftest lispm-desktop-test-finder-render-reads-again ()
+  "Drawing a folder LispM makes reads its items again, in the language spoken.
+The item selected is found again by its application when the language has
+renamed it, so the folder drawn after a language change is not left empty."
+  (let ((lispm-desktop-finder-folders nil)
+        (lispm-desktop-language 'en-US)
+        (reads 0))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-tr)
+                   (lambda (message &rest args)
+                     (apply #'format
+                            (if (and (eq lispm-desktop-language 'de)
+                                     (equal message "Alpha"))
+                                "Zulu"
+                              message)
+                            args))))
+          (setf (alist-get 'test lispm-desktop-finder-folders)
+                (list :title "Test" :icon "folder"
+                      :items (lambda ()
+                               (cl-incf reads)
+                               (list (list (lispm-desktop-tr "Alpha") "alpha-32" #'ignore nil 'alpha)
+                                     (list (lispm-desktop-tr "Beta") "beta-32" #'ignore nil 'beta)))))
+          (cl-letf (((symbol-function 'lispm-desktop-finder--render) #'ignore))
+            (lispm-desktop-finder--go 'test nil "Alpha"))
+          (should (= reads 1))
+          (set-window-buffer (selected-window) (lispm-desktop-finder--buffer))
+          (let ((lispm-desktop-language 'de)
+                (lispm-desktop-platinum-window-title nil)
+                (lispm-desktop-platinum-window-icon nil))
+            (cl-letf (((symbol-function 'lispm-desktop-tty-p) (lambda (&rest _) t))
+                      ((symbol-function 'lispm-desktop-finder--text-items) (lambda (&rest _) 1))
+                      ((symbol-function 'lispm-desktop-tty-images-show) #'ignore)
+                      ((symbol-function 'lispm-ui-icon) (lambda (&rest _) "icon")))
+              (lispm-desktop-finder--render)))
+          (with-current-buffer (lispm-desktop-finder--buffer)
+            (should (= reads 2))
+            (should (equal (mapcar #'car lispm-desktop-finder--items) '("Beta" "Zulu")))
+            (should (equal lispm-desktop-finder--selected "Zulu"))
+            (should (eq lispm-desktop-finder--selected-app 'alpha))))
+      (kill-buffer lispm-desktop-finder-buffer-name))))
+
 (ert-deftest lispm-desktop-test-finder-language-hook ()
   "Setting up the Finder draws it again when the language changes.
 Drawing a folder LispM makes reads its items again, see

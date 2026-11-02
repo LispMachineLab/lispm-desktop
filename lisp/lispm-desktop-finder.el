@@ -178,8 +178,8 @@ which no language names."
     (setq lispm-desktop-finder--items (lispm-desktop-finder--read directory))
     (let ((item (or (assoc lispm-desktop-finder--selected lispm-desktop-finder--items)
                     (and lispm-desktop-finder--selected-app
-                         (seq-find (lambda (item)
-                                     (eq (nth 2 item) lispm-desktop-finder--selected-app))
+                         (seq-find (lambda (other)
+                                     (equal (nth 2 other) lispm-desktop-finder--selected-app))
                                    lispm-desktop-finder--items)))))
       (setq lispm-desktop-finder--selected (car-safe item)
             lispm-desktop-finder--selected-app (nth 2 item)))))
