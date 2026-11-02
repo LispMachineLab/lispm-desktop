@@ -27,8 +27,10 @@ test:
 	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el \
 	  -l test/lispm-desktop-store-defaults-test.el \
 	  -l test/lispm-desktop-store-dependency-test.el \
+	  -l test/lispm-desktop-update-safety-test.el \
 	  -l test/lispm-desktop-app-manager-test.el \
 	  -f ert-run-tests-batch-and-exit
+	EMACS="$(EMACS)" sh test/install-update-safety.sh
 
 # The messages each catalog of i18n/ lacks, and those it holds that the code
 # no longer gives; the tests fail on either.

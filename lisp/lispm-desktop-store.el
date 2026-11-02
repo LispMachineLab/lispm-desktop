@@ -1166,6 +1166,14 @@ Nil installs them in this Emacs, which waits until each is done."
   id item action group
   (state 'waiting) (stage 'waiting) (fraction 0.0)
   process log file before pending installed error stopped then
+  ;; Actual starting commit of an update, independent of the catalog record.
+  former
+  ;; Resolved target reported before mutation, and pre-update bytecode paths.
+  target bytecode
+  ;; Bytes of pre-existing orphan bytecode if a child stops during rebuilding.
+  orphan-bytecode
+  ;; Non-nil when the child rejected preflight without changing the package.
+  rejected
   ;; Original commit and bytecode inventory when repairing an existing package.
   repair repair-bytecode)
 
@@ -1248,14 +1256,21 @@ Tracked local modifications prevent automatic repair."
     (setf (lispm-desktop-store-job-repair job) former
           (lispm-desktop-store-job-repair-bytecode job)
           (directory-files-recursively directory "\\.elc\\'")
+          (lispm-desktop-store-job-orphan-bytecode job)
+          (lispm-desktop-store--orphan-bytecode-snapshot directory)
           (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
     (if (lispm-desktop-store--background-p)
         (lispm-desktop-store--spawn job task)
       (condition-case err
-          (let ((installed (lispm-desktop-store--quietly
-                            (lispm-desktop-store-installer-call task))))
+          (let* ((lispm-desktop-store-installer--update-observer
+                  (lambda (name from to) (lispm-desktop-store--record-update job name from to)))
+                 (installed (lispm-desktop-store--quietly
+                              (lispm-desktop-store-installer-call task))))
             (lispm-desktop-store--adopt job)
             (lispm-desktop-store--installed-as job installed nil))
+        (lispm-desktop-store-preflight-error
+         (setf (lispm-desktop-store-job-rejected job) t)
+         (lispm-desktop-store--fail job (error-message-string err)))
         (error
          (lispm-desktop-store--rollback-and-fail job (error-message-string err)))))))
 
@@ -1300,7 +1315,7 @@ one fails."
 is there already, or that has none, is installed at once."
   (setf (lispm-desktop-store-job-state job) 'running
         (lispm-desktop-store-job-stage job) 'preparing)
-  (pcase-let ((`(,id . ,props) (lispm-desktop-store-job-item job)))
+  (pcase-let ((`(,_id . ,props) (lispm-desktop-store-job-item job)))
     (condition-case err
         (progn
           ;; What it requires must be there by now: it failed, else.
@@ -1318,8 +1333,16 @@ is there already, or that has none, is installed at once."
                       (lispm-desktop-store--install-here job present))
                      (t (lispm-desktop-store--spawn job `(install ,(plist-get props :package)))))))
             ('update
-             (let ((package (plist-get props :package))
-                   (former (plist-get (lispm-desktop-store--installed id) :installed)))
+             (let* ((package (plist-get props :package))
+                    (desc (and (consp package) (cadr (assq (car package) package-alist))))
+                    (former (and desc (lispm-desktop-store--git
+                                       (package-desc-dir desc) "rev-parse" "HEAD"))))
+               (setf (lispm-desktop-store-job-former job) former)
+               (when (and desc (file-directory-p (package-desc-dir desc)))
+                 (setf (lispm-desktop-store-job-bytecode job)
+                       (directory-files-recursively (package-desc-dir desc) "\\.elc\\'")
+                       (lispm-desktop-store-job-orphan-bytecode job)
+                       (lispm-desktop-store--orphan-bytecode-snapshot (package-desc-dir desc))))
                (cond ((not (lispm-desktop-store--background-p))
                       (lispm-desktop-store--update-here job))
                      ((consp package)
@@ -1422,6 +1445,17 @@ and the keys' left out."
   "Return the part of the progress bar STAGE fills, as (FROM TO)."
   (or (nthcdr 3 (assq stage lispm-desktop-store-stages)) '(0.0 0.0)))
 
+(defun lispm-desktop-store--record-update (job name former target)
+  "Record JOB's resolved TARGET reported before updating NAME from FORMER.
+Ignore dependency transactions: only the job's own package supplies its
+rollback target.  Its starting commit must match the parent's snapshot."
+  (when (eq name (lispm-desktop-store--package-name
+                  (plist-get (cdr (lispm-desktop-store-job-item job)) :package)))
+    (unless (equal former (or (lispm-desktop-store-job-repair job)
+                             (lispm-desktop-store-job-former job)))
+      (error "The installer reported an unexpected starting commit for %s" name))
+    (setf (lispm-desktop-store-job-target job) target)))
+
 (defun lispm-desktop-store--heard (job text)
   "Take what JOB's Emacs said, TEXT: how far it is, see
 lispm-desktop-store-installer.el, else what goes in its log."
@@ -1431,6 +1465,8 @@ lispm-desktop-store-installer.el, else what goes in its log."
     (dolist (line (butlast lines))
       (if (string-prefix-p tag line)
           (pcase (ignore-errors (car (read-from-string line (length tag))))
+            (`(updating ,name ,former ,target)
+             (lispm-desktop-store--record-update job name former target))
             (`(stage ,(and stage (guard (assq stage lispm-desktop-store-stages))))
              (setf (lispm-desktop-store-job-stage job) stage
                    (lispm-desktop-store-job-fraction job)
@@ -1440,6 +1476,9 @@ lispm-desktop-store-installer.el, else what goes in its log."
                (setf (lispm-desktop-store-job-fraction job)
                      (max (lispm-desktop-store-job-fraction job) (+ from (* (- to from) (min 1 fraction)))))))
             (`(done ,installed) (setf (lispm-desktop-store-job-installed job) (list installed)))
+            (`(rejected ,message)
+             (setf (lispm-desktop-store-job-rejected job) t
+                   (lispm-desktop-store-job-error job) message))
             (`(failed ,message) (setf (lispm-desktop-store-job-error job) message)))
         (when (and (not (string-blank-p line)) (buffer-live-p (lispm-desktop-store-job-log job)))
           (with-current-buffer (lispm-desktop-store-job-log job)
@@ -1490,36 +1529,39 @@ lispm-desktop-store-installer.el, else what goes in its log."
   "Undo what JOB, failed or stopped in the background, left: the packages
 it put in `package-user-dir', and an update's checkout, back at the
 commit it was at.  An update from the package archives deletes the
-version it replaces only once the new one is installed."
-  (let ((before (lispm-desktop-store-job-before job)))
-    (dolist (directory (lispm-desktop-store--package-directories))
-      (unless (member directory before)
-        (delete-directory directory t))))
-  (when (eq (lispm-desktop-store-job-action job) 'update)
-    (pcase-let* ((`(,id . ,props) (lispm-desktop-store-job-item job))
-                 (package (plist-get props :package))
-                 (desc (cadr (assq (lispm-desktop-store--package-name package) package-alist))))
-      (when (and desc (consp package))
-        (ignore-errors
-          (lispm-desktop-store--git (package-desc-dir desc) "checkout" "--quiet" "--detach"
-                                    (plist-get (lispm-desktop-store--installed id) :installed))))))
-  (when-let* ((former (lispm-desktop-store-job-repair job)))
+version it replaces only once the new one is installed.  A job rejected
+by preflight changed nothing and must not check out or rebuild anything."
+  (unless (lispm-desktop-store-job-rejected job)
     (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
-                 (name (lispm-desktop-store--package-name (plist-get props :package)))
-                 (desc (cadr (assq name package-alist))))
-      ;; Rebuild the restored version as well as moving HEAD: generated
-      ;; descriptors and bytecode must describe the retained package.
-      (lispm-desktop-store--unload (plist-get props :feature))
-      (lispm-desktop-store--quietly
-        (lispm-desktop-store-installer-call
-         `(update ,name ,former ,(lispm-desktop-store--git (package-desc-dir desc) "rev-parse" "HEAD"))))
-      ;; Git removes newly added sources but not their generated bytecode.
-      ;; Retain every pre-existing file; remove only new orphaned bytecode.
-      (dolist (file (directory-files-recursively (package-desc-dir desc) "\\.elc\\'"))
-        (unless (or (member file (lispm-desktop-store-job-repair-bytecode job))
-                    (file-exists-p (substring file 0 -1)))
-          (delete-file file)))
-      (lispm-desktop-store--adopt job))))
+                 (package (plist-get props :package))
+                 (name (lispm-desktop-store--package-name package))
+                 (desc (cadr (assq name package-alist)))
+                 (repair (lispm-desktop-store-job-repair job))
+                 (former (or repair (lispm-desktop-store-job-former job)))
+                 (directory (and desc (consp package) former (package-desc-dir desc)))
+                 ;; Check the transaction boundary before deleting anything or
+                 ;; unloading code.  A clean third commit belongs to its author.
+                 (head (and directory
+                            (lispm-desktop-store--rollback-preflight
+                             directory former (lispm-desktop-store-job-target job)))))
+      (dolist (added (lispm-desktop-store--package-directories))
+        (unless (member added (lispm-desktop-store-job-before job))
+          (delete-directory added t)))
+      (when directory
+        (when repair (lispm-desktop-store--unload (plist-get props :feature)))
+        (unwind-protect
+            (lispm-desktop-store--quietly
+              (lispm-desktop-store-installer-call `(restore ,name ,former ,head)))
+          (when (lispm-desktop-store--transaction-head-p
+                 directory former (lispm-desktop-store-job-target job))
+            (lispm-desktop-store--restore-orphan-bytecode
+             (lispm-desktop-store-job-orphan-bytecode job))))
+        (unless (equal former (lispm-desktop-store--git directory "rev-parse" "HEAD"))
+          (error "The checkout changed outside this update while restoring %s" name))
+        (lispm-desktop-store--remove-orphan-bytecode
+         directory (if repair (lispm-desktop-store-job-repair-bytecode job)
+                     (lispm-desktop-store-job-bytecode job)))
+        (lispm-desktop-store--adopt job)))))
 
 (defun lispm-desktop-store--adopt (job)
   "Make what JOB's Emacs installed known to this one and take part, as
@@ -1967,13 +2009,19 @@ catalog pins, or the package archives' newest installed."
   (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
                (package (plist-get props :package)))
     (lispm-desktop-store--status (lispm-desktop-tr "Updating %s…" (plist-get props :name)))
-    (let ((now (unwind-protect
+    (let* ((lispm-desktop-store-installer--update-observer
+            (lambda (name from to) (lispm-desktop-store--record-update job name from to)))
+           (now (unwind-protect
                    (lispm-desktop-with-loading lispm-desktop-store-buffer-name
                      (if (consp package)
-                         (let ((rev (plist-get (cdr package) :rev)))
+                         (let* ((rev (plist-get (cdr package) :rev))
+                                (desc (cadr (assq (car package) package-alist)))
+                                (former (or (lispm-desktop-store-job-former job)
+                                            (and desc (lispm-desktop-store--git
+                                                       (package-desc-dir desc) "rev-parse" "HEAD")))))
                            (lispm-desktop-store--quietly
-                             (lispm-desktop-store--repin (car package) rev (plist-get (cdr package) :assets)))
-                           rev)
+                             (lispm-desktop-store-installer--update
+                              (car package) rev former (plist-get (cdr package) :assets))))
                        (lispm-desktop-store--quietly
                          (package-upgrade package))
                        (or (lispm-desktop-store--package-version package) "installed")))

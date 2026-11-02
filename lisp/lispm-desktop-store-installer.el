@@ -47,6 +47,8 @@
 ;;   (progress FRACTION) how much of the stage is done, from 0 to 1
 ;;   (done INSTALLED)    what is installed: a commit, a version
 ;;   (failed MESSAGE)    why it was not
+;;   (rejected MESSAGE)  an update refused before any checkout or rebuild
+;;   (updating NAME FROM TO) the exact commits of an update about to begin
 ;;
 ;; Everything else it says, on its standard error, is the job's log.
 ;;
@@ -74,6 +76,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'lisp-mnt)
 (require 'package)
 (require 'seq)
 (require 'subr-x)
@@ -84,6 +87,15 @@
 (declare-function url-retrieve-synchronously "url" (url &optional silent inhibit-cookies timeout))
 (defvar url-http-response-status)
 (defvar lispm-desktop-store-installer--reporting)
+
+(defvar lispm-desktop-store-installer--update-observer nil
+  "When non-nil, a function receiving NAME, FROM and TO before an update.
+FROM and TO are resolved commit IDs.  A waiting parent also receives
+this notification when `lispm-desktop-store-installer-call' reads its
+child's output.  This lets the parent retain the exact rollback boundary.")
+
+(define-error 'lispm-desktop-store-preflight-error
+  "Update refused before changing the package" 'user-error)
 
 ;;;; Git
 
@@ -129,15 +141,21 @@ Return nil when OWN is the first release, or not one of LISTED."
   (when-let* ((before (cadr (member own (lispm-desktop-store--releases listed)))))
     (list (concat "--shallow-exclude=" before))))
 
-(defun lispm-desktop-store--git (directory &rest args)
-  "Run git with ARGS in DIRECTORY; return what it printed, or signal it."
+(defun lispm-desktop-store--git-output (directory &rest args)
+  "Run git with ARGS in DIRECTORY and return its output unchanged.
+Signal an error on failure.  Unlike `lispm-desktop-store--git', this
+preserves whitespace in NUL-delimited file names."
   (let ((default-directory (file-name-as-directory directory))
         (process-environment (lispm-desktop-store--git-environment)))
     (with-temp-buffer
       (let ((status (apply #'process-file "git" nil t nil args)))
         (unless (eql status 0)
           (error "git %s failed: %s" (car args) (string-trim (buffer-string))))
-        (string-trim (buffer-string))))))
+        (buffer-string)))))
+
+(defun lispm-desktop-store--git (directory &rest args)
+  "Run git with ARGS in DIRECTORY; return trimmed output, or signal it."
+  (string-trim (apply #'lispm-desktop-store--git-output directory args)))
 
 (defun lispm-desktop-store--shallow-p (directory)
   "Return non-nil when the git clone DIRECTORY lacks history, cloned shallow."
@@ -149,6 +167,198 @@ Return nil when OWN is the first release, or not one of LISTED."
   (ignore-errors
     (lispm-desktop-store--git directory "cat-file" "-e" (concat rev "^{commit}"))
     t))
+
+(defun lispm-desktop-store--path-collision (paths local &optional ignore-case)
+  "Return a path in PATHS that collides with the untracked path LOCAL.
+PATHS contains tracked files in the target tree.  A collision includes
+a file replacing a directory, or a directory replacing a file.  With
+IGNORE-CASE, honor the checkout's case-insensitive file-name setting."
+  (let ((local (directory-file-name local)))
+    (seq-find (lambda (path)
+                (or (eq t (compare-strings path nil nil local nil nil ignore-case))
+                    (string-prefix-p (concat local "/") path ignore-case)
+                    (string-prefix-p (concat path "/") local ignore-case)))
+              paths)))
+
+(defun lispm-desktop-store-checkout-preflight (directory rev &optional former)
+  "Check that DIRECTORY can safely move to REV; return its full commit.
+Fetch REV when necessary, without changing the checkout.  When FORMER
+is non-nil, require HEAD still to identify that commit.  Reject staged
+or unstaged tracked changes and untracked or ignored paths that collide
+with the target tree, including file/directory replacements.  Unrelated
+untracked files, such as package-vc's generated files, are retained.
+Signal `lispm-desktop-store-preflight-error' on rejection.  This check
+must run before a caller begins its mutation or rollback transaction."
+  (condition-case err
+      (let* ((root (lispm-desktop-store--git directory "rev-parse" "--show-toplevel"))
+             (head (lispm-desktop-store--git root "rev-parse" "HEAD")))
+        (when (and former
+                   (not (equal head (lispm-desktop-store--git
+                                     root "rev-parse" "--verify" "--end-of-options"
+                                     (concat former "^{commit}")))))
+          (user-error "%s changed since this update was prepared; check for updates again"
+                      (abbreviate-file-name root)))
+        (unless (string-empty-p
+                 (lispm-desktop-store--git root "status" "--porcelain"
+                                          "--untracked-files=no" "--ignore-submodules=none"))
+          (user-error "%s has local tracked changes; commit or stash them before updating"
+                      (abbreviate-file-name root)))
+        (unless (lispm-desktop-store--has-commit-p root rev)
+          (lispm-desktop-store-installer--fetch root "origin")
+          (unless (lispm-desktop-store--has-commit-p root rev)
+            (lispm-desktop-store-installer--fetch-commit root rev)))
+        (let* ((ignore-case (equal (ignore-errors
+                                    (lispm-desktop-store--git root "config" "--bool" "core.ignorecase"))
+                                  "true"))
+               (target (lispm-desktop-store--git root "rev-parse" "--verify" "--end-of-options"
+                                               (concat rev "^{commit}")))
+               (paths (split-string
+                       (lispm-desktop-store--git-output root "ls-tree" "-rz" "--name-only"
+                                                       "--full-tree" target) "\0" t))
+               ;; Without --exclude-standard, ignored files are included too:
+               ;; checkout can otherwise silently overwrite these files.
+               (untracked (split-string
+                           (lispm-desktop-store--git-output root "ls-files" "--others" "-z")
+                           "\0" t)))
+          (dolist (local untracked)
+            (when-let* ((target-path (lispm-desktop-store--path-collision paths local ignore-case)))
+              (user-error "Local file %s in %s conflicts with target path %s; move it before updating"
+                          local (abbreviate-file-name root) target-path)))
+          target))
+    (error (signal 'lispm-desktop-store-preflight-error
+                   (list (error-message-string err))))))
+
+(defun lispm-desktop-store--revision-version (directory rev file)
+  "Read the package version in FILE at REV in DIRECTORY, without loading it.
+FILE is relative to the repository root.  Use the same package header
+precedence as package-vc, including its zero-version fallback."
+  (with-temp-buffer
+    (insert (lispm-desktop-store--git-output directory "show" (concat rev ":" file)))
+    (version-to-list
+     (package-strip-rcs-id (or (lm-header "package-version") (lm-header "version") "0")))))
+
+(defun lispm-desktop-store--rollback-preflight (directory former target)
+  "Check DIRECTORY may roll back from TARGET to FORMER; return current HEAD.
+Only the recorded target or the original commit belongs to this
+transaction.  Refuse a third commit, even when its working tree is clean,
+and retain all local-file checks before allowing restoration.  TARGET
+may be nil if the child never reported that it began the update."
+  (let ((head (lispm-desktop-store--git directory "rev-parse" "HEAD")))
+    (unless (member head (list former target))
+      (user-error "%s changed outside this update; refusing to roll back commit %s"
+                  (abbreviate-file-name directory) head))
+    (lispm-desktop-store-checkout-preflight directory former head)
+    head))
+
+(defun lispm-desktop-store--transaction-head-p (directory former target)
+  "Return non-nil if DIRECTORY remains at FORMER or TARGET.
+Recovery writes belong only to these recorded transaction commits.
+An unreadable checkout also prevents recovery rather than concealing the
+original failure with a second error from an unwind cleanup."
+  (member (ignore-errors (lispm-desktop-store--git directory "rev-parse" "HEAD"))
+          (delq nil (list former target))))
+
+(defun lispm-desktop-store--remove-orphan-bytecode (directory before)
+  "Remove new bytecode in DIRECTORY whose source disappeared on rollback.
+BEFORE is the inventory recorded before the update.  Preserve every
+pre-existing bytecode file and every file that still has source."
+  (let ((retained (mapcar #'file-truename before)))
+    (dolist (file (directory-files-recursively directory "\\.elc\\'"))
+      (unless (or (member (file-truename file) retained)
+                  (file-exists-p (string-remove-suffix "c" file)))
+        (delete-file file)))))
+
+(defun lispm-desktop-store--local-orphan-bytecode (directory)
+  "Return untracked or ignored source-less bytecode paths in DIRECTORY.
+Tracked bytecode belongs to the Git tree: an update can intentionally
+remove or replace it.  Only these local files need preservation."
+  (cl-loop for relative in (split-string
+                           (lispm-desktop-store--git-output directory "ls-files" "--others" "-z")
+                           "\0" t)
+           for file = (expand-file-name relative directory)
+           when (and (string-suffix-p ".elc" relative)
+                     (or (file-regular-p file) (file-symlink-p file))
+                     (not (file-exists-p (string-remove-suffix "c" file))))
+           collect file))
+
+(defun lispm-desktop-store--orphan-bytecode-snapshot (directory)
+  "Copy only local source-less bytecode in DIRECTORY before an update.
+Return (FILE LINK MODE BYTES) entries.  LINK preserves a symbolic link
+without reading its target; regular files retain their bytes and mode.
+Emacs 31 removes all bytecode before a rebuild, including these local
+files for which no source exists to recreate them."
+  (cl-loop for file in (lispm-desktop-store--local-orphan-bytecode directory)
+           collect (let ((link (file-symlink-p file)))
+                     (list file link (file-modes file)
+                           (unless link
+                             (with-temp-buffer
+                               (set-buffer-multibyte nil)
+                               (insert-file-contents-literally file)
+                               (buffer-string)))))))
+
+(defun lispm-desktop-store--restore-orphan-bytecode (snapshot)
+  "Restore missing source-less bytecode from SNAPSHOT after rebuilding.
+Never overwrite an existing file or link, or restore stale bytecode when
+the resulting checkout now supplies source.  SNAPSHOT has the format
+returned by `lispm-desktop-store--orphan-bytecode-snapshot'."
+  (pcase-dolist (`(,file ,link ,mode ,bytes) snapshot)
+    (unless (or (file-exists-p file) (file-symlink-p file)
+                (file-exists-p (string-remove-suffix "c" file)))
+      (make-directory (file-name-directory file) t)
+      (if link
+          (make-symbolic-link link file)
+        (let ((coding-system-for-write 'no-conversion))
+          (write-region bytes nil file nil 'silent nil 'excl))
+        (when mode (set-file-modes file mode))))))
+
+(defun lispm-desktop-store--check-orphan-source-collisions (directory target)
+  "Reject local orphan bytecode that TARGET would overwrite by compilation.
+DIRECTORY is an installed package checkout.  A local source-less .elc
+must not acquire new corresponding source through a forward update:
+rebuilding would replace its bytes, which a later rollback cannot safely
+restore by overwriting another existing file."
+  (let* ((root (lispm-desktop-store--git directory "rev-parse" "--show-toplevel"))
+         (ignore-case (equal (ignore-errors
+                              (lispm-desktop-store--git root "config" "--bool" "core.ignorecase"))
+                            "true"))
+         (paths (split-string (lispm-desktop-store--git-output
+                               root "ls-tree" "-rz" "--name-only" "--full-tree" target) "\0" t)))
+    (dolist (file (lispm-desktop-store--local-orphan-bytecode directory))
+      (let* ((source (string-remove-suffix "c" file))
+             (relative (file-relative-name (file-truename source) (file-truename root))))
+        (when (and (not (file-exists-p source))
+                   (seq-some (lambda (path)
+                               (eq t (compare-strings path nil nil relative nil nil ignore-case))) paths))
+          (user-error "Local bytecode %s has no source, but the update introduces %s; move it before updating"
+                      (abbreviate-file-name file) relative))))))
+
+(defun lispm-desktop-store--package-update-preflight (desc rev former &optional restoring)
+  "Check DESC can move to REV from FORMER; return the resolved target commit.
+Reject a target version below either the installed descriptor or the
+current source header.  RESTORING is only for an internal rollback of a
+completed transaction; it bypasses the version check, never local-file
+or expected-HEAD checks.  No checkout or rebuild occurs here."
+  (condition-case err
+      (let* ((directory (package-desc-dir desc))
+             (target (lispm-desktop-store-checkout-preflight directory rev former)))
+        (unless restoring
+          (lispm-desktop-store--check-orphan-source-collisions directory target)
+          (require 'package-vc)
+          (let* ((root (lispm-desktop-store--git directory "rev-parse" "--show-toplevel"))
+                 (main (or (package-vc--main-file desc)
+                           (user-error "Cannot find the main source file of %s" (package-desc-name desc))))
+                 (file (file-relative-name (file-truename main) (file-truename root)))
+                 (version (lispm-desktop-store--revision-version root target file))
+                 (current (lispm-desktop-store--revision-version root "HEAD" file)))
+            (dolist (installed (list (package-desc-version desc) current))
+              (when (version-list-< version installed)
+                (user-error "The catalog would downgrade %s from %s to %s; refresh the catalog before updating"
+                            (package-desc-name desc) (package-version-join installed)
+                            (package-version-join version))))))
+        target)
+    (lispm-desktop-store-preflight-error (signal (car err) (cdr err)))
+    (error (signal 'lispm-desktop-store-preflight-error
+                   (list (error-message-string err))))))
 
 ;;;; Packages
 
@@ -238,14 +448,16 @@ package's directory as FILE, and kept only when its SHA-256 is SHA."
 (defun lispm-desktop-store--repin (name rev &optional assets)
   "Check the package NAME, installed from git, out at commit REV, and build
 it again, as `package-vc-upgrade' would build it; then download ASSETS,
-its :assets, beside it."
+its :assets, beside it.  This is the mutation primitive: callers must
+preflight first.  Internal rollback deliberately uses it without the
+forward update's version check."
   (let* ((desc (or (cadr (assq name package-alist)) (user-error "%s is not installed" name)))
          (directory (package-desc-dir desc)))
     (unless (lispm-desktop-store--has-commit-p directory rev)
       (lispm-desktop-store-installer--fetch directory "origin")
       (unless (lispm-desktop-store--has-commit-p directory rev)
         (lispm-desktop-store-installer--fetch-commit directory rev)))
-    (lispm-desktop-store--git directory "checkout" "--quiet" "--detach" rev)
+    (lispm-desktop-store--git directory "checkout" "--quiet" "--detach" "--no-overwrite-ignore" rev)
     (require 'package-vc)
     (package-vc-rebuild desc)
     (lispm-desktop-store--fetch-assets name assets)))
@@ -312,9 +524,13 @@ error saying why, when it was not."
           (let ((ended nil))
             (while (search-forward lispm-desktop-store-installer-tag nil t)
               (pcase (ignore-errors (read (current-buffer)))
-                ((and `(,(or 'done 'failed) ,_) event) (setq ended event))))
+                (`(updating ,name ,former ,target)
+                 (when lispm-desktop-store-installer--update-observer
+                   (funcall lispm-desktop-store-installer--update-observer name former target)))
+                ((and `(,(or 'done 'failed 'rejected) ,_) event) (setq ended event))))
             (pcase ended
               (`(done ,installed) installed)
+              (`(rejected ,message) (signal 'lispm-desktop-store-preflight-error (list message)))
               (`(failed ,message) (error "%s" message))
               (_ (error "The Emacs installing stopped without saying why")))))
       (delete-file file))))
@@ -556,37 +772,64 @@ leaves the one installed as it was."
       (package-delete old 'force 'dont-unselect))
     (package-version-join (package-desc-version new))))
 
-(defun lispm-desktop-store-installer--update (name rev former &optional assets)
+(defun lispm-desktop-store-installer--update (name rev former &optional assets restoring)
   "Check the package NAME out at commit REV, build it again and download
 ASSETS, its :assets, beside it; return REV.  When that fails, it is
 checked out at FORMER and rebuilt, restoring its descriptor and loaded
 code too.  Newly generated bytecode without source at FORMER is removed;
 pre-existing bytecode is kept.  A rollback failure is reported with the
-original error, never silently treated as a successful restoration."
+original error, never silently treated as a successful restoration.
+Preflight failures leave the checkout, descriptor and generated files
+unchanged and never attempt rollback.  RESTORING is only for an internal
+restore job: a version rollback is permitted, local-file checks remain."
   (let* ((desc (cadr (assq name package-alist)))
          (directory (and desc (package-desc-dir desc)))
-         (bytecode (and directory (directory-files-recursively directory "\\.elc\\'"))))
-    (condition-case err
-        (progn (lispm-desktop-store--repin name rev assets)
-               rev)
-      (error
-       (condition-case rollback
-           (progn
-             (lispm-desktop-store--repin name former)
-             (dolist (file (and directory (directory-files-recursively directory "\\.elc\\'")))
-               (unless (or (member file bytecode)
-                           (file-exists-p (string-remove-suffix "c" file)))
-                 (delete-file file))))
-         (error
-          (error "%s; rollback failed: %s"
-                 (error-message-string err) (error-message-string rollback))))
-       (signal (car err) (cdr err))))))
+         (original (if directory (lispm-desktop-store--git directory "rev-parse" "HEAD") former))
+         ;; These checks deliberately precede the rollback handler.
+         (target (lispm-desktop-store--package-update-preflight desc rev former restoring))
+         (bytecode (and directory (directory-files-recursively directory "\\.elc\\'")))
+         (orphans (and directory (lispm-desktop-store--orphan-bytecode-snapshot directory))))
+    (when (and directory (not (equal original (lispm-desktop-store--git directory "rev-parse" "HEAD"))))
+      (signal 'lispm-desktop-store-preflight-error
+              (list "The checkout changed while preparing this update")))
+    ;; A restore is part of the original transaction, not a new forward
+    ;; update whose inverse should replace the parent's recorded target.
+    (unless restoring
+      (lispm-desktop-store-installer--say 'updating name original target)
+      (when lispm-desktop-store-installer--update-observer
+        (funcall lispm-desktop-store-installer--update-observer name original target)))
+    (unwind-protect
+        (condition-case err
+            (progn (lispm-desktop-store--repin name target assets)
+                   (unless (equal target (lispm-desktop-store--git directory "rev-parse" "HEAD"))
+                     (error "The checkout changed outside this update while rebuilding %s" name))
+                   rev)
+          (error
+           (condition-case rollback
+               (progn
+                 (lispm-desktop-store--rollback-preflight directory original target)
+                 (lispm-desktop-store--repin name original)
+                 (unless (equal original (lispm-desktop-store--git directory "rev-parse" "HEAD"))
+                   (error "The checkout changed outside this update while rolling back %s" name))
+                 (lispm-desktop-store--remove-orphan-bytecode directory bytecode))
+             (error
+              (error "%s; rollback failed: %s"
+                     (error-message-string err) (error-message-string rollback))))
+           ;; A dependency can reject its own update during our rebuild.  Our
+           ;; transaction has already started, so this is a normal failed job.
+           (if (eq (car err) 'lispm-desktop-store-preflight-error)
+               (error "%s" (error-message-string err))
+             (signal (car err) (cdr err)))))
+      (when (lispm-desktop-store--transaction-head-p directory original target)
+        (lispm-desktop-store--restore-orphan-bytecode orphans)))))
 
 (defun lispm-desktop-store-installer-run (job)
   "Do JOB for the App Store, in this Emacs run in batch, then exit.
 JOB is (install PACKAGE), PACKAGE an item's :package; (update NAME REV
 FORMER ASSETS), the package NAME from git to go from commit FORMER to
 REV, with ASSETS, its :assets, beside it; or
+\(restore NAME REV FORMER), an internal rollback retaining local-file
+checks but permitting the package version to decrease; or
 \(upgrade NAME), the package NAME to the package archives' newest.
 How far it is is said on the standard output; Emacs exits with 0 once
 done, else with 1."
@@ -603,12 +846,20 @@ done, else with 1."
                          (`(update ,name ,rev ,former . ,assets)
                           (package-initialize t)
                           (lispm-desktop-store-installer--update name rev former (car assets)))
+                         (`(restore ,name ,rev ,former)
+                          (package-initialize t)
+                          (lispm-desktop-store-installer--update name rev former nil t))
                          (`(upgrade ,name)
                           (package-initialize t)
                           (lispm-desktop-store-installer--upgrade name))
                          (_ (error "No such job: %S" job)))))
         (lispm-desktop-store-installer--say 'done installed)
         (kill-emacs 0))
+    (lispm-desktop-store-preflight-error
+     (lispm-desktop-store-installer--say
+      (if (memq (car job) '(update restore)) 'rejected 'failed)
+      (error-message-string err))
+     (kill-emacs 1))
     (error
      (lispm-desktop-store-installer--say 'failed (error-message-string err))
      (kill-emacs 1))))

@@ -75,6 +75,7 @@
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-store-installer)
+(require 'lispm-desktop-update-safety)
 (require 'lispm-exec)
 
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
@@ -413,7 +414,8 @@ background: until it is, this returns nil, and once it is,
 
 (defun lispm-desktop-update--desktop-p (directory)
   "Return non-nil when DIRECTORY is the top of the desktop's own checkout."
-  (equal directory (file-name-as-directory (file-truename lispm-desktop-directory))))
+  (equal (file-name-as-directory (file-truename directory))
+         (file-name-as-directory (file-truename lispm-desktop-directory))))
 
 (defconst lispm-desktop-update-app-files '("install.sh" "macos")
   "The files of lispm-desktop LispM.app is made of: install.sh, and macos/,
@@ -642,32 +644,59 @@ in an Emacs of its own, as the App Store updates one; when that fails,
 it is left as it was, and saying so."
   (let ((directory (plist-get update :directory))
         (package (plist-get update :package)))
-    (and (file-directory-p directory)
-         (equal (lispm-desktop-update--git directory "rev-parse" "HEAD") (plist-get update :from))
-         (equal (lispm-desktop-update--git directory "status" "--porcelain" "--untracked-files=no") "")
-         (if package
-             (condition-case err
-                 (progn (lispm-desktop-store-installer-call
-                         `(update ,package ,(plist-get update :to) ,(plist-get update :from)))
-                        t)
-               (error (message (lispm-desktop-tr "Software Update: %s could not be installed: %s")
-                               (lispm-desktop-update-title update) (error-message-string err))
-                      nil))
-           (lispm-desktop-update--git directory "merge" "--ff-only" "--quiet" (plist-get update :to))))))
+    (condition-case err
+        (progn
+          ;; Check again immediately before mutation: another process may
+          ;; have edited a checkout since the group was checked.
+          (lispm-desktop-store-checkout-preflight
+           directory (plist-get update :to) (plist-get update :from))
+          (if package
+              (progn (lispm-desktop-store-installer-call
+                      `(update ,package ,(plist-get update :to) ,(plist-get update :from)))
+                     t)
+            (lispm-desktop-store--git directory "merge" "--ff-only" "--quiet" "--no-autostash"
+                                      "--no-overwrite-ignore" (plist-get update :to))
+            t))
+      (error (message (lispm-desktop-tr "Software Update: %s could not be installed: %s")
+                      (lispm-desktop-update-title update) (error-message-string err))
+             nil))))
 
 (defun lispm-desktop-update-install (&optional updates)
   "Install UPDATES, by default those found, at once; return those installed.
-Packages go first, and while one of them fails the checkouts wait: a
-release of one project may need another's.  Each install is logged.
+Check all proposed checkouts and the incoming Desktop's dependencies
+before changing files.  Packages go first, other dependencies next, and
+Desktop last; any failure stops the remaining updates.  Dependencies kept
+out of UPDATES still have to meet the incoming Desktop's requirements.
+Each completed install is logged.
 Code already loaded keeps running: install as Emacs quits, or before it
 loads any of the files changed."
   (let* ((updates (or updates (lispm-desktop-update-updates)))
-         (packages (seq-filter (lambda (update) (plist-get update :package)) updates))
-         (done (seq-filter #'lispm-desktop-update--install-checkout packages))
-         (installed (append done
-                            (when (= (length done) (length packages))
-                              (seq-filter #'lispm-desktop-update--install-checkout
-                                          (seq-difference updates packages))))))
+         (desktops (seq-filter (lambda (update)
+                                 (lispm-desktop-update--desktop-p (plist-get update :directory)))
+                               updates))
+         (dependencies (seq-difference updates desktops))
+         (packages (seq-filter (lambda (update) (plist-get update :package)) dependencies))
+         (installed nil))
+    (condition-case err
+        (progn
+          (dolist (update updates)
+            (lispm-desktop-store-checkout-preflight
+             (plist-get update :directory) (plist-get update :to) (plist-get update :from)))
+          (dolist (desktop desktops)
+            (lispm-desktop-update-check-dependencies
+             (plist-get desktop :directory) (plist-get desktop :to) updates))
+          (catch 'stopped
+            (dolist (update (append packages (seq-difference dependencies packages) desktops))
+              (when (memq update desktops)
+                ;; Re-read disk, not the plan, after the dependencies have
+                ;; actually installed.  A skipped dependency cannot pass.
+                (lispm-desktop-update-check-dependencies
+                 (plist-get update :directory) (plist-get update :to)))
+              (unless (lispm-desktop-update--install-checkout update)
+                (throw 'stopped nil))
+              (push update installed))))
+      (error (message "Software Update: %s" (error-message-string err))))
+    (setq installed (nreverse installed))
     (dolist (update installed)
       (push (list (current-time) (lispm-desktop-update-title update) (plist-get update :from)
                   (plist-get update :to) (plist-get update :changes))
@@ -720,9 +749,9 @@ again; it opens APP after when REOPEN."
   "Install the updates found, as Emacs quits, when they are to be.
 An update to LispM.app is installed by install.sh, once Emacs is gone."
   (when (lispm-desktop-update-installs-on-quit-p)
-    (let ((app (lispm-desktop-update-needs-installer-p)))
-      (lispm-desktop-update-install)
-      (when app
+    (let* ((app (lispm-desktop-update-needs-installer-p))
+           (installed (lispm-desktop-update-install)))
+      (when (and app (seq-some (lambda (update) (plist-get update :app)) installed))
         (lispm-desktop-update--run-installer (lispm-desktop-update--app) lispm-desktop-update--reopen)))))
 
 (defun lispm-desktop-update--quit ()
