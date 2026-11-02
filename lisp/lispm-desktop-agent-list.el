@@ -269,8 +269,7 @@ DIRECTORY is its directory."
                (location (lispm-agents-location-label
                           (plist-get session :cwd)
                           (if chats 'chats (expand-file-name directory))))
-               (icon (lispm-agents-icon (plist-get session :agent)))
-               (beg (point)))
+               (icon (lispm-agents-icon (plist-get session :agent))))
     (lispm-desktop-sidebar-insert-entry
      icon
      ;; A session waiting for the user stands out, as a mailbox's unread do.
@@ -287,18 +286,14 @@ DIRECTORY is its directory."
      (list 'lispm-agents-session session 'keymap lispm-desktop-agent-list-entry-map
            'lispm-desktop-agent-list-buffer buffer)
      depth
+     (when subtrees (lispm-ui-triangle opened))
      (when subtrees
-       (propertize (lispm-ui-triangle opened)
-                   'lispm-desktop-agent-list-triangle t)))
-    ;; The triangle is a button of its own within the row's.
-    (when subtrees
-      (let ((triangle (text-property-any beg (point) 'lispm-desktop-agent-list-triangle t)))
-        (add-text-properties
-         triangle (1+ triangle)
-         (list 'action (lambda (_) (lispm-desktop-agent-list--set-opened session (not opened)))
-               'help-echo (if opened
-                              (lispm-desktop-tr "Hide the sessions it started")
-                            (lispm-desktop-tr "Show the sessions it started"))))))
+       ;; The triangle is a button of its own within the row's.
+       (list 'lispm-desktop-agent-list-triangle t
+             'action (lambda (_) (lispm-desktop-agent-list--set-opened session (not opened)))
+             'help-echo (if opened
+                            (lispm-desktop-tr "Hide the sessions it started")
+                          (lispm-desktop-tr "Show the sessions it started")))))
     (when opened
       (dolist (subtree subtrees)
         (lispm-desktop-agent-list--insert-session subtree (1+ depth) now running-ids chats directory)))))
