@@ -220,17 +220,21 @@ back in it while it had the keyboard.  This is one of
   (when (lispm-desktop-app-manager--field-bounds)
     (let* ((bounds (lispm-desktop-app-manager--field-bounds))
            (start (car bounds))
-           (end (cdr bounds)))
+           (end (cdr bounds))
+           (focused lispm-desktop-app-manager--field-focused)
+           (goal (and focused
+                      (max start
+                           (min end (+ start lispm-desktop-app-manager--field-point))))))
       (lispm-desktop-app-manager--protect start end)
       ;; The panel is drawn around the field now, so from here on typing
       ;; at the field's end moves the end along with the text.
       (set-marker-insertion-type lispm-desktop-app-manager--field-end t)
-      (lispm-desktop-app-manager--dress-field)
-      (when lispm-desktop-app-manager--field-focused
-        (let ((goal (max start (min end (+ start lispm-desktop-app-manager--field-point)))))
-          (goto-char goal)
-          (when-let* ((window (get-buffer-window (current-buffer) t)))
-            (set-window-point window goal)))))))
+      ;; Back in the field before it is drawn, so that its ring stays.
+      (when goal
+        (goto-char goal)
+        (when-let* ((window (get-buffer-window (current-buffer) t)))
+          (set-window-point window goal)))
+      (lispm-desktop-app-manager--dress-field))))
 
 (defun lispm-desktop-app-manager--composing-p ()
   "Return non-nil while an input method composes text in the current buffer,
@@ -256,6 +260,12 @@ shows what it matches as typing pauses.  This is a buffer-local
           lispm-desktop-app-manager--page 0)
     (lispm-desktop-app-manager--dress-field)
     (lispm-desktop-app-manager--search-soon)))
+
+(defun lispm-desktop-app-manager--yank-text (text)
+  "Return TEXT, about to be yanked here, as one line for the search field.
+The field is a single panel row, so the line breaks and tabs of a paste
+become blanks rather than drawing the panel apart."
+  (replace-regexp-in-string "[\n\r\t]+" " " text))
 
 (defun lispm-desktop-app-manager--search-soon ()
   "Show what the search field holds matches once typing pauses."
@@ -367,6 +377,7 @@ Tab leave it for the list; C-g empties it, then leaves it.")
   (unless lispm-desktop-app-manager--set-up
     (setq lispm-desktop-app-manager--set-up t)
     (add-hook 'after-change-functions #'lispm-desktop-app-manager--field-changed nil t)
+    (add-hook 'yank-transform-functions #'lispm-desktop-app-manager--yank-text nil t)
     (add-hook 'pre-command-hook #'lispm-desktop-app-manager--replace-marked nil t)
     (add-hook 'post-command-hook #'lispm-desktop-app-manager--follow-focus nil t)
     (add-hook 'window-selection-change-functions

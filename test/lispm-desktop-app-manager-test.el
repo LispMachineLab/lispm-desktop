@@ -132,6 +132,10 @@
             (lispm-desktop-settings-select 'apps)
             (with-current-buffer name
               (should (equal (lispm-desktop-platinum-title-text) "Apps"))
+              ;; The settings fill runs the after-fill hook, which puts the
+              ;; field's own drawing on it.
+              (should (equal (overlay-get lispm-desktop-app-manager--field 'help-echo)
+                             (lispm-desktop-tr "Search the installed applications")))
               (setq lispm-desktop-app-manager--selected 'missing)
               (lispm-desktop-app-manager-refresh)
               (should (eq lispm-desktop-app-manager--selected 'missing))
@@ -181,6 +185,13 @@
                             lispm-desktop-app-manager--field-start
                             lispm-desktop-app-manager--field-end)
                            "Harness"))
+            ;; The panel around the field stays the panel's, not the
+            ;; keyboard's: only the field can be typed in.
+            (should-not (get-text-property lispm-desktop-app-manager--field-start
+                                           'read-only))
+            (should (get-text-property lispm-desktop-app-manager--field-end
+                                       'read-only))
+            (should (get-text-property (point-min) 'read-only))
             (setq refreshed nil)
             (funcall choose-action 'extension)
             (should refreshed)
@@ -195,6 +206,34 @@
         (setq lispm-desktop-store-installed (assq-delete-all 'extension lispm-desktop-store-installed))
         (lispm-desktop-app-manager-test--fill)
         (should (eq lispm-desktop-app-manager--selected 'editor))))))
+
+(ert-deftest lispm-desktop-app-manager-test-fill-keeps-the-field-focused ()
+  "A redraw puts point back in the field while it had the keyboard."
+  (lispm-desktop-app-manager-test--inventory
+    (with-temp-buffer
+      (lispm-desktop-settings-mode)
+      (setq lispm-desktop-settings--category 'settings-apps)
+      (let ((inhibit-read-only t)
+            (inhibit-modification-hooks t))
+        (lispm-desktop-app-manager-insert))
+      (lispm-desktop-app-manager--after-fill)
+      (set-window-buffer (selected-window) (current-buffer))
+      (setq lispm-desktop-app-manager--search "Harness")
+      (lispm-desktop-app-manager-test--fill)
+      (let ((end (cdr (lispm-desktop-app-manager--field-bounds))))
+        (goto-char end)
+        (set-window-point (selected-window) end)
+        (lispm-desktop-app-manager--follow-focus))
+      (should lispm-desktop-app-manager--field-focused)
+      (lispm-desktop-app-manager-test--fill)
+      (should lispm-desktop-app-manager--field-focused)
+      (should (lispm-desktop-app-manager--in-field-p (window-point))))))
+
+(ert-deftest lispm-desktop-app-manager-test-yank-stays-on-one-line ()
+  "A paste into the field is one line, whatever the clipboard holds."
+  (should (equal (lispm-desktop-app-manager--yank-text "one\ntwo\tthree\r\nfour")
+                 "one two three four"))
+  (should (equal (lispm-desktop-app-manager--yank-text "one line") "one line")))
 
 (ert-deftest lispm-desktop-app-manager-test-refresh-does-not-reopen ()
   (let ((name (lispm-desktop-settings--buffer-name 'settings-apps)))
