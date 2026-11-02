@@ -89,10 +89,18 @@
   "Folders gone back from, the nearest first.")
 
 (defvar-local lispm-desktop-finder--items nil
-  "The folder's items in the order shown: (NAME . FOLDER-P).")
+  "The folder's items in the order shown: (NAME . FOLDER-P) for a
+directory on disk, (NAME ICON APP) for a folder of
+`lispm-desktop-finder-folders'.")
 
 (defvar-local lispm-desktop-finder--selected nil
   "Name of the selected item, or nil.")
+
+(defvar-local lispm-desktop-finder--selected-app nil
+  "Key of the application the selected item is, or nil.
+A folder of `lispm-desktop-finder-folders' names its items in the
+language LispM speaks, so an item is found again by the application it
+is, see `lispm-desktop-finder--read-again'.")
 
 (defvar-local lispm-desktop-finder--columns 1
   "Items a row of the window holds, as last drawn.")
@@ -128,9 +136,14 @@ The virtual folders are `lispm-desktop-finder-folders'."
   (funcall (plist-get (lispm-desktop-finder--folder directory) :items)))
 
 (defun lispm-desktop-finder--read (directory)
-  "Return DIRECTORY's items by name, hidden ones left out: (NAME . FOLDER-P)."
+  "Return DIRECTORY's items by name, hidden ones left out.
+An item of a directory on disk is (NAME . FOLDER-P); an item of a folder
+of `lispm-desktop-finder-folders' is (NAME ICON APP), as the folder
+gives it, its icon and application kept so that drawing it asks the
+folder for its items no more."
   (sort (if (lispm-desktop-finder--folder directory)
-            (mapcar (lambda (item) (cons (car item) nil)) (lispm-desktop-finder--folder-items directory))
+            (mapcar (lambda (item) (list (car item) (nth 1 item) (nth 4 item)))
+                    (lispm-desktop-finder--folder-items directory))
           (mapcar (lambda (name)
                     (cons name (file-directory-p (expand-file-name name directory))))
                   (ignore-errors (directory-files directory nil "\\`[^.]" t))))
@@ -139,12 +152,10 @@ The virtual folders are `lispm-desktop-finder-folders'."
 (defun lispm-desktop-finder--icon-name (directory item)
   "Return the name of the large icon of ITEM of DIRECTORY."
   (if (lispm-desktop-finder--folder directory)
-      ;; The items of a virtual folder are made again as they are asked
-      ;; for, their names translated, so an item read while another
-      ;; language was spoken is not found here; it gets the document icon
-      ;; rather than none, which no file draws.
-      (or (nth 1 (assoc (car item) (lispm-desktop-finder--folder-items directory)))
-          "document-32")
+      ;; The items of a virtual folder are read with their icons.  An item
+      ;; read while another language was spoken names no item now; it gets
+      ;; the document icon rather than none, which no file draws.
+      (or (nth 1 item) "document-32")
     (lispm-desktop-finder--file-icon-name directory item)))
 
 (defun lispm-desktop-finder--file-icon-name (directory item)
@@ -154,6 +165,24 @@ The virtual folders are `lispm-desktop-finder-folders'."
         (if (file-exists-p (expand-file-name ".git" path)) "folder-git-32" "folder-32")
       (let ((name (concat (lispm-ui-file-icon-name path) "-32")))
         (if (file-exists-p (lispm-ui-icon-file name)) name "document-32")))))
+
+(defun lispm-desktop-finder--read-again ()
+  "Read the items of the folder shown again when LispM makes the folder.
+Such a folder, one of `lispm-desktop-finder-folders', makes its items as
+they are asked for: they change with the language LispM speaks, an
+application installed, a control panel shown.  The item selected is
+found again by the application it is when a new language has renamed it,
+which no language names."
+  (when-let* ((directory lispm-desktop-finder--directory)
+              ((lispm-desktop-finder--folder directory)))
+    (setq lispm-desktop-finder--items (lispm-desktop-finder--read directory))
+    (let ((item (or (assoc lispm-desktop-finder--selected lispm-desktop-finder--items)
+                    (and lispm-desktop-finder--selected-app
+                         (seq-find (lambda (item)
+                                     (eq (nth 2 item) lispm-desktop-finder--selected-app))
+                                   lispm-desktop-finder--items)))))
+      (setq lispm-desktop-finder--selected (car-safe item)
+            lispm-desktop-finder--selected-app (nth 2 item)))))
 
 (defvar lispm-desktop-finder--icons (make-hash-table :test #'equal)
   "Large icon images by (FILE . SELECTED), kept by file, as another look
@@ -328,10 +357,14 @@ the columns."
 
 (defun lispm-desktop-finder--render (&rest _)
   "Draw the folder's items as rows of large icons over their names, or on a
-text terminal as rows of names, see `lispm-desktop-finder--text-items'."
+text terminal as rows of names, see `lispm-desktop-finder--text-items'.
+A folder of `lispm-desktop-finder-folders' reads its items again first:
+LispM makes them as they are asked for, so the drawing is never of items
+it has stopped making, as after a language change."
   (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name))
               (window (get-buffer-window buffer t)))
     (with-current-buffer buffer
+      (lispm-desktop-finder--read-again)
       (let* ((inhibit-read-only t)
              (cell lispm-desktop-finder-cell-width)
              (columns (max 1 (/ (- (window-body-width window t) 12) cell)))
@@ -437,7 +470,8 @@ the history, as going there by hand does."
                                               directory
                                             (file-name-as-directory (expand-file-name directory)))
           lispm-desktop-finder--items (lispm-desktop-finder--read lispm-desktop-finder--directory)
-          lispm-desktop-finder--selected select)
+          lispm-desktop-finder--selected select
+          lispm-desktop-finder--selected-app (lispm-desktop-finder--app select))
     (lispm-desktop-finder--render)))
 
 (defun lispm-desktop-finder-back ()
@@ -470,25 +504,12 @@ the history, as going there by hand does."
     (lispm-desktop-finder--go lispm-desktop-finder--directory nil lispm-desktop-finder--selected)))
 
 (defun lispm-desktop-finder-folder-changed (key)
-  "Read the folder KEY of `lispm-desktop-finder-folders' again if the
+  "Read the folder KEY of `lispm-desktop-finder-folders' again as the
 window shows it: its items changed, as the Applications folder's do as
 applications are installed and uninstalled."
   (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name))
               ((eq (buffer-local-value 'lispm-desktop-finder--directory buffer) key)))
-    (with-current-buffer buffer
-      (lispm-desktop-finder--go key nil (and (assoc lispm-desktop-finder--selected
-                                                    (lispm-desktop-finder--folder-items key))
-                                             lispm-desktop-finder--selected)))))
-
-(defun lispm-desktop-finder--language-changed (&rest _)
-  "Draw the folder again in the language LispM speaks now.
-A folder of `lispm-desktop-finder-folders' reads its items again: their
-names are translated, and the icons and actions found by those names."
-  (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name)))
-    (with-current-buffer buffer
-      (if (lispm-desktop-finder--folder lispm-desktop-finder--directory)
-          (lispm-desktop-finder-folder-changed lispm-desktop-finder--directory)
-        (lispm-desktop-finder--render)))))
+    (lispm-desktop-finder--render)))
 
 (defun lispm-desktop-finder--edit (file)
   "Open FILE in the editor, brought in front."
@@ -552,7 +573,7 @@ uninstalled."
 see `lispm-desktop-finder-folders', or nil."
   (lispm-desktop-finder--in
     (and name (lispm-desktop-finder--folder lispm-desktop-finder--directory)
-         (nth 4 (assoc name (lispm-desktop-finder--folder-items lispm-desktop-finder--directory))))))
+         (nth 2 (assoc name lispm-desktop-finder--items)))))
 
 (defun lispm-desktop-finder-alias-p ()
   "Return non-nil when an alias of the item selected can be made on the
@@ -634,7 +655,8 @@ The item after it is selected."
   "Select the item NAME, or none when NAME is nil, and redraw."
   (lispm-desktop-finder--in
     (unless (equal name lispm-desktop-finder--selected)
-      (setq lispm-desktop-finder--selected name)
+      (setq lispm-desktop-finder--selected name
+            lispm-desktop-finder--selected-app (lispm-desktop-finder--app name))
       (lispm-desktop-finder--render))))
 
 (defun lispm-desktop-finder--step (step)
@@ -912,7 +934,7 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
 again in another look, or another language."
   (add-hook 'window-selection-change-functions #'lispm-desktop-finder--note-selected)
   (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-finder--render)
-  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-finder--language-changed))
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-finder--render))
 
 (provide 'lispm-desktop-finder)
 ;;; lispm-desktop-finder.el ends here

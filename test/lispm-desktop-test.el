@@ -6071,7 +6071,8 @@ away there."
           (should (member "Appearance" names))
           (should (member "System" names))
           (should-not (member "Keyboard" names)))
-        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory
+                                                        (assoc "General" lispm-desktop-finder--items))
                        "language-32"))
         (should (eq (lispm-desktop-finder--app "System") 'settings-system))
         (should (equal (lispm-desktop-finder--title lispm-desktop-finder--directory) "Control Panels"))
@@ -6088,12 +6089,10 @@ away there."
 
 (ert-deftest lispm-desktop-test-control-panels-folder-language ()
   "The Control Panels folder reads its items again in another language.
-Their names are translated, and the icons and actions are found by those
-names: a name read in the language spoken before names no item now, and
-is given the document icon rather than none, which no file draws.  The
-German is stubbed, so the test rests on no catalog.
-`lispm-desktop-finder--language-changed' leaves the folder as the hook
-of the same name does."
+Their names are translated, and with them the icons and actions read: an
+item read in the language spoken before names no item now, and is given
+the document icon rather than none, which no file draws.  The German is
+stubbed, so the test rests on no catalog."
   (let ((lispm-desktop-finder-folders nil)
         (lispm-desktop-language 'en-US))
     (unwind-protect
@@ -6111,35 +6110,90 @@ of the same name does."
             (lispm-desktop-finder--go 'control-panels)
             (with-current-buffer (lispm-desktop-finder--buffer)
               (should (member "General" (mapcar #'car lispm-desktop-finder--items)))
-              (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+              (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory
+                                                              (assoc "General" lispm-desktop-finder--items))
                              "language-32"))))
           (let ((lispm-desktop-language 'de))
             (with-current-buffer (lispm-desktop-finder--buffer)
               (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
-                             "document-32")))
-            (lispm-desktop-finder--language-changed)
-            (with-current-buffer (lispm-desktop-finder--buffer)
+                             "document-32"))
+              (lispm-desktop-finder--read-again)
               (let ((item (assoc "Allgemein" lispm-desktop-finder--items)))
                 (should item)
                 (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)
-                               "language-32"))))
-            (let ((drawn 0))
-              (cl-letf (((symbol-function 'lispm-desktop-finder--render)
-                         (lambda (&rest _) (cl-incf drawn))))
-                (lispm-desktop-finder--language-changed))
-              (should (= drawn 1)))))
+                               "language-32"))))))
+      (kill-buffer lispm-desktop-finder-buffer-name))))
+
+(ert-deftest lispm-desktop-test-finder-selection-in-another-language ()
+  "The item selected in a virtual folder stays selected in another language.
+Its name changes and its place in the folder changes, but the application
+it is does not: the item is found again by that."
+  (let ((lispm-desktop-finder-folders nil)
+        (lispm-desktop-language 'en-US))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-tr)
+                   (lambda (message &rest args)
+                     (apply #'format
+                            (if (and (eq lispm-desktop-language 'de)
+                                     (equal message "Alpha"))
+                                "Zulu"
+                              message)
+                            args))))
+          (setf (alist-get 'test lispm-desktop-finder-folders)
+                (list :title "Test" :icon "folder"
+                      :items (lambda ()
+                               (list (list (lispm-desktop-tr "Alpha") "alpha-32" #'ignore nil 'alpha)
+                                     (list (lispm-desktop-tr "Beta") "beta-32" #'ignore nil 'beta)))))
+          (cl-letf (((symbol-function 'lispm-desktop-finder--render) #'ignore))
+            (lispm-desktop-finder--go 'test nil "Alpha")
+            (with-current-buffer (lispm-desktop-finder--buffer)
+              (should (equal lispm-desktop-finder--selected "Alpha"))
+              (should (eq lispm-desktop-finder--selected-app 'alpha))
+              (let ((lispm-desktop-language 'de))
+                (lispm-desktop-finder--read-again)
+                (should (equal (mapcar #'car lispm-desktop-finder--items) '("Beta" "Zulu")))
+                (should (equal lispm-desktop-finder--selected "Zulu"))
+                (should (eq lispm-desktop-finder--selected-app 'alpha))
+                (should (equal (lispm-desktop-finder--icon-name
+                                lispm-desktop-finder--directory
+                                (assoc "Zulu" lispm-desktop-finder--items))
+                               "alpha-32"))))))
+      (kill-buffer lispm-desktop-finder-buffer-name))))
+
+(ert-deftest lispm-desktop-test-finder-icons-read-once ()
+  "A virtual folder's items are read once for a drawing, not once an icon."
+  (let ((lispm-desktop-finder-folders nil)
+        (reads 0))
+    (unwind-protect
+        (progn
+          (setf (alist-get 'test lispm-desktop-finder-folders)
+                (list :title "Test" :icon "folder"
+                      :items (lambda ()
+                               (cl-incf reads)
+                               (list (list "One" "one-32" #'ignore nil 'one)
+                                     (list "Two" "two-32" #'ignore nil 'two)))))
+          (cl-letf (((symbol-function 'lispm-desktop-finder--render) #'ignore))
+            (lispm-desktop-finder--go 'test)
+            (with-current-buffer (lispm-desktop-finder--buffer)
+              (should (= reads 1))
+              (dolist (item lispm-desktop-finder--items)
+                (should (member (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)
+                                '("one-32" "two-32"))))
+              (should (= reads 1))
+              (lispm-desktop-finder--read-again)
+              (should (= reads 2)))))
       (kill-buffer lispm-desktop-finder-buffer-name))))
 
 (ert-deftest lispm-desktop-test-finder-language-hook ()
-  "Setting up the Finder notes it is drawn again when the language changes.
-A folder of `lispm-desktop-finder-folders' needs its items read again
-then, not just drawn, so the hook does not draw it alone."
+  "Setting up the Finder draws it again when the language changes.
+Drawing a folder LispM makes reads its items again, see
+`lispm-desktop-finder--read-again', so the drawing is in the language
+spoken now."
   (let ((window-selection-change-functions nil)
         (lispm-desktop-look-changed-hook nil)
         (lispm-desktop-language-changed-hook nil))
     (lispm-desktop-setup-finder)
-    (should (memq #'lispm-desktop-finder--language-changed lispm-desktop-language-changed-hook))
-    (should-not (memq #'lispm-desktop-finder--render lispm-desktop-language-changed-hook))
+    (should (memq #'lispm-desktop-finder--render lispm-desktop-language-changed-hook))
     (should (memq #'lispm-desktop-finder--render lispm-desktop-look-changed-hook))))
 
 (ert-deftest lispm-desktop-test-about-names-gnu-emacs ()
