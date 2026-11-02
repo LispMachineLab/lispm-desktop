@@ -1498,4 +1498,6 @@ Rust のパッケージマネージャ Cargo が
   ("Save the console: " . "コンソールを保存: ")
   ("Saved the console to %s" . "コンソールを%sに保存しました")
   ("Command: %s" . "コマンド: %s")
-  ("Show the event's details" . "イベントの詳細を表示")))
+  ("Show the event's details" . "イベントの詳細を表示")
+  ("Replace %s? " . "%sを置き換えますか？ ")
+  ("Clear the console? " . "コンソールを消去しますか？ "))))

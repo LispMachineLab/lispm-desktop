@@ -1498,4 +1498,6 @@ Rust 的套件管理器 Cargo 會在安裝程式中
   ("Save the console: " . "儲存控制台：")
   ("Saved the console to %s" . "已將控制台儲存到 %s")
   ("Command: %s" . "命令：%s")
-  ("Show the event's details" . "顯示事件的詳細資訊")))
+  ("Show the event's details" . "顯示事件的詳細資訊")
+  ("Replace %s? " . "要取代 %s 嗎？")
+  ("Clear the console? " . "要清空主控台嗎？"))))

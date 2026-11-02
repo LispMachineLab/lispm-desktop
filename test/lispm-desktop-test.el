@@ -778,9 +778,10 @@ dropped; each says what, from whom, when, and its details."
 (ert-deftest lispm-desktop-test-console-filters ()
   "The Console shows all its events, or those of a severity, or of a
 source, and all of both again."
-  (let ((lispm-desktop-console--events nil)
-        (lispm-desktop-console--next-id 0)
-        (buffer (get-buffer-create lispm-desktop-console-buffer-name)))
+  (let* ((lispm-desktop-console-buffer-name " *Console Test*")
+         (lispm-desktop-console--events nil)
+         (lispm-desktop-console--next-id 0)
+         (buffer (get-buffer-create lispm-desktop-console-buffer-name)))
     (unwind-protect
         (progn
           (lispm-desktop-console-report 'error "One" "first error")
@@ -808,13 +809,20 @@ source, and all of both again."
               (lispm-desktop-console--filtered)
               (should (equal (funcall messages) '("second error" "the warning")))
               (lispm-desktop-console-show-every-source)
-              (should (= (length tabulated-list-entries) 4)))))
+              (should (= (length tabulated-list-entries) 4))
+              (cl-letf (((symbol-function 'y-or-n-p) #'ignore))
+                (lispm-desktop-console-clear)
+                (should (= (length lispm-desktop-console--events) 4)))
+              (cl-letf (((symbol-function 'y-or-n-p) #'always))
+                (lispm-desktop-console-clear)
+                (should-not lispm-desktop-console--events)))))
       (kill-buffer buffer))))
 
 (ert-deftest lispm-desktop-test-console-names-its-columns-with-no-events ()
   "The Console names its columns before any event was recorded."
-  (let ((lispm-desktop-console--events nil)
-        (buffer (get-buffer-create lispm-desktop-console-buffer-name)))
+  (let* ((lispm-desktop-console-buffer-name " *Console Test*")
+         (lispm-desktop-console--events nil)
+         (buffer (get-buffer-create lispm-desktop-console-buffer-name)))
     (unwind-protect
         (with-current-buffer buffer
           (lispm-desktop-console-mode)
@@ -826,7 +834,8 @@ source, and all of both again."
 (ert-deftest lispm-desktop-test-console-hears-warnings-and-failed-commands ()
   "A warning is recorded, its type its source and its level its
 severity; a failed command is recorded with the command that failed,
-while a quit and a `user-error' are left out."
+while a quit, a `user-error' and the dings of a buffer's end or of a
+read-only buffer are left out."
   (let ((lispm-desktop-console--events nil)
         (lispm-desktop-console--next-id 0)
         (this-command 'lispm-desktop-test-command))
@@ -850,6 +859,9 @@ while a quit and a `user-error' are left out."
     (let ((count (length lispm-desktop-console--events)))
       (lispm-desktop-console--command-error #'ignore '(user-error "Mistake") "context")
       (lispm-desktop-console--command-error #'ignore '(quit) "context")
+      (lispm-desktop-console--command-error #'ignore '(end-of-buffer) "context")
+      (lispm-desktop-console--command-error
+       #'ignore (list 'buffer-read-only (current-buffer)) "context")
       (should (= (length lispm-desktop-console--events) count)))))
 
 (ert-deftest lispm-desktop-test-console-hears-messages-when-asked ()
@@ -874,9 +886,10 @@ asks for it, and none while quiet."
 
 (ert-deftest lispm-desktop-test-console-shows-and-saves-an-event ()
   "An event's page says its severity, message, time, source and details;
-saving writes the events shown as text."
-  (let* ((event (lispm-desktop-console-report 'error "Test" "Something broke" "More detail"))
-         (lispm-desktop-console--events (list event))
+saving writes the events shown as text, and asks before replacing a file."
+  (let* ((lispm-desktop-console--events nil)
+         (lispm-desktop-console--next-id 0)
+         (event (lispm-desktop-console-report 'error "Test" "Something broke" "More detail"))
          (file (make-temp-file "lispm-desktop-console-" nil ".txt")))
     (unwind-protect
         (progn
@@ -886,6 +899,7 @@ saving writes the events shown as text."
             (should (string-search "Error" (buffer-string)))
             (should (string-search "Test" (buffer-string)))
             (should (string-search "More detail" (buffer-string))))
+          (delete-file file)
           (cl-letf (((symbol-function 'read-file-name) (lambda (&rest _) file))
                     ((symbol-function 'lispm-desktop-console--show) #'ignore))
             (lispm-desktop-console-save))
@@ -894,8 +908,31 @@ saving writes the events shown as text."
             (should (string-search "Error" (buffer-string)))
             (should (string-search "Test" (buffer-string)))
             (should (string-search "Something broke" (buffer-string)))
-            (should (string-search "    More detail" (buffer-string)))))
-      (delete-file file))))
+            (should (string-search "    More detail" (buffer-string))))
+          (with-temp-buffer
+            (insert "kept")
+            (write-region (point-min) (point-max) file nil 'silent))
+          (cl-letf (((symbol-function 'read-file-name) (lambda (&rest _) file))
+                    ((symbol-function 'y-or-n-p) #'ignore)
+                    ((symbol-function 'lispm-desktop-console--show) #'ignore))
+            (lispm-desktop-console-save))
+          (with-temp-buffer
+            (insert-file-contents file)
+            (should (equal (buffer-string) "kept"))))
+      (when (file-exists-p file)
+        (delete-file file)))))
+
+(ert-deftest lispm-desktop-test-console-stops-looking-when-not-shown ()
+  "The Console's timer stops once no window shows the list, as on a text
+terminal and once the details page takes its place."
+  (let ((lispm-desktop-console--timer nil))
+    (unwind-protect
+        (progn
+          (lispm-desktop-console--started)
+          (should lispm-desktop-console--timer)
+          (lispm-desktop-console--tick)
+          (should-not lispm-desktop-console--timer))
+      (lispm-desktop-console--stopped))))
 
 (ert-deftest lispm-desktop-test-console-is-an-application ()
   "The Console is an application built in, with both its icons, its

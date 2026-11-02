@@ -1498,4 +1498,6 @@ Rust 的包管理器 Cargo 会在安装器中
   ("Save the console: " . "存储控制台：")
   ("Saved the console to %s" . "已将控制台存储到 %s")
   ("Command: %s" . "命令：%s")
-  ("Show the event's details" . "显示事件的详细信息")))
+  ("Show the event's details" . "显示事件的详细信息")
+  ("Replace %s? " . "要替换 %s 吗？")
+  ("Clear the console? " . "要清空控制台吗？"))))

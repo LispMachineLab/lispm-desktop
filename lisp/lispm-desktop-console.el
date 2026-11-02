@@ -181,12 +181,17 @@ This is `display-warning' advised."
 
 (defun lispm-desktop-console--command-error (function &rest arguments)
   "Record the command that failed, then say so as Emacs does.
-This is `command-error-default-function' advised.  A quit and a
-`user-error' are what the user did, not failures, and are left out."
+This is `command-error-default-function' advised.  A quit, a
+`user-error', and the dings of moving past a buffer's end or typing in
+one it does not change are what the user did, not failures, and are
+left out."
   (let ((data (nth 0 arguments)))
     (when (and (not lispm-desktop-console--quiet)
                (consp data)
-               (not (memq (car data) '(quit user-error))))
+               (not (memq (car data) '(quit user-error
+                                        beginning-of-buffer end-of-buffer
+                                        end-of-file
+                                        buffer-read-only text-read-only))))
       (lispm-desktop-console-report
        'error "Emacs" (error-message-string data)
        (and (boundp 'this-command) this-command
@@ -206,9 +211,6 @@ shows as it would."
   nil)
 
 ;;;; What the Console shows
-
-(defconst lispm-desktop-console--columns 4
-  "How many columns the Console's list has.")
 
 (defun lispm-desktop-console--format ()
   "Return the Console's columns, named in the language LispM speaks."
@@ -266,12 +268,16 @@ shows as it would."
           (setq lispm-desktop-console--dirty nil))))))
 
 (defun lispm-desktop-console--tick ()
-  "Draw the Console again when events were recorded since it was drawn."
-  (when lispm-desktop-console--dirty
-    (lispm-desktop-console-refresh)))
+  "Draw the Console again when events were recorded since it was drawn.
+Stop looking once no window shows the list, which is what happens on a
+text terminal and once the details page takes its place."
+  (if (get-buffer-window lispm-desktop-console-buffer-name t)
+      (when lispm-desktop-console--dirty
+        (lispm-desktop-console-refresh))
+    (lispm-desktop-console--stopped)))
 
 (defun lispm-desktop-console--started ()
-  "Look for events to show, while the Console's window is open."
+  "Look for events to show, while the Console's list is shown."
   (unless lispm-desktop-console--timer
     (let ((interval (max 1 lispm-desktop-console-refresh-interval)))
       (setq lispm-desktop-console--timer
@@ -406,16 +412,21 @@ shows as it would."
   (interactive)
   (let ((file (read-file-name (lispm-desktop-tr "Save the console: ")
                               nil nil nil "~/Console.txt")))
-    (when (and file (not (string-empty-p file)))
+    (when (and file (not (string-empty-p file))
+               (or (not (file-exists-p file))
+                   (y-or-n-p (lispm-desktop-tr "Replace %s? "
+                                               (abbreviate-file-name file)))))
       (write-region (lispm-desktop-console--text) nil file nil 'silent)
       (lispm-desktop-console--show
        (lispm-desktop-tr "Saved the console to %s" (abbreviate-file-name file))))))
 
 (defun lispm-desktop-console-clear ()
-  "Empty the Console."
+  "Empty the Console, once the user agrees to lose what it holds."
   (interactive)
-  (setq lispm-desktop-console--events nil)
-  (lispm-desktop-console-refresh))
+  (when (or (null lispm-desktop-console--events)
+            (y-or-n-p (lispm-desktop-tr "Clear the console? ")))
+    (setq lispm-desktop-console--events nil)
+    (lispm-desktop-console-refresh)))
 
 ;;;; The list's interface
 
