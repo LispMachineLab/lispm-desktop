@@ -28,6 +28,8 @@
 (declare-function lispm-desktop-settings--note "lispm-desktop-settings" (text))
 (declare-function lispm-desktop-settings--indent "lispm-desktop-settings" ())
 
+(defvar lispm-desktop-app-manager-field-map)
+
 (defvar-local lispm-desktop-app-manager--selected nil
   "ID of the selected installed item.")
 (defvar-local lispm-desktop-app-manager--search ""
