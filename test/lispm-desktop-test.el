@@ -7818,7 +7818,28 @@ its transcript, and gets no Resume in its menu."
             (cl-letf (((symbol-function 'lispm-desktop-sidebar--row-width) (lambda () 1200)))
              (cl-flet ((text () (buffer-substring-no-properties (point-min) (point-max)))
                       (triangle () (text-property-any (point-min) (point-max)
-                                                      'lispm-desktop-agent-list-triangle t)))
+                                                      'lispm-desktop-agent-list-triangle t))
+                      (lead-width (line)
+                        "Return the width in pixels of LINE's lead, before its icon."
+                        (save-excursion
+                          (goto-char line)
+                          (let ((width 0) done)
+                            (while (and (not done) (not (eolp)))
+                              (let ((display (get-text-property (point) 'display)))
+                                (cond ((eq (get-text-property (point) 'lispm-desktop-sidebar-group-part)
+                                           'open)
+                                       (setq done t))
+                                      ((and (consp display) (eq (car display) 'space))
+                                       (setq width (+ width (car (plist-get (cdr display) :width))))
+                                       (forward-char 1))
+                                      ((or (get-text-property (point) 'lispm-desktop-agent-list-triangle)
+                                           (eq (get-text-property (point) 'lispm-desktop-sidebar-group-part)
+                                               'triangle))
+                                       (setq width (+ width (lispm-desktop-px
+                                                             lispm-desktop-sidebar-triangle-width)))
+                                       (forward-char 1))
+                                      (t (setq done t)))))
+                            width))))
               (lispm-desktop-agent-list-mode)
               (lispm-desktop-agent-list--render)
               (should (string-search "Fix the build" (text)))
@@ -7844,6 +7865,19 @@ its transcript, and gets no Resume in its menu."
                              (search-forward "Find the failing test")
                              (line-beginning-position))))
                 (should (= (line-number-at-pos child) (1+ (line-number-at-pos parent))))
+                ;; A project's sessions stand in the project's column: the
+                ;; session's icon lines up with the project's, and a level in
+                ;; is one level's indentation further.
+                (let ((parent-line (save-excursion (goto-char parent) (line-beginning-position)))
+                      (group-line (save-excursion
+                                    (goto-char (text-property-any (point-min) (point-max)
+                                                                  'lispm-desktop-sidebar-group-part
+                                                                  'open))
+                                    (line-beginning-position))))
+                  (should (= (lead-width parent-line) (lead-width group-line)))
+                  (should (= (lead-width child)
+                             (+ (lead-width parent-line)
+                                (lispm-desktop-px lispm-desktop-sidebar-indent)))))
                 (should (string-match-p "Open the transcript of codex session 0200"
                                         (get-text-property child 'help-echo)))
                 (should (string-match-p "Resume codex session 0199"

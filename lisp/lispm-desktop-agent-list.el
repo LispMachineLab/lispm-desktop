@@ -155,7 +155,8 @@ a terminal cannot change its position."
   "Insert project GROUP, its running terminals and a preview of its sessions.
 NOW dates the sessions; RUNNING-IDS are the ids of sessions live terminals
 run.  The project is a row with a disclosure triangle, as a folder in a
-Finder list; its sessions are rows one level in, newest first."
+Finder list; its sessions are rows at the project's own indentation,
+newest first."
   (let* ((folded (lispm-desktop-agent-list--folded-p group now))
          (directory (plist-get group :dir))
          (chats (plist-get group :chats))
@@ -198,8 +199,8 @@ Finder list; its sessions are rows one level in, newest first."
                (lispm-desktop-agent-list--running-label row)
                (apply-partially #'lispm-agents-show row)
                (lispm-desktop-tr "Show this terminal")
-               (list 'lispm-desktop-agent-list-buffer row) 1)
-            (lispm-desktop-agent-list--insert-session row 1 now running-ids chats directory)))
+               (list 'lispm-desktop-agent-list-buffer row) 0)
+            (lispm-desktop-agent-list--insert-session row 0 now running-ids chats directory)))
         (when (or expanded (> (length trees) (length shown)))
           (lispm-desktop-sidebar-insert-entry
            ""
@@ -211,7 +212,7 @@ Finder list; its sessions are rows one level in, newest first."
            nil
            (apply-partially #'lispm-desktop-agent-list--toggle-expanded (plist-get group :key))
            (lispm-desktop-tr "Toggle the full session list of this project")
-           nil 1))))))
+           nil 0))))))
 
 (defun lispm-desktop-agent-list--waiting-p (session running-ids)
   "Return non-nil when SESSION runs, its id among RUNNING-IDS, and its
@@ -268,15 +269,9 @@ DIRECTORY is its directory."
                (location (lispm-agents-location-label
                           (plist-get session :cwd)
                           (if chats 'chats (expand-file-name directory))))
-               (icon (lispm-agents-icon (plist-get session :agent)))
-               (beg (point)))
+               (icon (lispm-agents-icon (plist-get session :agent))))
     (lispm-desktop-sidebar-insert-entry
-     (if subtrees
-         (concat (propertize (lispm-ui-triangle opened)
-                             'lispm-desktop-agent-list-triangle t)
-                 (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
-                 icon)
-       icon)
+     icon
      ;; A session waiting for the user stands out, as a mailbox's unread do.
      (cond (archived
             (propertize (plist-get session :title) 'face '(:inherit (shadow lispm-ui-list))))
@@ -290,16 +285,15 @@ DIRECTORY is its directory."
      (lispm-desktop-agent-list--session-help session resumable location archived)
      (list 'lispm-agents-session session 'keymap lispm-desktop-agent-list-entry-map
            'lispm-desktop-agent-list-buffer buffer)
-     (if subtrees (1- depth) depth))
-    ;; The triangle is a button of its own within the row's.
-    (when subtrees
-      (let ((triangle (text-property-any beg (point) 'lispm-desktop-agent-list-triangle t)))
-        (add-text-properties
-         triangle (1+ triangle)
-         (list 'action (lambda (_) (lispm-desktop-agent-list--set-opened session (not opened)))
-               'help-echo (if opened
-                              (lispm-desktop-tr "Hide the sessions it started")
-                            (lispm-desktop-tr "Show the sessions it started"))))))
+     depth
+     (when subtrees (lispm-ui-triangle opened))
+     (when subtrees
+       ;; The triangle is a button of its own within the row's.
+       (list 'lispm-desktop-agent-list-triangle t
+             'action (lambda (_) (lispm-desktop-agent-list--set-opened session (not opened)))
+             'help-echo (if opened
+                            (lispm-desktop-tr "Hide the sessions it started")
+                          (lispm-desktop-tr "Show the sessions it started")))))
     (when opened
       (dolist (subtree subtrees)
         (lispm-desktop-agent-list--insert-session subtree (1+ depth) now running-ids chats directory)))))

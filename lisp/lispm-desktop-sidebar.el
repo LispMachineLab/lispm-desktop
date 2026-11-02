@@ -334,6 +334,9 @@ another project still opens in that project's workspace."
 (defconst lispm-desktop-sidebar-indent 18
   "Pixels each level of a list is indented by, the width of a triangle and gap.")
 
+(defconst lispm-desktop-sidebar-triangle-width 12
+  "Pixels a disclosure triangle takes, see `lispm-ui-triangle'.")
+
 (defvar-local lispm-desktop-sidebar--columns-width nil
   "The width in pixels the list's column headings were drawn for.")
 
@@ -369,6 +372,17 @@ text terminal but its last two columns, see `lispm-desktop-align-right'."
 Every part of a row carries a face of its own: a part without one would
 take the `button' face of the row, underline and all."
   (propertize " " 'display spec 'face 'lispm-ui-list))
+
+(defun lispm-desktop-sidebar--triangle-lead (triangle)
+  "Return TRIANGLE and the gap after it, as wide as one level of indentation.
+TRIANGLE keeps its text properties; the gap takes what is left of
+`lispm-desktop-sidebar-indent' after the triangle's width, so that what
+follows stands in the column a level's icon stands in."
+  (concat triangle
+          (lispm-desktop-sidebar--blank
+           `(space :width (,(lispm-desktop-px
+                             (- lispm-desktop-sidebar-indent
+                                lispm-desktop-sidebar-triangle-width)))))))
 
 (defun lispm-desktop-sidebar--column-pixels ()
   "Return the width in pixels of a list's right-hand column."
@@ -407,23 +421,34 @@ shortened to fit between them."
                                          (max 0 room))
             (lispm-desktop-sidebar--sorted-column meta))))
 
-(defun lispm-desktop-sidebar-insert-entry (icon title meta action help &optional properties depth)
+(defun lispm-desktop-sidebar-insert-entry (icon title meta action help &optional properties depth triangle triangle-properties)
   "Insert a one-line row and make it one button calling ACTION.
 The row shows ICON and TITLE, indented by DEPTH levels, and META, dimmed,
 in the right-hand column; HELP describes the button, which spans the row
 to the window's right edge.  PROPERTIES, a property list, is added to the
-row's text."
+row's text.  TRIANGLE, when given, is a disclosure triangle drawn in the
+row's own level of indentation, as a group's triangle is, so that ICON
+still stands in its level's column; TRIANGLE-PROPERTIES, a property list,
+is added to it after the row's button, so the triangle can call an ACTION
+of its own."
   (let* ((beg (point))
-         (meta (copy-sequence (or meta ""))))
+         (meta (copy-sequence (or meta "")))
+         (base (lispm-desktop-sidebar--blank
+                `(space :width (,(lispm-desktop-px
+                                  (+ 8 (* lispm-desktop-sidebar-indent
+                                          (or depth 0))))))))
+         (triangle-pos (and triangle (+ beg (length base)))))
     ;; The dimming is layered, so coloured marks such as "running" survive;
     ;; the button below sets no face, which would replace the icon's Nerd
     ;; Font family.
     (add-face-text-property 0 (length meta) 'shadow t meta)
     (insert (lispm-desktop-sidebar--row
-             (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px
-                                                                       (+ 8 lispm-desktop-sidebar-indent
-                                                                          (* lispm-desktop-sidebar-indent
-                                                                             (or depth 0)))))))
+             (concat base
+                     (if triangle
+                         (lispm-desktop-sidebar--triangle-lead triangle)
+                       (lispm-desktop-sidebar--blank
+                        `(space :width (,(lispm-desktop-px
+                                          lispm-desktop-sidebar-indent)))))
                      icon (propertize " " 'face 'lispm-ui-list))
              (lispm-desktop-sidebar-one-line title 200)
              meta
@@ -436,6 +461,9 @@ row's text."
     (lispm-desktop-sidebar--mark-row beg (point))
     (when properties
       (add-text-properties beg (point) properties))
+    (when (and triangle triangle-properties)
+      (add-text-properties triangle-pos (+ triangle-pos (length triangle))
+                           triangle-properties))
     (insert "\n")))
 
 (defun lispm-desktop-sidebar-insert-empty (text)
@@ -477,9 +505,9 @@ OPEN-HELP.  Without OPEN-ACTION that part of the row is not a button."
   (let ((beg (point)))
     (insert (lispm-desktop-sidebar--row
              (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 8))))
-                     (propertize (lispm-ui-triangle open) 'face 'lispm-ui-list
-                                 'lispm-desktop-sidebar-group-part 'triangle)
-                     (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6))))
+                     (lispm-desktop-sidebar--triangle-lead
+                      (propertize (lispm-ui-triangle open) 'face 'lispm-ui-list
+                                  'lispm-desktop-sidebar-group-part 'triangle))
                      (propertize (lispm-desktop-platinum-folder-icon directory)
                                  'lispm-desktop-sidebar-group-part 'open)
                      (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px 6)))))
