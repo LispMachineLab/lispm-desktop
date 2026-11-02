@@ -6086,6 +6086,32 @@ away there."
       (lispm-desktop-finder--go temporary-file-directory)
       (should (lispm-desktop-finder-real-p)))))
 
+(ert-deftest lispm-desktop-test-control-panels-folder-language ()
+  "The Control Panels folder reads its items again in another language.
+Their names are translated, and the icons and actions are found by those
+names: a name read in the language spoken before names no item now, and
+is given the document icon rather than none, which no file draws."
+  (let ((lispm-desktop-finder-folders nil)
+        (lispm-desktop-language 'en-US))
+    (setf (alist-get 'control-panels lispm-desktop-finder-folders)
+          '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
+    (cl-letf (((symbol-function 'lispm-desktop-finder--render) #'ignore))
+      (lispm-desktop-finder--go 'control-panels)
+      (with-current-buffer (lispm-desktop-finder--buffer)
+        (should (member "General" (mapcar #'car lispm-desktop-finder--items)))
+        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+                       "language-32"))))
+    (let ((lispm-desktop-language 'de))
+      (with-current-buffer (lispm-desktop-finder--buffer)
+        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+                       "document-32")))
+      (lispm-desktop-finder--language-changed)
+      (with-current-buffer (lispm-desktop-finder--buffer)
+        (let ((item (assoc (lispm-desktop-tr "General") lispm-desktop-finder--items)))
+          (should item)
+          (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)
+                         "language-32")))))))
+
 (ert-deftest lispm-desktop-test-about-names-gnu-emacs ()
   "About LispM names the GNU Emacs it runs on and the GNU GPL it is free
 software under; Licence shows the licence in the editor, OK nothing."

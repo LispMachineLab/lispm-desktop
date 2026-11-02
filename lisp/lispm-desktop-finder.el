@@ -139,7 +139,12 @@ The virtual folders are `lispm-desktop-finder-folders'."
 (defun lispm-desktop-finder--icon-name (directory item)
   "Return the name of the large icon of ITEM of DIRECTORY."
   (if (lispm-desktop-finder--folder directory)
-      (nth 1 (assoc (car item) (lispm-desktop-finder--folder-items directory)))
+      ;; The items of a virtual folder are made again as they are asked
+      ;; for, their names translated, so an item read while another
+      ;; language was spoken is not found here; it gets the document icon
+      ;; rather than none, which no file draws.
+      (or (nth 1 (assoc (car item) (lispm-desktop-finder--folder-items directory)))
+          "document-32")
     (lispm-desktop-finder--file-icon-name directory item)))
 
 (defun lispm-desktop-finder--file-icon-name (directory item)
@@ -474,6 +479,16 @@ applications are installed and uninstalled."
       (lispm-desktop-finder--go key nil (and (assoc lispm-desktop-finder--selected
                                                     (lispm-desktop-finder--folder-items key))
                                              lispm-desktop-finder--selected)))))
+
+(defun lispm-desktop-finder--language-changed (&rest _)
+  "Draw the folder again in the language LispM speaks now.
+A folder of `lispm-desktop-finder-folders' reads its items again: their
+names are translated, and the icons and actions found by those names."
+  (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name)))
+    (with-current-buffer buffer
+      (if (lispm-desktop-finder--folder lispm-desktop-finder--directory)
+          (lispm-desktop-finder-folder-changed lispm-desktop-finder--directory)
+        (lispm-desktop-finder--render)))))
 
 (defun lispm-desktop-finder--edit (file)
   "Open FILE in the editor, brought in front."
@@ -897,7 +912,7 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
 again in another look, or another language."
   (add-hook 'window-selection-change-functions #'lispm-desktop-finder--note-selected)
   (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-finder--render)
-  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-finder--render))
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-finder--language-changed))
 
 (provide 'lispm-desktop-finder)
 ;;; lispm-desktop-finder.el ends here
