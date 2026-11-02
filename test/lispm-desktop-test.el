@@ -6090,27 +6090,57 @@ away there."
   "The Control Panels folder reads its items again in another language.
 Their names are translated, and the icons and actions are found by those
 names: a name read in the language spoken before names no item now, and
-is given the document icon rather than none, which no file draws."
+is given the document icon rather than none, which no file draws.  The
+German is stubbed, so the test rests on no catalog.
+`lispm-desktop-finder--language-changed' leaves the folder as the hook
+of the same name does."
   (let ((lispm-desktop-finder-folders nil)
         (lispm-desktop-language 'en-US))
-    (setf (alist-get 'control-panels lispm-desktop-finder-folders)
-          '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
-    (cl-letf (((symbol-function 'lispm-desktop-finder--render) #'ignore))
-      (lispm-desktop-finder--go 'control-panels)
-      (with-current-buffer (lispm-desktop-finder--buffer)
-        (should (member "General" (mapcar #'car lispm-desktop-finder--items)))
-        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
-                       "language-32"))))
-    (let ((lispm-desktop-language 'de))
-      (with-current-buffer (lispm-desktop-finder--buffer)
-        (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
-                       "document-32")))
-      (lispm-desktop-finder--language-changed)
-      (with-current-buffer (lispm-desktop-finder--buffer)
-        (let ((item (assoc (lispm-desktop-tr "General") lispm-desktop-finder--items)))
-          (should item)
-          (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)
-                         "language-32")))))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'lispm-desktop-tr)
+                   (lambda (message &rest args)
+                     (apply #'format
+                            (if (and (eq lispm-desktop-language 'de)
+                                     (equal message "General"))
+                                "Allgemein"
+                              message)
+                            args))))
+          (setf (alist-get 'control-panels lispm-desktop-finder-folders)
+                '(:title "Control Panels" :icon "control-panels" :items lispm-desktop-settings--folder-items))
+          (cl-letf (((symbol-function 'lispm-desktop-finder--render) #'ignore))
+            (lispm-desktop-finder--go 'control-panels)
+            (with-current-buffer (lispm-desktop-finder--buffer)
+              (should (member "General" (mapcar #'car lispm-desktop-finder--items)))
+              (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+                             "language-32"))))
+          (let ((lispm-desktop-language 'de))
+            (with-current-buffer (lispm-desktop-finder--buffer)
+              (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory '("General"))
+                             "document-32")))
+            (lispm-desktop-finder--language-changed)
+            (with-current-buffer (lispm-desktop-finder--buffer)
+              (let ((item (assoc "Allgemein" lispm-desktop-finder--items)))
+                (should item)
+                (should (equal (lispm-desktop-finder--icon-name lispm-desktop-finder--directory item)
+                               "language-32"))))
+            (let ((drawn 0))
+              (cl-letf (((symbol-function 'lispm-desktop-finder--render)
+                         (lambda (&rest _) (cl-incf drawn))))
+                (lispm-desktop-finder--language-changed))
+              (should (= drawn 1)))))
+      (kill-buffer lispm-desktop-finder-buffer-name))))
+
+(ert-deftest lispm-desktop-test-finder-language-hook ()
+  "Setting up the Finder notes it is drawn again when the language changes.
+A folder of `lispm-desktop-finder-folders' needs its items read again
+then, not just drawn, so the hook does not draw it alone."
+  (let ((window-selection-change-functions nil)
+        (lispm-desktop-look-changed-hook nil)
+        (lispm-desktop-language-changed-hook nil))
+    (lispm-desktop-setup-finder)
+    (should (memq #'lispm-desktop-finder--language-changed lispm-desktop-language-changed-hook))
+    (should-not (memq #'lispm-desktop-finder--render lispm-desktop-language-changed-hook))
+    (should (memq #'lispm-desktop-finder--render lispm-desktop-look-changed-hook))))
 
 (ert-deftest lispm-desktop-test-about-names-gnu-emacs ()
   "About LispM names the GNU Emacs it runs on and the GNU GPL it is free
