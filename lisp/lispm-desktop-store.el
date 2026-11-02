@@ -157,6 +157,8 @@
 (declare-function lispm-desktop-make-alias "lispm-desktop-surface" (app))
 (declare-function lispm-desktop-remove-alias "lispm-desktop-surface" (app))
 (declare-function project-remember-projects-under "project" (dir &optional recursive))
+(declare-function lispm-desktop-console-error "lispm-desktop-console"
+                  (source message &optional details))
 (defvar package-vc-selected-packages)
 (defvar find-library-source-path)
 (defvar lispm-desktop-finder-folders)
@@ -1384,11 +1386,16 @@ are not started."
     (when (and (eq (lispm-desktop-store-job-group other) (lispm-desktop-store-job-group job))
                (eq (lispm-desktop-store-job-state other) 'waiting))
       (lispm-desktop-store--forget-job other)))
-  (message (if (eq (lispm-desktop-store-job-action job) 'install)
-               (lispm-desktop-tr "App Store: %s could not be installed: %s")
-             (lispm-desktop-tr "App Store: %s could not be updated: %s"))
-           (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
-           reason)
+  (lispm-desktop-console-error
+   "App Store"
+   (if (eq (lispm-desktop-store-job-action job) 'install)
+       (lispm-desktop-tr "App Store: %s could not be installed: %s"
+                         (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
+                         reason)
+     (lispm-desktop-tr "App Store: %s could not be updated: %s"
+                       (plist-get (cdr (lispm-desktop-store-job-item job)) :name)
+                       reason))
+   (lispm-desktop-store--last-said job))
   (lispm-desktop-store--ended-job job))
 
 (defun lispm-desktop-store--rollback-and-fail (job reason)

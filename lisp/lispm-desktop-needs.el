@@ -111,6 +111,8 @@
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
 (declare-function lispm-desktop-terminal-live-p "lispm-desktop-term" (buffer))
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
+(declare-function lispm-desktop-console-report "lispm-desktop-console"
+                  (severity source message &optional details))
 
 (defgroup lispm-desktop-needs nil
   "What the desktop and its applications need from outside Emacs."
@@ -666,6 +668,18 @@ ERROR."
         (lispm-desktop-needs--job-fraction job) nil
         (lispm-desktop-needs--job-stop job) nil)
   (clrhash lispm-desktop-needs--applications)
+  (pcase state
+    ('failed
+     (lispm-desktop-console-report
+      'error "Installer"
+      (if (lispm-desktop-needs--uninstall-p job)
+          (lispm-desktop-tr "%s could not be uninstalled."
+                            (lispm-desktop-needs-name (lispm-desktop-needs--job-need job)))
+        (lispm-desktop-tr "%s could not be installed."
+                          (lispm-desktop-needs-name (lispm-desktop-needs--job-need job))))
+      error))
+    ('cancelled
+     (lispm-desktop-console-report 'note "Installer" (lispm-desktop-tr "Stopped."))))
   (when (eq state 'installed)
     (lispm-desktop-needs-refresh (list (lispm-desktop-needs--job-need job))))
   (lispm-desktop-needs--answer)

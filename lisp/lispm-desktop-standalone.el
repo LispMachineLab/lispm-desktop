@@ -81,6 +81,8 @@
 (require 'lispm-exec)
 
 (declare-function lispm-browser-available-p "lispm-browser" ())
+(declare-function lispm-desktop-console-error "lispm-desktop-console"
+                  (source message &optional details))
 (defvar lispm-desktop-first-start)
 
 (defgroup lispm-desktop-standalone nil
@@ -134,7 +136,8 @@ Emacs's own process; return its result, or nil when it fails."
   (when (fboundp 'ns-do-applescript)
     (condition-case err
         (ns-do-applescript (concat "use framework \"AppKit\"\nset ca to current application\n" script))
-      (error (message "LispM: AppKit refused: %s" (error-message-string err))
+      (error (lispm-desktop-console-error
+              "LispM" (format "LispM: AppKit refused: %s" (error-message-string err)))
              nil))))
 
 ;;;; Started out of sight
@@ -429,8 +432,10 @@ should be; nil when Emacs's runtime is not found."
                           (concat "--init-directory=" (expand-file-name user-emacs-directory)))))
     (cond
      ((not (file-executable-p runtime))
-      (message (lispm-desktop-tr "LispM cannot find its runtime executable: %s")
-               (abbreviate-file-name runtime))
+      (lispm-desktop-console-error
+       "LispM"
+       (lispm-desktop-tr "LispM cannot find its runtime executable: %s"
+                         (abbreviate-file-name runtime)))
       nil)
      ((equal (lispm-desktop-standalone--made-stamp bundle) stamp)
       (cons arguments nil))
@@ -647,8 +652,10 @@ directory, or nil when it could not be made, saying why."
 
 (defun lispm-desktop-standalone--not-made (app error)
   "Say that the computer's application for APP could not be made, ERROR why."
-  (message (lispm-desktop-tr "LispM could not make an application for %s: %s")
-           app (error-message-string error)))
+  (lispm-desktop-console-error
+   "LispM"
+   (lispm-desktop-tr "LispM could not make an application for %s: %s"
+                     app (error-message-string error))))
 
 (defvar lispm-desktop-standalone--syncing nil
   "Nil, or while the computer's applications are being made, t, or
@@ -682,8 +689,10 @@ directory, or nil when it could not be made, saying why."
                                 (delete-directory (car arguments) t))
                               (rename-file new (car arguments))
                               (lispm-desktop-standalone--sync-apps arguments executable))
-                          (message (lispm-desktop-tr "LispM could not sign its private runtime: %s")
-                                   (string-trim error-output))
+                          (lispm-desktop-console-error
+                           "LispM"
+                           (lispm-desktop-tr "LispM could not sign its private runtime: %s"
+                                             (string-trim error-output)))
                           (delete-directory new t))
                         (when again
                           (lispm-desktop-standalone--schedule-sync))))))))

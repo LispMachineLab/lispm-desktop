@@ -53,6 +53,8 @@
 ;;   App Store      applications and extensions to install, from catalogs
 ;;   applications   the App Store's, each in a window with the desktop's
 ;;                  interface: buttons, status, menus, keys, boards drawn
+;;   Console        the errors, warnings and notes LispM reported, kept
+;;                  newest first, to filter, read and save
 ;;   Software Update  LispM kept up to date, checked daily and installed
 ;;                  as it quits, in Control Panels
 ;;   Startup        LispM opened at login, and startup items opened once
@@ -134,6 +136,7 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-needs)
 (require 'lispm-desktop-store)
+(require 'lispm-desktop-console)
 (require 'lispm-desktop-app-yeetube)
 (require 'lispm-desktop-app-games)
 (require 'lispm-desktop-app-skins)
@@ -215,8 +218,10 @@ boxes.  A download that fails, as offline, is only reported."
       (lispm-desktop-assistant-report (lispm-desktop-tr "Installing the icon font…"))
       (condition-case err
           (lispm-desktop-install-fonts)
-        (error (message (lispm-desktop-tr "The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again")
-                        (error-message-string err)))))))
+        (error (lispm-desktop-console-error
+                "LispM"
+                (lispm-desktop-tr "The icon font could not be installed (%s); M-x lispm-desktop-install-fonts tries again"
+                                  (error-message-string err))))))))
 
 (defun lispm-desktop--show-startup-view ()
   "Show `lispm-desktop-startup-view' in the sidebar of the first frame."
@@ -253,6 +258,7 @@ boxes.  A download that fails, as offline, is only reported."
   (lispm-desktop-setup-startup)
   (lispm-desktop-setup-app-windows)
   (lispm-desktop-setup-app-ui)
+  (lispm-desktop-setup-console)
   (lispm-desktop-setup-needs)
   (lispm-desktop-setup-app-games)
   (lispm-desktop-setup-store)
@@ -274,7 +280,10 @@ boxes.  A download that fails, as offline, is only reported."
   (condition-case err
       (progn (lispm-desktop-setup-lispm)
              (lispm-desktop-setup-characters))
-    (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
+    (error (lispm-desktop-console-error
+            "LispM"
+            (lispm-desktop-tr "LispM's agents are not set up: %s"
+                              (error-message-string err)))))
   (lispm-agents-setup-claude)
   (lispm-agents-setup-codex)
   ;; After the agents, whose sessions it reads; off unless asked for.
@@ -307,7 +316,10 @@ are set up as there; then the first frame becomes the terminal, see
   (lispm-desktop-form-setup)
   (condition-case err
       (lispm-desktop-setup-lispm)
-    (error (message (lispm-desktop-tr "LispM's agents are not set up: %s") (error-message-string err))))
+    (error (lispm-desktop-console-error
+            "LispM"
+            (lispm-desktop-tr "LispM's agents are not set up: %s"
+                              (error-message-string err)))))
   (lispm-desktop-store-startup t)
   (lispm-desktop-setup-kernel)
   (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
