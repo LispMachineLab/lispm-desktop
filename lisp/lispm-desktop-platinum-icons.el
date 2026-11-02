@@ -60,7 +60,7 @@ rainbow mark.  Absolute file names and Emacs's icon are resolved by
     ("mail" . "@") ("caution" . "!") ("stop" . "×")
     ("appearance" . "◐") ("desktop-picture" . "▦") ("keyboard" . "▥") ("language" . "¶")
     ("network" . "⇄") ("sandbox" . "▧") ("software-update" . "↻") ("startup" . "▸")
-    ("find" . "⌕") ("terminal" . "λ"))
+    ("find" . "⌕") ("terminal" . "λ") ("console" . "≡"))
   "What stands for each icon on a text terminal, one cell wide.
 Each entry is (NAME . STRING): NAME is an icon's name as
 `lispm-ui-icon' takes it, or the start of one, so that

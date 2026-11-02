@@ -68,6 +68,8 @@
 (declare-function lispm-service-start "lispm-services" (id &optional show))
 (declare-function lispm-service-status "lispm-services" (id))
 (declare-function lispm-service-buffer-name "lispm-services" (id))
+(declare-function lispm-desktop-console-error "lispm-desktop-console"
+                  (source message &optional details))
 
 (defgroup lispm-desktop-startup nil
   "What starts with LispM: LispM itself at login, and its startup items."
@@ -431,7 +433,10 @@ cannot be opened is passed over, and told of."
                                          (error-message-string err))
                        failed)))))
     (when failed
-      (message (lispm-desktop-tr "Startup items not opened: %s") (string-join (nreverse failed) "; ")))))
+      (lispm-desktop-console-error
+       "Startup"
+       (lispm-desktop-tr "Startup items not opened: %s"
+                         (string-join (nreverse failed) "; "))))))
 
 (defun lispm-desktop-startup--after-start ()
   "Open the startup items once Emacs is up and waits for input, so that

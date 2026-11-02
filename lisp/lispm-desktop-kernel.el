@@ -86,6 +86,8 @@
 (declare-function lispm-kernel-program-file "ext:lispm-kernel-program" ())
 (declare-function lispm-kernel-program-obtain "ext:lispm-kernel-program" ())
 (declare-function lispm-kernel-program-stop "ext:lispm-kernel-program" ())
+(declare-function lispm-desktop-console-error "lispm-desktop-console"
+                  (source message &optional details))
 (declare-function lispm-kernel-program-busy-p "ext:lispm-kernel-program" ())
 (declare-function custom-variable-save "cus-edit" (widget))
 (declare-function lm-version "lisp-mnt" (&optional file))
@@ -331,8 +333,10 @@ modes off."
           ;; On by default, it says so in *Messages* alone, as where no
           ;; program is published for the computer it would at every start.
           (error (let ((inhibit-message (or inhibit-message (not asked))))
-                   (message (lispm-desktop-tr "lispm-kernel could not be turned on: %s")
-                            (error-message-string err))))))
+                   (lispm-desktop-console-error
+                    "lispm-kernel"
+                    (lispm-desktop-tr "lispm-kernel could not be turned on: %s"
+                                      (error-message-string err)))))))
     (when (bound-and-true-p lispm-kernel-exec-mode)
       (lispm-kernel-exec-mode -1))
     (when (bound-and-true-p lispm-kernel-package-mode)

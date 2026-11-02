@@ -59,6 +59,8 @@
 (declare-function lispm-terminal "lispm-terminal" (&optional agent))
 (declare-function lispm-terminal-soon "lispm-terminal" (function))
 (declare-function lispm-desktop-standalone-started-hidden-p "lispm-desktop-standalone" ())
+(declare-function lispm-desktop-console-error "lispm-desktop-console"
+                  (source message &optional details))
 (defvar lispm-turn-end-functions)
 
 (defcustom lispm-desktop-start-as 'desktop
@@ -160,7 +162,10 @@ opened the files the command line names."
   (condition-case err
       (progn (require 'lispm-terminal)
              (lispm-terminal))
-    (error (message (lispm-desktop-tr "Focus Mode could not open: %s") (error-message-string err)))))
+    (error (lispm-desktop-console-error
+            "Focus Mode"
+            (lispm-desktop-tr "Focus Mode could not open: %s"
+                              (error-message-string err))))))
 
 (defun lispm-desktop-setup-start-as ()
   "Settle what LispM starts as and return it, `desktop' or `terminal', see

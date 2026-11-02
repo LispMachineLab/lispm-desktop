@@ -77,6 +77,8 @@
 (declare-function lispm-desktop-standalone-apps "lispm-desktop-standalone" ())
 (declare-function lispm-desktop-standalone--close "lispm-desktop-standalone" (frame))
 (declare-function lispm-desktop-standalone-own-process-p "lispm-desktop-standalone" (app))
+(declare-function lispm-desktop-console-error "lispm-desktop-console"
+                  (source message &optional details))
 (declare-function lispm-desktop-platinum-drag-outline "lispm-desktop-platinum-frames" (frame kind))
 
 (defgroup lispm-desktop-display nil
@@ -175,8 +177,10 @@ they cannot be built."
                        (if (and (zerop (process-exit-status process)) (lispm-desktop-display--built-p plan))
                            (mapc #'funcall then)
                          (ignore-errors (delete-directory directory t))
-                         (message (lispm-desktop-tr "LispM could not build %s: %s")
-                                  "native/lispm-desktop-display" output)))))))))
+                         (lispm-desktop-console-error
+                          "LispM"
+                          (lispm-desktop-tr "LispM could not build %s: %s"
+                                            "native/lispm-desktop-display" output))))))))))
       t)))
 
 (defun lispm-desktop-display-load ()
@@ -192,8 +196,10 @@ draw the windows of applications of their own here, now."
             (progn
               (module-load (plist-get plan :module))
               (lispm-desktop-display-module-available-p))
-          (error (message (lispm-desktop-tr "LispM could not load its display: %s")
-                          (error-message-string err))
+          (error (lispm-desktop-console-error
+                  "LispM"
+                  (lispm-desktop-tr "LispM could not load its display: %s"
+                                    (error-message-string err)))
                  nil)))))
 
 (defun lispm-desktop-display-executable ()
@@ -340,8 +346,9 @@ it, and the process leaves."
              (error
               ;; The process waits for an answer that would never come, as
               ;; it did for a quit with no window to close: let it go.
-              (message (lispm-desktop-tr "LispM could not open %s: %s")
-                       app (error-message-string err))
+              (lispm-desktop-console-error
+               "LispM"
+               (lispm-desktop-tr "LispM could not open %s: %s" app (error-message-string err)))
               (lispm-desktop-display--detach client "bye")))))))
 
 (defun lispm-desktop-display--presented (present id)
