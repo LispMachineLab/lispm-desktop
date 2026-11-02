@@ -407,12 +407,14 @@ shortened to fit between them."
                                          (max 0 room))
             (lispm-desktop-sidebar--sorted-column meta))))
 
-(defun lispm-desktop-sidebar-insert-entry (icon title meta action help &optional properties depth)
+(defun lispm-desktop-sidebar-insert-entry (icon title meta action help &optional properties depth triangle)
   "Insert a one-line row and make it one button calling ACTION.
 The row shows ICON and TITLE, indented by DEPTH levels, and META, dimmed,
 in the right-hand column; HELP describes the button, which spans the row
 to the window's right edge.  PROPERTIES, a property list, is added to the
-row's text."
+row's text.  TRIANGLE, when given, is a disclosure triangle shown in the
+place of the outermost level of indentation, as a group's triangle is,
+so that ICON still stands in its level's column."
   (let* ((beg (point))
          (meta (copy-sequence (or meta ""))))
     ;; The dimming is layered, so coloured marks such as "running" survive;
@@ -420,10 +422,16 @@ row's text."
     ;; Font family.
     (add-face-text-property 0 (length meta) 'shadow t meta)
     (insert (lispm-desktop-sidebar--row
-             (concat (lispm-desktop-sidebar--blank `(space :width (,(lispm-desktop-px
-                                                                       (+ 8 lispm-desktop-sidebar-indent
-                                                                          (* lispm-desktop-sidebar-indent
-                                                                             (or depth 0)))))))
+             (concat (lispm-desktop-sidebar--blank
+                      `(space :width (,(lispm-desktop-px
+                                        (+ 8 (* lispm-desktop-sidebar-indent
+                                                (or depth 0)))))))
+                     (if triangle
+                         (concat triangle
+                                 (lispm-desktop-sidebar--blank
+                                  `(space :width (,(lispm-desktop-px 6)))))
+                       (lispm-desktop-sidebar--blank
+                        `(space :width (,(lispm-desktop-px lispm-desktop-sidebar-indent)))))
                      icon (propertize " " 'face 'lispm-ui-list))
              (lispm-desktop-sidebar-one-line title 200)
              meta
