@@ -5451,6 +5451,32 @@ positions, the keys, the browser's pages."
         ;; The window is titled with its control panel's name.
         (should (equal (lispm-desktop-platinum-title-text) title))))))
 
+(ert-deftest lispm-desktop-test-settings-refit-follows-size ()
+  "A panel redraws when its window's width or height changes, and not
+when neither did, so its lists can fill the window they are shown in."
+  (with-temp-buffer
+    (let ((fills 0))
+      (cl-letf (((symbol-function 'lispm-desktop-settings--fill)
+                 (lambda (&rest _) (cl-incf fills)))
+                ((symbol-function 'window-buffer)
+                 (lambda (_window) (current-buffer)))
+                ((symbol-function 'window-body-width)
+                 (lambda (_window &optional _pixels) 76))
+                ((symbol-function 'window-body-height)
+                 (lambda (_window) 26)))
+        (lispm-desktop-settings--refit 'window)
+        (should (= fills 1))
+        (lispm-desktop-settings--refit 'window)
+        (should (= fills 1))
+        (cl-letf (((symbol-function 'window-body-height)
+                   (lambda (_window) 30)))
+          (lispm-desktop-settings--refit 'window)
+          (should (= fills 2)))
+        (cl-letf (((symbol-function 'window-body-width)
+                   (lambda (_window &optional _pixels) 90)))
+          (lispm-desktop-settings--refit 'window)
+          (should (= fills 3)))))))
+
 (ert-deftest lispm-desktop-test-settings-categories ()
   "Every panel is a tab of one control panel, its window's tabs only those
 of its own; a control panel shows while a panel of it does, the Agents

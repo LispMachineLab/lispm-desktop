@@ -1803,11 +1803,16 @@ the shown one in front."
         (setq count (1+ count)))
       count)))
 
+(defvar-local lispm-desktop-settings-after-fill-functions nil
+  "Functions run when the panel is filled and its groups framed.
+They dress controls a panel inserted itself, such as an editable field.")
+
 (defun lispm-desktop-settings--fill (buffer)
   "Fill BUFFER, a control panel's window's, with the panel it shows, point
 kept; with none of its panels showing here, leave it empty."
   (with-current-buffer buffer
     (let* ((inhibit-read-only t)
+           (inhibit-modification-hooks t)
            (line (line-number-at-pos))
            (panels (lispm-desktop-settings--panels lispm-desktop-settings--category))
            (panel (or (assq lispm-desktop-settings--panel panels) (car panels))))
@@ -1825,6 +1830,7 @@ kept; with none of its panels showing here, leave it empty."
           (forward-line (1- line))))
       (setq lispm-ui-focus nil)
       (lispm-ui-show-focus)
+      (run-hooks 'lispm-desktop-settings-after-fill-functions)
       (force-mode-line-update))))
 
 (defun lispm-desktop-settings--render ()
@@ -1865,13 +1871,19 @@ its control panel; return the window's buffer."
 
 (defvar-local lispm-desktop-settings--width nil
   "The width in pixels the panel's group boxes were drawn for.")
+(defvar-local lispm-desktop-settings--height nil
+  "The height in lines the panel was drawn for.")
 
 (defun lispm-desktop-settings--refit (window)
-  "Draw the panel again once WINDOW's width changed, its group boxes as wide
-as the pane.  This is a buffer-local `window-size-change-functions' function."
-  (let ((width (window-body-width window t)))
-    (unless (eql width lispm-desktop-settings--width)
-      (setq lispm-desktop-settings--width width)
+  "Draw the panel again once WINDOW's width or height changed, its group
+boxes as wide as the pane, its lists as long as the pane is tall.  This is
+a buffer-local `window-size-change-functions' function."
+  (let ((width (window-body-width window t))
+        (height (window-body-height window)))
+    (unless (and (eql width lispm-desktop-settings--width)
+                 (eql height lispm-desktop-settings--height))
+      (setq lispm-desktop-settings--width width
+            lispm-desktop-settings--height height)
       (lispm-desktop-settings--fill (window-buffer window)))))
 
 (defun lispm-desktop-settings--widen ()
