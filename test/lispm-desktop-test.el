@@ -9884,9 +9884,16 @@ and package-vc is never given them."
                 (should (= (length installed) 1))
                 (should (equal fetched (make-list 2 (cons 'mailpkg (plist-get (cdr package) :assets))))))))
           ;; An update in the background passes them on.
-          (let ((repinned nil))
-            (cl-letf (((symbol-function 'lispm-desktop-store--repin)
-                       (lambda (&rest args) (setq repinned args))))
+          (let ((repinned nil) (head "r1"))
+            (cl-letf (((symbol-function 'lispm-desktop-store--package-update-preflight)
+                       (lambda (&rest _) "r2"))
+                      ((symbol-function 'lispm-desktop-store--local-orphan-bytecode) #'ignore)
+                      ((symbol-function 'lispm-desktop-store--git)
+                       (lambda (_directory &rest args)
+                         (should (equal args '("rev-parse" "HEAD")))
+                         head))
+                      ((symbol-function 'lispm-desktop-store--repin)
+                       (lambda (&rest args) (setq repinned args head (cadr args)))))
               (should (equal (lispm-desktop-store-installer--update 'mailpkg "r2" "r1" '(("f")))
                              "r2"))
               (should (equal repinned '(mailpkg "r2" (("f"))))))))
@@ -10321,7 +10328,8 @@ without anything else to do, for one with a package with its update."
                              (lispm-desktop-store--changes (lispm-desktop-store--installed 'elfeed)
                                                            (cdr (assq 'elfeed (lispm-desktop-store-items)))
                                                            'elfeed)))
-      (cl-letf (((symbol-function 'lispm-desktop-store--repin) (lambda (name rev &optional _assets) (setq repinned (list name rev))))
+      (cl-letf (((symbol-function 'lispm-desktop-store-installer--update)
+                 (lambda (name rev _former &optional _assets) (setq repinned (list name rev)) rev))
                 ((symbol-function 'lispm-desktop-store--register) #'ignore))
         (lispm-desktop-store-update 'elfeed t))
       (should (equal repinned '(elfeed "bbb")))
@@ -11227,7 +11235,8 @@ ready."
                      '("Update" . update)))
       (let ((repinned nil))
         (cl-letf (((symbol-function 'lispm-desktop-store--confirm) (lambda (&rest _) t))
-                  ((symbol-function 'lispm-desktop-store--repin) (lambda (name rev &optional _assets) (push (cons name rev) repinned))))
+                  ((symbol-function 'lispm-desktop-store-installer--update)
+                   (lambda (name rev _former &optional _assets) (push (cons name rev) repinned) rev)))
           (lispm-desktop-store-update 'elfeed)
           (lispm-desktop-store-act 'ext)
           (should (equal repinned '((lispm-desktop-test-ext . "new") (elfeed . "new"))))
@@ -11639,22 +11648,34 @@ it as it was."
 
 (ert-deftest lispm-desktop-test-store-update-tasks ()
   "In the background, a package from git is updated to the commit its
-catalog pins, from the one installed; one from the package archives to
-their newest."
+catalog pins, from its actual HEAD even when the saved Store pin differs;
+one from the package archives goes to their newest."
   (lispm-desktop-test--with-store
     (let ((lispm-desktop-store-install-in-background t)
+          (package-alist (list (list 'elfeed (package-desc-create
+                                             :name 'elfeed :version '(1 0) :kind 'vc
+                                             :dir "/fixture/elfeed/"))))
           (tasks nil))
       (setq lispm-desktop-store-installed
             '((elfeed :kind app :name "Elfeed" :command elfeed :installed "old"
                       :package (elfeed :url "u" :rev "old"))
               (emms :kind app :name "EMMS" :command emms :package emms :installed "1")))
-      (cl-letf (((symbol-function 'lispm-desktop-store--spawn) (lambda (_job task) (push task tasks))))
+      (cl-letf (((symbol-function 'lispm-desktop-store--git)
+                 (lambda (directory &rest args)
+                   (should (equal directory "/fixture/elfeed/"))
+                   (should (equal args '("rev-parse" "HEAD")))
+                   "actual-head"))
+                ((symbol-function 'lispm-desktop-store--spawn)
+                 (lambda (job task)
+                   (when (eq (car task) 'update)
+                     (should (equal (lispm-desktop-store-job-former job) "actual-head")))
+                   (push task tasks))))
         (lispm-desktop-store--queue
          (list '(elfeed :kind app :name "Elfeed" :command elfeed :package (elfeed :url "u" :rev "new")))
          'update)
         (setq lispm-desktop-store--jobs nil)
         (lispm-desktop-store--queue (list '(emms :kind app :name "EMMS" :command emms :package emms)) 'update))
-      (should (equal (nreverse tasks) '((update elfeed "new" "old") (upgrade emms)))))))
+      (should (equal (nreverse tasks) '((update elfeed "new" "actual-head") (upgrade emms)))))))
 
 (ert-deftest lispm-desktop-test-store-update-requires-first ()
   "Updating an item its catalog now says requires one not installed
@@ -12615,6 +12636,7 @@ Update asked for it, and install.sh is then run, after."
       (unwind-protect
           (let ((ran nil))
             (cl-letf (((symbol-function 'lispm-desktop-update--desktop-p) #'always)
+                      ((symbol-function 'lispm-desktop-update-check-dependencies) #'always)
                       ((symbol-function 'lispm-desktop-update--app) (lambda () "/Applications/LispM.app"))
                       ((symbol-function 'lispm-desktop-update--run-installer)
                        (lambda (app reopen) (setq ran (list app reopen)))))
@@ -15070,8 +15092,8 @@ the commit its catalog pins now, and is kept as installed so."
                                :package (elfeed :url "https://example.org/elfeed" :rev "bbb"))))))
       (cl-letf (((symbol-function 'lispm-desktop-store--confirm)
                  (lambda (&rest _) (error "Asked")))
-                ((symbol-function 'lispm-desktop-store--repin)
-                 (lambda (name rev &optional _assets) (setq repinned (list name rev))))
+                ((symbol-function 'lispm-desktop-store-installer--update)
+                 (lambda (name rev _former &optional _assets) (setq repinned (list name rev)) rev))
                 ((symbol-function 'lispm-desktop-store--register) #'ignore))
         (lispm-desktop-store-update 'elfeed t))
       (should (equal repinned '(elfeed "bbb")))

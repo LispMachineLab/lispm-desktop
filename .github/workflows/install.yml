@@ -14,6 +14,8 @@ on:
       - early-init.el
       - init.el
       - lisp/lispm-desktop-deps.el
+      - lisp/lispm-desktop-store-installer.el
+      - lisp/lispm-desktop-update-safety.el
       - lisp/lispm-desktop-early.el
       - lisp/lispm-desktop-native-comp.el
       - lisp/lispm-desktop-packages.el
@@ -26,6 +28,8 @@ on:
       - early-init.el
       - init.el
       - lisp/lispm-desktop-deps.el
+      - lisp/lispm-desktop-store-installer.el
+      - lisp/lispm-desktop-update-safety.el
       - lisp/lispm-desktop-early.el
       - lisp/lispm-desktop-native-comp.el
       - lisp/lispm-desktop-packages.el

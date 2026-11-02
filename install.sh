@@ -337,14 +337,18 @@ fetch_project() {
   if [ -d "$dir/.git" ]; then
     if ! git -C "$dir" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
       :
+    elif [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then
+      note "$1 has local changes, so it was left as it is"
     elif [ -z "$release" ]; then
-      git -C "$dir" pull -q --ff-only ||
+      { git -C "$dir" fetch -q &&
+          git -C "$dir" merge -q --ff-only --no-autostash --no-overwrite-ignore '@{upstream}'; } ||
         note "$1 has changes of its own, so it was left as it is"
     else
-      fetch_branch "$1" "$dir" &&
-        { git -C "$dir" merge-base --is-ancestor "$release" HEAD ||
-            git -C "$dir" merge -q --ff-only "$release" 2>/dev/null; } ||
+      if ! { fetch_branch "$1" "$dir" &&
+             { git -C "$dir" merge-base --is-ancestor "$release" HEAD ||
+                 git -C "$dir" merge -q --ff-only --no-autostash --no-overwrite-ignore "$release" 2>/dev/null; }; }; then
         note "$1 has changes of its own, so it was left as it is"
+      fi
     fi
   elif [ -e "$dir" ]; then
     fail "$dir is in the way: move it, then run this again"
@@ -362,11 +366,99 @@ fetch_project() {
   fi
 }
 
+# Fetch an existing Desktop's candidate without moving its working tree.
+# DESKTOP_FROM and DESKTOP_CANDIDATE record the exact commits checked before
+# dependencies are updated.  A fresh installation has no previous Desktop to
+# preserve; a detached developer checkout, as in CI, remains where it is.
+prepare_desktop_update() {
+  DESKTOP_FROM=
+  DESKTOP_CANDIDATE=
+  if [ ! -e "$DESKTOP/.git" ]; then
+    fetch_project lispm-desktop
+    return
+  fi
+  if ! git -C "$DESKTOP" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
+    return
+  fi
+  desktop_release=$(latest_release lispm-desktop)
+  fetch_branch lispm-desktop "$DESKTOP" ||
+    fail "could not fetch Desktop; its installed checkout was left as it is"
+  desktop_target=${desktop_release:-'@{upstream}'}
+  if git -C "$DESKTOP" merge-base --is-ancestor "$desktop_target" HEAD; then
+    return
+  fi
+  DESKTOP_FROM=$(git -C "$DESKTOP" rev-parse HEAD)
+  DESKTOP_CANDIDATE=$(git -C "$DESKTOP" rev-parse "$desktop_target^{commit}")
+  git -C "$DESKTOP" merge-base --is-ancestor HEAD "$DESKTOP_CANDIDATE" ||
+    fail "Desktop has commits of its own; its checkout was kept at $DESKTOP_FROM"
+  [ -z "$(git -C "$DESKTOP" status --porcelain --untracked-files=no)" ] ||
+    fail "Desktop has local changes in $DESKTOP; its checkout was kept at $DESKTOP_FROM"
+}
+
+# Check the candidate with the same profile packages startup activates.  Those
+# packages can shadow newer sibling checkouts, so checking siblings alone is
+# insufficient.  This batch Emacs loads neither Desktop init nor the candidate
+# dependency manifest as code.  The helper reads that manifest as data.
+#
+# The first upgrade delivering this mechanism has no installed safety helper.
+# Bootstrap just its trusted helper sources from the fetched official release
+# into a temporary directory; leave the installed Desktop untouched throughout.
+check_desktop_update() (
+  [ -x "$EMACS_PROGRAM" ] ||
+    fail "checking Desktop's dependencies needs its installed Emacs at $EMACS_PROGRAM"
+  helper_directory=$DESKTOP/lisp
+  if [ ! -r "$helper_directory/lispm-desktop-update-safety.el" ]; then
+    helper_directory=$(mktemp -d "${TMPDIR:-/tmp}/lispm-update-check.XXXXXX")
+    trap 'rm -rf "$helper_directory"' 0
+    trap 'exit 130' INT TERM
+    for helper in lispm-desktop-update-safety lispm-desktop-store-installer; do
+      git -C "$DESKTOP" show "$DESKTOP_CANDIDATE:lisp/$helper.el" >"$helper_directory/$helper.el" ||
+        fail "Desktop's candidate lacks its update safety helper; the installed checkout was left as it is"
+    done
+  fi
+  LISPM_UPDATE_DIRECTORY=$DESKTOP LISPM_UPDATE_REVISION=$DESKTOP_CANDIDATE \
+    LISPM_UPDATE_FORMER=$DESKTOP_FROM \
+    "$EMACS_PROGRAM" -Q --batch \
+    --eval '(setq user-emacs-directory (file-name-as-directory (getenv "LISPM_UPDATE_DIRECTORY"))
+                  package-user-dir (expand-file-name "elpa" user-emacs-directory)
+                  package-directory-list nil
+                  native-comp-jit-compilation nil)' \
+    -L "$helper_directory" \
+    -l "$helper_directory/lispm-desktop-store-installer.el" \
+    -l "$helper_directory/lispm-desktop-update-safety.el" \
+    --eval '(progn
+              (lispm-desktop-store-checkout-preflight
+               user-emacs-directory (getenv "LISPM_UPDATE_REVISION")
+               (getenv "LISPM_UPDATE_FORMER"))
+              (package-initialize)
+              (lispm-desktop-update-check-dependencies
+               user-emacs-directory (getenv "LISPM_UPDATE_REVISION")))'
+)
+
+# Advance Desktop only after its effective dependencies satisfy the candidate.
+# A clean but older package shadowing a sibling also blocks this update: update
+# that installed package first, then retry; never pretend its version is newer.
+finish_desktop_update() {
+  [ -n "$DESKTOP_CANDIDATE" ] || return 0
+  note "Checking Desktop's dependencies before advancing its checkout"
+  if ! check_desktop_update; then
+    fail "Desktop was kept at $DESKTOP_FROM; resolve the dependency or checkout problem above, then retry"
+  fi
+  [ "$(git -C "$DESKTOP" rev-parse HEAD)" = "$DESKTOP_FROM" ] ||
+    fail "Desktop changed while its dependencies were checked; its checkout was left as it is"
+  [ -z "$(git -C "$DESKTOP" status --porcelain --untracked-files=no)" ] ||
+    fail "Desktop gained local changes while its dependencies were checked; its checkout was left as it is"
+  git -C "$DESKTOP" merge -q --ff-only --no-autostash --no-overwrite-ignore "$DESKTOP_CANDIDATE" ||
+    fail "Desktop could not advance safely; its checkout was left as it is"
+}
+
 fetch_projects() {
   say "Fetching LispM into $LISPM_HOME"
-  for project in lispm-desktop lispm-agent lispm-browser lispm-kit lispm-ui; do
+  prepare_desktop_update
+  for project in lispm-kit lispm-ui lispm-agent lispm-browser; do
     fetch_project "$project"
   done
+  finish_desktop_update
 }
 
 # Print the Emacs build the LispM.app at APP, or at $1, was made of, or

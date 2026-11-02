@@ -388,6 +388,36 @@ On failure, the Store attempts to restore the original package and shows any
 rollback error in the failed job.
 =M-x lispm-desktop-update-now= checks from anywhere.
 
+Before switching releases, Software Update checks every proposed checkout for
+local changes and reads the incoming Desktop's dependency requirements as data.
+Dependencies install first and Desktop last. A dependency excluded from the
+update list still has to satisfy the new Desktop: a newer sibling checkout does
+not make an older package on the active load path sufficient. The requirements
+are checked again against disk before Desktop advances. =install.sh= applies the
+same check with the installed profile's packages activated.
+
+Tracked or staged edits, a checkout changed since the update was prepared, or
+untracked/ignored files occupying paths in the incoming tree stop the update
+before checkout or rebuild. Unrelated generated package files are allowed.
+The message names the checkout or conflicting path; preserve or commit your
+changes, move conflicting files aside, and retry. The updater never automatically
+stashes, discards, or overwrites local source changes. A rejected preflight does
+not start rollback; a failed build uses the recorded actual former commit.
+Rollback accepts only the recorded original or target commit; another operation's
+commit stops recovery before files are removed. A failed or cancelled rebuild
+removes bytecode belonging only to the failed version and restores pre-existing
+local source-less bytecode that recompilation cannot recreate.
+Store package updates also reject older versions, so a stale catalog cannot
+downgrade an installed library. Internal recovery can still restore a former
+version after an unsuccessful transaction.
+
+These checks preserve Desktop's old checkout when a required dependency is
+missing, too old, or cannot be updated. They are not a transaction across every
+repository: dependencies completed before a later build failure remain updated.
+An old active package may need to be updated separately before =install.sh= can
+advance Desktop. Direct manual Git changes bypass the update coordinator; startup
+continues to reject an incompatible dependency rather than loading it silently.
+
 * Mac OS and X
 
 One configuration runs in the Mac build (NS) and in an X build, detecting the display and
