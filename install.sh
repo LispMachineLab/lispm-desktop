@@ -71,7 +71,6 @@ set -eu
 EMACS_31_RELEASE=Emacs-31.1
 EMACS_31_BUILD=Emacs.2026-08-24.a360712.emacs-31-1.macOS-11
 EMACS_31_SHA256_ARM64=41d118033eb766f14f853c2cdbce7a27cfed99fe244c7d9c9552a8dc22508480
-EMACS_31_SHA256_X86_64=83fb3864548eea3803dff2081d9736fbad57e14feb3df1ce5f158bd7834eb028
 EMACS_31_VERSION=31.1
 
 # The experimental one: Emacs 32 is not released, so this is a build of
@@ -81,7 +80,6 @@ EMACS_31_VERSION=31.1
 EMACS_32_RELEASE=Emacs.2026-10-21.3354d07.master
 EMACS_32_BUILD=Emacs.2026-10-21.3354d07.master.macOS-11
 EMACS_32_SHA256_ARM64=28c58868313880b16d483da8534ec983d6ac60c5a8532e5a0f3ef3c16d222ba7
-EMACS_32_SHA256_X86_64=85ee0efdc9e88a35b4fc1677d8c0282ae1c6ca958087d1cf8577921c40e96c1f
 EMACS_32_VERSION=32.0.50
 
 # The Developer ID both are signed with.
@@ -144,8 +142,9 @@ check_mac() {
     ARCH=arm64
   fi
   case $ARCH in
-    arm64 | x86_64) ;;
-    *) fail "LispM runs on Apple silicon and Intel Macs, not on $ARCH" ;;
+    arm64) ;;
+    x86_64) fail "Intel Macs are no longer officially supported; LispM requires Apple silicon on macOS" ;;
+    *) fail "LispM requires Apple silicon on macOS, not $ARCH" ;;
   esac
   major=$(sw_vers -productVersion | cut -d. -f1)
   [ "$major" -ge 11 ] || fail "LispM needs macOS 11 Big Sur or later"
@@ -287,9 +286,8 @@ choose_emacs() {
   esac
   case $EMACS.$ARCH in
     31.arm64) EMACS_SHA256=$EMACS_31_SHA256_ARM64 ;;
-    31.x86_64) EMACS_SHA256=$EMACS_31_SHA256_X86_64 ;;
     32.arm64) EMACS_SHA256=$EMACS_32_SHA256_ARM64 ;;
-    32.x86_64) EMACS_SHA256=$EMACS_32_SHA256_X86_64 ;;
+    *) fail "No official macOS Emacs build for $ARCH; Apple silicon is required" ;;
   esac
   if [ "$EMACS" = 32 ]; then
     say "This is the experimental LispM, on $EMACS_NAME"

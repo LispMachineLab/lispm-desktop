@@ -14,6 +14,38 @@ test_emacs=$(command -v "$test_emacs")
 # Use only install.sh's definitions, preserving the production entry point.
 sed '/^main "\$@"$/d' "$source_root/install.sh" >"$test_root/functions.sh"
 
+# Platform checks run before any installation, including under Rosetta.
+# The generated definitions call these platform stubs indirectly.
+# shellcheck disable=SC1091,SC2329
+(
+  . "$test_root/functions.sh"
+  uname() { printf '%s\n' arm64; }
+  sw_vers() { printf '%s\n' 14.0; }
+  check_mac
+  [ "$ARCH" = arm64 ]
+)
+# shellcheck disable=SC1091,SC2329
+(
+  . "$test_root/functions.sh"
+  uname() { printf '%s\n' x86_64; }
+  sysctl() { printf '%s\n' 1; }
+  sw_vers() { printf '%s\n' 14.0; }
+  check_mac
+  [ "$ARCH" = arm64 ]
+)
+# shellcheck disable=SC1091,SC2329
+if (
+  . "$test_root/functions.sh"
+  uname() { printf '%s\n' x86_64; }
+  sysctl() { printf '%s\n' 0; }
+  check_mac
+) >"$test_root/intel.out" 2>&1; then
+  printf '%s\n' 'FAIL: Intel Mac was accepted' >&2
+  exit 1
+fi
+grep -q 'Intel Macs are no longer officially supported' "$test_root/intel.out"
+printf '%s\n' 'PASS: Apple silicon and Rosetta accepted; Intel Mac rejected'
+
 # Isolate Git configuration and the batch Emacs cache/config directories.
 # The production check sets user-emacs-directory and package-user-dir itself.
 mkdir -p "$test_root/user" "$test_root/remotes"

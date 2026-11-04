@@ -504,44 +504,11 @@ An error if there is none."
 
 (defun lispm-desktop-characters--form-closed ()
   "Close the window of the form of a character, its form gone."
-  (unless (seq-some (lambda (buffer)
-                      (and (eq (buffer-local-value 'major-mode buffer) 'lispm-ui-form-mode)
-                           (buffer-local-value 'lispm-desktop-characters--form buffer)))
-                    (buffer-list))
-    (lispm-desktop-app-window-close 'character-form)))
+  (lispm-desktop-form-window-closed 'character-form 'lispm-desktop-characters--form))
 
 (defun lispm-desktop-characters--show-form (form)
   "Show FORM, the buffer of a form of a character, in its window: one at a time."
-  (when (lispm-desktop-app-window-open-p 'character-form)
-    (lispm-desktop-app-window-close 'character-form))
-  (with-current-buffer form
-    (setq lispm-desktop-characters--form t)
-    (add-hook 'kill-buffer-hook
-              (lambda () (run-at-time 0 nil #'lispm-desktop-characters--form-closed))
-              nil t))
-  (pcase-let* ((`(,width . ,height) (lispm-desktop-characters--form-size form))
-               (frame (lispm-desktop-app-window-show
-                       'character-form
-                       :name (lispm-ui-form-title form)
-                       :buffer form
-                       :size (cons width height))))
-    ;; The window opens where the last form's was, but each form is a size
-    ;; of its own: an application's form is shorter than a character's.
-    (unless (and (= width (frame-text-width frame)) (= height (frame-text-height frame)))
-      (set-frame-size frame width height t)
-      (lispm-desktop-platinum-frame-update frame)
-      (lispm-desktop-apps-keep-on-desktop frame))
-    frame))
-
-(defun lispm-desktop-characters--form-size (form)
-  "The size of the window of FORM, a form's buffer: as wide as its group
-boxes, as tall as all of it, as far as the screen allows."
-  (let* ((outer (or (plist-get (lispm-ui-form-geometry form) :outer) 480))
-         (height (cdr (buffer-text-pixel-size form)))
-         (screen (lispm-desktop-apps-screen)))
-    (cons (+ outer (lispm-desktop-px 40))
-          (min (+ height (lispm-desktop-px 24))
-               (- (frame-pixel-height screen) (lispm-desktop-px 120))))))
+  (lispm-desktop-form-show 'character-form form 'lispm-desktop-characters--form))
 
 (defun lispm-desktop-characters-new ()
   "Make a character, in its form."

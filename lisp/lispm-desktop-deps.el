@@ -63,6 +63,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'package)
 (require 'seq)
 (require 'subr-x)
@@ -96,7 +97,8 @@ while LispM Kit, which translates them, is being installed."
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"
-                  :lisp-dir "lisp"))
+                  :lisp-dir "lisp")
+    (lispm-auth :url "https://github.com/LispMachineLab/lispm-auth" :checkout "lispm-auth"))
   "The LispM projects the desktop runs: (FEATURE :url URL :checkout NAME
 :lisp-dir DIRECTORY :needs LIBRARY :version VERSION).  FEATURE is the
 project's main file, in DIRECTORY of its repository at URL, or at its
@@ -217,7 +219,13 @@ git is updated to its latest release, in an Emacs of its own; anything
 else is an error saying what to update."
   (let* ((desc (lispm-desktop-deps--package main))
          (directory (and desc (package-desc-dir desc)))
-         (release (and directory (lispm-desktop-deps--release directory))))
+         (tag (plist-get spec :tag))
+         (release (and directory
+                       (if tag
+                           (and (lispm-desktop-deps--git directory "fetch" "--quiet" "origin"
+                                                        (concat "refs/tags/" tag ":refs/tags/" tag))
+                                (lispm-desktop-deps--git directory "rev-parse" (concat tag "^{commit}")))
+                         (lispm-desktop-deps--release directory)))))
     (unless release
       (error "%s" (lispm-desktop-deps--behind main spec)))
     (message "%s" (lispm-desktop-deps--tr "Updating %s to its latest release, which this LispM Desktop needs…"
@@ -228,6 +236,124 @@ else is an error saying what to update."
     (load (expand-file-name (format "%s-autoloads" (package-desc-name desc)) directory) t t)
     (when-let* ((behind (lispm-desktop-deps--behind main spec)))
       (error "%s" behind))))
+
+(defvar lispm-desktop-deps--refreshed nil
+  "Archive configuration and contents last refreshed for project dependencies.")
+
+(defvar lispm-desktop-deps--refresh-failed nil
+  "Non-nil when an archive failed during the current refresh.")
+
+(defun lispm-desktop-deps--watch-archive (original archive file &rest args)
+  "Run ORIGINAL for ARCHIVE and FILE, recording unsuccessful downloads."
+  (let* ((path (expand-file-name (concat "archives/" (car archive) "/" file) package-user-dir))
+         (before (file-attributes path)))
+    (condition-case err
+        (prog1 (apply original archive file args)
+          ;; package.el can return normally without writing a malformed response.
+          ;; An unchanged cache is conservatively treated as a failure too.
+          (when (equal before (file-attributes path))
+            (setq lispm-desktop-deps--refresh-failed t)))
+      (error (setq lispm-desktop-deps--refresh-failed t)
+             (signal (car err) (cdr err))))))
+
+(defun lispm-desktop-deps--archive-settings ()
+  "Return the archive configuration relevant to refreshing package metadata."
+  (copy-tree (list package-archives package-archive-priorities package-pinned-packages
+                   package-user-dir package-check-signature package-unsigned-archives
+                   package-gnupghome-dir package-refresh-contents-hook)))
+
+(defun lispm-desktop-deps--refresh (missing)
+  "Refresh archives when MISSING cannot use this process's last refresh."
+  (let ((settings (lispm-desktop-deps--archive-settings)))
+    (unless (and lispm-desktop-deps--refreshed
+                 (equal settings (car lispm-desktop-deps--refreshed))
+                 (equal package-archive-contents (cdr lispm-desktop-deps--refreshed))
+                 (cl-every (lambda (dep)
+                             (seq-some (lambda (desc)
+                                         (version-list-<= (cadr dep) (package-desc-version desc)))
+                                       (cdr (assq (car dep) package-archive-contents))))
+                           missing))
+      (setq lispm-desktop-deps--refreshed nil)
+      (let ((lispm-desktop-deps--refresh-failed nil))
+        (advice-add 'package--download-one-archive :around #'lispm-desktop-deps--watch-archive)
+        (unwind-protect (package-refresh-contents)
+          (advice-remove 'package--download-one-archive #'lispm-desktop-deps--watch-archive))
+        (unless lispm-desktop-deps--refresh-failed
+          (setq lispm-desktop-deps--refreshed
+                (cons settings (copy-tree package-archive-contents))))))))
+
+(defconst lispm-desktop-deps-auth-version "0.2.2")
+(defconst lispm-desktop-deps-auth-sha256
+  "539ca4f1fc707e9d20b321ae0c090d9aeeb39725360e7131154f09331bdc52d8")
+(defconst lispm-desktop-deps-auth-source-sha256
+  "397538ad8d47f3dc05fa727ad52ebf0cbf532f4a3dbdd525c993628a2b5f6189")
+
+(defun lispm-desktop-deps--auth-install ()
+  "Install the verified Auth client beside existing packages, without replacing them."
+  (require 'url)
+  (let* ((root (expand-file-name "lispm-desktop-components" user-emacs-directory))
+         (directory (expand-file-name (concat "lispm-auth-" lispm-desktop-deps-auth-version) root))
+         (main (expand-file-name "lispm-auth.el" directory)))
+    (unless (and (file-regular-p main)
+                 (equal lispm-desktop-deps-auth-source-sha256
+                        (with-temp-buffer
+                          (set-buffer-multibyte nil)
+                          (insert-file-contents-literally main)
+                          (secure-hash 'sha256 (current-buffer)))))
+      (when (file-exists-p directory)
+        (error "Auth client directory already exists but is not the verified release: %s" directory))
+      (make-directory root t)
+      (let ((archive (make-temp-file "lispm-auth-client-" nil ".tar.gz"))
+            (stage (make-temp-file (expand-file-name ".auth-" root) t)))
+        (unwind-protect
+            (progn
+              (url-copy-file
+               (format "https://github.com/LispMachineLab/lispm-auth/releases/download/v%s/lispm-auth-client-%s.tar.gz"
+                       lispm-desktop-deps-auth-version lispm-desktop-deps-auth-version)
+               archive t)
+              (unless (equal lispm-desktop-deps-auth-sha256
+                             (with-temp-buffer
+                               (set-buffer-multibyte nil)
+                               (insert-file-contents-literally archive)
+                               (secure-hash 'sha256 (current-buffer))))
+                (error "LispM Auth client archive SHA256 mismatch"))
+              (with-temp-buffer
+                (set-buffer-multibyte nil)
+                (let ((coding-system-for-read 'no-conversion))
+                  (unless (zerop (call-process "tar" nil (current-buffer) nil "-xOf" archive
+                                              (format "lispm-auth-client-%s/lispm-auth.el"
+                                                      lispm-desktop-deps-auth-version)))
+                    (error "Cannot read LispM Auth client archive")))
+                (unless (equal lispm-desktop-deps-auth-source-sha256 (secure-hash 'sha256 (current-buffer)))
+                  (error "LispM Auth client source SHA256 mismatch"))
+                (let ((coding-system-for-write 'no-conversion))
+                  (write-region (point-min) (point-max) (expand-file-name "lispm-auth.el" stage) nil 'silent)))
+              (rename-file stage directory))
+          (delete-file archive)
+          (when (file-directory-p stage) (delete-directory stage t)))))
+    (add-to-list 'load-path directory)))
+
+(defun lispm-desktop-deps-ensure-auth ()
+  "Install the pinned Auth client unless a user-managed copy takes precedence."
+  (let* ((main (locate-library "lispm-auth.el" t))
+         (checkout (lispm-desktop-deps--checkout "lispm-auth")))
+    (cond
+     ((and main (file-in-directory-p main package-user-dir)
+           (equal (lispm-desktop-deps--git (file-name-directory main) "rev-parse" "HEAD")
+                  "7f56c31de638c084aaba409a1f3630324180cd9b")
+           (equal (lispm-desktop-deps--git (file-name-directory main) "remote" "get-url" "origin")
+                  "https://github.com/LispMachineLab/lispm-auth")
+           (equal (lispm-desktop-deps--git (file-name-directory main) "status" "--porcelain" "--untracked-files=no") ""))
+      ;; The old default package is left intact; the new client takes precedence.
+      (lispm-desktop-deps--auth-install))
+     ((and main (not (file-in-directory-p main (expand-file-name "lispm-desktop-components" user-emacs-directory))))
+      (when (version-list-< (or (lispm-desktop-deps--version main) '(0))
+                            (version-to-list lispm-desktop-deps-auth-version))
+        (display-warning 'lispm-desktop
+                         (format "User-managed LispM Auth in %s is older than %s; update it to enable all supported platforms."
+                                 (file-name-directory main) lispm-desktop-deps-auth-version) :warning)))
+     ((and (not main) checkout) (add-to-list 'load-path checkout))
+     (t (lispm-desktop-deps--auth-install)))))
 
 (defun lispm-desktop-deps-ensure (feature)
   "Make FEATURE, a project of `lispm-desktop-deps', loadable.
@@ -251,8 +377,15 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
         (unless package-alist
           (package-load-all-descriptors))
         (unless (assq feature package-alist)
-          (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
-                              (or (lispm-desktop-deps--release-tag url) :last-release)))
+          (when (fboundp 'lispm-desktop-installer-screen-report)
+            (lispm-desktop-installer-screen-report (format "Installing project: %s" feature)))
+          (condition-case err
+              (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
+                                  (or (plist-get spec :tag) (lispm-desktop-deps--release-tag url) :last-release))
+            (wrong-type-argument
+             (if (equal (cdr err) '(stringp nil))
+                 (error "Could not install %s from %s; check Git and network access, then retry" feature url)
+               (signal (car err) (cdr err))))))
         ;; package.el activates a package only once each package it
         ;; requires is installed as one, and so leaves inactive a project
         ;; requiring another the desktop has as a checkout, as LispM UI
@@ -263,9 +396,11 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
           (package-activate-1 desc))))
     (when-let* ((main (locate-library file t)))
       (when (lispm-desktop-deps--behind main spec)
+        (when (fboundp 'lispm-desktop-installer-screen-report)
+          (lispm-desktop-installer-screen-report (format "Updating project: %s" feature)))
         (lispm-desktop-deps--catch-up main spec))
       (when-let* ((missing (lispm-desktop-deps--requirements main)))
-        (package-refresh-contents)
+        (lispm-desktop-deps--refresh missing)
         (dolist (dep missing)
           (package-install (car dep)))))))
 

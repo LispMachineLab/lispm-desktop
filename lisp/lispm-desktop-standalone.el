@@ -116,6 +116,8 @@ lispm-desktop-early.el looks for it before the first frame is made.")
   "Return why LispM's applications cannot open on their own here, as a
 string in the language LispM speaks, or nil when they can."
   (cond (noninteractive (lispm-desktop-tr "Emacs runs without a display"))
+        ((not (display-graphic-p))
+         (lispm-desktop-tr "the desktop is on a text terminal"))
         ((not (eq system-type 'darwin))
          (lispm-desktop-tr "applications open on their own only on macOS for now"))
         ((not (fboundp 'ns-do-applescript))
@@ -502,7 +504,7 @@ it changes, the application is made anew.  EMACS is as
 `lispm-desktop-standalone--emacs' returns it, EXECUTABLE the one built."
   (let ((icon (lispm-desktop-standalone--source-icon app)))
     (secure-hash 'sha1 (prin1-to-string
-                        (list 3 app (lispm-desktop-standalone--file-name app) emacs executable
+                        (list 4 app (lispm-desktop-standalone--file-name app) emacs executable
                               (lispm-desktop-display-socket t) icon
                               (and icon (file-attribute-modification-time (file-attributes icon))))))))
 
@@ -549,7 +551,7 @@ EMACS, as `lispm-desktop-standalone--emacs' returns it; STAMP its stamp."
 	<key>LispMArguments</key>
 	<array>
 " (mapconcat (lambda (argument) (concat "\t\t<string>" (lispm-desktop-standalone--xml argument) "</string>\n"))
-             (cdr emacs) "") "\t</array>
+             (append (cdr emacs) (list (format "--lispm-app=%s" app))) "") "\t</array>
 	<key>LispMStamp</key>
 	<string>" stamp "</string>
 </dict>

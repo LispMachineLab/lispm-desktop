@@ -42,6 +42,7 @@
 ;;   Control Strip     settings at hand
 ;;   Windows           title bars, boxes and grow boxes, this one's
 ;;   Emacs, as ever    Emacs's own keys
+;;   Your password     LispM's password, in the Security control panel
 ;;
 ;; Each step names the keys that do what it shows, drawn as key caps, and
 ;; most have a Show Me button that does it, as the user would: it opens
@@ -54,11 +55,14 @@
 ;; N, Return, Space, C-f or C-n go to the next step, P, DEL, C-b or C-p
 ;; back, S shows, Q or Escape puts the guide away, to come back on the
 ;; same step, Skip leaves it, to start over, and Tab rings its buttons in
-;; turn.  The guide floats over the other windows but takes the keyboard
-;; only when it is clicked or called, and C-c ? gives it the keyboard
-;; back.  It shows over the desktop, hiding from the full-screen editor
-;; and browser as the other windows do; C-c ? brings the desktop back in
-;; front with it, and so does a step whose coach mark lies on the
+;; turn.  Done, on the last step, puts the guide away and opens what that
+;; step finishes with: the Security control panel, where LispM's password
+;; is set, so that the settings the guide speaks of are at hand when it
+;; has gone.  The guide floats over the other windows but takes the
+;; keyboard only when it is clicked or called, and C-c ? gives it the
+;; keyboard back.  It shows over the desktop, hiding from the full-screen
+;; editor and browser as the other windows do; C-c ? brings the desktop
+;; back in front with it, and so does a step whose coach mark lies on the
 ;; desktop.
 
 ;;; Code:
@@ -95,6 +99,8 @@
 (defvar lispm-desktop-browser-floating)
 (declare-function lispm-desktop-coherence-available-p "lispm-desktop-coherence" (&optional screen))
 (declare-function lispm-browser-available-p "lispm-browser" ())
+(declare-function lispm-desktop-settings-show-category "lispm-desktop-settings" (category))
+(declare-function lispm-desktop-settings--security-p "lispm-desktop-settings" ())
 (defvar lispm-desktop-help-items-function)
 
 (defcustom lispm-desktop-guide-shown nil
@@ -187,7 +193,14 @@ whenever asked."
      :keys (("C-x C-f" ,(lispm-desktop-tr-noop "opens a file"))
             ("C-x b" ,(lispm-desktop-tr-noop "switches to a buffer"))
             ("M-x" ,(lispm-desktop-tr-noop "runs any command"))
-            ("C-g" ,(lispm-desktop-tr-noop "cancels")))))
+            ("C-g" ,(lispm-desktop-tr-noop "cancels"))))
+    (security
+     :title ,(lispm-desktop-tr-noop "Your password")
+     :icon "security-32"
+     :when lispm-desktop-guide--security-p
+     :text ,(lispm-desktop-tr-noop "LispM keeps the keys its agents use encrypted under one password, and asks for it when it starts.  The Security control panel changes that password, locks the keys for now, and says which applications ask for it.  Done opens it.")
+     :show lispm-desktop-guide--show-security
+     :finish lispm-desktop-guide--finish-security))
   "The guide's steps, in order: (KEY . PROPERTIES).
 :title names a step, :text says what it shows, and :icon is its large
 icon, as `lispm-ui-icon-file' takes it.  :mark is what the
@@ -200,7 +213,9 @@ separated, TEXT what they do; a third element, a function, shows the
 keys only while it returns non-nil.  :show is the function Show Me calls
 to do it, as the user would; it returns a function putting back what it
 opened, called as the guide leaves the step, or nil.  :when, a
-function, decides whether the step is shown at all.
+function, decides whether the step is shown at all.  :finish, on the
+last step, is the function Done calls once the guide is away, to open
+what the step's settings are found in.
 The words, :title, :text and each key's TEXT, are in English, translated
 where shown; :text names a menu, an icon or a button in the words it
 reads, so that their translations match.")
@@ -251,6 +266,11 @@ each step does its Show Me on its own, a menu shown closing again.")
 (defun lispm-desktop-guide--coherence-p ()
   "Return non-nil when the desktop's windows can go out on the screen."
   (and (fboundp 'lispm-desktop-coherence-available-p) (lispm-desktop-coherence-available-p)))
+
+(defun lispm-desktop-guide--security-p ()
+  "Return non-nil when there is a Security control panel to show."
+  (and (fboundp 'lispm-desktop-settings--security-p)
+       (lispm-desktop-settings--security-p)))
 
 (defun lispm-desktop-guide--steps ()
   "Return the steps shown here, see `lispm-desktop-guide-steps'."
@@ -508,11 +528,15 @@ still on it."
     (lispm-desktop-guide-show-me)))
 
 (defun lispm-desktop-guide-next ()
-  "Go to the guide's next step; after the last, put the guide away."
+  "Go to the guide's next step; after the last, put the guide away and do
+what that step finishes with, as Done does."
   (interactive)
   (if (< lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
       (lispm-desktop-guide--go (1+ lispm-desktop-guide--index))
-    (lispm-desktop-guide-skip)))
+    (let ((finish (plist-get (cdr (lispm-desktop-guide--step)) :finish)))
+      (lispm-desktop-guide-skip)
+      (when finish
+        (funcall finish)))))
 
 (defun lispm-desktop-guide-previous ()
   "Go back to the guide's step before."
@@ -598,6 +622,19 @@ already."
   (let ((open (lispm-desktop-app-window-open-p 'store)))
     (lispm-desktop-store-show)
     (unless open #'lispm-desktop-store-close)))
+
+(defun lispm-desktop-guide--show-security ()
+  "Open the Security control panel; return what closes it again, unless it
+was open already."
+  (let ((open (lispm-desktop-app-window-open-p 'settings-security)))
+    (lispm-desktop-settings-show-category 'settings-security)
+    (unless open
+      (lambda () (lispm-desktop-app-window-close 'settings-security)))))
+
+(defun lispm-desktop-guide--finish-security ()
+  "Open the Security control panel, where the password the guide ends on
+is set, that it be at hand once the guide is away."
+  (lispm-desktop-settings-show-category 'settings-security))
 
 (defun lispm-desktop-guide--show-editor ()
   "Open Emacs floating over the desktop, not filling the screen, which

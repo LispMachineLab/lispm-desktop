@@ -35,7 +35,7 @@ and is retried at the next start.
 
 ** LispM.app, on macOS
 
-On macOS 11 or later, Apple silicon or Intel:
+On macOS 11 or later, Apple silicon only. Intel Macs are no longer officially supported:
 
 #+begin_src sh
 curl -fsSL https://lispm.ai/install.sh | sh
@@ -102,8 +102,9 @@ emacs --init-directory ~/lispm-desktop     # or make it your config: ln -s ~/lis
 The first start asks for Vim or Emacs keys and an appearance, installs the packages (a few
 minutes, once), then tours the desktop.  LispM Agent and LispM Browser are taken from
 ~load-path~, else from checkouts beside this one (=../lispm-agent=, =../lispm-browser=), else
-installed with package-vc.  Give the agents a model with ~OPENAI_API_KEY~ or ~ANTHROPIC_API_KEY~,
-or see LispM Agent's [[https://github.com/LispMachineLab/lispm-agent#backends][Backends]].
+installed with package-vc.  Give the agents a model in Control Panels → Agents → LispM: Change… the
+backend there, or Add… one, choosing the Anthropic or OpenAI compatible API and where its key comes
+from.  See also LispM Agent's [[https://github.com/LispMachineLab/lispm-agent#backends][Backends]].
 
 Optional, used when present:
 
@@ -154,8 +155,10 @@ Optional, used when present:
   the one this repository pins; Eat stands in until it is there.
 - *Control Panels*, one for each category, a few tabs each: Appearance (Appearance, Desktop),
   General (Language, Keyboard, Startup), Internet (Internet, Network), Agents (LispM: LispM
-  Agent's model, permissions, memory, roles and skills; Sandbox) and System (Kernel, Software
-  Update), and Apps, an independent manager for installed applications and extensions:
+  Agent's model, permissions, memory, roles and skills; Sandbox), System (Kernel, Software
+  Update), Security (Security: the password LispM's keys are kept under, locking them now, and
+  whether the Desktop asks for the password when it starts), and Apps, an independent manager for
+  installed applications and extensions:
   search or filter the list, inspect versions and sources, open, update or uninstall with
   confirmation.  Built-in applications are listed too, but cannot be uninstalled.
   Plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
@@ -308,6 +311,25 @@ its output in =*Service: NAME*=.
         (:program "npm run dev" :name "Site" :directory "~/site/")))
 #+end_src
 
+** Security
+
+LispM keeps the keys its agents use encrypted under one password, and asks for it when it starts
+(LispM Auth, [[https://github.com/LispMachineLab/lispm-auth][lispm-auth]]).  The Security control panel says how the
+password stands, sets it the first time, changes it, locks the store now, and says whether the
+Desktop asks for the password when it starts; the Desktop asks by default, and the panel revokes
+that.  LispM itself always asks, and the panel cannot revoke it.
+
+From the keyboard, on the desktop or in Focus Mode, =M-x lispm-desktop-security= asks the same
+things in the minibuffer, with =completing-read=, =read-passwd= and messages only: no window, no
+dialog, no page.  =C-g= or Done leaves without changing anything.  =M-x
+lispm-desktop-auth-change-password= and =M-x lispm-desktop-auth-lock= do the two without the menu.
+
+The password is typed by you in the minibuffer, and only there.  LispM's agents read whether a
+password is set and whether the Desktop asks for it, and change the latter; they can start a
+password change or a lock, but never give a password: their tools take none, and a change they
+start reads it from you in the minibuffer.  Every setting an agent changes is confirmed in the
+conversation first.
+
 ** Focus Mode
 
 Focus Mode is LispM's terminal: LispM used from the keyboard alone, as on a Lisp Machine's console,
@@ -318,6 +340,12 @@ Enter it at once from the Application menu, at the right of the menu bar, under 
 =C-c T=; from the LispM bar ("focus" or "terminal"); or by asking LispM for the terminal or console
 mode.  It opens in a frame of its own over the desktop (a frame of its own on a text terminal too);
 =C-c C-q=, or asking LispM to go back, closes it and the desktop is as it was.
+
+Settings are there too, in the minibuffer alone.  =M-x lispm-desktop-security= changes the
+password, locks the store and says whether the Desktop asks for it, see [[Security]].  LispM's
+agents change any setting the Control Panels offer, asking you to confirm each change in the
+conversation first; =settings_show= lists a panel's settings in the minibuffer (TAB shows them all
+in =*Completions*=), and never opens a window there.
 
 Or start LispM in Focus Mode: Start As in the Startup panel, =M-x lispm-desktop-start-as-terminal= or
 Special ▸ Start in Focus Mode…, which offer to restart at once; back with

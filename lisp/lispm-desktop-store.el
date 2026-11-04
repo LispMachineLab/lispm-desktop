@@ -856,7 +856,7 @@ a line each, in the language LispM speaks."
 ;;;; Installing, removing, updating
 
 (defun lispm-desktop-store--status (text)
-  "Say TEXT on the App Store's placard, and in the echo area; nil for none.
+  "Say TEXT on the App Store's placard and in Console; nil for none.
 The window is drawn at once, as what follows may keep Emacs busy."
   (when-let* ((buffer (get-buffer lispm-desktop-store-buffer-name)))
     (with-current-buffer buffer
@@ -864,8 +864,8 @@ The window is drawn at once, as what follows may keep Emacs busy."
       (force-mode-line-update))
     (when text
       (redisplay t)))
-  (when text
-    (message "%s" text)))
+  (when (and text (fboundp 'lispm-desktop-console-report))
+    (lispm-desktop-console-report 'note "App Store" text)))
 
 (defun lispm-desktop-store--names (items)
   "Return the names of ITEMS, (ID . PROPERTIES), as a phrase."

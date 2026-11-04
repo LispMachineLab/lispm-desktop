@@ -44,6 +44,7 @@
 (defvar lispm-terminal-enter-function)
 (defvar lispm-terminal-leave-function)
 (defvar lispm-turn-end-functions)
+(defvar lispm-auth-password-function)
 
 ;; The words as the code writes them, whatever the computer's language.
 (setq lispm-desktop-language 'en
@@ -365,6 +366,20 @@ page, while LispM is set up, says so and what was chosen."
     (should (string-search "Emacs keys, Dracula for now"
                            (plist-get (lispm-desktop-assistant--done-page questions nil) :detail)))))
 
+(ert-deftest lispm-desktop-test-assistant-package-message-cleanup ()
+  "Package messages are captured only during the operation, even on error."
+  (let ((lispm-desktop-assistant--window (selected-window))
+        (lispm-desktop-assistant--last-page (list :picture t))
+        (shown nil))
+    (cl-letf (((symbol-function 'lispm-desktop-assistant--visible-p) (lambda () t))
+              ((symbol-function 'lispm-desktop-assistant--show)
+               (lambda (page &rest _) (setq shown page))))
+      (should-error
+       (lispm-desktop-assistant--package-operation
+        (lambda () (message "Contacting host: example") (error "failed"))))
+      (should (equal (plist-get shown :message) "Contacting host: example"))
+      (should-not (advice-member-p #'lispm-desktop-assistant--package-message 'message)))))
+
 (ert-deftest lispm-desktop-test-assistant-in-minibuffer ()
   "Where the page cannot be drawn, the questions are asked in the
 minibuffer, by the same keys; C-g puts them off."
@@ -491,6 +506,8 @@ icon or a place a function returns, and what Show Me calls is a function."
         (mark (ert-fail (list "Unknown mark" mark))))
       (when-let* ((show (plist-get properties :show)))
         (should (fboundp show)))
+      (when-let* ((finish (plist-get properties :finish)))
+        (should (fboundp finish)))
       (dolist (entry (plist-get properties :keys))
         (should (stringp (nth 1 entry)))
         (dolist (keys (split-string (car entry) ", *" t))
@@ -499,13 +516,16 @@ icon or a place a function returns, and what Show Me calls is a function."
 
 (ert-deftest lispm-desktop-test-guide-shows-what-is-here ()
   "Steps whose subject is missing are left out, and keys whose predicate
-says no; the guide's place stays within the steps left."
+says no; the guide's place stays within the steps left.  The password's
+step, which Done opens the Security control panel from, is last."
   (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop-strip-edges) #'ignore)
+            ((symbol-function 'lispm-desktop-settings--security-p) #'ignore)
             ((symbol-function 'lispm-desktop-coherence-available-p) #'ignore))
     (let ((keys (mapcar #'car (lispm-desktop-guide--steps))))
       (should-not (memq 'browser keys))
       (should-not (memq 'strip keys))
+      (should-not (memq 'security keys))
       (should (equal (car keys) 'welcome))
       (should (equal (car (last keys)) 'keys)))
     (should-not (lispm-desktop-guide--keys (assq 'windows lispm-desktop-guide-steps)))
@@ -513,19 +533,26 @@ says no; the guide's place stays within the steps left."
       (should (eq (car (lispm-desktop-guide--step)) 'keys))))
   (cl-letf (((symbol-function 'lispm-desktop-coherence-available-p) #'always))
     (should (equal (mapcar #'car (lispm-desktop-guide--keys (assq 'windows lispm-desktop-guide-steps)))
-                   '("C-c h")))))
+                   '("C-c h"))))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--security-p) #'always))
+    (should (equal (car (last (mapcar #'car (lispm-desktop-guide--steps)))) 'security))))
 
 (ert-deftest lispm-desktop-test-guide-goes-step-by-step ()
   "Next and Back go from step to step, each circling what it speaks of;
-Back does nothing on the first step, and Next on the last puts the guide
-away, to start over the next time."
+Back does nothing on the first step, Skip puts the guide away without
+opening anything, and Done, on the last step, puts the guide away and
+opens what that step finishes with, the Security control panel."
   (let ((lispm-desktop-guide--index 0)
         (lispm-desktop-guide--playing nil)
         (lispm-desktop-guide--undo nil)
         (marks nil)
-        (closed nil))
+        (closed nil)
+        (opened nil))
     (cl-letf (((symbol-function 'lispm-desktop-guide--render) #'ignore)
               ((symbol-function 'lispm-desktop-guide--frame) #'ignore)
+              ((symbol-function 'lispm-desktop-settings--security-p) #'always)
+              ((symbol-function 'lispm-desktop-settings-show-category)
+               (lambda (category) (push category opened)))
               ((symbol-function 'lispm-desktop-platinum-set-coach-mark) (lambda (mark) (push mark marks)))
               ((symbol-function 'lispm-desktop-guide-close) (lambda () (setq closed t))))
       (lispm-desktop-guide-previous)
@@ -538,10 +565,19 @@ away, to start over the next time."
       (should (= lispm-desktop-guide--index 0))
       (should (null (car marks)))
       (setq lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
+      (should (eq (car (lispm-desktop-guide--step)) 'security))
       (should-not closed)
       (lispm-desktop-guide-next)
       (should closed)
-      (should (= lispm-desktop-guide--index 0)))))
+      (should (= lispm-desktop-guide--index 0))
+      (should (equal opened '(settings-security)))
+      ;; Skip leaves it without opening anything.
+      (setq closed nil
+            opened nil
+            lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps))))
+      (lispm-desktop-guide-skip)
+      (should closed)
+      (should-not opened))))
 
 (ert-deftest lispm-desktop-test-guide-plays-by-itself ()
   "Playing by itself, the guide does a step's Show Me a moment after the
@@ -636,7 +672,8 @@ was typed meanwhile, and takes back an Escape left unread."
 and its buttons: Show Me where the step shows something, Back but on the
 first step, Next, or Done on the last; its bottom says how far along it
 is.  The keys go from step to step."
-  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore))
+  (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
+            ((symbol-function 'lispm-desktop-guide--security-p) #'ignore))
     (with-temp-buffer
       (lispm-desktop-guide-mode)
       (let ((lispm-desktop-guide-buffer-name (buffer-name))
@@ -5669,12 +5706,17 @@ positions, the keys, the browser's pages."
   (skip-unless (image-type-available-p 'svg))
   (cl-letf (((symbol-function 'lispm-browser-available-p) #'always)
             ((symbol-function 'lispm-browser-history) (lambda () '(("u" "t" 0 1))))
+            ((symbol-function 'lispm-desktop-settings--security-p) #'always)
+            ((symbol-function 'lispm-auth-store-exists-p) #'ignore)
+            ((symbol-function 'lispm-auth-locked-p) #'ignore)
+            ((symbol-function 'lispm-auth-app-requires-password-p) #'ignore)
             ((symbol-function 'lispm-browser-bookmarks) (lambda () nil)))
     (pcase-dolist (`(,panel ,title . ,labels)
                    '((themes "Appearance" "Dracula" "Platinum")
                      (desktop "Appearance" "From the theme" "Fill" "Tile" "Arrange Icons")
                      (keyboard "General" "Vim keys" "Emacs keys" "next start")
                      (browser "Internet" "Home Page" "Clear History" "Edit Bookmarks")
+                     (security "Security" "Password" "Applications" "Set Password…")
                      (network "Internet" "Proxy" "None" "HTTP" "SOCKS5" "Direct Connections")))
       (with-current-buffer (lispm-desktop-settings-select panel)
         (let ((text (concat (buffer-string)
@@ -5727,15 +5769,20 @@ shown in its own control panel's window."
                    (sort (mapcar #'car lispm-desktop-settings-panels) #'string<))))
   (should (eq (lispm-desktop-settings-category 'kernel) 'settings-system))
   (should (eq (lispm-desktop-settings-category 'network) 'settings-internet))
+  (should (eq (lispm-desktop-settings-category 'security) 'settings-security))
   (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'ignore)
             ((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore)
+            ((symbol-function 'lispm-desktop-settings--security-p) #'ignore)
             ((symbol-function 'lispm-browser-available-p) #'ignore))
     (should-not (assq 'settings-agents (lispm-desktop-settings--categories)))
+    (should-not (assq 'settings-security (lispm-desktop-settings--categories)))
     (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-internet)) '(network))))
   (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'always)
-            ((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore))
+            ((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore)
+            ((symbol-function 'lispm-desktop-settings--security-p) #'always))
     (should (assq 'settings-agents (lispm-desktop-settings--categories)))
-    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-agents)) '(lispm))))
+    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-agents)) '(lispm)))
+    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-security)) '(security))))
   (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-system)) '(kernel update)))
   (cl-letf (((symbol-function 'lispm-desktop-settings--fill) #'ignore))
     (let ((language (lispm-desktop-settings-select 'keyboard))
@@ -5985,13 +6032,24 @@ and the panel shows what was chosen."
     (with-current-buffer (lispm-desktop-settings-select 'lispm)
       (should (equal (lispm-desktop-platinum-title-text) "Agents"))
       (dolist (text '("Model" "test-model" "via test" "Ready; it needs no key." "Effort: " "Extra high"
-                      "Choose…" "Backends…" "Permissions" "Allow" "Ask" "Deny" "Run shell commands"
+                      "Choose…" "test · Anthropic-compatible · http://fake.invalid"
+                      "Other models: test-small"
+                      "Permissions" "Allow" "Ask" "Deny" "Run shell commands"
                       "Memory" "Small" "Only when asked" "Save memory before summing up" "Show Memory…"
                       "Roles & Skills" "assistant" "A general assistant." "reviewer"
                       "LispM's own skills" "Add…"))
         (should (string-search text (lispm-desktop-test--settings-text))))
+      ;; Backend controls depend on the installed agent's capabilities;
+      ;; use help text because other groups also have Add/Remove buttons.
+      (dolist (help '("Change the backend agents" "Add a backend:"))
+        (should (eq (not (null (lispm-desktop-test--settings-help-button help)))
+                    (fboundp 'lispm-backend-form))))
+      (should (eq (not (null (lispm-desktop-test--settings-help-button
+                              "Remove the backend agents")))
+                  (fboundp 'lispm-backend-remove)))
       ;; Only LispM's own skills: nothing to remove.
-      (should-not (lispm-desktop-test--settings-button "Remove…"))
+      (should-not (lispm-desktop-test--settings-help-button
+                   "Take a directory out of those skills come from"))
       (should (lispm-desktop-test--radio-on-p "Medium"))
       (lispm-desktop-test--press "Extra high")
       (should (equal lispm-effort "xhigh"))
@@ -6065,6 +6123,199 @@ and the panel shows what was chosen."
           (lispm-desktop-test--press "Have agents ask again")))
       (should-not lispm-trusted-skills)
       (should (string-search "you trust none yet" (buffer-string))))))
+
+(ert-deftest lispm-desktop-test-settings-lispm-backend-older ()
+  "An older LispM can draw the model panel without backend editing APIs."
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-lispm-settings
+    (cl-letf (((symbol-function 'lispm-backend-api-name) nil)
+              ((symbol-function 'lispm-backend-form) nil)
+              ((symbol-function 'lispm-backend-remove) nil))
+      (lispm-desktop-setup-settings)
+      (with-current-buffer (lispm-desktop-settings-select 'lispm)
+        (should (string-search "test · Anthropic-compatible · http://fake.invalid"
+                               (lispm-desktop-test--settings-text)))
+        (should (lispm-desktop-test--settings-button "Choose…"))
+        (should-not (lispm-desktop-test--settings-help-button
+                     "Change the backend agents"))
+        (should-not (lispm-desktop-test--settings-help-button
+                     "Add a backend:"))
+        (should-not (lispm-desktop-test--settings-help-button
+                     "Remove the backend agents"))))))
+
+(ert-deftest lispm-desktop-test-settings-lispm-backend ()
+  "The LispM panel says which backend agents that name no model use, and
+opens its form to change or add one, or removes it once told to."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (skip-unless (require 'lispm-backend-form nil t))
+  (lispm-desktop-test--with-lispm-settings
+    (lispm-desktop-setup-settings)
+    (with-current-buffer (lispm-desktop-settings-select 'lispm)
+      (let ((text (lispm-desktop-test--settings-text)))
+        (should (string-search "test · Anthropic-compatible · http://fake.invalid" text))
+        (should (string-search "Other models: test-small" text)))
+      ;; Change… opens the form of the backend in use.
+      (let ((form nil))
+        (cl-letf (((symbol-function 'lispm-desktop-form-show)
+                   (lambda (_kind buffer _variable) (setq form buffer))))
+          (lispm-desktop-test--press "Change…"))
+        (should form)
+        (with-current-buffer form
+          (should (equal (lispm-ui-form-title) (lispm-desktop-tr "Backend %s" 'test)))
+          (should (equal (lispm-ui-form-value 'url) "http://fake.invalid"))
+          (should (eq (lispm-ui-form-value 'api) 'anthropic))
+          (kill-buffer)))
+      ;; Add… opens the form of a new one, its name empty.
+      (let ((form nil))
+        (cl-letf (((symbol-function 'lispm-desktop-form-show)
+                   (lambda (_kind buffer _variable) (setq form buffer))))
+          (lispm-desktop-test--press "Add…"))
+        (should form)
+        (with-current-buffer form
+          (should (equal (lispm-ui-form-title) (lispm-desktop-tr "Add Backend")))
+          (should-not (lispm-ui-form-value 'name))
+          (kill-buffer)))
+      ;; Remove… asks first, and takes no for an answer.
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_prompt) nil)))
+        (lispm-desktop-test--press "Remove…"))
+      (should (assq 'test lispm-backends))
+      (setq saved nil)
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_prompt) t)))
+        (lispm-desktop-test--press "Remove…"))
+      (should-not (assq 'test lispm-backends))
+      (should (memq 'lispm-backends saved))
+      ;; With none, the panel says so, and only offers to add one.
+      (should (string-search "No backend" (lispm-desktop-test--settings-text)))
+      (should (lispm-desktop-test--settings-button "Add…"))
+      (should-not (lispm-desktop-test--settings-button "Change…"))
+      (should-not (lispm-desktop-test--settings-button "Remove…")))))
+
+(ert-deftest lispm-desktop-test-settings-security ()
+  "The Security panel says how LispM's password stands, offers to make or
+change it and to lock the keys, and asks whether the Desktop's start needs
+it."
+  ;; Drawn as SVG: an Emacs without librsvg cannot.
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-setup-settings)
+  (let ((store nil)
+        (locked nil)
+        (required t)
+        (asked nil)
+        (changed nil)
+        (lispm-auth-password-function 'desktop-password-page))
+    (cl-letf (((symbol-function 'lispm-auth-store-exists-p) (lambda () store))
+              ((symbol-function 'lispm-auth-locked-p) (lambda () locked))
+              ((symbol-function 'lispm-auth-change-password)
+               (lambda () (push lispm-auth-password-function changed) (setq store t)))
+              ((symbol-function 'lispm-auth-lock) (lambda () (setq locked t)))
+              ((symbol-function 'lispm-auth-app-requires-password-p)
+               (lambda (app) (push (list 'get app) asked) required))
+              ((symbol-function 'lispm-auth-set-app-requires-password)
+               (lambda (app value) (push (list 'set app value) asked) (setq required value))))
+      ;; No store yet: the panel offers to make the password.
+      (with-current-buffer (lispm-desktop-settings-select 'security)
+        (should (string-search "No password is set yet" (lispm-desktop-test--settings-text)))
+        (should (lispm-desktop-test--settings-button "Set Password…"))
+        (should-not (lispm-desktop-test--settings-button "Lock Now")))
+      ;; An open store: the panel says so, offers to change the password and
+      ;; to lock the keys.  Auth owns the password page; Desktop passes no secret.
+      (setq store t)
+      (with-current-buffer (lispm-desktop-settings-select 'security)
+        (should (string-search "open for this session" (lispm-desktop-test--settings-text)))
+        (should (lispm-desktop-test--settings-button "Change Password…"))
+        (lispm-desktop-test--press "Change Password…"))
+      (should (equal changed '(desktop-password-page)))
+      ;; Locking forgets the keys, and the panel says so.
+      (setq locked nil)
+      (with-current-buffer (lispm-desktop-settings-select 'security)
+        (lispm-desktop-test--press "Lock Now"))
+      (should locked)
+      (with-current-buffer (lispm-desktop-settings-select 'security)
+        (should (string-search "store is locked" (lispm-desktop-test--settings-text)))
+        (should-not (lispm-desktop-test--settings-button "Lock Now")))
+      ;; The Desktop's start asks for the password unless told not to.
+      (with-current-buffer (lispm-desktop-settings-select 'security)
+        (should (string-search "Ask for the password when the Desktop starts"
+                               (lispm-desktop-test--settings-text)))
+        (lispm-desktop-test--press "Ask for the password when the Desktop starts"))
+      (should-not required)
+      (should (member '(set desktop nil) asked)))
+    ;; Auth is a system component, so Security remains visible.
+    (should (assq 'settings-security (lispm-desktop-settings--categories)))))
+
+(ert-deftest lispm-desktop-test-security-command ()
+  "M-x lispm-desktop-security chooses actions in the minibuffer.
+Password changes use the native minibuffer and Auth's zero-argument API.
+Done and C-g leave the menu."
+  (let ((store nil)
+        (locked nil)
+        (required t)
+        (answers nil)
+        (asked nil)
+        (prompts nil)
+        (typed nil)
+        (cancel-password nil)
+        (lispm-auth-password-function 'desktop-password-page)
+        (quit nil))
+    (cl-letf (((symbol-function 'lispm-auth-store-exists-p) (lambda () store))
+              ((symbol-function 'lispm-auth-locked-p) (lambda () locked))
+              ((symbol-function 'lispm-auth-app-requires-password-p) (lambda (_app) required))
+              ((symbol-function 'lispm-auth-set-app-requires-password)
+               (lambda (app value) (push (list 'required app value) asked) (setq required value)))
+              ((symbol-function 'lispm-auth-lock)
+               (lambda () (push 'lock asked) (setq locked t)))
+              ((symbol-function 'lispm-desktop-auth--lock-screen) #'ignore)
+              ((symbol-function 'lispm-auth-change-password)
+               (lambda ()
+                 (funcall lispm-auth-password-function "Current: ")
+                 (funcall lispm-auth-password-function "New: " t)
+                 (push 'password-change asked) (setq store t locked nil) t))
+              ((symbol-function 'read-passwd)
+               (lambda (prompt &optional confirm)
+                 (push (list prompt confirm) typed)
+                 (when cancel-password (signal 'quit nil))
+                 "secret"))
+              ((symbol-function 'lispm-ui-alert) (lambda (&rest _) (error "A window opened")))
+              ((symbol-function 'completing-read)
+               (lambda (prompt collection &rest _)
+                 (push (cons prompt collection) prompts)
+                 (if quit (signal 'quit nil) (prog1 (car answers) (pop answers))))))
+      (let ((noninteractive nil))
+        ;; Auth asks through the minibuffer without receiving a password argument.
+        (setq answers '("Set Password…" "Done"))
+        (lispm-desktop-security)
+        (should (equal asked '(password-change)))
+        (should (equal (nreverse typed) '(("Current: " nil) ("New: " t))))
+        (should (eq lispm-auth-password-function 'desktop-password-page))
+        ;; The first prompt says no password is set, and offers to set one.
+        (should (string-search "No password is set yet" (caar (last prompts))))
+        (should (member "Set Password…" (cdar (last prompts))))
+        ;; The next, with the store open now, offers to change it.
+        (should (member "Change Password…" (cdar prompts))))
+      ;; An open store: Lock Now locks it, and the Desktop's asking is turned off.
+      (setq store t locked nil required t prompts nil)
+      (let ((noninteractive nil))
+        (setq answers '("Lock Now" "[x] Ask for the password when the Desktop starts" "Done"))
+        (lispm-desktop-security))
+      (should locked)
+      (should (member 'lock asked))
+      (should (member '(required desktop nil) asked))
+      (should (string-search "open for this session" (caar (last prompts))))
+      ;; C-g in a password prompt leaves the store unchanged and the menu usable.
+      (setq cancel-password t asked nil answers '("Change Password…" "Done"))
+      (let ((noninteractive nil)) (lispm-desktop-security))
+      (should-not asked)
+      (should (eq lispm-auth-password-function 'desktop-password-page))
+      ;; C-g leaves as Done does.
+      (setq quit t)
+      (let ((noninteractive nil))
+        (should-not (lispm-desktop-security)))
+      ;; A batch Emacs has no minibuffer to ask in.
+      (should-error (let ((noninteractive t)) (lispm-desktop-security)) :type 'user-error)
+      ;; Without LispM Auth there is nothing to offer.
+      (cl-letf (((symbol-function 'lispm-desktop-auth-available-p) #'ignore))
+        (should-error (let ((noninteractive nil)) (lispm-desktop-security)) :type 'user-error)))))
 
 (ert-deftest lispm-desktop-test-settings-lispm-model-menu ()
   "The model's menu lists each backend's models, the one used checked, a
@@ -6169,6 +6420,16 @@ commas; one srt cannot allow is refused, and nothing is kept."
                                                                          'lispm-ui-label)
                                                       (button-label button)))))
       (setq button (next-button (button-end button))))
+    button))
+
+(defun lispm-desktop-test--settings-help-button (text)
+  "Return the first button of the current panel whose help holds TEXT."
+  (let ((position (point-min))
+        button)
+    (while (and (setq position (next-button position)) (not button))
+      (when (string-search text (or (get-text-property position 'help-echo) ""))
+        (setq button position))
+      (setq position (button-end position)))
     button))
 
 (defun lispm-desktop-test--settings-text ()
@@ -6855,6 +7116,13 @@ applications are made by."
   "Applications open on their own only with a display, on macOS."
   (should (string-match-p "display" (lispm-desktop-standalone-unsupported))))
 
+(ert-deftest lispm-desktop-test-standalone-unsupported-on-a-text-terminal ()
+  "A text terminal cannot draw the windows applications open on their own in."
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
+    (let ((noninteractive nil))
+      (should (equal (lispm-desktop-standalone-unsupported)
+                     (lispm-desktop-tr "the desktop is on a text terminal"))))))
+
 (ert-deftest lispm-desktop-test-standalone-started-hidden ()
   "LispM started with --lispm-hidden keeps its desktop out of sight."
   (let ((command-line-args '("emacs")))
@@ -6893,7 +7161,7 @@ and written as XML."
       (should (string-match-p "<key>LispMApp</key>\n\t<string>rock</string>" plist))
       (should (string-match-p (regexp-quote (lispm-desktop-display-socket t)) plist))
       (should (string-match-p "<key>LispMApplication</key>\n\t<string>/Applications/LispM.app</string>" plist))
-      (should (string-match-p "<array>\n\t\t<string>--lispm-hidden</string>\n\t\t<string>--init-directory=/a&amp;b/</string>\n\t</array>" plist))
+      (should (string-match-p "<array>\n\t\t<string>--lispm-hidden</string>\n\t\t<string>--init-directory=/a&amp;b/</string>\n\t\t<string>--lispm-app=rock</string>\n\t</array>" plist))
       (should-not (string-match-p "LSUIElement" plist))
       (let ((bundle (make-temp-file "lispm-desktop-test-bundle" t)))
         (unwind-protect
@@ -8749,7 +9017,7 @@ sources', as scripts/pin-term-module.py writes the pins."
 for, and none is published for the others."
   (should (equal (lispm-desktop-term--target "aarch64-apple-darwin24.1.0") "aarch64-apple-darwin"))
   (should (equal (lispm-desktop-term--target "arm64-apple-darwin23.0.0") "aarch64-apple-darwin"))
-  (should (equal (lispm-desktop-term--target "x86_64-apple-darwin21.6.0") "x86_64-apple-darwin"))
+  (should-not (lispm-desktop-term--target "x86_64-apple-darwin21.6.0"))
   (should (equal (lispm-desktop-term--target "x86_64-pc-linux-gnu") "x86_64-unknown-linux-gnu"))
   (should (equal (lispm-desktop-term--target "x86_64-unknown-linux-gnu") "x86_64-unknown-linux-gnu"))
   (should (equal (lispm-desktop-term--target "aarch64-unknown-linux-gnu") "aarch64-unknown-linux-gnu"))
@@ -8854,14 +9122,14 @@ missing or out of date, and nothing is downloaded, pinned or not; the
 obsolete `lispm-desktop-term-download-enabled' set to nil asks it too."
   (lispm-desktop-test--with-term-sources
     (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) t)))
-      (let ((system-configuration "x86_64-apple-darwin21.6.0")
+      (let ((system-configuration "aarch64-apple-darwin24.1.0")
             (lispm-desktop-term-module-source 'build))
-        (lispm-desktop-test--term-pin '(("x86_64-apple-darwin" . "library")))
+        (lispm-desktop-test--term-pin '(("aarch64-apple-darwin" . "library")))
         (lispm-desktop-test--term-file (lispm-desktop-term--prebuilt-file))
         (should (eq (lispm-desktop-term--plan) 'build))
         (should-not (lispm-desktop-term--module-file))
         (let ((built (lispm-desktop-test--term-file
-                      (expand-file-name "target/x86_64-apple-darwin/release/liblispm_desktop_term.dylib" root)
+                      (expand-file-name "target/aarch64-apple-darwin/release/liblispm_desktop_term.dylib" root)
                       30)))
           (should-not (lispm-desktop-term--plan))
           (should (equal (lispm-desktop-term--module-file) built))
@@ -11032,7 +11300,7 @@ move a file to the Trash, which alone writes."
   "The settings' skill's tools read every setting, show a panel, change
 one, saved as Control Panels saves it, refuse what a setting does not
 take, and make the sandbox stricter; only the tool always asking lowers
-it.  As LispM's terminal, there is no panel to show."
+it.  As LispM's terminal, a panel is listed in the minibuffer instead."
   (lispm-desktop-test--load-system-skill "settings")
   (lispm-desktop-test--with-sandbox
     (let ((lispm-desktop-theme 'platinum)
@@ -11089,11 +11357,19 @@ it.  As LispM's terminal, there is no panel to show."
         (should (eq lispm-desktop-start-as 'terminal))
         (should-error (lispm-desktop-test--call "settings_set" "start-as" "tty"))
         (let ((lispm-desktop-started-as 'terminal))
-          (should-error (lispm-desktop-test--call "settings_show" "startup")))
+          (let ((listed (lispm-desktop-test--call "settings_show" "startup")))
+            (should (string-search "start-as = terminal" listed))
+            ;; The one panel opened before is the only window: none here.
+            (should (equal (seq-filter (lambda (entry) (eq (car entry) 'show)) done)
+                           '((show network))))))
         (lispm-desktop-test--call "settings_set" "update-schedule" "weekly")
         (lispm-desktop-test--call "settings_set" "kernel" "false")
         (should (equal (list lispm-desktop-update-schedule lispm-desktop-kernel) '(weekly nil)))
-        (should-error (lispm-desktop-test--call "settings_set" "sandbox-domains" "example.com"))
+        (should-error (lispm-desktop-test--call "settings_set" "sandbox-domains" "no--domain"))
+        (should (string-prefix-p "sandbox-domains = example.com, *.example.org"
+                                 (lispm-desktop-test--call "settings_set" "sandbox-domains"
+                                                           "example.com, *.example.org")))
+        (should (equal lispm-sandbox-allowed-domains '("example.com" "*.example.org")))
         ;; Stricter by settings_set; looser only by the tool always asking.
         (lispm-desktop-test--call "settings_set" "sandbox" "high")
         (should-error (lispm-desktop-test--call "settings_set" "sandbox" "low"))
@@ -11102,10 +11378,369 @@ it.  As LispM's terminal, there is no panel to show."
         (should (equal (reverse done)
                        '((show network) (theme dracula) (language de) (language nil) (login t))))
         (should (lispm-tool-always-ask (lispm-get-tool "settings_lower_sandbox")))
-        (should-not (lispm-tool-always-ask (lispm-get-tool "settings_set")))
+        (should (lispm-tool-always-ask (lispm-get-tool "settings_set")))
         (should (equal (mapcar (lambda (tool) (lispm-tool-permission (lispm-get-tool tool)))
                                '("settings_get" "settings_show" "settings_set" "settings_lower_sandbox"))
                        '(read read write write)))))))
+
+(defconst lispm-desktop-test--settings-names
+  '("look" "theme" "language" "editing-style"
+    "proxy-type" "proxy-server" "proxy-exceptions"
+    "desktop-color" "desktop-picture" "desktop-picture-position"
+    "browser-home" "browser-search"
+    "model" "effort" "permission" "compact-size" "compact-idle"
+    "compact-save-memory" "git" "memory-size" "episodes" "memory-model"
+    "default-role" "skill-directory"
+    "sandbox" "sandbox-domains"
+    "sandbox-rule-allow-read" "sandbox-rule-deny-read"
+    "sandbox-rule-allow-write" "sandbox-rule-deny-write"
+    "sandbox-rule-allowed-domains" "sandbox-rule-denied-domains"
+    "sandbox-rule-unix-sockets" "sandbox-rule-local-binding"
+    "sandbox-rule-pty" "sandbox-rule-apple-events"
+    "password" "desktop-requires-password"
+    "start-as" "open-at-login" "startup-item" "startup-program"
+    "startup-command" "startup-service" "service-level"
+    "update-check-automatically" "update-schedule"
+    "update-install-automatically" "store-update-automatically"
+    "kernel" "emacs-build")
+  "The settings `settings_get' lists, each control a Control Panels panel
+offers.  The rules that mean something on one system only, pty and Apple
+Events, are there where they do.  Listed out, so that none is lost as the
+skill changes.")
+
+(ert-deftest lispm-desktop-test-system-skill-settings-every-panel ()
+  "Every control a panel of Control Panels offers has a setting the agent
+reads and, unless the user alone sets it, changes: all of them are there
+when LispM Agent, the sandbox, LispM Auth and the browser are, and none is
+listed twice."
+  (lispm-desktop-test--load-system-skill "settings")
+  (require 'lispm-services nil t)
+  (let ((lispm-sandbox-levels '((none . "no sandbox")
+                                (low . "looser")
+                                (middle . "the default")
+                                (high . "strictest")
+                                (custom . "rules of your own")))
+        (lispm-compact-save-memory t)
+        (lispm-git t)
+        (lispm-episodes t)
+        (lispm-services '((web :name "Web"))))
+    (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'always)
+              ((symbol-function 'lispm-desktop-settings--sandbox-p) #'always)
+              ((symbol-function 'lispm-desktop-settings--security-p) #'always)
+              ((symbol-function 'lispm-sandbox-rules) (lambda (&rest _) nil))
+              ((symbol-function 'lispm-set-compact-size) #'ignore)
+              ((symbol-function 'lispm-set-compact-idle) #'ignore)
+              ((symbol-function 'lispm-set-memory-size) #'ignore)
+              ((symbol-function 'lispm-set-memory-model) #'ignore)
+              ((symbol-function 'lispm-default-role-choices) #'ignore)
+              ((symbol-function 'lispm-add-skill-directory) #'ignore)
+              ((symbol-function 'lispm-desktop-emacs-app) (lambda () "LispM.app"))
+              ((symbol-function 'lispm-desktop-emacs-builds)
+               (lambda () '((:major 31 :version "31.1")))))
+      (let* ((names (mapcar #'car (lispm-desktop-skill-settings)))
+             (switches (seq-keep (pcase-lambda (`(,key ,_label ,system))
+                                   (when (or (null system) (eq system system-type))
+                                     (concat "sandbox-rule-"
+                                             (string-trim-left (symbol-name key) ":"))))
+                                 lispm-desktop-settings--sandbox-switches))
+             (expected (append (seq-difference
+                                lispm-desktop-test--settings-names
+                                '("sandbox-rule-local-binding" "sandbox-rule-pty"
+                                  "sandbox-rule-apple-events"))
+                               switches)))
+        (should (equal (sort (copy-sequence names) #'string-lessp)
+                       (sort (copy-sequence expected) #'string-lessp)))
+        (should (equal (length names) (length (seq-uniq names))))))))
+
+(ert-deftest lispm-desktop-test-system-skill-settings-controls ()
+  "The settings added for the panels' controls change what the panels change
+and refuse what they cannot take: colours, pictures, addresses, models,
+efforts, permissions, sizes, roles, skill directories, the sandbox's custom
+rules, the Desktop's asking for the password, the startup items and the
+Emacs LispM.app runs on.  The password itself is read only."
+  (lispm-desktop-test--load-system-skill "settings")
+  (require 'lispm-services nil t)
+  (lispm-desktop-test--with-sandbox
+   (lispm-desktop-test--with-lispm-settings
+    (let ((lispm-desktop-color nil)
+          (lispm-desktop-picture nil)
+          (lispm-desktop-picture-position 'fill)
+          (lispm-browser-home-url "https://example.com/")
+          (lispm-browser-search-url "https://example.com/?q=%s")
+          (lispm-desktop-startup-items nil)
+          (lispm-services '((web :name "Web")))
+          (lispm-service-levels nil)
+          (lispm-default-role 'assistant)
+          (done nil))
+      (setq lispm-sandbox-levels
+            (append lispm-sandbox-levels '((custom . "rules of your own"))))
+      (setq lispm-sandbox-level 'custom)
+      (cl-letf (((symbol-function 'customize-save-variable)
+                 (lambda (variable value &rest _)
+                   (push (cons variable value) done)
+                   (set variable value)))
+                ((symbol-function 'lispm-desktop-settings-open-p) #'ignore)
+                ((symbol-function 'lispm-desktop-settings--render) #'ignore)
+                ((symbol-function 'lispm-desktop-settings--security-p) #'always)
+                ((symbol-function 'lispm-desktop-choose-picture)
+                 (lambda (file) (push (list 'picture file) done)))
+                ((symbol-function 'lispm-desktop-remove-picture)
+                 (lambda () (push '(picture none) done)))
+                ((symbol-function 'lispm-model-choices)
+                 (lambda (&rest _) (list (list :backend 'test :model "only"))))
+                ((symbol-function 'lispm-set-model)
+                 (lambda (backend model &optional save)
+                   (push (list 'model backend model save) done)))
+                ((symbol-function 'lispm-set-effort)
+                 (lambda (effort &optional save)
+                   (push (list 'effort effort save) done)))
+                ((symbol-function 'lispm-set-default-permission)
+                 (lambda (class action &optional save)
+                   (push (list 'permission class action save) done)))
+                ((symbol-function 'lispm-set-compact-size)
+                 (lambda (size &optional save)
+                   (push (list 'compact-size size save) done)))
+                ((symbol-function 'lispm-set-compact-idle)
+                 (lambda (on &optional save)
+                   (push (list 'compact-idle on save) done)))
+                ((symbol-function 'lispm-settings-set)
+                 (lambda (variable value &optional save)
+                   (push (list 'settings variable value save) done)
+                   (set variable value)))
+                ((symbol-function 'lispm-set-memory-size)
+                 (lambda (size &optional save)
+                   (push (list 'memory-size size save) done)))
+                ((symbol-function 'lispm-set-memory-model)
+                 (lambda (model &optional save)
+                   (push (list 'memory-model model save) done)))
+                ((symbol-function 'lispm-set-default-role)
+                 (lambda (role &optional save)
+                   (push (list 'default-role role save) done)))
+                ((symbol-function 'lispm-auth-app-requires-password-p)
+                 (lambda (_) t))
+                ((symbol-function 'lispm-auth-set-app-requires-password)
+                 (lambda (app value) (push (list 'required app value) done)))
+                ((symbol-function 'lispm-desktop-emacs-app) (lambda () "LispM.app"))
+                ((symbol-function 'lispm-desktop-emacs-builds)
+                 (lambda () '((:major 31 :version "31.1"))))
+                ((symbol-function 'lispm-desktop-emacs-target) (lambda () 31))
+                ((symbol-function 'lispm-desktop-emacs-stage)
+                 (lambda (major) (push (list 'stage major) done) "Emacs 31 is made ready.")))
+        ;; The Desktop's colour and picture.
+        (lispm-desktop-test--call "settings_set" "desktop-color" "theme")
+        (should-not (cdr (assq 'lispm-desktop-color done)))
+        (lispm-desktop-test--call "settings_set" "desktop-color" "#123456")
+        (should (equal (cdr (assq 'lispm-desktop-color done)) "#123456"))
+        (should-error (lispm-desktop-test--call "settings_set" "desktop-color" "no such colour"))
+        (should-error (lispm-desktop-test--call "settings_set" "desktop-picture" "/no/such/picture.png"))
+        (let ((picture (make-temp-file "lispm-desktop-test-picture" nil ".png")))
+          (unwind-protect
+              (progn
+                (lispm-desktop-test--call "settings_set" "desktop-picture" picture)
+                (should (member (list 'picture picture) done))
+                (lispm-desktop-test--call "settings_set" "desktop-picture" "none")
+                (should (member '(picture none) done)))
+            (delete-file picture)))
+        (lispm-desktop-test--call "settings_set" "desktop-picture-position" "fit")
+        (should (eq (cdr (assq 'lispm-desktop-picture-position done)) 'fit))
+        (should-error (lispm-desktop-test--call "settings_set" "desktop-picture-position" "sideways"))
+        ;; The browser's addresses.
+        (lispm-desktop-test--call "settings_set" "browser-home" "https://example.org/")
+        (should (equal (cdr (assq 'lispm-browser-home-url done)) "https://example.org/"))
+        (should-error (lispm-desktop-test--call "settings_set" "browser-home" "nowhere"))
+        (lispm-desktop-test--call "settings_set" "browser-search" "https://example.org/?q=%s")
+        (should (equal (cdr (assq 'lispm-browser-search-url done)) "https://example.org/?q=%s"))
+        (should-error (lispm-desktop-test--call "settings_set" "browser-search" "https://example.org/"))
+        ;; LispM Agent's own settings.
+        (lispm-desktop-test--call "settings_set" "model" "test/test-small")
+        (should (member '(model test "test-small" t) done))
+        (lispm-desktop-test--call "settings_set" "model" "only")
+        (should (member '(model test "only" t) done))
+        (should-error (lispm-desktop-test--call "settings_set" "model" "no-such-model"))
+        (lispm-desktop-test--call "settings_set" "effort" "high")
+        (should (member (list 'effort "high" t) done))
+        (lispm-desktop-test--call "settings_set" "permission" "deny" "web")
+        (should (member '(permission web deny t) done))
+        (should-error (lispm-desktop-test--call "settings_set" "permission" "deny"))
+        (should-error (lispm-desktop-test--call "settings_set" "permission" "deny" "no-such-class"))
+        (lispm-desktop-test--call "settings_set" "compact-size" "large")
+        (should (member '(compact-size large t) done))
+        (should-error (lispm-desktop-test--call "settings_set" "compact-size" "vast"))
+        (lispm-desktop-test--call "settings_set" "compact-idle" "on")
+        (should (member '(compact-idle t t) done))
+        (should-error (lispm-desktop-test--call "settings_set" "compact-idle" "perhaps"))
+        (lispm-desktop-test--call "settings_set" "compact-save-memory" "off")
+        (should (member '(settings lispm-compact-save-memory nil t) done))
+        (lispm-desktop-test--call "settings_set" "git" "off")
+        (should (member '(settings lispm-git nil t) done))
+        (lispm-desktop-test--call "settings_set" "memory-size" "small")
+        (should (member '(memory-size small t) done))
+        (lispm-desktop-test--call "settings_set" "episodes" "off")
+        (should (member '(settings lispm-episodes nil t) done))
+        (lispm-desktop-test--call "settings_set" "memory-model" "test-small")
+        (should (member '(memory-model "test-small" t) done))
+        (lispm-desktop-test--call "settings_set" "memory-model" "own")
+        (should (member '(memory-model nil t) done))
+        (lispm-desktop-test--call "settings_set" "default-role" "reviewer")
+        (should (member '(default-role reviewer t) done))
+        (should-error (lispm-desktop-test--call "settings_set" "default-role" "no-such-role"))
+        ;; The directories agents read skills from.
+        (let ((skills (file-name-as-directory (make-temp-file "lispm-desktop-test-skills" t))))
+          (unwind-protect
+              (progn
+                (lispm-desktop-test--call "settings_set" "skill-directory" "add" skills)
+                (should (member skills lispm-skill-directories))
+                (lispm-desktop-test--call "settings_set" "skill-directory" "remove" skills)
+                (should-not (member skills lispm-skill-directories))
+                (should-error (lispm-desktop-test--call "settings_set" "skill-directory"
+                                                        "remove" (expand-file-name "/no/such/skills")))
+                (should-error (lispm-desktop-test--call "settings_set" "skill-directory"
+                                                        "change" skills)))
+            (delete-directory skills t)))
+        (should-error (lispm-desktop-test--call "settings_set" "skill-directory"
+                                                "remove" lispm-skills--builtin))
+        ;; The sandbox's rules change only at Custom.
+        (setq lispm-sandbox-level 'middle)
+        (should-error (lispm-desktop-test--call "settings_set" "sandbox-rule-allow-read" "/tmp/a"))
+        (setq lispm-sandbox-level 'custom)
+        (lispm-desktop-test--call "settings_set" "sandbox-rule-allow-read" "/tmp/a, /tmp/b")
+        (should (equal (plist-get (cdr (assq 'lispm-sandbox-custom done)) :allow-read)
+                       '("/tmp/a" "/tmp/b")))
+        (should-error (lispm-desktop-test--call "settings_set" "sandbox-rule-allowed-domains"
+                                                "no--domain"))
+        (lispm-desktop-test--call "settings_set" "sandbox-rule-local-binding" "true")
+        (should (eq (plist-get (cdr (assq 'lispm-sandbox-custom done)) :local-binding) t))
+        ;; Security: the Desktop's asking, and the password, which is not the agent's.
+        (lispm-desktop-test--call "settings_set" "desktop-requires-password" "false")
+        (should (member '(required desktop nil) done))
+        (should-error (lispm-desktop-test--call "settings_set" "password" "hunter2"))
+        ;; The startup items, each kind, and the services' levels.
+        (let ((directory (file-name-as-directory (make-temp-file "lispm-desktop-test-startup" t))))
+          (unwind-protect
+              (progn
+                (should (string-prefix-p "startup-program = sleep (program sleep 5)"
+                                         (lispm-desktop-test--call "settings_set" "startup-program"
+                                                                   "sleep 5" nil directory)))
+                (should (equal lispm-desktop-startup-items
+                               (list (list :program "sleep 5" :directory directory))))
+                (should-error (lispm-desktop-test--call "settings_set" "startup-program"
+                                                        "sleep 5" nil directory))
+                (lispm-desktop-test--call "settings_set" "startup-command" "ignore" "Ignore")
+                (should (member '(:command ignore :name "Ignore") lispm-desktop-startup-items))
+                (should-error (lispm-desktop-test--call "settings_set" "startup-command"
+                                                        "no-such-command-xyz" nil))
+                (should-error (lispm-desktop-test--call "settings_set" "startup-service" "web"))
+                (should-error (lispm-desktop-test--call "settings_set" "startup-service" "none"
+                                                        "middle"))
+                (lispm-desktop-test--call "settings_set" "startup-service" "web" "middle")
+                (should (member '(:service web) lispm-desktop-startup-items))
+                (should (equal (alist-get 'web lispm-service-levels) 'middle)))
+            (delete-directory directory t)))
+        (lispm-desktop-test--call "settings_set" "service-level" "high" "web")
+        (should (equal (alist-get 'web lispm-service-levels) 'high))
+        (should-error (lispm-desktop-test--call "settings_set" "service-level" "high" "no-service"))
+        ;; The Emacs LispM.app runs on.
+        (should (string-prefix-p "emacs-build = 31"
+                                 (lispm-desktop-test--call "settings_set" "emacs-build" "31")))
+        (should (member '(stage 31) done))
+        (should-error (lispm-desktop-test--call "settings_set" "emacs-build" "soon")))))))
+
+(ert-deftest lispm-desktop-test-system-skill-settings-terminal ()
+  "As LispM's terminal, settings_show lists the panel's settings in the
+minibuffer, and asks for the panel when none is named: never a window, and
+C-g closes it as Done does.  A panel without settings says so."
+  (lispm-desktop-test--load-system-skill "settings")
+  (lispm-desktop-test--with-sandbox
+   (let ((lispm-desktop-started-as 'terminal)
+         (shown nil)
+         (asked nil)
+         (answer nil)
+         (quit nil))
+     (cl-letf (((symbol-function 'lispm-desktop-settings-show)
+                (lambda (&optional panel) (push panel shown)))
+               ((symbol-function 'lispm-ui-alert) (lambda (&rest _) (error "A window opened")))
+               ((symbol-function 'completing-read)
+                (lambda (prompt collection &rest _)
+                  (push (cons prompt collection) asked)
+                  (cond (quit (signal 'quit nil))
+                        ((string= prompt "Panel: ") (if (functionp answer) (funcall answer collection) answer))
+                        (t nil)))))
+       (let ((noninteractive nil))
+         ;; A panel named: its settings are the minibuffer's choices and the result.
+         (let ((listed (lispm-desktop-test--call "settings_show" "sandbox")))
+           (should (string-search "sandbox = none" listed))
+           (should (string-search "sandbox-domains = none" listed))
+           (should (equal (cdr (car asked)) (split-string listed "\n")))
+           (should (string-prefix-p "Sandbox settings: " (caar asked))))
+         (should-not shown)
+         ;; None named: the panels are offered by name, and one is listed.
+         (setq asked nil
+               answer (lambda (collection) (car (member "Sandbox" collection))))
+         (should (string-search "sandbox = none" (lispm-desktop-test--call "settings_show")))
+         (should (equal (caar (last asked)) "Panel: "))
+         (should (member "Sandbox" (cdar (last asked))))
+         ;; A panel with no settings of its own says so.
+         (should (equal (lispm-desktop-test--call "settings_show" "apps")
+                        "This panel has no settings the agent can change."))
+         ;; C-g closes it, as Done does.
+         (setq quit t)
+         (should (equal (lispm-desktop-test--call "settings_show") "Closed."))
+         ;; A panel Control Panels does not have here is an error.
+         (should-error (lispm-desktop-test--call "settings_show" "no-such-panel"))
+         (should-not shown))))))
+
+(ert-deftest lispm-desktop-test-system-skill-settings-asking ()
+  "Changing a setting always asks the user, and so do the two security tools,
+which take no argument and so can never be given a password.  The preview
+of a change says what would change, or that the setting is read only."
+  (lispm-desktop-test--load-system-skill "settings")
+  (dolist (tool '("settings_set" "settings_lower_sandbox"
+                  "security_change_password" "security_lock"))
+    (should (lispm-tool-always-ask (lispm-get-tool tool)))
+    (should (eq (lispm-tool-permission (lispm-get-tool tool)) 'write)))
+  (dolist (tool '("security_change_password" "security_lock"))
+    (should-not (lispm-tool-params (lispm-get-tool tool))))
+  ;; The user types the password; it is never an argument to the agent's tools.
+  (should (string-search "password page"
+                         (lispm-tool-description (lispm-get-tool "security_change_password"))))
+  (should-not (seq-find (lambda (param)
+                          (string-match-p "password" (downcase (format "%s" (car param)))))
+                        (lispm-tool-params (lispm-get-tool "settings_set"))))
+  (let ((lispm-desktop-theme 'platinum))
+    (should (equal (funcall (lispm-tool-preview (lispm-get-tool "settings_set"))
+                            "theme" "dracula" nil nil)
+                   "Change theme from platinum to dracula.")))
+  (cl-letf (((symbol-function 'lispm-desktop-settings--security-p) #'always))
+    (should (string-search "read only"
+                           (funcall (lispm-tool-preview (lispm-get-tool "settings_set"))
+                                    "password" "hunter2" nil nil))))
+  (cl-letf (((symbol-function 'lispm-desktop-auth-available-p) #'always)
+            ((symbol-function 'lispm-desktop-auth-change-password) (lambda () 'changed)))
+    (should (equal (lispm-desktop-test--call "security_change_password")
+                   "The password has changed.")))
+  ;; Test a temporary Focus frame and startup in Focus independently.
+  (dolist (state '((t nil) (nil t)))
+    (let ((lispm-auth-password-function 'desktop-password-page)
+          (reads nil))
+      (cl-letf (((symbol-function 'lispm-desktop-auth-available-p) #'always)
+                ((symbol-function 'lispm-terminal-p) (lambda () (car state)))
+                ((symbol-function 'lispm-desktop-started-as-terminal-p)
+                 (lambda () (cadr state)))
+              ((symbol-function 'read-passwd)
+               (lambda (prompt &optional confirm)
+                 (push (list prompt confirm) reads) "secret"))
+              ((symbol-function 'lispm-auth-change-password)
+               (lambda ()
+                 (funcall lispm-auth-password-function "Old: ")
+                 (funcall lispm-auth-password-function "New: " t)
+                 t)))
+      (should (equal (lispm-desktop-test--call "security_change_password")
+                     "The password has changed."))
+      (should (equal (nreverse reads) '(("Old: " nil) ("New: " t))))
+      (should (eq lispm-auth-password-function 'desktop-password-page)))))
+  (cl-letf (((symbol-function 'lispm-desktop-auth-available-p) #'always)
+            ((symbol-function 'lispm-desktop-auth-lock) (lambda () 'no-store)))
+    (should (equal (lispm-desktop-test--call "security_lock") "No password is set yet."))))
 
 (ert-deftest lispm-desktop-test-system-skill-app-store-choosing ()
   "store_search finds an item by words of what the user wants done, not
@@ -18184,10 +18819,88 @@ named in itself, and choosing one speaks it."
         (push-button (1- (point)))
         (should (equal chosen '(de)))))))
 
+;;;; Text terminals: the guide's last step and the Security panel
+
+(ert-deftest lispm-desktop-test-settings-security-on-tty ()
+  "In a text terminal the Security panel draws its groups, its status and
+its buttons as text, including the group boxes, and says how the password
+stands without asking for it."
+  (lispm-desktop-setup-settings)
+  (lispm-desktop-test--on-tty
+    (let ((asked nil))
+      (cl-letf (((symbol-function 'lispm-desktop-settings--security-p) #'always)
+                ((symbol-function 'lispm-auth-store-exists-p) #'always)
+                ((symbol-function 'lispm-auth-locked-p) #'ignore)
+                ((symbol-function 'lispm-auth-app-requires-password-p)
+                 (lambda (app) (push app asked) t))
+                ((symbol-function 'lispm-auth-change-password) #'ignore)
+                ((symbol-function 'lispm-auth-lock) #'ignore))
+        (with-current-buffer (lispm-desktop-settings-select 'security)
+          (let ((text (lispm-desktop-test--settings-text)))
+            (should (string-search "Password" text))
+            (should (string-search "Applications" text))
+            (should (string-search "open for this session" text))
+            (should (string-search "Ask for the password when the Desktop starts" text))
+            (should (lispm-desktop-test--settings-button "Change Password…"))
+            (should (lispm-desktop-test--settings-button "Lock Now")))
+          ;; The groups are boxed in text, not drawn as images.
+          (should (string-match-p "┌" (buffer-string)))
+          ;; Reading how the password stands asks for it nowhere.
+          (should (equal asked '(desktop))))))))
+
+(ert-deftest lispm-desktop-test-settings-text-width-on-tty ()
+  "On a text terminal a panel's group margins are counted in cells, as
+the window's width is, so a paragraph wraps to the box it is in rather
+than to a fraction of it."
+  (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) (selected-window)))
+            ((symbol-function 'window-body-width) (lambda (&rest _) 100)))
+    (should (= (lispm-desktop-settings--text-width 3) 49))
+    (lispm-desktop-test--on-tty
+      (should (= (lispm-desktop-settings--text-width 3) 89)))))
+
+(ert-deftest lispm-desktop-test-guide-security-on-tty ()
+  "In a text terminal the guide's last step draws its title and what it
+says as text, its Done and Back buttons too, with no image where the
+graphical guide shows the password's icon."
+  (lispm-desktop-test--on-tty
+    (cl-letf (((symbol-function 'lispm-desktop-settings--security-p) #'always)
+              ((symbol-function 'lispm-desktop-guide--frame) #'ignore)
+              ((symbol-function 'lispm-desktop-platinum-set-coach-mark) #'ignore))
+      (let ((lispm-desktop-guide--index (1- (length (lispm-desktop-guide--steps)))))
+        (with-current-buffer (get-buffer-create lispm-desktop-guide-buffer-name)
+          (lispm-desktop-guide--render)
+          (let ((text (buffer-string))
+                (labels (delq nil
+                              (mapcar (lambda (position)
+                                        (get-text-property position 'lispm-ui-label))
+                                      (number-sequence (point-min) (1- (point-max)))))))
+            (should (string-search "Your password" text))
+            (should (string-search "Security control panel" text))
+            (should (member "Back" labels))
+            (should (member "Done" labels))
+            ;; The icon is not drawn in a terminal.
+            (should-not (seq-some
+                         (lambda (position)
+                           (eq (car-safe (get-text-property position 'display))
+                               'image))
+                         (number-sequence (point-min) (1- (point-max)))))))))))
+
 (defun lispm-desktop-test-report-catalogs ()
   "Print, for each language, the messages its catalog lacks and those it
 holds no longer.  Run with `make i18n'."
   (lispm-kit-i18n-report 'lispm-desktop (lispm-desktop-test--messages)))
+
+(ert-deftest lispm-desktop-test-security-timeout-saves-choice ()
+  (dolist (entry '(("5 minutes" . 5) ("Never" . nil)))
+    (let (applied saved)
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (car entry)))
+                ((symbol-function 'lispm-auth-set-auto-lock)
+                 (lambda (value) (setq applied (list value))))
+                ((symbol-function 'lispm-desktop-settings--save)
+                 (lambda (variable value) (setq saved (list variable value)))))
+        (lispm-desktop-settings--security-timeout)
+        (should (equal applied (list (cdr entry))))
+        (should (equal saved (list 'lispm-auth-auto-lock (cdr entry))))))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

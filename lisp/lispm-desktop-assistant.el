@@ -400,15 +400,28 @@ page with a :picture shows LispM's λ instead of choices, and its
           (lispm-ui-svg-content svg line (+ cx 68) top 16 text 'lispm-ui-list)
           (setq top (+ top 16))))
       (if (plist-get page :picture)
-          ;; The λ and the status under it, in the middle of what is left.
+          ;; Leave room below the logo for the setup progress and messages.
           (let* ((size 96)
-                 (top (+ cy 70 (/ (- ch 70 size 12 16) 2))))
+                 (top (+ cy 90))
+                 (bar-x (+ cx 32))
+                 (bar-y (- (+ cy ch) 94))
+                 (bar-width (- cw 64))
+                 (done (or (plist-get page :progress) 0))
+                 (total (max 1 (or (plist-get page :total) 1))))
             (svg-embed svg (lispm-ui-icon-file 'lambda)
                        "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
+            (svg-rectangle svg bar-x bar-y bar-width 18 :fill "#ffffff" :stroke "#222222")
+            (when (> done 0)
+              (svg-rectangle svg (+ bar-x 2) (+ bar-y 2)
+                             (/ (* (- bar-width 4) (min done total)) total) 14 :fill "#306ba4"))
+            (lispm-ui-svg-content svg (format "%d / %d" done total)
+                                 bar-x (+ bar-y 22) 16 text 'lispm-ui-small)
             (when-let* ((status (plist-get page :status)))
-              (lispm-ui-svg-content
-               svg status (+ cx (/ (- cw (lispm-ui-text-width status 'lispm-ui-list)) 2))
-               (+ top size 12) 16 text 'lispm-ui-list)))
+              (lispm-ui-svg-content svg (lispm-desktop-platinum-fit (propertize status 'face 'lispm-ui-list) (- bar-width 10))
+                                   bar-x (+ bar-y 40) 16 text 'lispm-ui-list))
+            (when-let* ((message (plist-get page :message)))
+              (lispm-ui-svg-content svg (lispm-desktop-platinum-fit (propertize message 'face 'lispm-ui-small) (- bar-width 10))
+                                   bar-x (+ bar-y 59) 16 text 'lispm-ui-small)))
         (seq-mapn (lambda (choice rect index)
                     (lispm-desktop-assistant--draw-card svg palette rect choice
                                                         (and (eql pressed index) 'pressed)
@@ -643,11 +656,61 @@ page then stays, saying LispM is being set up, until
 
 (defun lispm-desktop-assistant-report (status)
   "Say STATUS, what setting LispM up is doing, on the page while it is shown."
-  (when (and (window-live-p lispm-desktop-assistant--window) lispm-desktop-assistant--last-page
-             (get-buffer lispm-desktop-assistant-buffer-name))
+  (when (lispm-desktop-assistant--visible-p)
     (lispm-desktop-assistant--show (plist-put (copy-sequence lispm-desktop-assistant--last-page)
                                               :status status)
                                    nil nil)))
+
+(defun lispm-desktop-assistant--visible-p ()
+  "Return non-nil when the assistant still occupies its window."
+  (and (window-live-p lispm-desktop-assistant--window)
+       (eq (window-buffer lispm-desktop-assistant--window)
+           (get-buffer lispm-desktop-assistant-buffer-name))
+       lispm-desktop-assistant--last-page))
+
+(defvar lispm-desktop-assistant--setup-stage "Preparing setup")
+
+(defun lispm-desktop-assistant-progress (done total status)
+  "Show DONE of TOTAL synchronous setup stages and STATUS on the page."
+  (setq lispm-desktop-assistant--setup-stage status)
+  (when (lispm-desktop-assistant--visible-p)
+    (let ((page (copy-sequence lispm-desktop-assistant--last-page)))
+      (setq page (plist-put page :progress done)
+            page (plist-put page :total total)
+            page (plist-put page :message nil)
+            page (plist-put page :status status))
+      (lispm-desktop-assistant--show page nil nil))))
+
+(defvar lispm-desktop-assistant--capturing-message nil)
+
+(defun lispm-desktop-assistant--package-message (original format-string &rest args)
+  "Display package ORIGINAL's FORMAT-STRING and ARGS on the setup page."
+  (if (or inhibit-message lispm-desktop-assistant--capturing-message
+          (not (stringp format-string)))
+      (apply original format-string args)
+    (let ((inhibit-message t)
+          (lispm-desktop-assistant--capturing-message t))
+      (prog1 (apply original format-string args)
+        (when-let* ((message (condition-case nil
+                                 (apply #'format-message format-string args)
+                               (error nil)))
+                    ((not (string-empty-p message)))
+                    ((lispm-desktop-assistant--visible-p))
+                    (page lispm-desktop-assistant--last-page))
+          (lispm-desktop-assistant--show
+           (plist-put (copy-sequence page) :message message) nil nil))))))
+
+(defvar lispm-desktop-assistant--package-depth 0)
+
+(defun lispm-desktop-assistant--package-operation (original &rest args)
+  "Capture messages during package operation ORIGINAL with ARGS."
+  (if (or (not (lispm-desktop-assistant--visible-p))
+          (> lispm-desktop-assistant--package-depth 0))
+      (apply original args)
+    (let ((lispm-desktop-assistant--package-depth (1+ lispm-desktop-assistant--package-depth)))
+      (advice-add 'message :around #'lispm-desktop-assistant--package-message)
+      (unwind-protect (apply original args)
+        (advice-remove 'message #'lispm-desktop-assistant--package-message)))))
 
 (defun lispm-desktop-assistant-close ()
   "Put the assistant's page away, if it is shown."
