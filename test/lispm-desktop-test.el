@@ -11589,9 +11589,11 @@ Emacs LispM.app runs on.  The password itself is read only."
           (unwind-protect
               (progn
                 (lispm-desktop-test--call "settings_set" "skill-directory" "add" skills)
-                (should (member skills lispm-skill-directories))
+                (should (or (member skills lispm-skill-directories)
+                            (member (abbreviate-file-name skills) lispm-skill-directories)))
                 (lispm-desktop-test--call "settings_set" "skill-directory" "remove" skills)
-                (should-not (member skills lispm-skill-directories))
+                (should-not (or (member skills lispm-skill-directories)
+                                (member (abbreviate-file-name skills) lispm-skill-directories)))
                 (should-error (lispm-desktop-test--call "settings_set" "skill-directory"
                                                         "remove" (expand-file-name "/no/such/skills")))
                 (should-error (lispm-desktop-test--call "settings_set" "skill-directory"
@@ -11622,7 +11624,8 @@ Emacs LispM.app runs on.  The password itself is read only."
                                          (lispm-desktop-test--call "settings_set" "startup-program"
                                                                    "sleep 5" nil directory)))
                 (should (equal lispm-desktop-startup-items
-                               (list (list :program "sleep 5" :directory directory))))
+                               (list (list :program "sleep 5"
+                                           :directory (abbreviate-file-name directory)))))
                 (should-error (lispm-desktop-test--call "settings_set" "startup-program"
                                                         "sleep 5" nil directory))
                 (lispm-desktop-test--call "settings_set" "startup-command" "ignore" "Ignore")
