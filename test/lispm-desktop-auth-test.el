@@ -218,13 +218,13 @@ it puts the terminal on the frame."
                      (with-temp-file file (insert "incorrect archive")))))
           (require 'url)
           (should-error (lispm-desktop-deps--auth-install))
-          (should-not (file-exists-p (expand-file-name "lispm-desktop-components/lispm-auth-0.2.2" user-emacs-directory))))
+          (should-not (file-exists-p (expand-file-name (concat "lispm-desktop-components/lispm-auth-" lispm-desktop-deps-auth-version) user-emacs-directory))))
       (delete-directory user-emacs-directory t))))
 
 (ert-deftest lispm-desktop-auth-test-client-preserves-user-checkout ()
   (let ((load-path (copy-sequence load-path)) (installed nil))
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) "/user/checkout/lispm-auth.el"))
-              ((symbol-function 'lispm-desktop-deps--version) (lambda (_) '(0 2 2)))
+              ((symbol-function 'lispm-desktop-deps--version) (lambda (_) '(0 2 5)))
               ((symbol-function 'lispm-desktop-deps--checkout) (lambda (_) "/user/checkout"))
               ((symbol-function 'lispm-desktop-deps--auth-install) (lambda () (setq installed t))))
       (lispm-desktop-deps-ensure-auth)
@@ -250,9 +250,9 @@ it puts the terminal on the frame."
 
 (ert-deftest lispm-desktop-auth-test-pinned-client-release ()
   (require 'lispm-desktop-deps)
-  (should (equal lispm-desktop-deps-auth-version "0.2.2"))
+  (should (equal lispm-desktop-deps-auth-version "0.2.5"))
   (should (equal lispm-desktop-deps-auth-sha256
-                 "539ca4f1fc707e9d20b321ae0c090d9aeeb39725360e7131154f09331bdc52d8")))
+                 "9c6a8c3289f85a7900c2e7b44dc29fa575cb05ec8224e398edc51bddd4455168")))
 
 (ert-deftest lispm-desktop-auth-test-service-is-installed-automatically ()
   (require 'lispm-auth)
