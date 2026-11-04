@@ -16,14 +16,32 @@
 (when (file-exists-p custom-file)
   (load custom-file nil t))
 
-(require 'lispm-desktop)
-(lispm-desktop-setup)
-
-(when (file-exists-p lispm-desktop-user-file)
-  (load lispm-desktop-user-file nil t))
-
-(require 'server)
-(unless (server-running-p)
-  (server-start))
+(require 'lispm-desktop-installer-screen)
+(let ((started nil)
+      (failure nil))
+  (unwind-protect
+      (condition-case err
+          (progn
+            (lispm-desktop-installer-screen-start)
+            (require 'lispm-desktop-deps)
+            (lispm-desktop-installer-screen-watch-deps)
+            (when (locate-library "lispm-kit-i18n")
+              (lispm-desktop-installer-screen-complete 'lispm-kit))
+            (require 'lispm-desktop)
+            (lispm-desktop-installer-screen-complete 'desktop)
+            (setq started t))
+        (error
+         (if (or noninteractive (daemonp))
+             (signal (car err) (cdr err))
+           (setq failure lispm-desktop-installer-screen--stage))))
+    (lispm-desktop-installer-screen-stop))
+  (if failure
+      (lispm-desktop-installer-screen-fail failure)
+    (when (and started (lispm-desktop-setup))
+      (when (file-exists-p lispm-desktop-user-file)
+        (load lispm-desktop-user-file nil t))
+      (require 'server)
+      (unless (server-running-p)
+        (server-start)))))
 
 ;;; init.el ends here

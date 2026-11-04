@@ -12,6 +12,9 @@ LISPM_UI ?= ../lispm-ui
 # lispm-stickies, whose notes the desktop shows: with a checkout beside this
 # one, the tests of Stickies on the desktop run too.
 LISPM_STICKIES ?= ../lispm-stickies
+# lispm-auth, whose store the desktop opens at the first start: a checkout
+# beside this one by default, as lispm-desktop-auth.el looks for it.
+LISPM_AUTH ?= ../lispm-auth
 STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICKIES))
 # Package workflow tests must never discover the user's installed packages.
 TEST_PROFILE = --eval '(setq user-emacs-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-profile-" t)) package-user-dir (expand-file-name "elpa" user-emacs-directory) package-directory-list nil package-alist nil)'
@@ -24,11 +27,14 @@ TEST_PROFILE = --eval '(setq user-emacs-directory (file-name-as-directory (make-
 test:
 	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -l test/lispm-desktop-installer-screen-test.el \
+	  -l test/lispm-desktop-deps-refresh-test.el \
 	  -l test/lispm-desktop-store-defaults-test.el \
 	  -l test/lispm-desktop-store-dependency-test.el \
 	  -l test/lispm-desktop-update-safety-test.el \
 	  -l test/lispm-desktop-app-manager-test.el \
+	  -l test/lispm-desktop-auth-test.el \
 	  -f ert-run-tests-batch-and-exit
 	EMACS="$(EMACS)" sh test/install-update-safety.sh
 
@@ -42,7 +48,7 @@ i18n:
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) \
+	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
 	  -f batch-byte-compile lisp/*.el; \
 	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 

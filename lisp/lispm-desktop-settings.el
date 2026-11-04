@@ -55,6 +55,10 @@
 ;;     Sandbox     how strictly agents' shell commands and MCP servers are
 ;;                 confined, the rules of the Custom level, and the domains
 ;;                 they may reach, see LispM Agent's lispm-sandbox.el
+;;   Security
+;;     Security    LispM's password: changing it, locking the keys it opens,
+;;                 and whether the Desktop's start asks for it, see
+;;                 lispm-auth
 ;;   System
 ;;     Kernel      whether LispM Kernel, lispm-kernel, runs LispM's
 ;;                 background work, and how it stands, see
@@ -81,6 +85,7 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
+(require 'lispm-desktop-form)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-update)
 (require 'lispm-desktop-emacs)
@@ -152,6 +157,22 @@
 (declare-function lispm-set-effort "lispm-settings" (effort &optional save))
 (declare-function lispm-effort-name "lispm-settings" (effort))
 (declare-function lispm-backend-actions "lispm-settings" ())
+(declare-function lispm-backend-name "lispm-core" ())
+(declare-function lispm-backend "lispm-core" (name))
+(declare-function lispm-backend-get "lispm-settings" (name))
+(declare-function lispm-backend-remove "lispm-settings" (name &optional save))
+(declare-function lispm-backend-api-name "lispm-settings" (api))
+(declare-function lispm-backend-form "lispm-backend-form" (&optional name))
+(declare-function lispm-auth-app-requires-password-p "lispm-auth" (app))
+(declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
+(declare-function lispm-auth-locked-p "lispm-auth" ())
+(declare-function lispm-auth-store-exists-p "lispm-auth" ())
+(declare-function lispm-auth-change-password "lispm-auth" (&optional new-password))
+(declare-function lispm-auth-lock "lispm-auth" ())
+(declare-function lispm-auth-set-auto-lock "lispm-auth" (minutes))
+(declare-function lispm-desktop-auth-change-password "lispm-desktop-auth" ())
+(declare-function lispm-desktop-auth-lock "lispm-desktop-auth" ())
+(declare-function lispm-desktop-auth-status "lispm-desktop-auth" ())
 (declare-function lispm-settings-set "lispm-settings" (variable value &optional save))
 (declare-function lispm-permission-class-description "lispm-settings" (class))
 (declare-function lispm-permission-action-name "lispm-settings" (action))
@@ -194,6 +215,8 @@
            lispm-desktop-settings--lispm-p)
     (sandbox ,(lispm-desktop-tr-noop "Sandbox") lispm-desktop-settings--sandbox "sandbox-32"
              lispm-desktop-settings--sandbox-p)
+    (security ,(lispm-desktop-tr-noop "Security") lispm-desktop-settings--security "security-32"
+              lispm-desktop-settings--security-p)
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
     (kernel ,(lispm-desktop-tr-noop "Kernel") lispm-desktop-settings--kernel "kernel-32")
     (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32")
@@ -216,6 +239,8 @@ a control panel, see `lispm-desktop-settings-categories'.")
                      (lispm sandbox))
     (settings-system ,(lispm-desktop-tr-noop "System") "computer" "kernel-32"
                      (kernel update))
+    (settings-security ,(lispm-desktop-tr-noop "Security") "security" "security-32"
+                       (security))
     (settings-apps ,(lispm-desktop-tr-noop "Apps") "applications" "applications-32"
                    (apps)))
   "The control panels, a category of settings each, in the Control Panels
@@ -443,7 +468,7 @@ line, and its bottom edge closes it, a gap after it."
 inside its group box."
   (let ((window (get-buffer-window (current-buffer) t)))
     (- (if window (window-body-width window t) 500)
-       indent (* 4 lispm-desktop-settings--group-margin))))
+       indent (* 4 (lispm-desktop-px lispm-desktop-settings--group-margin)))))
 
 (defun lispm-desktop-settings--wrap (text width)
   "Return TEXT broken between words, or the characters of Chinese and
@@ -778,20 +803,81 @@ them use it, now and at later starts."
 
 (defun lispm-desktop-settings--popup-under-button (items)
   "Pop up the menu of ITEMS under the push button pressed."
-  (let ((position (if (mouse-event-p last-input-event)
-                      (posn-point (event-start last-input-event))
-                    (point))))
+  (let* ((window (get-buffer-window (current-buffer) t))
+         (pt (or (and (mouse-event-p last-input-event)
+                      (posn-point (event-start last-input-event)))
+                 (point)))
+         (position (if (window-live-p window)
+                       (or (posn-at-point pt window) pt)
+                     pt)))
     (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
-      (lispm-ui-menu items x (+ y (if (lispm-desktop-tty-p) 1 (+ lispm-ui-button-height 2)))))))
+      (let ((lispm-ui-menu-parent (and (window-live-p window)
+                                       (window-frame window))))
+        (lispm-ui-menu items x
+                       (and y (+ y (if (lispm-desktop-tty-p)
+                                       1
+                                     (+ lispm-ui-button-height 2)))))))))
 
 (defun lispm-desktop-settings--choose-model ()
   "Pop up the models to choose from under the button pressed, and have
 LispM's agents use the one chosen, now and at later starts."
   (lispm-desktop-settings--popup-under-button (lispm-desktop-settings--model-items)))
 
+(defun lispm-desktop-settings--backend-line ()
+  "Insert the backend agents that name no model use: its name, the API it
+speaks, its address and its other models."
+  (let* ((name (lispm-backend-name))
+         (backend (and name (lispm-backend name))))
+    (if (null backend)
+        (insert (propertize (lispm-desktop-tr "No backend") 'face 'bold))
+      (insert (propertize (symbol-name name) 'face 'bold)
+              (propertize " · " 'face 'shadow)
+              (let ((api (or (plist-get backend :api) 'anthropic)))
+                (if (fboundp 'lispm-backend-api-name)
+                    (lispm-backend-api-name api)
+                  (pcase api
+                    ('anthropic (lispm-desktop-tr "Anthropic-compatible"))
+                    ('openai (lispm-desktop-tr "OpenAI-compatible"))
+                    (_ (format "%s" api)))))
+              (propertize " · " 'face 'shadow)
+              (propertize (or (plist-get backend :url) "") 'face 'shadow))
+      (when-let* ((models (plist-get backend :models)))
+        (insert "\n" (lispm-desktop-settings--indent)
+                (propertize (lispm-desktop-tr "Other models: ") 'face 'shadow)
+                (mapconcat #'identity models ", "))))))
+
+(defvar-local lispm-desktop-settings--backend-form nil
+  "Non-nil in the buffer of the backend form the LispM panel shows.")
+
+(defun lispm-desktop-settings--show-backend-form (form)
+  "Show FORM, the buffer of a backend's form, in its window."
+  (lispm-desktop-form-show 'backend-form form 'lispm-desktop-settings--backend-form))
+
+(defun lispm-desktop-settings--add-backend ()
+  "Add a backend, in its form."
+  (interactive)
+  (lispm-desktop-settings--show-backend-form (lispm-backend-form)))
+
+(defun lispm-desktop-settings--edit-backend ()
+  "Change the backend agents that name no model use, in its form."
+  (interactive)
+  (if-let* ((name (lispm-backend-name)))
+      (lispm-desktop-settings--show-backend-form (lispm-backend-form name))
+    (lispm-desktop-settings--add-backend)))
+
+(defun lispm-desktop-settings--remove-backend ()
+  "Remove the backend agents that name no model use, once you agree."
+  (interactive)
+  (let ((name (lispm-backend-name)))
+    (unless name
+      (user-error "%s" (lispm-desktop-tr "There is no backend")))
+    (when (yes-or-no-p (lispm-desktop-tr "Remove the backend %s, and its key?" name))
+      (lispm-backend-remove name t))))
+
 (defun lispm-desktop-settings--lispm-model ()
   "Insert the LispM panel's Model group: the model LispM's agents use, its
-effort, how its backend stands, and what can be done about it."
+effort, the backend it asks and how that stands, and what can be done
+about it."
   (let* ((status (lispm-model-status))
          (backend (plist-get status :backend))
          (model (plist-get status :model)))
@@ -803,6 +889,25 @@ effort, how its backend stands, and what can be done about it."
       (insert (propertize (lispm-desktop-tr "None") 'face 'bold) "  "))
     (lispm-desktop-settings--button (lispm-desktop-tr "Choose…") #'lispm-desktop-settings--choose-model
                                     (lispm-desktop-tr "Choose the model agents use"))
+    (insert "\n" (lispm-desktop-settings--indent))
+    (lispm-desktop-settings--backend-line)
+    ;; The backend agents that name no model use: change it, add one, or
+    ;; remove it.
+    (insert "\n" (lispm-desktop-settings--indent))
+    (when (fboundp 'lispm-backend-form)
+      (when backend
+        (lispm-desktop-settings--button (lispm-desktop-tr "Change…")
+                                        #'lispm-desktop-settings--edit-backend
+                                        (lispm-desktop-tr "Change the backend agents that name no model use"))
+        (insert " "))
+      (lispm-desktop-settings--button (lispm-desktop-tr "Add…")
+                                      #'lispm-desktop-settings--add-backend
+                                      (lispm-desktop-tr "Add a backend: a server of models, and where its key comes from")))
+    (when (and backend (fboundp 'lispm-backend-remove))
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Remove…")
+                                      #'lispm-desktop-settings--remove-backend
+                                      (lispm-desktop-tr "Remove the backend agents that name no model use")))
     (insert "\n")
     (lispm-desktop-settings--paragraph (plist-get status :message))
     (insert "\n" (lispm-desktop-settings--indent) (propertize (lispm-desktop-tr "Effort: ") 'face 'shadow))
@@ -817,8 +922,6 @@ effort, how its backend stands, and what can be done about it."
     (pcase-dolist (`(,label ,function ,help) (lispm-backend-actions))
       (lispm-desktop-settings--button label function help)
       (insert " "))
-    (lispm-desktop-settings--button (lispm-desktop-tr "Backends…") (lambda () (customize-variable 'lispm-backends))
-                                    (lispm-desktop-tr "Edit the servers of models LispM knows in Customize"))
     (insert "\n\n")
     (lispm-desktop-settings--paragraph
      (lispm-desktop-tr "Agents whose role names no model take a change from their next request on; more effort thinks longer, and costs more."))))
@@ -1268,6 +1371,96 @@ LispM Agent's lispm-sandbox.el does the rest."
   (insert "\n\n")
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "Low reaches them besides package registries and code hosts, Middle them alone; High reaches no network.")))
+
+(defun lispm-desktop-settings--security-password ()
+  "Ask for a new password in the minibuffer, and change LispM's to it.
+The password it has now is asked for first when the store is locked, so
+that a password given wrongly changes nothing."
+  (lispm-desktop-auth-change-password))
+
+(defun lispm-desktop-settings--security-lock ()
+  "Lock the store now, forgetting the keys until the password is given again."
+  (lispm-desktop-auth-lock))
+
+(defun lispm-desktop-settings--security-timeout-set (minutes)
+  "Set and persist MINUTES as the Auth store's idle timeout."
+  (unless (fboundp 'lispm-auth-set-auto-lock)
+    (user-error "%s" (lispm-desktop-tr "A newer LispM Auth client is required to change the timeout")))
+  (lispm-auth-set-auto-lock minutes)
+  (lispm-desktop-settings--save 'lispm-auth-auto-lock minutes))
+
+(defun lispm-desktop-settings--security-timeout-items ()
+  "Return the menu items choosing the Auth store's idle timeout."
+  (let ((current (and (boundp 'lispm-auth-auto-lock) lispm-auth-auto-lock)))
+    (mapcar (pcase-lambda (`(,label . ,minutes))
+              (list :label label
+                    :checked (equal current minutes)
+                    :action (lambda ()
+                              (lispm-desktop-settings--security-timeout-set minutes))))
+            (list (cons (lispm-desktop-tr "5 minutes") 5)
+                  (cons (lispm-desktop-tr "15 minutes") 15)
+                  (cons (lispm-desktop-tr "30 minutes") 30)
+                  (cons (lispm-desktop-tr "1 hour") 60)
+                  (cons (lispm-desktop-tr "4 hours") 240)
+                  (cons (lispm-desktop-tr "24 hours") 1440)
+                  (cons (lispm-desktop-tr "Never") nil)))))
+
+(defun lispm-desktop-settings--security-timeout ()
+  "Pop up the idle lock timeouts under the button pressed, and save the one chosen."
+  (lispm-desktop-settings--popup-under-button
+   (lispm-desktop-settings--security-timeout-items)))
+
+(defun lispm-desktop-settings--security-p ()
+  "Return non-nil when LispM Auth says how its password stands."
+  (and (fboundp 'lispm-auth-store-exists-p)
+       (fboundp 'lispm-auth-locked-p)
+       (fboundp 'lispm-auth-change-password)
+       (fboundp 'lispm-auth-lock)
+       (fboundp 'lispm-auth-app-requires-password-p)
+       (fboundp 'lispm-auth-set-app-requires-password)))
+
+(defun lispm-desktop-settings--security ()
+  "Insert the Security panel: LispM's password, and who asks for it."
+  (let ((store (lispm-auth-store-exists-p))
+        (locked (lispm-auth-locked-p)))
+    (lispm-desktop-settings--heading (lispm-desktop-tr "Password"))
+    (lispm-desktop-settings--paragraph (lispm-desktop-auth-status))
+    (insert (lispm-desktop-settings--indent))
+    (lispm-desktop-settings--button
+     (if store (lispm-desktop-tr "Change Password…") (lispm-desktop-tr "Set Password…"))
+     #'lispm-desktop-settings--security-password
+     (lispm-desktop-tr "Change the password that opens LispM's keys"))
+    (when (and store (not locked))
+      (insert " ")
+      (lispm-desktop-settings--button
+       (lispm-desktop-tr "Lock Now") #'lispm-desktop-settings--security-lock
+       (lispm-desktop-tr "Forget the keys until the password is given again")))
+    (insert "\n")
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "LispM's keys are kept encrypted, and the password unlocks them."))
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "Lock Now forgets this Emacs process's key; it cannot revoke secrets already given to applications."))
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "A forgotten password cannot be recovered: the keys it kept would be entered again."))
+    (when (boundp 'lispm-auth-auto-lock)
+      (lispm-desktop-settings--paragraph
+       (if lispm-auth-auto-lock
+           (lispm-desktop-tr "Lock after %s minutes of inactivity." lispm-auth-auto-lock)
+         (lispm-desktop-tr "Automatic locking is disabled.")))
+      (insert (lispm-desktop-settings--indent))
+      (lispm-desktop-settings--button (lispm-desktop-tr "Change Timeout…")
+                                      #'lispm-desktop-settings--security-timeout
+                                      (lispm-desktop-tr "Change the idle lock timeout"))
+      (insert "\n"))
+    (lispm-desktop-settings--heading (lispm-desktop-tr "Applications"))
+    (lispm-desktop-settings--check-box
+     (lispm-desktop-tr "Ask for the password when the Desktop starts")
+     (lispm-auth-app-requires-password-p 'desktop)
+     (lambda () (lispm-auth-set-app-requires-password
+                 'desktop (not (lispm-auth-app-requires-password-p 'desktop)))))
+    (lispm-desktop-settings--paragraph
+     (lispm-desktop-tr "LispM, its agents and the editor always ask for the password. A game that uses no key never does.")
+     (lispm-desktop-settings--under-label 'check-box))))
 
 (defvar lispm-desktop-settings--kernel-timer nil
   "Timer drawing the Kernel panel again while it tells how far lispm-kernel is.")
@@ -1984,6 +2177,13 @@ cascaded windows."
       :geometry (lambda (screen) (lispm-desktop-settings--default-geometry key screen))
       :buffer (lambda () (lispm-desktop-settings--buffer key))
       :roll 'chrome)))
+
+(lispm-desktop-app-window-define 'backend-form
+  :app 'settings-agents
+  :name (lispm-desktop-tr-noop "Backend")
+  :size '(560 . 680)
+  :documents 'keep
+  :close #'lispm-desktop-app-window-close-box)
 
 (defun lispm-desktop-settings-show (&optional panel)
   "Open the window of PANEL's control panel over the desktop, showing PANEL,

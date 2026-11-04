@@ -1,6 +1,6 @@
 name: install
 
-# install.sh, run as a newcomer runs it, on Apple silicon and on Intel:
+# install.sh, run as a newcomer runs it, on Apple silicon:
 # LispM.app made of Emacs, and the packages installed; and on GNU/Linux,
 # in a fresh Debian and Ubuntu: LispM's Emacs installed with apt, the
 # packages, and the command and menu entry starting it.
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, macos-15-intel]
+        os: [macos-latest]
         emacs: ['31']
         # The experimental LispM, on Apple silicon only.
         include:

@@ -44,6 +44,8 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-desktop-core)
+(require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-i18n)
@@ -66,6 +68,50 @@ gives them.  Where no menu can be drawn, the form's own way is taken."
     (lispm-ui-form-choose label choices value event)))
 
 ;;;; Showing
+
+(defun lispm-desktop-form-window-size (form)
+  "The size of the window of FORM, a form's buffer: as wide as its group
+boxes, as tall as all of it, as far as the screen allows."
+  (let* ((outer (or (plist-get (lispm-ui-form-geometry form) :outer) 480))
+         (height (cdr (buffer-text-pixel-size form)))
+         (screen (lispm-desktop-apps-screen)))
+    (cons (+ outer (lispm-desktop-px 40))
+          (min (+ height (lispm-desktop-px 24))
+               (- (frame-pixel-height screen) (lispm-desktop-px 120))))))
+
+(defun lispm-desktop-form-window-closed (kind variable)
+  "Close the window of kind KIND once no form it holds is left.
+VARIABLE is non-nil in the buffer of each form KIND's window shows."
+  (unless (seq-some (lambda (buffer)
+                      (and (eq (buffer-local-value 'major-mode buffer) 'lispm-ui-form-mode)
+                           (buffer-local-value variable buffer)))
+                    (buffer-list))
+    (lispm-desktop-app-window-close kind)))
+
+(defun lispm-desktop-form-show (kind form variable)
+  "Show FORM, a form's buffer, in the window of kind KIND: one at a time.
+VARIABLE, made non-nil in FORM, marks it as a form KIND's window shows
+until it dies, when the window closes."
+  (when (lispm-desktop-app-window-open-p kind)
+    (lispm-desktop-app-window-close kind))
+  (with-current-buffer form
+    (set (make-local-variable variable) t)
+    (add-hook 'kill-buffer-hook
+              (lambda () (run-at-time 0 nil #'lispm-desktop-form-window-closed kind variable))
+              nil t))
+  (pcase-let* ((`(,width . ,height) (lispm-desktop-form-window-size form))
+               (frame (lispm-desktop-app-window-show
+                       kind
+                       :name (lispm-ui-form-title form)
+                       :buffer form
+                       :size (cons width height))))
+    ;; The window opens where the last form's was, but each form is a size
+    ;; of its own: an application's form is shorter than a character's.
+    (unless (and (= width (frame-text-width frame)) (= height (frame-text-height frame)))
+      (set-frame-size frame width height t)
+      (lispm-desktop-platinum-frame-update frame)
+      (lispm-desktop-apps-keep-on-desktop frame))
+    frame))
 
 (defun lispm-desktop-form--layout ()
   "Lay the form in this buffer out for a desktop's window, before it is

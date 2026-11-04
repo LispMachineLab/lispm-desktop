@@ -102,6 +102,15 @@
 (lispm-desktop-deps-ensure 'lispm-browser)
 ;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
 (lispm-desktop-deps-ensure 'lispm)
+;; Auth is installed by default, but cannot prevent Desktop from loading.
+(condition-case err
+    (progn
+      (lispm-desktop-deps-ensure-auth)
+      (when (fboundp 'lispm-desktop-installer-screen-complete)
+        (lispm-desktop-installer-screen-complete 'lispm-auth)))
+  (error (display-warning 'lispm-desktop
+                          (format "LispM Auth could not be installed: %s. Password protection is unavailable."
+                                  (error-message-string err)) :warning)))
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
@@ -155,6 +164,7 @@
 (require 'lispm-desktop-lispm)
 (require 'lispm-desktop-form)
 (require 'lispm-desktop-characters)
+(require 'lispm-desktop-auth)
 (require 'lispm-desktop-bar)
 (require 'lispm-agents-claude)
 (require 'lispm-agents-codex)
@@ -231,9 +241,11 @@ boxes.  A download that fails, as offline, is only reported."
 
 (defun lispm-desktop--setup-desktop (first)
   "Set Emacs up as the desktop; FIRST is non-nil at the first start."
+  (lispm-desktop-assistant-progress 0 4 "Preparing common packages")
   ;; First, so that whatever is fetched next goes through it.
   (lispm-desktop-setup-proxy)
   (lispm-desktop-setup-common-packages)
+  (lispm-desktop-assistant-progress 1 4 "Setting up the desktop")
   (lispm-desktop-setup-tab-bar)
   (lispm-desktop-setup-clipboard)
   (lispm-desktop-setup-keymapping)
@@ -266,6 +278,7 @@ boxes.  A download that fails, as offline, is only reported."
   (lispm-desktop-setup-guide)
   (setq lispm-desktop--set-up t)
   (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
+  (lispm-desktop-assistant-progress 2 4 "Setting up appearance and language")
   (lispm-desktop-setup-look)
   (lispm-desktop-setup-glass)
   (lispm-desktop-setup-i18n)
@@ -273,6 +286,7 @@ boxes.  A download that fails, as offline, is only reported."
   (lispm-desktop-setup-ai)
   (lispm-desktop-setup-agent-list)
   (lispm-desktop-setup-shells)
+  (lispm-desktop-assistant-progress 3 4 "Finishing setup")
   ;; LispM is set up first, so its agent comes first; but the
   ;; others are set up even when it cannot be, as offline at a
   ;; first start that would install it.
@@ -284,6 +298,10 @@ boxes.  A download that fails, as offline, is only reported."
             "LispM"
             (lispm-desktop-tr "LispM's agents are not set up: %s"
                               (error-message-string err)))))
+  ;; After LispM's own, whose backends the first opening moves into the store.
+  (lispm-desktop-assistant-progress 3 4 "Preparing password protection")
+  (when (lispm-desktop-auth-prepare)
+    (lispm-desktop-auth-setup))
   (lispm-agents-setup-claude)
   (lispm-agents-setup-codex)
   ;; After the agents, whose sessions it reads; off unless asked for.
@@ -292,7 +310,8 @@ boxes.  A download that fails, as offline, is only reported."
   (add-hook 'window-setup-hook #'lispm-desktop-setup-exwm)
   (add-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
   (when first
-    (lispm-desktop--install-missing-fonts)))
+    (lispm-desktop--install-missing-fonts))
+  (lispm-desktop-assistant-progress 4 4 "Synchronous setup finished"))
 
 (defun lispm-desktop--setup-terminal ()
   "Set Emacs up as LispM's terminal: as `lispm-desktop--setup-desktop'
@@ -301,8 +320,10 @@ Finder, applications, workspaces, agents' windows and guide.  The
 proxy, the packages and keys, the language, the theme and LispM's agents
 are set up as there; then the first frame becomes the terminal, see
 `lispm-desktop-start-as--open-terminal'."
+  (lispm-desktop-assistant-progress 0 3 "Preparing common packages")
   (lispm-desktop-setup-proxy)
   (lispm-desktop-setup-common-packages)
+  (lispm-desktop-assistant-progress 1 3 "Setting up terminal and language")
   (lispm-desktop-setup-clipboard)
   (lispm-desktop-setup-keymapping)
   (lispm-desktop-setup-plain-interface)
@@ -313,6 +334,7 @@ are set up as there; then the first frame becomes the terminal, see
   (add-variable-watcher 'lispm-desktop-theme #'lispm-desktop--theme-changed)
   (lispm-desktop-setup-i18n)
   (lispm-desktop-setup-langs)
+  (lispm-desktop-assistant-progress 2 3 "Finishing setup")
   (lispm-desktop-form-setup)
   (condition-case err
       (lispm-desktop-setup-lispm)
@@ -320,22 +342,48 @@ are set up as there; then the first frame becomes the terminal, see
             "LispM"
             (lispm-desktop-tr "LispM's agents are not set up: %s"
                               (error-message-string err)))))
+  ;; After LispM's own, whose backends the first opening moves into the store.
+  ;; Focus Mode is LispM itself: it declares even when Control Panels has
+  ;; revoked the desktop's declaration.
+  (lispm-desktop-assistant-progress 2 3 "Preparing password protection")
+  (lispm-desktop-auth-start-lispm)
   (lispm-desktop-store-startup t)
   (lispm-desktop-setup-kernel)
-  (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
+  (add-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal)
+  (lispm-desktop-assistant-progress 3 3 "Synchronous setup finished"))
 
 (defun lispm-desktop-setup ()
   "Set Emacs up as lispm-desktop: as the desktop, or as LispM's terminal
 when LispM starts as that, see `lispm-desktop-start-as'."
   (let ((as (lispm-desktop-setup-start-as))
-        (first (setq lispm-desktop-first-start (lispm-desktop--first-start))))
+        (first (setq lispm-desktop-first-start (lispm-desktop--first-start)))
+        (previously-set-up lispm-desktop--set-up)
+        (completed nil)
+        (failure nil))
     ;; The first start's page stays up while LispM is set up, and goes
     ;; however that ends.
     (unwind-protect
-        (if (eq as 'terminal)
-            (lispm-desktop--setup-terminal)
-          (lispm-desktop--setup-desktop first))
-      (lispm-desktop-assistant-close))))
+        (condition-case err
+            (progn
+              (advice-add 'package-refresh-contents :around #'lispm-desktop-assistant--package-operation)
+              (advice-add 'package-install-from-archive :around #'lispm-desktop-assistant--package-operation)
+              (if (eq as 'terminal)
+                  (lispm-desktop--setup-terminal)
+                (lispm-desktop--setup-desktop first))
+              (setq completed t))
+          (error
+           (if (or noninteractive (daemonp))
+               (signal (car err) (cdr err))
+             (setq failure lispm-desktop-assistant--setup-stage))))
+      (unless completed
+        (setq lispm-desktop--set-up previously-set-up))
+      (advice-remove 'package-refresh-contents #'lispm-desktop-assistant--package-operation)
+      (advice-remove 'package-install-from-archive #'lispm-desktop-assistant--package-operation)
+      (lispm-desktop-assistant-close))
+    (when failure
+      (require 'lispm-desktop-installer-screen)
+      (lispm-desktop-installer-screen-fail failure))
+    completed))
 
 
 (provide 'lispm-desktop)
