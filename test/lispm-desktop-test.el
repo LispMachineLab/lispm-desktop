@@ -380,6 +380,27 @@ page, while LispM is set up, says so and what was chosen."
       (should (equal (plist-get shown :message) "Contacting host: example"))
       (should-not (advice-member-p #'lispm-desktop-assistant--package-message 'message)))))
 
+(ert-deftest lispm-desktop-test-assistant-subprogress-and-status-i18n ()
+  "Setup stages and package installations translate their status and advance subprogress."
+  (let ((lispm-desktop-assistant--window (selected-window))
+        (lispm-desktop-assistant--last-page (list :picture t))
+        (lispm-desktop-assistant--package-count (cons 0 2))
+        (lispm-desktop-language 'zh-Hans)
+        (desc (package-desc-create :name 'magit :version '(4 0)))
+        (shown nil))
+    (cl-letf (((symbol-function 'lispm-desktop-assistant--visible-p) (lambda () t))
+              ((symbol-function 'lispm-desktop-assistant--show)
+               (lambda (page &rest _)
+                 (setq lispm-desktop-assistant--last-page page
+                       shown page))))
+      (lispm-desktop-assistant-progress 0 4 "Preparing common packages")
+      (should (equal lispm-desktop-assistant--setup-stage "Preparing common packages"))
+      (should (equal (plist-get shown :status) "正在准备常用软件包…"))
+      (setq lispm-desktop-assistant--package-count (cons 0 2))
+      (lispm-desktop-assistant--package-operation (lambda (&rest _) 'ok) desc)
+      (should (equal (plist-get shown :status) "正在安装软件包：magit（1 / 2）…"))
+      (should (> (plist-get shown :subprogress) 0.0)))))
+
 (ert-deftest lispm-desktop-test-assistant-in-minibuffer ()
   "Where the page cannot be drawn, the questions are asked in the
 minibuffer, by the same keys; C-g puts them off."
@@ -18904,6 +18925,61 @@ holds no longer.  Run with `make i18n'."
         (lispm-desktop-settings--security-timeout)
         (should (equal applied (list (cdr entry))))
         (should (equal saved (list 'lispm-auth-auto-lock (cdr entry))))))))
+
+(ert-deftest lispm-desktop-test-fast-install-concurrency ()
+  "Verify cached response buffer, prefetched clone reuse, and parallel deferred compilation."
+  ;; 1. Cached response buffer skips -readme.txt and MELPA .sig and serves local files.
+  (let* ((tmp (make-temp-file "lispm-fast-install-" t))
+         (lispm-desktop-deps--fast-install-active t)
+         (lispm-desktop-deps--prefetch-dir tmp)
+         (package-check-signature 'allow-unsigned)
+         (called nil))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "demo-1.0.el" tmp)
+            (insert ";;; demo.el\n"))
+          (should-not (lispm-desktop-deps--cached-response-buffer
+                       (lambda (&rest _) (setq called t))
+                       "https://melpa.org/packages/" #'ignore
+                       :file "demo-readme.txt" :noerror t))
+          (should-not called)
+          (should-not (lispm-desktop-deps--cached-response-buffer
+                       (lambda (&rest _) (setq called t))
+                       "https://melpa.org/packages/" #'ignore
+                       :file "demo-1.0.el.sig" :noerror t))
+          (should-not called)
+          (lispm-desktop-deps--cached-response-buffer
+           (lambda (url _fn &rest args)
+             (setq called (list url (plist-get args :file))))
+           "https://melpa.org/packages/" #'ignore
+           :file "demo-1.0.el")
+          (should (equal called (list (file-name-as-directory (expand-file-name tmp)) "demo-1.0.el"))))
+      (ignore-errors (delete-directory tmp t))))
+  ;; 2. Deferred compile queues package-desc and flushes in parallel batch workers.
+  (let* ((tmp (make-temp-file "lispm-parallel-compile-" t))
+         (pkg1 (expand-file-name "pkg1-1.0" tmp))
+         (pkg2 (expand-file-name "pkg2-1.0" tmp))
+         (desc1 (package-desc-create :name 'pkg1 :version '(1 0) :dir pkg1))
+         (desc2 (package-desc-create :name 'pkg2 :version '(1 0) :dir pkg2))
+         (lispm-desktop-deps--fast-install-active t)
+         (lispm-desktop-deps--deferred-compile-queue nil)
+         (lispm-desktop-deps-compile-jobs 2))
+    (unwind-protect
+        (progn
+          (make-directory pkg1 t)
+          (make-directory pkg2 t)
+          (with-temp-file (expand-file-name "pkg1.el" pkg1)
+            (insert ";;; -*- lexical-binding: t; -*-\n(defun pkg1-hello () 42)\n(provide 'pkg1)\n"))
+          (with-temp-file (expand-file-name "pkg2.el" pkg2)
+            (insert ";;; -*- lexical-binding: t; -*-\n(defun pkg2-hello () 99)\n(provide 'pkg2)\n"))
+          (lispm-desktop-deps--defer-compile (lambda (_) (error "Should defer")) desc1)
+          (lispm-desktop-deps--defer-compile (lambda (_) (error "Should defer")) desc2)
+          (should (= (length lispm-desktop-deps--deferred-compile-queue) 2))
+          (lispm-desktop-deps-flush-deferred-compiles t)
+          (should (null lispm-desktop-deps--deferred-compile-queue))
+          (should (file-regular-p (expand-file-name "pkg1.elc" pkg1)))
+          (should (file-regular-p (expand-file-name "pkg2.elc" pkg2))))
+      (ignore-errors (delete-directory tmp t)))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

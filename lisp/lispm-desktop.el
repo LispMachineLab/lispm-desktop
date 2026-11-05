@@ -100,9 +100,8 @@
 (lispm-desktop-deps-ensure 'lispm-ui)
 ;; The browser is lispm-browser, which the desktop's browser files require.
 (lispm-desktop-deps-ensure 'lispm-browser)
-;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
-(lispm-desktop-deps-ensure 'lispm)
-;; Auth is installed by default, but cannot prevent Desktop from loading.
+;; Auth is installed before LispM Agent, which actively depends on it,
+;; but cannot prevent Desktop from loading.
 (condition-case err
     (progn
       (lispm-desktop-deps-ensure-auth)
@@ -111,6 +110,11 @@
   (error (display-warning 'lispm-desktop
                           (format "LispM Auth could not be installed: %s. Password protection is unavailable."
                                   (error-message-string err)) :warning)))
+;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
+(lispm-desktop-deps-ensure 'lispm)
+(when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
+           (fboundp 'lispm-desktop-deps-flush-deferred-compiles))
+  (lispm-desktop-deps-flush-deferred-compiles t))
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
@@ -283,6 +287,9 @@ boxes.  A download that fails, as offline, is only reported."
   (lispm-desktop-setup-glass)
   (lispm-desktop-setup-i18n)
   (lispm-desktop-setup-langs)
+  (when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
+             (fboundp 'lispm-desktop-deps-flush-deferred-compiles))
+    (lispm-desktop-deps-flush-deferred-compiles t))
   (lispm-desktop-setup-ai)
   (lispm-desktop-setup-agent-list)
   (lispm-desktop-setup-shells)
@@ -365,6 +372,9 @@ when LispM starts as that, see `lispm-desktop-start-as'."
     (unwind-protect
         (condition-case err
             (progn
+              (when (and (not noninteractive)
+                         (fboundp 'lispm-desktop-deps-enable-fast-install))
+                (lispm-desktop-deps-enable-fast-install))
               (advice-add 'package-refresh-contents :around #'lispm-desktop-assistant--package-operation)
               (advice-add 'package-install-from-archive :around #'lispm-desktop-assistant--package-operation)
               (if (eq as 'terminal)
@@ -376,9 +386,15 @@ when LispM starts as that, see `lispm-desktop-start-as'."
                (signal (car err) (cdr err))
              (setq failure lispm-desktop-assistant--setup-stage))))
       (unless completed
-        (setq lispm-desktop--set-up previously-set-up))
+        (setq lispm-desktop--set-up previously-set-up)
+        (remove-hook 'window-setup-hook #'lispm-desktop-activate)
+        (remove-hook 'window-setup-hook #'lispm-desktop--show-startup-view)
+        (remove-hook 'window-setup-hook #'lispm-desktop-start-as--open-terminal))
       (advice-remove 'package-refresh-contents #'lispm-desktop-assistant--package-operation)
       (advice-remove 'package-install-from-archive #'lispm-desktop-assistant--package-operation)
+      (when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
+                 (fboundp 'lispm-desktop-deps-disable-fast-install))
+        (lispm-desktop-deps-disable-fast-install))
       (lispm-desktop-assistant-close))
     (when failure
       (require 'lispm-desktop-installer-screen)

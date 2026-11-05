@@ -76,11 +76,18 @@ desktop say no; the sidebar's lists say yes.")
 `lispm-desktop-platinum-scroll-bar-functions'."
   (and (not (window-minibuffer-p window))
        (not (window-parameter window 'lispm-desktop-chrome))
-       (pcase (run-hook-with-args-until-success 'lispm-desktop-platinum-scroll-bar-functions
-                                                (window-buffer window))
-         ('yes t)
-         ('no nil)
-         (_ (not (window-parameter window 'window-side))))))
+       (let* ((buffer (window-buffer window))
+              (name (buffer-name buffer))
+              (mode (buffer-local-value 'major-mode buffer)))
+         (and (not (provided-mode-derived-p mode 'lispm-auth-page-mode))
+              (not (member name '(" *LispM Password*"
+                                  "*LispM Setup Assistant*"
+                                  "*LispM Installer*")))
+              (pcase (run-hook-with-args-until-success 'lispm-desktop-platinum-scroll-bar-functions
+                                                       buffer)
+                ('yes t)
+                ('no nil)
+                (_ (not (window-parameter window 'window-side))))))))
 
 (defvar lispm-desktop-platinum--scroll-map
   (let ((map (make-sparse-keymap)))

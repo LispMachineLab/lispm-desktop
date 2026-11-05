@@ -87,6 +87,10 @@
 (declare-function url-retrieve-synchronously "url" (url &optional silent inhibit-cookies timeout))
 (defvar url-http-response-status)
 (defvar lispm-desktop-store-installer--reporting)
+(defvar lispm-desktop-installer-screen--active)
+(defvar lispm-desktop-installer-screen--message)
+(defvar lispm-desktop-installer-screen--status)
+(declare-function lispm-desktop-installer-screen-report "lispm-desktop-installer-screen" (status))
 
 (defvar lispm-desktop-store-installer--update-observer nil
   "When non-nil, a function receiving NAME, FROM and TO before an update.
@@ -594,7 +598,13 @@ how far the download it makes is, from what git prints with --progress."
                              (when-let* ((fraction (lispm-desktop-store-installer--git-progress text))
                                          ((>= (- fraction said) 0.01)))
                                (setq said fraction)
-                               (lispm-desktop-store-installer--say 'progress fraction))))))
+                               (lispm-desktop-store-installer--say 'progress fraction)
+                               (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
+                                          (fboundp 'lispm-desktop-installer-screen-report))
+                                 (setq lispm-desktop-installer-screen--message
+                                       (format "Downloading (%d%%)…" (round (* 100 fraction))))
+                                 (lispm-desktop-installer-screen-report
+                                  lispm-desktop-installer-screen--status)))))))
     (while (process-live-p process)
       (accept-process-output process 0.1))
     (unwind-protect
@@ -637,25 +647,40 @@ origin names no default branch."
       (lispm-desktop-store-installer--fetch directory "origin")
       (lispm-desktop-store--git directory "remote" "set-head" "origin" branch))))
 
+(defvar lispm-desktop-store-installer--prefetched-clones nil
+  "Alist of ((REMOTE . REV) . STAGED-DIR) pre-cloned in parallel.")
+
 (defun lispm-desktop-store-installer--clone (remote directory rev)
   "Clone REMOTE into DIRECTORY at REV, as `vc-git-clone' does, saying how
 far the download is; return DIRECTORY.  REV, a commit, is checked out
 after the clone; any other is tried as the branch or tag to clone first.
 The clone is shallow: REV's files without the history before it."
   (lispm-desktop-store-installer--stage 'download)
-  (let ((parent (file-name-directory (directory-file-name directory))))
-    (cl-flet ((clone (&rest args)
-                (apply #'lispm-desktop-store-installer--git-with-progress
-                       parent "clone" "--progress" "--depth" "1" (append args (list remote directory)))))
-      (cond ((null rev) (clone))
-            ((and (not (string-match-p "\\`[0-9a-f]\\{7,40\\}\\'" rev))
-                  (ignore-errors (clone "--branch" rev) t))
-             (lispm-desktop-store-installer--follow-default-branch directory))
-            (t (clone)
-               (unless (lispm-desktop-store--has-commit-p directory rev)
-                 (lispm-desktop-store-installer--fetch-commit directory rev))
-               (lispm-desktop-store--git directory "checkout" "--quiet" rev)))))
-  directory)
+  (let* ((key (cons remote rev))
+         (staged (cdr (assoc key lispm-desktop-store-installer--prefetched-clones)))
+         (parent (file-name-directory (directory-file-name directory))))
+    (if (and staged (file-directory-p (expand-file-name ".git" staged)))
+        (let ((target (directory-file-name directory)))
+          (setq lispm-desktop-store-installer--prefetched-clones
+                (assoc-delete-all key lispm-desktop-store-installer--prefetched-clones))
+          (make-directory parent t)
+          (when (file-exists-p target)
+            (delete-directory target t))
+          (rename-file (directory-file-name staged) target)
+          (when (and rev (not (string-match-p "\\`[0-9a-f]\\{7,40\\}\\'" rev)))
+            (ignore-errors (lispm-desktop-store--git target "remote" "set-branches" "origin" "*"))))
+      (cl-flet ((clone (&rest args)
+                  (apply #'lispm-desktop-store-installer--git-with-progress
+                         parent "clone" "--progress" "--depth" "1" (append args (list remote directory)))))
+        (cond ((null rev) (clone))
+              ((and (not (string-match-p "\\`[0-9a-f]\\{7,40\\}\\'" rev))
+                    (ignore-errors (clone "--branch" rev) t))
+               (lispm-desktop-store-installer--follow-default-branch directory))
+              (t (clone)
+                 (unless (lispm-desktop-store--has-commit-p directory rev)
+                   (lispm-desktop-store-installer--fetch-commit directory rev))
+                 (lispm-desktop-store--git directory "checkout" "--quiet" rev)))))
+    directory))
 
 (defun lispm-desktop-store-installer--whole-history (desc)
   "Fetch the history the clone of DESC, a package, lacks, cloned shallow:
@@ -696,6 +721,7 @@ each, those it leaves uncompiled too."
   '((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt")
     (lispm-kit :url "https://github.com/LispMachineLab/lispm-kit")
     (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui")
+    (lispm-auth :url "https://github.com/LispMachineLab/lispm-auth")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :lisp-dir "lisp"))
   "LispM's libraries a package may require that no package archive holds,
 \(NAME :url URL) each.  A package requiring one, in its Package-Requires,

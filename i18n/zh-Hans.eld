@@ -1557,7 +1557,7 @@ Rust 的包管理器 Cargo 会在安装器中
   ("Enter the password for LispM's secrets." . "请输入 LispM 密钥的密码。")
   ("It is asked for at each start, and cannot be recovered." . "每次启动时都会询问该密码，且无法找回。")
   ("It is asked for at each start." . "每次启动时都会询问。")
-  ("Return opens the store." . "按回车打开密钥库。")
+  ("Return unlocks LispM." . "按回车解锁 LispM。")
   ("Confirm" . "确认")
   ("A newer LispM Auth client is required to change the timeout" . "更改超时时间需要更新版本的 LispM Auth 客户端")
   ("5 minutes" . "5 分钟")

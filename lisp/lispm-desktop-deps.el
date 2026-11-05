@@ -165,10 +165,534 @@ or the fetch failed."
                              (split-string tags "\n" t))))
     (lispm-desktop-deps--git directory "rev-parse" (concat tag "^{commit}"))))
 
+(defvar lispm-desktop-deps--prefetched-tags nil
+  "Alist of (URL . TAG) resolved concurrently for project repositories.")
+
+(defvar lispm-desktop-deps--fast-install-active nil
+  "Non-nil when parallel prefetch and deferred compile are active.")
+
+(defvar lispm-desktop-deps--prefetch-dir nil
+  "Directory where prefetched ELPA archive files are cached.")
+
+(defvar lispm-desktop-deps--deferred-compile-queue nil
+  "List of `package-desc' objects queued for parallel batch compile.")
+
+(defvar lispm-desktop-deps-compile-jobs
+  (min 8 (max 2 (or (and (fboundp 'num-processors) (ignore-errors (num-processors))) 4)))
+  "Max concurrent batch Emacs processes used to compile packages.")
+
+(defun lispm-desktop-deps--parse-latest-release-tag (output)
+  "Extract the highest vX.Y.Z tag from `git ls-remote' OUTPUT, or nil."
+  (when (and (stringp output) (not (string-empty-p output)))
+    (car (sort (delq nil
+                     (mapcar (lambda (line)
+                               (and (string-match "refs/tags/\\(v[0-9]+\\.[0-9]+\\.[0-9]+\\)\\'" line)
+                                    (match-string 1 line)))
+                             (split-string output "\n" t)))
+               (lambda (a b) (version< (substring b 1) (substring a 1)))))))
+
 (defun lispm-desktop-deps--release-tag (url)
   "Return the tag of the latest release of the repository at URL, as
 \"v0.2.0\", or nil when it has none or cannot be reached."
-  (lispm-desktop-store--release-tag url))
+  (or (cdr (assoc url lispm-desktop-deps--prefetched-tags))
+      (lispm-desktop-store--release-tag url)))
+
+(defun lispm-desktop-deps-prefetch-projects (&optional features)
+  "Concurrently resolve tags and shallow-clone missing projects in FEATURES.
+When FEATURES is nil, defaults to the core startup projects
+`(lispm-kit lispm-ui lispm-browser lispm)'."
+  (unless package-alist
+    (ignore-errors (package-load-all-descriptors)))
+  (let* ((targets (or features '(lispm-kit lispm-ui lispm-browser lispm)))
+         (missing (seq-filter (lambda (feature)
+                                (and (assq feature lispm-desktop-deps)
+                                     (not (lispm-desktop-deps-present-p feature))
+                                     (not (assq feature package-alist))))
+                              targets)))
+    (when (>= (length missing) 2)
+      ;; Phase 1: Resolve release tags concurrently via `git ls-remote'.
+      (let ((tag-procs nil)
+            (process-environment (lispm-desktop-store--git-environment)))
+        (dolist (feature missing)
+          (let* ((spec (alist-get feature lispm-desktop-deps))
+                 (url (plist-get spec :url))
+                 (pinned (plist-get spec :tag)))
+            (cond
+             (pinned
+              (setf (alist-get url lispm-desktop-deps--prefetched-tags nil nil #'equal) pinned))
+             ((and url (not (assoc url lispm-desktop-deps--prefetched-tags)))
+              (let ((buf (generate-new-buffer " *lispm-deps-tag*")))
+                (condition-case nil
+                    (let ((proc (make-process
+                                 :name (format "lispm-deps-tag-%s" feature)
+                                 :buffer buf
+                                 :command (list "git" "ls-remote" "--tags" "--refs" url "v*")
+                                 :connection-type 'pipe
+                                 :noquery t)))
+                      (push (list proc buf url) tag-procs))
+                  (error (kill-buffer buf))))))))
+        (unwind-protect
+            (while (seq-some (lambda (item) (process-live-p (car item))) tag-procs)
+              (accept-process-output nil 0.05))
+          (dolist (item tag-procs)
+            (pcase-let ((`(,proc ,buf ,url) item))
+              (when (process-live-p proc) (delete-process proc))
+              (when (buffer-live-p buf)
+                (when (and (eq (process-status proc) 'exit)
+                           (zerop (process-exit-status proc)))
+                  (when-let* ((tag (with-current-buffer buf
+                                     (lispm-desktop-deps--parse-latest-release-tag (buffer-string)))))
+                    (setf (alist-get url lispm-desktop-deps--prefetched-tags nil nil #'equal) tag)))
+                (kill-buffer buf)))))
+        ;; Phase 2: Concurrently shallow-clone all missing projects with resolved tags,
+        ;; and prefetch the LispM Auth release archive in the same parallel wave.
+        (let ((stage-root (expand-file-name ".prefetch-clones" user-emacs-directory))
+              (cache-dir (or lispm-desktop-deps--prefetch-dir
+                             (setq lispm-desktop-deps--prefetch-dir
+                                   (expand-file-name ".cache/elpa-prefetch" user-emacs-directory))))
+              (clone-procs nil)
+              (auth-proc nil)
+              (auth-part nil)
+              (auth-dest nil)
+              (pcts (make-hash-table :test 'eq)))
+          (make-directory stage-root t)
+          (make-directory cache-dir t)
+          (when (and (executable-find "curl")
+                     (boundp 'lispm-desktop-deps-auth-version)
+                     (not (locate-library "lispm-auth.el" t)))
+            (setq auth-dest (expand-file-name
+                             (format "lispm-auth-client-%s.tar.gz" lispm-desktop-deps-auth-version)
+                             cache-dir)
+                  auth-part (concat auth-dest ".part"))
+            (unless (file-regular-p auth-dest)
+              (condition-case nil
+                  (setq auth-proc
+                        (make-process
+                         :name "lispm-deps-prefetch-auth"
+                         :buffer nil
+                         :command (list "curl" "-fsSL" "--retry" "2" "--connect-timeout" "10"
+                                        "-o" auth-part
+                                        (format "https://github.com/LispMachineLab/lispm-auth/releases/download/v%s/lispm-auth-client-%s.tar.gz"
+                                                lispm-desktop-deps-auth-version
+                                                lispm-desktop-deps-auth-version))
+                         :connection-type 'pipe
+                         :noquery t))
+                (error (setq auth-proc nil)))))
+          (dolist (feature missing)
+            (let* ((spec (alist-get feature lispm-desktop-deps))
+                   (url (plist-get spec :url))
+                   (tag (or (plist-get spec :tag)
+                            (cdr (assoc url lispm-desktop-deps--prefetched-tags))))
+                   (key (and url tag (cons url tag))))
+              (when (and key (not (assoc key lispm-desktop-store-installer--prefetched-clones)))
+                (let* ((holder (make-temp-file (expand-file-name (format "%s-" feature) stage-root) t))
+                       (target (expand-file-name "repo" holder)))
+                  (puthash feature 0 pcts)
+                  (condition-case nil
+                      (let ((proc (make-process
+                                   :name (format "lispm-deps-clone-%s" feature)
+                                   :buffer nil
+                                   :command (list "git" "clone" "--quiet" "--progress"
+                                                  "--depth" "1" "--branch" tag "--" url target)
+                                   :connection-type 'pipe
+                                   :noquery t
+                                   :filter (lambda (_proc chunk)
+                                             (when (string-match "\\([0-9]+\\)%" chunk)
+                                               (puthash feature (string-to-number (match-string 1 chunk)) pcts)
+                                               (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
+                                                          (fboundp 'lispm-desktop-installer-screen-report))
+                                                 (let ((sum 0) (cnt 0))
+                                                   (maphash (lambda (_k v)
+                                                              (setq sum (+ sum v)
+                                                                    cnt (1+ cnt)))
+                                                            pcts)
+                                                   (when (> cnt 0)
+                                                     (lispm-desktop-installer-screen-report
+                                                      (format "Downloading (%d%%)…" (/ sum cnt)))))))))))
+                        (push (list proc key target holder) clone-procs))
+                    (error (ignore-errors (delete-directory holder t))))))))
+          (unwind-protect
+              (while (or (and auth-proc (process-live-p auth-proc))
+                         (seq-some (lambda (item) (process-live-p (car item))) clone-procs))
+                (accept-process-output nil 0.05))
+            (when auth-proc
+              (when (process-live-p auth-proc) (delete-process auth-proc))
+              (if (and (eq (process-status auth-proc) 'exit)
+                       (zerop (process-exit-status auth-proc))
+                       (file-regular-p auth-part))
+                  (ignore-errors (rename-file auth-part auth-dest t))
+                (ignore-errors (delete-file auth-part))))
+            (dolist (item clone-procs)
+              (pcase-let ((`(,proc ,key ,target ,holder) item))
+                (when (process-live-p proc) (delete-process proc))
+                (if (and (eq (process-status proc) 'exit)
+                         (zerop (process-exit-status proc))
+                         (file-directory-p (expand-file-name ".git" target)))
+                    (push (cons key target) lispm-desktop-store-installer--prefetched-clones)
+                  (ignore-errors (delete-directory holder t)))))))))))
+
+(defun lispm-desktop-deps--archive-cache-dir (url)
+  "Return the local prefetch directory for the archive at URL, or nil."
+  (when (and lispm-desktop-deps--prefetch-dir (stringp url))
+    (when-let* ((entry (seq-find (lambda (a) (equal (cdr a) url)) package-archives)))
+      (let ((dir (expand-file-name (concat "archives/" (car entry))
+                                   lispm-desktop-deps--prefetch-dir)))
+        (and (file-directory-p dir) (file-name-as-directory dir))))))
+
+(defun lispm-desktop-deps-prefetch-archives ()
+  "Download `archive-contents' for all `package-archives' concurrently via `curl --compressed'."
+  (when (and lispm-desktop-deps--fast-install-active
+             (executable-find "curl"))
+    (let* ((cache-root (or lispm-desktop-deps--prefetch-dir
+                           (setq lispm-desktop-deps--prefetch-dir
+                                 (expand-file-name ".cache/elpa-prefetch" user-emacs-directory))))
+           (procs nil))
+      (dolist (archive package-archives)
+        (let* ((name (car archive))
+               (url (cdr archive))
+               (dir (expand-file-name (concat "archives/" name) cache-root)))
+          (when (and (stringp url) (string-match-p "\\`https?://" url))
+            (make-directory dir t)
+            (dolist (file (cons "archive-contents"
+                                (when (and package-check-signature
+                                           (not (member name package-unsigned-archives))
+                                           (not (string-match-p "melpa" url)))
+                                  '("archive-contents.sig"))))
+              (let* ((dest (expand-file-name file dir))
+                     (part (concat dest ".part")))
+                (unless (file-regular-p dest)
+                  (condition-case nil
+                      (let ((proc (make-process
+                                   :name (format "lispm-archive-%s-%s" name file)
+                                   :buffer nil
+                                   :command (list "curl" "-fsSL" "--compressed"
+                                                  "--retry" "2" "--connect-timeout" "10"
+                                                  "-o" part (concat url file))
+                                   :connection-type 'pipe
+                                   :noquery t)))
+                        (push (list proc part dest) procs))
+                    (error (ignore-errors (delete-file part))))))))))
+      (when procs
+        (unwind-protect
+            (while (seq-some (lambda (item) (process-live-p (car item))) procs)
+              (accept-process-output nil 0.03))
+          (dolist (item procs)
+            (pcase-let ((`(,proc ,part ,dest) item))
+              (when (process-live-p proc) (delete-process proc))
+              (if (and (eq (process-status proc) 'exit)
+                       (zerop (process-exit-status proc))
+                       (file-regular-p part))
+                  (ignore-errors (rename-file part dest t))
+                (ignore-errors (delete-file part))))))))))
+
+(defun lispm-desktop-deps--cached-response-buffer (orig url fn &rest args)
+  "Serve prefetched ELPA archive files and skip redundant network probes."
+  (let ((file (plist-get args :file))
+        (noerror (plist-get args :noerror)))
+    (cond
+     ((not lispm-desktop-deps--fast-install-active)
+      (apply orig url fn args))
+     ;; Skip optional `<pkg>-readme.txt' HTTP probes during startup batch/GUI installation.
+     ((and (stringp file)
+           noerror
+           (string-suffix-p "-readme.txt" file))
+      (when-let* ((err-fn (plist-get args :error-function)))
+        (with-temp-buffer
+          (set-buffer-multibyte nil)
+          (funcall err-fn)))
+      nil)
+     ;; MELPA does not publish `.sig' files; skip guaranteed-404 `.sig' probes on MELPA
+     ;; when signature checking allows unsigned packages.
+     ((and (stringp file)
+           noerror
+           (string-suffix-p ".sig" file)
+           (eq (package-check-signature) 'allow-unsigned)
+           (stringp url)
+           (string-match-p "melpa" url))
+      (when-let* ((err-fn (plist-get args :error-function)))
+        (with-temp-buffer
+          (set-buffer-multibyte nil)
+          (funcall err-fn)))
+      nil)
+     ;; Serve prefetched `archive-contents' (downloaded in parallel with `--compressed').
+     ((and (stringp file)
+           (member file '("archive-contents" "archive-contents.sig"))
+           (when-let* ((arch-dir (lispm-desktop-deps--archive-cache-dir url)))
+             (and (file-regular-p (expand-file-name file arch-dir))
+                  (progn
+                    (apply orig arch-dir fn args)
+                    t)))))
+     ;; Serve prefetched package tarballs and `.el' files directly from local cache.
+     ((and (stringp file)
+           lispm-desktop-deps--prefetch-dir
+           (file-regular-p (expand-file-name file lispm-desktop-deps--prefetch-dir)))
+      (let ((local-dir (file-name-as-directory (expand-file-name lispm-desktop-deps--prefetch-dir))))
+        (apply orig local-dir fn args)))
+     (t
+      (apply orig url fn args)))))
+
+(defun lispm-desktop-deps-prefetch-packages (requirements)
+  "Compute the transaction for REQUIREMENTS and download files in parallel."
+  (when (and requirements (executable-find "curl"))
+    (let* ((transaction (ignore-errors (package-compute-transaction nil requirements)))
+           (cache-dir (or lispm-desktop-deps--prefetch-dir
+                          (setq lispm-desktop-deps--prefetch-dir
+                                (expand-file-name ".cache/elpa-prefetch" user-emacs-directory))))
+           (queue nil))
+      (when transaction
+        (make-directory cache-dir t)
+        (dolist (desc transaction)
+          (let* ((loc (ignore-errors (package-desc-archive-location desc)))
+                 (file (ignore-errors (concat (package-desc-full-name desc) (package-desc-suffix desc))))
+                 (dest (and file (expand-file-name file cache-dir))))
+            (when (and (stringp loc)
+                       (string-match-p "\\`https?://" loc)
+                       file
+                       (not (file-regular-p dest))
+                       (not (assoc file queue)))
+              (push (list file (concat loc file) dest) queue))))
+        (setq queue (nreverse queue))
+        (when (>= (length queue) 2)
+          (let ((total (length queue))
+                (done 0)
+                (active nil)
+                (max-jobs 8))
+            (unwind-protect
+                (while (or queue active)
+                  (while (and queue (< (length active) max-jobs))
+                    (pcase-let* ((`(,file ,url ,dest) (pop queue))
+                                 (part (concat dest ".part")))
+                      (condition-case nil
+                          (let ((proc (make-process
+                                       :name (format "lispm-prefetch-%s" file)
+                                       :buffer nil
+                                       :command (list "curl" "-fsSL" "--retry" "2"
+                                                      "--connect-timeout" "10"
+                                                      "-o" part url)
+                                       :connection-type 'pipe
+                                       :noquery t)))
+                            (push (list proc part dest) active))
+                        (error
+                         (setq done (1+ done))))))
+                  (when active
+                    (accept-process-output nil 0.03)
+                    (let ((still-active nil))
+                      (dolist (item active)
+                        (pcase-let ((`(,proc ,part ,dest) item))
+                          (if (process-live-p proc)
+                              (push item still-active)
+                            (if (and (eq (process-status proc) 'exit)
+                                     (zerop (process-exit-status proc))
+                                     (file-regular-p part))
+                                (ignore-errors (rename-file part dest t))
+                              (ignore-errors (delete-file part)))
+                            (setq done (1+ done))
+                            (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
+                                       (fboundp 'lispm-desktop-installer-screen-report))
+                              (lispm-desktop-installer-screen-report
+                               (format "Downloading (%d%%)…" (/ (* 100 done) (max 1 total))))))))
+                      (setq active still-active))))
+              (dolist (item active)
+                (pcase-let ((`(,proc ,part ,_dest) item))
+                  (when (process-live-p proc) (delete-process proc))
+                  (ignore-errors (delete-file part)))))))))))
+
+(defun lispm-desktop-deps--defer-compile (orig pkg-desc)
+  "Defer `package--compile' for PKG-DESC when fast-install is active."
+  (if lispm-desktop-deps--fast-install-active
+      (let ((dir (package-desc-dir pkg-desc)))
+        (when (and (stringp dir)
+                   (not (seq-some (lambda (d) (equal (package-desc-dir d) dir))
+                                  lispm-desktop-deps--deferred-compile-queue)))
+          (push pkg-desc lispm-desktop-deps--deferred-compile-queue)))
+    (funcall orig pkg-desc)))
+
+(defun lispm-desktop-deps--collect-compile-files (descs)
+  "Return all `.el' files in DESCS that are eligible for byte-compilation."
+  (let ((result nil))
+    (dolist (desc descs)
+      (let* ((root (ignore-errors (package-desc-dir desc)))
+             (ignores (ignore-errors (package--parse-elpaignore desc)))
+             (ignore-re (if ignores
+                            (mapconcat #'identity ignores "\\|")
+                          regexp-unmatchable)))
+        (when (and (stringp root) (file-directory-p root))
+          (let ((dirs (list (expand-file-name root))))
+            (while dirs
+              (let ((dir (pop dirs)))
+                (dolist (entry (ignore-errors (directory-files dir t)))
+                  (let ((base (file-name-nondirectory entry)))
+                    (cond
+                     ((file-directory-p entry)
+                      (when (and (not (member base '("." ".." "RCS" "CVS")))
+                                 (not (string-prefix-p "." base))
+                                 (not (file-symlink-p entry))
+                                 (not (string-match-p ignore-re entry)))
+                        (setq dirs (nconc dirs (list entry)))))
+                     ((and (string-match-p "\\.el\\'" base)
+                           (file-readable-p entry)
+                           (not (string-prefix-p ".#" base))
+                           (not (auto-save-file-name-p entry))
+                           (not (string-match-p "\\(?:-autoloads\\|-pkg\\|\\.dir-locals.*\\)\\.el\\'" base))
+                           (not (string-match-p ignore-re entry)))
+                      (push entry result)))))))))))
+    (delete-dups (nreverse result))))
+
+(defun lispm-desktop-deps-compile-files-parallel (files &optional sync on-progress)
+  "Byte-compile FILES in parallel across up to `lispm-desktop-deps-compile-jobs' workers.
+Each worker compiles individual `.el' files into atomic temporary `.elc' files
+before renaming them into place, preventing race conditions when files require
+siblings during compilation.  When SYNC or `noninteractive' is non-nil, wait
+non-blockingly via `accept-process-output' while updating UI progress."
+  (let ((unique-files (seq-filter #'file-readable-p (delete-dups (copy-sequence files)))))
+    (when unique-files
+      (let* ((emacs (expand-file-name invocation-name invocation-directory))
+             (total (length unique-files))
+             (done 0)
+             (jobs (max 1 (min (or lispm-desktop-deps-compile-jobs 4) total)))
+             (buckets (make-vector jobs nil))
+             (lp (delete-dups
+                  (append (mapcar #'file-name-directory unique-files)
+                          (seq-filter #'stringp load-path))))
+             (procs nil)
+             (idx 0))
+        (dolist (file unique-files)
+          (aset buckets (mod idx jobs) (cons file (aref buckets (mod idx jobs))))
+          (setq idx (1+ idx)))
+        (dotimes (i jobs)
+          (when-let* ((bucket (nreverse (aref buckets i))))
+            (let ((expr (prin1-to-string
+                         `(progn
+                            (require 'bytecomp)
+                            (when (boundp 'native-comp-enable-subr-trampolines)
+                              (setq native-comp-enable-subr-trampolines nil))
+                            (setq load-path ',lp
+                                  load-prefer-newer t
+                                  warning-minimum-level :error
+                                  byte-compile-warnings nil
+                                  inhibit-message t)
+                            (dolist (f ',bucket)
+                              (condition-case nil
+                                  (let* ((dest (byte-compile-dest-file f))
+                                         (tmp (concat dest "." (number-to-string (emacs-pid)) ".tmp"))
+                                         (byte-compile-dest-file-function (lambda (_) tmp)))
+                                    (unwind-protect
+                                        (when (and (eq (byte-recompile-file f t 0) t)
+                                                   (file-regular-p tmp))
+                                          (rename-file tmp dest t))
+                                      (when (file-exists-p tmp)
+                                        (ignore-errors (delete-file tmp)))))
+                                (error nil))
+                              (princ "LISPM-COMPILED\n"))))))
+              (condition-case nil
+                  (let ((proc (make-process
+                               :name (format "lispm-byte-compile-%d" (1+ i))
+                               :buffer nil
+                               :command (list emacs "-Q" "--batch" "--eval" expr)
+                               :connection-type 'pipe
+                               :noquery t
+                               :filter (lambda (_proc chunk)
+                                         (let ((pos 0)
+                                               (hits 0))
+                                           (while (string-match "LISPM-COMPILED" chunk pos)
+                                             (setq hits (1+ hits)
+                                                   pos (match-end 0)))
+                                           (when (> hits 0)
+                                             (setq done (min total (+ done hits)))
+                                             (when on-progress
+                                               (funcall on-progress done total))
+                                             (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
+                                                        (fboundp 'lispm-desktop-installer-screen-report))
+                                               (lispm-desktop-installer-screen-report
+                                                (format "Compiling (%d%%)…" (/ (* 100 done) (max 1 total)))))
+                                             (when (fboundp 'lispm-desktop-assistant-compile-progress)
+                                               (lispm-desktop-assistant-compile-progress done total))))))))
+                    (push proc procs))
+                (error
+                 (dolist (f bucket)
+                   (ignore-errors (byte-recompile-file f t 0))
+                   (setq done (min total (1+ done)))
+                   (when on-progress
+                     (funcall on-progress done total))))))))
+        (when (or sync noninteractive)
+          (unwind-protect
+              (while (seq-some #'process-live-p procs)
+                (accept-process-output nil 0.02))
+            (dolist (proc procs)
+              (when (process-live-p proc)
+                (delete-process proc)))))
+        procs))))
+
+(defun lispm-desktop-deps-flush-deferred-compiles (&optional sync)
+  "Compile queued packages in parallel across worker processes at the file level.
+When SYNC or `noninteractive' is non-nil, wait for all workers to finish;
+otherwise run them asynchronously in the background."
+  (let* ((descs (nreverse lispm-desktop-deps--deferred-compile-queue))
+         (files (lispm-desktop-deps--collect-compile-files descs)))
+    (setq lispm-desktop-deps--deferred-compile-queue nil)
+    (when files
+      (prog1 (lispm-desktop-deps-compile-files-parallel files sync)
+        (when (or sync noninteractive)
+          (dolist (desc descs)
+            (ignore-errors (package--reload-previously-loaded desc))))))))
+
+(defun lispm-desktop-deps-recompile-all-parallel ()
+  "Recompile all activated packages in `package-alist' in parallel across CPU cores."
+  (let* ((descs (mapcar #'cadr package-alist))
+         (files (lispm-desktop-deps--collect-compile-files descs)))
+    (lispm-desktop-deps-compile-files-parallel files t)))
+
+(defun lispm-desktop-deps--prefetch-vc-deps (deps)
+  "Refresh archives and prefetch archive tarballs before `package-vc-install-dependencies'."
+  (when lispm-desktop-deps--fast-install-active
+    (when-let* ((missing (seq-remove
+                          (lambda (dep)
+                            (or (eq (car dep) 'emacs)
+                                (package-installed-p (car dep) (cadr dep))
+                                (locate-library (concat (symbol-name (car dep)) ".el") t)
+                                (assq (car dep) lispm-desktop-deps)))
+                          deps)))
+      (lispm-desktop-deps--refresh missing)
+      (lispm-desktop-deps-prefetch-packages missing))))
+
+(defun lispm-desktop-deps--before-refresh (&rest _)
+  "Prefetch archive indices via `curl --compressed' before `package-refresh-contents'."
+  (when lispm-desktop-deps--fast-install-active
+    (lispm-desktop-deps-prefetch-archives)))
+
+(defun lispm-desktop-deps--after-refresh (&rest _)
+  "Record `lispm-desktop-deps--refreshed' when `package-refresh-contents' succeeds."
+  (when (and package-archive-contents
+             (not lispm-desktop-deps--refresh-failed))
+    (setq lispm-desktop-deps--refreshed
+          (cons (lispm-desktop-deps--archive-settings)
+                (copy-tree package-archive-contents)))))
+
+(defun lispm-desktop-deps--skip-vc-archives (orig &rest args)
+  "Skip downloading `elpa-packages.eld' during fast startup VC installation."
+  (unless lispm-desktop-deps--fast-install-active
+    (apply orig args)))
+
+(defun lispm-desktop-deps-enable-fast-install ()
+  "Enable parallel package prefetch and deferred byte-compilation."
+  (setq lispm-desktop-deps--fast-install-active t)
+  (advice-add 'package-refresh-contents :before #'lispm-desktop-deps--before-refresh)
+  (advice-add 'package-refresh-contents :after #'lispm-desktop-deps--after-refresh)
+  (advice-add 'package-vc--download-and-read-archives :around #'lispm-desktop-deps--skip-vc-archives)
+  (advice-add 'package--with-response-buffer-1 :around #'lispm-desktop-deps--cached-response-buffer)
+  (advice-add 'package-vc-install-dependencies :before #'lispm-desktop-deps--prefetch-vc-deps)
+  (advice-add 'package--compile :around #'lispm-desktop-deps--defer-compile))
+
+(defun lispm-desktop-deps-disable-fast-install (&optional sync-compile)
+  "Disable fast-install hooks and flush any deferred byte-compilations."
+  (setq lispm-desktop-deps--fast-install-active nil)
+  (advice-remove 'package-refresh-contents #'lispm-desktop-deps--before-refresh)
+  (advice-remove 'package-refresh-contents #'lispm-desktop-deps--after-refresh)
+  (advice-remove 'package-vc--download-and-read-archives #'lispm-desktop-deps--skip-vc-archives)
+  (advice-remove 'package--with-response-buffer-1 #'lispm-desktop-deps--cached-response-buffer)
+  (advice-remove 'package-vc-install-dependencies #'lispm-desktop-deps--prefetch-vc-deps)
+  (advice-remove 'package--compile #'lispm-desktop-deps--defer-compile)
+  (lispm-desktop-deps-flush-deferred-compiles sync-compile))
 
 (defun lispm-desktop-deps-present-p (feature)
   "Return non-nil when FEATURE, a project of `lispm-desktop-deps', is here
@@ -274,6 +798,8 @@ else is an error saying what to update."
                                        (cdr (assq (car dep) package-archive-contents))))
                            missing))
       (setq lispm-desktop-deps--refreshed nil)
+      (when lispm-desktop-deps--fast-install-active
+        (lispm-desktop-deps-prefetch-archives))
       (let ((lispm-desktop-deps--refresh-failed nil))
         (advice-add 'package--download-one-archive :around #'lispm-desktop-deps--watch-archive)
         (unwind-protect (package-refresh-contents)
@@ -292,8 +818,12 @@ else is an error saying what to update."
   "Install the verified Auth client beside existing packages, without replacing them."
   (require 'url)
   (let* ((root (expand-file-name "lispm-desktop-components" user-emacs-directory))
-         (directory (expand-file-name (concat "lispm-auth-" lispm-desktop-deps-auth-version) root))
-         (main (expand-file-name "lispm-auth.el" directory)))
+          (directory (expand-file-name (concat "lispm-auth-" lispm-desktop-deps-auth-version) root))
+          (main (expand-file-name "lispm-auth.el" directory))
+          (prefetched (and lispm-desktop-deps--prefetch-dir
+                           (expand-file-name
+                            (format "lispm-auth-client-%s.tar.gz" lispm-desktop-deps-auth-version)
+                            lispm-desktop-deps--prefetch-dir))))
     (unless (and (file-regular-p main)
                  (equal lispm-desktop-deps-auth-source-sha256
                         (with-temp-buffer
@@ -307,10 +837,12 @@ else is an error saying what to update."
             (stage (make-temp-file (expand-file-name ".auth-" root) t)))
         (unwind-protect
             (progn
-              (url-copy-file
-               (format "https://github.com/LispMachineLab/lispm-auth/releases/download/v%s/lispm-auth-client-%s.tar.gz"
-                       lispm-desktop-deps-auth-version lispm-desktop-deps-auth-version)
-               archive t)
+              (if (and prefetched (file-regular-p prefetched))
+                  (copy-file prefetched archive t)
+                (url-copy-file
+                 (format "https://github.com/LispMachineLab/lispm-auth/releases/download/v%s/lispm-auth-client-%s.tar.gz"
+                         lispm-desktop-deps-auth-version lispm-desktop-deps-auth-version)
+                 archive t))
               (unless (equal lispm-desktop-deps-auth-sha256
                              (with-temp-buffer
                                (set-buffer-multibyte nil)
@@ -379,13 +911,18 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
         (unless (assq feature package-alist)
           (when (fboundp 'lispm-desktop-installer-screen-report)
             (lispm-desktop-installer-screen-report (format "Installing project: %s" feature)))
-          (condition-case err
-              (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
-                                  (or (plist-get spec :tag) (lispm-desktop-deps--release-tag url) :last-release))
-            (wrong-type-argument
-             (if (equal (cdr err) '(stringp nil))
-                 (error "Could not install %s from %s; check Git and network access, then retry" feature url)
-               (signal (car err) (cdr err))))))
+          (advice-add 'vc-git-clone :override #'lispm-desktop-store-installer--clone)
+          (advice-add 'package-vc--release-rev :before #'lispm-desktop-store-installer--whole-history)
+          (unwind-protect
+              (condition-case err
+                  (package-vc-install `(,feature :url ,url ,@(and lisp (list :lisp-dir lisp)))
+                                      (or (plist-get spec :tag) (lispm-desktop-deps--release-tag url) :last-release))
+                (wrong-type-argument
+                 (if (equal (cdr err) '(stringp nil))
+                     (error "Could not install %s from %s; check Git and network access, then retry" feature url)
+                   (signal (car err) (cdr err)))))
+            (advice-remove 'package-vc--release-rev #'lispm-desktop-store-installer--whole-history)
+            (advice-remove 'vc-git-clone #'lispm-desktop-store-installer--clone)))
         ;; package.el activates a package only once each package it
         ;; requires is installed as one, and so leaves inactive a project
         ;; requiring another the desktop has as a checkout, as LispM UI
@@ -401,8 +938,11 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
         (lispm-desktop-deps--catch-up main spec))
       (when-let* ((missing (lispm-desktop-deps--requirements main)))
         (lispm-desktop-deps--refresh missing)
+        (when lispm-desktop-deps--fast-install-active
+          (lispm-desktop-deps-prefetch-packages missing))
         (dolist (dep missing)
-          (package-install (car dep)))))))
+          (unless (package-installed-p (car dep) (cadr dep))
+            (package-install (car dep))))))))
 
 ;;;; Saying what installs
 
