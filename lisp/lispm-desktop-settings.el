@@ -1412,7 +1412,10 @@ that a password given wrongly changes nothing."
 
 (defun lispm-desktop-settings--security-p ()
   "Return non-nil when LispM Auth says how its password stands."
-  (and (fboundp 'lispm-auth-store-exists-p)
+  (and (or (fboundp 'lispm-auth-store-exists-p)
+           (and (fboundp 'lispm-desktop-auth-available-p)
+                (lispm-desktop-auth-available-p)))
+       (fboundp 'lispm-auth-store-exists-p)
        (fboundp 'lispm-auth-locked-p)
        (fboundp 'lispm-auth-change-password)
        (fboundp 'lispm-auth-lock)

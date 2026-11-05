@@ -28,6 +28,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'lispm-desktop-deps)
 (require 'lispm-desktop-auth)
 (defvar lispm-auth-password-function)
 
@@ -218,13 +219,13 @@ it puts the terminal on the frame."
                      (with-temp-file file (insert "incorrect archive")))))
           (require 'url)
           (should-error (lispm-desktop-deps--auth-install))
-          (should-not (file-exists-p (expand-file-name "lispm-desktop-components/lispm-auth-0.2.2" user-emacs-directory))))
+          (should-not (file-exists-p (expand-file-name (concat "lispm-desktop-components/lispm-auth-" lispm-desktop-deps-auth-version) user-emacs-directory))))
       (delete-directory user-emacs-directory t))))
 
 (ert-deftest lispm-desktop-auth-test-client-preserves-user-checkout ()
   (let ((load-path (copy-sequence load-path)) (installed nil))
     (cl-letf (((symbol-function 'locate-library) (lambda (&rest _) "/user/checkout/lispm-auth.el"))
-              ((symbol-function 'lispm-desktop-deps--version) (lambda (_) '(0 2 2)))
+              ((symbol-function 'lispm-desktop-deps--version) (lambda (_) '(0 2 5)))
               ((symbol-function 'lispm-desktop-deps--checkout) (lambda (_) "/user/checkout"))
               ((symbol-function 'lispm-desktop-deps--auth-install) (lambda () (setq installed t))))
       (lispm-desktop-deps-ensure-auth)
@@ -250,9 +251,9 @@ it puts the terminal on the frame."
 
 (ert-deftest lispm-desktop-auth-test-pinned-client-release ()
   (require 'lispm-desktop-deps)
-  (should (equal lispm-desktop-deps-auth-version "0.2.2"))
+  (should (equal lispm-desktop-deps-auth-version "0.2.5"))
   (should (equal lispm-desktop-deps-auth-sha256
-                 "539ca4f1fc707e9d20b321ae0c090d9aeeb39725360e7131154f09331bdc52d8")))
+                 "9c6a8c3289f85a7900c2e7b44dc29fa575cb05ec8224e398edc51bddd4455168")))
 
 (ert-deftest lispm-desktop-auth-test-service-is-installed-automatically ()
   (require 'lispm-auth)
@@ -277,9 +278,18 @@ it puts the terminal on the frame."
 (ert-deftest lispm-desktop-auth-test-cancelled-required-store-stops-startup ()
   (let ((noninteractive nil))
     (cl-letf (((symbol-function 'lispm-desktop-auth-ensure) (lambda () t))
+              ((symbol-function 'lispm-auth-store-exists-p) (lambda () t))
               ((symbol-function 'lispm-auth-start-apps) #'ignore)
               ((symbol-function 'lispm-auth-app-requires-password-p) (lambda (_) t)))
       (should-error (lispm-desktop-auth-setup) :type 'user-error))))
+
+(ert-deftest lispm-desktop-auth-test-cancelled-first-time-setup-continues ()
+  (let ((noninteractive nil))
+    (cl-letf (((symbol-function 'lispm-desktop-auth-ensure) (lambda () t))
+              ((symbol-function 'lispm-auth-store-exists-p) (lambda () nil))
+              ((symbol-function 'lispm-auth-start-apps) #'ignore)
+              ((symbol-function 'lispm-auth-app-requires-password-p) (lambda (_) t)))
+      (should-not (lispm-desktop-auth-setup)))))
 
 (ert-deftest lispm-desktop-auth-test-opt-out-does-not-stop-startup ()
   (let ((noninteractive nil))
@@ -468,9 +478,70 @@ it puts the terminal on the frame."
     (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil)))
       (let ((lines (lispm-auth--page-lines '(:stage single :change t))))
         (should (cl-some (lambda (l) (string-search "加密密钥" l)) lines))
-        (should (cl-some (lambda (l) (string-search "按回车打开密钥库。" l)) lines))
+        (should (cl-some (lambda (l) (string-search "按回车解锁 LispM。" l)) lines))
         (should (cl-some (lambda (l) (string-search "回车确认" l)) lines))
         (should (cl-some (lambda (l) (string-search "C-p 更改密码" l)) lines))))))
+
+(ert-deftest lispm-desktop-auth-test-non-encrypted-app-skips-auth-service ()
+  "An application that does not require a password neither installs the
+Auth service nor warns when `lispm-auth' is absent."
+  (let ((command-line-args '("Emacs" "--lispm-hidden" "--lispm-app=gomoku"))
+        (service-checked nil)
+        (warned nil))
+    (cl-letf (((symbol-function 'lispm-desktop-auth-ensure) (lambda () t))
+              ((symbol-function 'lispm-auth-app-requires-password-p) (lambda (_) nil))
+              ((symbol-function 'lispm-desktop-auth-ensure-service)
+               (lambda () (setq service-checked t)))
+              ((symbol-function 'lispm-auth-start-apps) (lambda (apps) (equal apps '(gomoku)))))
+      (should (lispm-desktop-auth-prepare))
+      (should (lispm-desktop-auth-setup))
+      (should-not service-checked))
+    (cl-letf (((symbol-function 'lispm-desktop-auth-ensure) (lambda () nil))
+              ((symbol-function 'display-warning)
+               (lambda (&rest _) (setq warned t))))
+      (should-not (lispm-desktop-auth-prepare))
+      (should-not warned))))
+
+(ert-deftest lispm-desktop-auth-test-page-show-clears-side-and-dedicated-windows ()
+  "Showing the password page dismisses dedicated side windows and restores
+them on hide, even when invoked while a dedicated side window is selected."
+  (require 'lispm-auth)
+  (lispm-desktop-auth-ensure)
+  (save-window-excursion
+    (set-frame-size (selected-frame) 80 24)
+    (delete-other-windows)
+    (let* ((main-buf (get-buffer-create " *test-main*"))
+           (side-buf (get-buffer-create " *test-side*"))
+           (page-buf (get-buffer-create " *LispM Password*")))
+      (unwind-protect
+          (progn
+            (switch-to-buffer main-buf)
+            (let ((side-win (display-buffer-in-side-window
+                             side-buf '((side . top)
+                                        (window-height . 4)
+                                        (dedicated . t)
+                                        (window-parameters
+                                         (no-delete-other-windows . t)
+                                         (no-other-window . t))))))
+              (select-window side-win)
+              (should (= (length (window-list)) 2))
+              (should (window-dedicated-p (selected-window)))
+              (let ((noninteractive nil)
+                    (page (list :buffer page-buf :frame nil
+                                :window-configuration nil
+                                :frame-parameters nil
+                                :password "" :first nil :stage 'single)))
+                (cl-letf (((symbol-function 'redisplay) #'ignore))
+                  (lispm-auth--page-show page))
+                (should (= (length (window-list)) 1))
+                (should (eq (window-buffer (selected-window)) page-buf))
+                (should-not (window-dedicated-p (selected-window)))
+                (should-not (window-parameter (selected-window) 'window-side))
+                (lispm-auth--page-hide page)
+                (should (= (length (window-list)) 2)))))
+        (when (buffer-live-p page-buf) (kill-buffer page-buf))
+        (when (buffer-live-p main-buf) (kill-buffer main-buf))
+        (when (buffer-live-p side-buf) (kill-buffer side-buf))))))
 
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

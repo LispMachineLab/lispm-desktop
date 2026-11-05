@@ -1557,7 +1557,7 @@ Rust のパッケージマネージャ Cargo が
   ("Enter the password for LispM's secrets." . "LispMの秘密鍵のパスワードを入力してください。")
   ("It is asked for at each start, and cannot be recovered." . "起動するたびに尋ねられ、忘れると復元できません。")
   ("It is asked for at each start." . "起動するたびに尋ねられます。")
-  ("Return opens the store." . "Returnでストアを開きます。")
+  ("Return unlocks LispM." . "ReturnでLispMのロックを解除します。")
   ("Confirm" . "確定")
   ("A newer LispM Auth client is required to change the timeout" . "タイムアウトを変更するには新しいLispM Authクライアントが必要です")
   ("5 minutes" . "5分")

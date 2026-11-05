@@ -99,13 +99,17 @@
 
 (defun lispm-desktop-auth--tr (message &rest args)
   "Translate MESSAGE with ARGS in the desktop's catalog."
-  (if (and (stringp message) (null args)
-           (string-match "\\`Wrong password\\.  Try again (\\([0-9]+\\) of \\([0-9]+\\))\\.\\'"
-                         message))
-      (lispm-desktop-tr "Wrong password.  Try again (%d of %d)."
-                        (string-to-number (match-string 1 message))
-                        (string-to-number (match-string 2 message)))
-    (apply #'lispm-desktop-tr message args)))
+  (cond
+   ((and (equal message "Return opens the store.") (null args))
+    (lispm-desktop-tr "Return unlocks LispM."))
+   ((and (stringp message) (null args)
+         (string-match "\\`Wrong password\\.  Try again (\\([0-9]+\\) of \\([0-9]+\\))\\.\\'"
+                       message))
+    (lispm-desktop-tr "Wrong password.  Try again (%d of %d)."
+                      (string-to-number (match-string 1 message))
+                      (string-to-number (match-string 2 message))))
+   (t
+    (apply #'lispm-desktop-tr message args))))
 
 (defun lispm-desktop-auth--clear-echo ()
   "Clear echoed keys and any minibuffer message while reading a password."
@@ -228,6 +232,12 @@ non-nil when LispM Auth is loaded."
     (when (boundp 'lispm-auth-page-window-event-function)
       (setq lispm-auth-page-window-event-function
             #'lispm-desktop-auth--setup-page-event))
+    (when (fboundp 'lispm-auth--page-show)
+      (advice-add 'lispm-auth--page-show :around
+                  #'lispm-desktop-auth--around-page-show))
+    (when (fboundp 'lispm-auth--ensure-process)
+      (advice-add 'lispm-auth--ensure-process :before
+                  #'lispm-desktop-auth--before-ensure-process))
     (when (fboundp 'lispm-auth-store-exists-p)
       (setq lispm-auth-page-window-draw-function
             #'lispm-desktop-auth--setup-page-draw
@@ -340,7 +350,8 @@ contents.")
     (pcase (plist-get page :stage)
       ('new (lispm-desktop-tr "It is asked for at each start, and cannot be recovered."))
       ('again (lispm-desktop-tr "It is asked for at each start."))
-      (_ (lispm-desktop-tr "Return opens the store.")))))
+      ('current (lispm-desktop-tr "Return verifies the current password."))
+      (_ (lispm-desktop-tr "Return unlocks LispM.")))))
 
 (defun lispm-desktop-auth--setup-page-lock (svg palette x y size)
   "Draw a padlock SIZE pixels square on SVG at X, Y, in PALETTE.
@@ -517,6 +528,58 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
             (cond ((and (<= cancel-x (car xy)) (< (car xy) (+ cancel-x cancel-w))) 'cancel)
                   ((and (<= confirm-x (car xy)) (< (car xy) (+ confirm-x confirm-w))) 'confirm))))))))
 
+(defun lispm-desktop-auth--around-page-show (orig page)
+  "Ensure the window and frame are prepared before `lispm-auth--page-show' redisplays."
+  (when (not noninteractive)
+    (when (and (window-live-p (selected-window))
+               (or (window-minibuffer-p (selected-window))
+                   (window-dedicated-p (selected-window))
+                   (window-parameter (selected-window) 'window-side)))
+      (when-let* ((main (or (window-main-window (selected-frame))
+                            (frame-first-window (selected-frame)))))
+        (when (window-live-p main)
+          (select-window main))))
+    (when (and (fboundp 'lispm-auth--page-windowed-p)
+               (lispm-auth--page-windowed-p page))
+      (let ((window (selected-window)))
+        (when (and (window-live-p window)
+                   (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                   (fboundp 'lispm-desktop-platinum-scroll-sync))
+          (lispm-desktop-platinum-scroll-sync)))))
+  (let ((ignore-window-parameters t)
+        (real-delete-other-windows (symbol-function 'delete-other-windows))
+        (real-redisplay (symbol-function 'redisplay)))
+    (cl-letf (((symbol-function 'delete-other-windows)
+               (lambda (&optional window interactive)
+                 (funcall real-delete-other-windows window interactive)
+                 (let ((w (or window (selected-window))))
+                   (when (window-live-p w)
+                     (set-window-dedicated-p w nil)
+                     (dolist (p '(window-side window-slot no-other-window no-delete-other-windows))
+                       (set-window-parameter w p nil))))))
+              ((symbol-function 'redisplay)
+               (lambda (&optional force)
+                 (when (and (plist-get page :buffer)
+                            (buffer-live-p (plist-get page :buffer))
+                            (zerop (buffer-size (plist-get page :buffer)))
+                            (fboundp 'lispm-auth--page-windowed-p)
+                            (lispm-auth--page-windowed-p page))
+                   (with-current-buffer (plist-get page :buffer)
+                     (let ((inhibit-read-only t))
+                       (lispm-desktop-auth--setup-page-draw page))))
+                 (funcall real-redisplay force))))
+      (funcall orig page))))
+
+(defun lispm-desktop-auth--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER when it is a password page.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (or (equal (buffer-name buffer) " *LispM Password*")
+           (provided-mode-derived-p (buffer-local-value 'major-mode buffer)
+                                    'lispm-auth-page-mode))
+       'no))
+
+(add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-auth--scroll-bar)
+
 (defun lispm-desktop-auth--setup-page-draw (page)
   "Draw PAGE, a page asking for LispM's password, as a window.
 PAGE's buffer is current and empty, and its frame is over the desktop,
@@ -526,7 +589,16 @@ This is `lispm-auth-page-window-draw-function'."
               right-fringe-width 0
               left-margin-width 0
               right-margin-width 0
+              vertical-scroll-bar nil
+              horizontal-scroll-bar nil
+              auto-hscroll-mode nil
+              hscroll-margin 0
+              scroll-margin 0
               fringe-indicator-alist nil)
+  (let ((table (or buffer-display-table
+                   (setq buffer-display-table (make-display-table)))))
+    (set-display-table-slot table 'truncation (vector))
+    (set-display-table-slot table 'wrap (vector)))
   (let* ((frame (plist-get page :frame))
          (window (get-buffer-window (current-buffer) t))
          (palette (lispm-desktop-auth--setup-page-palette))
@@ -535,6 +607,10 @@ This is `lispm-auth-page-window-draw-function'."
                  (lispm-ui-grey palette #xDD)
                (or (plist-get palette :desktop) "#6E6E6E"))))
     (when (and (windowp window) (window-live-p window))
+      (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                 (fboundp 'lispm-desktop-platinum-scroll-sync))
+        (lispm-desktop-platinum-scroll-sync))
+      (set-window-scroll-bars window 0 nil 0 nil)
       (set-window-fringes window 0 0)
       (set-window-margins window 0 0))
     (let ((width (if window (window-body-width window t)
@@ -550,7 +626,17 @@ This is `lispm-auth-page-window-draw-function'."
       (insert (propertize " " 'display
                           (svg-image (lispm-desktop-auth--setup-page-svg
                                       width height page palette)
-                                     :ascent 100 :scale 1))))))
+                                     :ascent 100 :scale 1)))
+      (goto-char (point-min))
+      (when (and (windowp window) (window-live-p window))
+        (set-window-point window (point-min))
+        (set-window-start window (point-min) t)
+        (set-window-hscroll window 0)))))
+
+(defun lispm-desktop-auth--before-ensure-process ()
+  "Ensure the Auth service binary is installed before starting its process."
+  (unless noninteractive
+    (lispm-desktop-auth-ensure-service)))
 
 (defun lispm-desktop-auth-ensure-service ()
   "Install the Auth service when absent, without replacing a configured one."
@@ -567,19 +653,34 @@ This is `lispm-auth-page-window-draw-function'."
                (error-message-string install-error))))
      (lispm-auth--service-program))))
 
-(defun lispm-desktop-auth-prepare ()
-  "Load Auth and prepare its service, warning if either is unavailable."
-  (condition-case err
-      (progn
-        (unless (lispm-desktop-auth-ensure)
-          (error "LispM Auth is not installed"))
-        (lispm-desktop-auth-ensure-service)
-        t)
-    (error
-     (display-warning 'lispm-desktop
-                      (format "LispM Auth is unavailable: %s. Password protection is unavailable."
-                              (error-message-string err)) :warning)
-     nil)))
+(defun lispm-desktop-auth-prepare (&optional apps)
+  "Load Auth and prepare its service when APPS require a password."
+  (let* ((startup-apps (lispm-desktop-auth--apps apps))
+         (target-apps (mapcar (lambda (app)
+                                (if (and (lispm-desktop-auth-started-hidden-p)
+                                         (memq app lispm-desktop-auth-lispm-apps))
+                                    'lispm
+                                  app))
+                              startup-apps)))
+    (if (null target-apps)
+        nil
+      (condition-case err
+          (if (not (lispm-desktop-auth-ensure))
+              (if (seq-some (lambda (app)
+                              (or (eq app 'desktop)
+                                  (memq app lispm-desktop-auth-lispm-apps)))
+                            target-apps)
+                  (error "LispM Auth is not installed")
+                nil)
+            (when (or (not (fboundp 'lispm-auth-app-requires-password-p))
+                      (seq-some #'lispm-auth-app-requires-password-p target-apps))
+              (lispm-desktop-auth-ensure-service))
+            t)
+        (error
+         (display-warning 'lispm-desktop
+                          (format "LispM Auth is unavailable: %s. Password protection is unavailable."
+                                  (error-message-string err)) :warning)
+         nil)))))
 
 (defun lispm-desktop-auth-setup (&optional apps)
   "Open LispM's secrets at the start, asking for their password once.
@@ -597,13 +698,14 @@ installation does not ask for a password."
                 (memq (car apps) lispm-desktop-auth-lispm-apps))
            (lispm-desktop-auth-start-lispm))
           (t
-           (unless (lispm-desktop-auth-ensure)
-             (error "LispM Auth system component is unavailable"))
-           (let ((opened (lispm-auth-start-apps apps)))
-             (when (and (not noninteractive) (not opened)
-                        (seq-some #'lispm-auth-app-requires-password-p apps))
-               (user-error "LispM Auth store was not opened; startup cancelled"))
-             opened)))))
+           (when (lispm-desktop-auth-ensure)
+             (let ((opened (lispm-auth-start-apps apps)))
+               (when (and (not noninteractive) (not opened)
+                          (or (not (fboundp 'lispm-auth-store-exists-p))
+                              (lispm-auth-store-exists-p))
+                          (seq-some #'lispm-auth-app-requires-password-p apps))
+                 (user-error "LispM Auth store was not opened; startup cancelled"))
+               opened))))))
 
 (defun lispm-desktop-auth-start-lispm ()
   "Open LispM's secrets for LispM itself, which always declares.
@@ -614,7 +716,9 @@ which Control Panels may revoke."
     (let* ((echo-keystrokes 0)
            (lispm-desktop-console--quiet t)
            (opened (lispm-auth-start-app 'lispm)))
-      (when (and (not noninteractive) (not opened))
+      (when (and (not noninteractive) (not opened)
+                 (or (not (fboundp 'lispm-auth-store-exists-p))
+                     (lispm-auth-store-exists-p)))
         (user-error "LispM Auth store was not opened; startup cancelled"))
       opened)))
 

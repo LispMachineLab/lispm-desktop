@@ -35,11 +35,35 @@
 ;; first `:ensure' it meets, savehist's, so `use-package-always-ensure'
 ;; never installed the packages declared before, Magit and Vertico.
 (require 'use-package-ensure)
+(declare-function lispm-desktop-deps--refresh "lispm-desktop-deps" (missing))
+(declare-function lispm-desktop-deps-prefetch-packages "lispm-desktop-deps" (requirements))
+(declare-function lispm-desktop-deps-flush-deferred-compiles "lispm-desktop-deps" (&optional sync))
+(defvar lispm-desktop-deps--fast-install-active)
+
+(defun lispm-desktop-packages--refresh-missing ()
+  "Refresh archive contents once and prefetch missing session packages in parallel."
+  (when (fboundp 'lispm-desktop-deps--refresh)
+    (let* ((candidates (append (when (or (lispm-desktop-macos-p) (lispm-desktop-linux-p))
+                                 '(exec-path-from-shell))
+                               '(which-key magit vertico marginalia orderless consult
+                                 embark embark-consult corfu cape dracula-theme yasnippet
+                                 tabspaces avy treemacs dirvish eat nerd-icons
+                                 markdown-mode)
+                               (when (eq lispm-desktop-editing-style 'vim)
+                                 '(evil))))
+           (missing (seq-remove #'package-installed-p candidates)))
+      (when missing
+        (let ((reqs (mapcar (lambda (pkg) (list pkg '(0))) missing)))
+          (lispm-desktop-deps--refresh reqs)
+          (when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
+                     (fboundp 'lispm-desktop-deps-prefetch-packages))
+            (lispm-desktop-deps-prefetch-packages reqs)))))))
 
 (defun lispm-desktop-setup-common-packages ()
   "Set up common packages."
   (setq make-backup-files nil
         auto-save-default nil)
+  (lispm-desktop-packages--refresh-missing)
 
   ;; A package is installed even when the `:if' of its declaration is
   ;; false, so a declaration that may not apply goes inside a `when'.

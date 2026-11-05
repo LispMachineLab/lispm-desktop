@@ -453,8 +453,13 @@ finish_desktop_update() {
 fetch_projects() {
   say "Fetching LispM into $LISPM_HOME"
   prepare_desktop_update
+  pids=
   for project in lispm-kit lispm-ui lispm-agent lispm-browser; do
-    fetch_project "$project"
+    fetch_project "$project" &
+    pids="$pids $!"
+  done
+  for pid in $pids; do
+    wait "$pid" || return 1
   done
   finish_desktop_update
 }
@@ -662,7 +667,8 @@ recompile_packages() {
     note "Compiling LispM's packages again for Emacs $EMACS"
     "$EMACS_PROGRAM" --batch --init-directory="$DESKTOP" \
       -l "$DESKTOP/early-init.el" --eval '(when package-enable-at-startup (package-activate-all))' \
-      --eval '(package-recompile-all)' >"$LISPM_HOME/compile.log" 2>&1
+      -L "$DESKTOP/lisp" -l lispm-desktop-deps \
+      --eval '(lispm-desktop-deps-recompile-all-parallel)' >"$LISPM_HOME/compile.log" 2>&1
   fi
 }
 
