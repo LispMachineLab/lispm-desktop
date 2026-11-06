@@ -80,6 +80,10 @@
 
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
+(declare-function lispm-desktop-assistant-ensure-progress "lispm-desktop-assistant" (&optional status))
+(declare-function lispm-desktop-assistant-progress "lispm-desktop-assistant" (done total stage))
+(declare-function lispm-desktop-assistant--visible-p "lispm-desktop-assistant" ())
+(declare-function lispm-desktop-assistant--tr-status "lispm-desktop-assistant" (status &rest args))
 
 (defgroup lispm-desktop-update nil
   "Software Update: keeping LispM up to date."
@@ -98,7 +102,7 @@
                  (const :tag "Every week" weekly))
   :group 'lispm-desktop-update)
 
-(defcustom lispm-desktop-update-install-automatically t
+(defcustom lispm-desktop-update-install-automatically nil
   "Non-nil means updates found are installed when LispM quits, without
 asking, and run from its next start.  nil means Software Update asks
 first, and installs when told to."
@@ -759,7 +763,16 @@ again; it opens APP after when REOPEN."
 (defun lispm-desktop-update--install-on-quit ()
   "Install the updates found, as Emacs quits, when they are to be.
 An update to LispM.app is installed by install.sh, once Emacs is gone."
-  (when (lispm-desktop-update-installs-on-quit-p)
+  (when (and (lispm-desktop-update-installs-on-quit-p)
+             (or noninteractive
+                 lispm-desktop-update--requested
+                 (let ((summary (lispm-desktop-update--summary
+                                 (lispm-desktop-update-updates))))
+                   (y-or-n-p
+                    (if (fboundp 'lispm-desktop-assistant--tr-status)
+                        (lispm-desktop-assistant--tr-status
+                         "Install LispM updates (%s) now? " summary)
+                      (format "Install LispM updates (%s) now? " summary))))))
     (when (and (not noninteractive)
                (fboundp 'lispm-desktop-assistant-ensure-progress))
       (lispm-desktop-assistant-ensure-progress "Installing updates…"))

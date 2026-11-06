@@ -830,25 +830,60 @@ else is an error saying what to update."
       (when (fboundp 'lispm-desktop-installer-screen-report)
         (lispm-desktop-installer-screen-report installer-status))))))
 
+(defun lispm-desktop-deps--existing-auth-dir (root)
+  "Return the newest installed Auth client directory under ROOT, or nil."
+  (when (file-directory-p root)
+    (let ((dirs (sort (directory-files root nil "\\`lispm-auth-[0-9]" t)
+                      (lambda (a b)
+                        (version-list-<
+                         (or (ignore-errors
+                               (version-to-list (string-remove-prefix "lispm-auth-" b)))
+                             '(0))
+                         (or (ignore-errors
+                               (version-to-list (string-remove-prefix "lispm-auth-" a)))
+                             '(0)))))))
+      (seq-some (lambda (name)
+                  (let ((dir (expand-file-name name root)))
+                    (and (file-regular-p (expand-file-name "lispm-auth.el" dir))
+                         dir)))
+                dirs))))
+
+(defun lispm-desktop-deps--confirm-update (template &rest args)
+  "Ask via `y-or-n-p' with TEMPLATE and ARGS whether to update a component."
+  (or noninteractive
+      (y-or-n-p
+       (if (fboundp 'lispm-desktop-assistant--tr-status)
+           (apply #'lispm-desktop-assistant--tr-status template args)
+         (apply #'format template args)))))
+
 (defun lispm-desktop-deps--auth-install ()
   "Install verified Auth client beside existing packages without replacing them."
   (require 'url)
   (let* ((root (expand-file-name "lispm-desktop-components" user-emacs-directory))
           (directory (expand-file-name (concat "lispm-auth-" lispm-desktop-deps-auth-version) root))
           (main (expand-file-name "lispm-auth.el" directory))
+          (existing (lispm-desktop-deps--existing-auth-dir root))
           (prefetched (and lispm-desktop-deps--prefetch-dir
                            (expand-file-name
                             (format "lispm-auth-client-%s.tar.gz" lispm-desktop-deps-auth-version)
                             lispm-desktop-deps--prefetch-dir))))
-    (unless (and (file-regular-p main)
-                 (equal lispm-desktop-deps-auth-source-sha256
-                        (with-temp-buffer
-                          (set-buffer-multibyte nil)
-                          (insert-file-contents-literally main)
-                          (secure-hash 'sha256 (current-buffer)))))
+    (cond
+     ((and (file-regular-p main)
+           (equal lispm-desktop-deps-auth-source-sha256
+                  (with-temp-buffer
+                    (set-buffer-multibyte nil)
+                    (insert-file-contents-literally main)
+                    (secure-hash 'sha256 (current-buffer)))))
+      (add-to-list 'load-path directory))
+     ((and existing
+           (not (lispm-desktop-deps--confirm-update
+                 "Update LispM Auth client to %s? "
+                 lispm-desktop-deps-auth-version)))
+      (add-to-list 'load-path existing))
+     (t
       (when (file-exists-p directory)
         (error "Auth client directory already exists but is not the verified release: %s" directory))
-      (let ((updating (file-directory-p root)))
+      (let ((updating (and existing t)))
         (lispm-desktop-deps--notify-progress
          (format "%s: lispm-auth" (if updating "Updating project" "Installing project"))
          (format "%s: lispm-auth…" (if updating "Updating component" "Installing component"))))
@@ -882,8 +917,8 @@ else is an error saying what to update."
                   (write-region (point-min) (point-max) (expand-file-name "lispm-auth.el" stage) nil 'silent)))
               (rename-file stage directory))
           (delete-file archive)
-          (when (file-directory-p stage) (delete-directory stage t)))))
-    (add-to-list 'load-path directory)))
+          (when (file-directory-p stage) (delete-directory stage t))))
+      (add-to-list 'load-path directory)))))
 
 (defun lispm-desktop-deps-ensure-auth ()
   "Install the pinned Auth client unless a user-managed copy takes precedence."
@@ -953,11 +988,15 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
                     (desc (cadr (assq feature package-alist))))
           (package-activate-1 desc))))
     (when-let* ((main (locate-library file t)))
-      (when (lispm-desktop-deps--behind main spec)
-        (lispm-desktop-deps--notify-progress
-         (format "Updating project: %s" feature)
-         (format "Updating component: %s…" feature))
-        (lispm-desktop-deps--catch-up main spec))
+      (when-let* ((behind (lispm-desktop-deps--behind main spec)))
+        (if (lispm-desktop-deps--confirm-update
+             "Update component %s to its latest release? " feature)
+            (progn
+              (lispm-desktop-deps--notify-progress
+               (format "Updating project: %s" feature)
+               (format "Updating component: %s…" feature))
+              (lispm-desktop-deps--catch-up main spec))
+          (display-warning 'lispm-desktop behind :warning)))
       (when-let* ((missing (lispm-desktop-deps--requirements main)))
         (lispm-desktop-deps--notify-progress
          (format "Preparing: %s" feature)

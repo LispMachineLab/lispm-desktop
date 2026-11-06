@@ -565,5 +565,29 @@ subsequent starts."
       (should installed)
       (should (equal progress-shown "Installing LispM Auth service…")))))
 
+(ert-deftest lispm-desktop-auth-test-service-update-prompts-and-falls-back ()
+  "When an older Auth service exists, interactive startup asks Y/N and
+keeps the existing binary when declined."
+  (require 'lispm-auth)
+  (require 'lispm-desktop-assistant)
+  (let ((noninteractive nil)
+        (lispm-auth-service-program nil)
+        (prompted nil))
+    (cl-letf (((symbol-function 'lispm-auth--service-program)
+               (lambda ()
+                 (or lispm-auth-service-program
+                     (signal 'lispm-auth-unavailable nil))))
+              ((symbol-function 'lispm-desktop-auth--existing-service-program)
+               (lambda () "/existing/v0.2.0/lispm-auth-service"))
+              ((symbol-function 'y-or-n-p)
+               (lambda (prompt) (setq prompted prompt) nil))
+              ((symbol-function 'lispm-auth-install-service)
+               (lambda () (ert-fail "Should not force install when declined"))))
+      (should (equal (lispm-desktop-auth-ensure-service)
+                     "/existing/v0.2.0/lispm-auth-service"))
+      (should (equal lispm-auth-service-program
+                     "/existing/v0.2.0/lispm-auth-service"))
+      (should prompted))))
+
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

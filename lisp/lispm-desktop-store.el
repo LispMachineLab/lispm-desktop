@@ -176,7 +176,7 @@ An item of an earlier catalog hides one of the same name in a later one."
   :type '(repeat string)
   :group 'lispm-desktop-store)
 
-(defcustom lispm-desktop-store-update-automatically t
+(defcustom lispm-desktop-store-update-automatically nil
   "Non-nil means the updates of what the App Store installed install by
 themselves once found: when LispM has been idle a minute, an application
 once its window is closed.  nil means they wait in the App Store's
