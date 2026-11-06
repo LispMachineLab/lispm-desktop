@@ -545,9 +545,32 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
 (defvar evil-insert-state-cursor)
 (defvar evil-motion-state-cursor)
 
+(defun lispm-desktop-auth--hide-page-cursor (&optional page)
+  "Hide the cursor in PAGE's buffer and window (including Evil cursor states)."
+  (let ((buf (or (and page (plist-get page :buffer))
+                 (get-buffer " *LispM Password*"))))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (setq-local cursor-type nil
+                    cursor-in-non-selected-windows nil
+                    evil-emacs-state-cursor '(nil)
+                    evil-normal-state-cursor '(nil)
+                    evil-insert-state-cursor '(nil)
+                    evil-motion-state-cursor '(nil)))
+      (when-let* ((win (get-buffer-window buf t))
+                  ((window-live-p win)))
+        (internal-show-cursor win nil)
+        (when (and (window-parameter win 'lispm-desktop-platinum-scroll-frame)
+                   (fboundp 'lispm-desktop-platinum-scroll-sync))
+          (lispm-desktop-platinum-scroll-sync))
+        (set-window-scroll-bars win 0 nil 0 nil)))))
+
 (defun lispm-desktop-auth--around-page-show (orig page)
   "Ensure the window and frame are prepared before showing PAGE."
   (when (not noninteractive)
+    (add-hook 'lispm-auth-page-mode-hook #'lispm-desktop-auth--hide-page-cursor)
+    (when (fboundp 'lispm-auth--page-redraw)
+      (advice-add 'lispm-auth--page-redraw :before #'lispm-desktop-auth--hide-page-cursor))
     (when (and (window-live-p (selected-window))
                (or (window-minibuffer-p (selected-window))
                    (window-dedicated-p (selected-window))
@@ -597,21 +620,7 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
                        (lispm-desktop-auth--setup-page-draw page))))
                  (funcall real-redisplay force))))
       (prog1 (funcall orig page)
-        (when-let* ((buf (plist-get page :buffer))
-                    ((buffer-live-p buf)))
-          (with-current-buffer buf
-            (setq-local cursor-type nil
-                        cursor-in-non-selected-windows nil
-                        evil-emacs-state-cursor '(nil)
-                        evil-normal-state-cursor '(nil)
-                        evil-insert-state-cursor '(nil)
-                        evil-motion-state-cursor '(nil)))
-          (when-let* ((win (get-buffer-window buf t))
-                      ((window-live-p win)))
-            (when (and (window-parameter win 'lispm-desktop-platinum-scroll-frame)
-                       (fboundp 'lispm-desktop-platinum-scroll-sync))
-              (lispm-desktop-platinum-scroll-sync))
-            (set-window-scroll-bars win 0 nil 0 nil)))))))
+        (lispm-desktop-auth--hide-page-cursor page)))))
 
 (defun lispm-desktop-auth--scroll-bar (buffer)
   "Say no scroll bar for BUFFER when it is a password page.
@@ -733,11 +742,11 @@ This is `lispm-auth-page-window-draw-function'."
                          (not (bound-and-true-p lispm-desktop--set-up))))))
            (when opened-progress
              (lispm-desktop-assistant-ensure-progress "Installing LispM Auth service…"))
-           (message "Installing LispM Auth service…")
-           (when (and (not noninteractive)
-                      (not (and (fboundp 'lispm-desktop-assistant--visible-p)
-                                (lispm-desktop-assistant--visible-p))))
-             (redisplay t))
+           (when (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                           (lispm-desktop-assistant--visible-p)))
+             (message "Installing LispM Auth service…")
+             (unless noninteractive
+               (redisplay t)))
            (unwind-protect
                (condition-case install-error
                    (if (and (fboundp 'lispm-desktop-assistant--visible-p)

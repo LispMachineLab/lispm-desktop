@@ -510,6 +510,10 @@ LispM up afterwards loads the theme chosen."
     (with-current-buffer buffer
       ;; One image fills the window, edge to edge: nothing about it.  The
       ;; window is never scrolled sideways to show point after it.
+      (let ((table (or buffer-display-table
+                       (setq buffer-display-table (make-display-table)))))
+        (set-display-table-slot table 'truncation (vector))
+        (set-display-table-slot table 'wrap (vector)))
       (setq-local auto-hscroll-mode nil
                   hscroll-margin 0)
       (setq-local mode-line-format nil
@@ -517,6 +521,10 @@ LispM up afterwards loads the theme chosen."
                   tab-line-format nil
                   cursor-type nil
                   cursor-in-non-selected-windows nil
+                  evil-emacs-state-cursor '(nil)
+                  evil-normal-state-cursor '(nil)
+                  evil-insert-state-cursor '(nil)
+                  evil-motion-state-cursor '(nil)
                   truncate-lines t
                   line-spacing nil
                   left-fringe-width 0
@@ -528,6 +536,8 @@ LispM up afterwards loads the theme chosen."
                   indicate-empty-lines nil
                   show-trailing-whitespace nil
                   scroll-margin 0))
+    (let ((message-log-max nil))
+      (message nil))
     (delete-other-windows)
     (let ((window (selected-window)))
       (set-window-buffer window buffer)
@@ -537,6 +547,7 @@ LispM up afterwards loads the theme chosen."
       (set-window-scroll-bars window 0 nil 0 nil)
       (set-window-fringes window 0 0)
       (set-window-margins window 0 0)
+      (internal-show-cursor window nil)
       (setq lispm-desktop-assistant--window window
             lispm-desktop-assistant--shown nil))))
 
@@ -545,9 +556,7 @@ LispM up afterwards loads the theme chosen."
 See `lispm-desktop-assistant-draw'.  Return PAGE's layout.  Nothing is
 drawn again while the page and the window's size stay as they are."
   (let* ((window lispm-desktop-assistant--window)
-         ;; Without a right fringe, a line's last column is kept for the
-         ;; sign of a truncated line: the image leaves it.
-         (width (- (window-body-width window t) (frame-char-width (window-frame window))))
+         (width (window-body-width window t))
          (height (window-body-height window t))
          (shown (list width height page focused pressed lispm-ui-palette-generation)))
     (setq lispm-desktop-assistant--last-page page)
@@ -559,12 +568,19 @@ drawn again while the page and the window's size stay as they are."
       (set-window-scroll-bars window 0 nil 0 nil)
       (set-window-fringes window 0 0)
       (set-window-margins window 0 0)
+      (internal-show-cursor window nil)
       (when-let* ((frame (window-frame window))
                   (desktop (plist-get lispm-ui-current-palette :desktop)))
         (unless (equal (frame-parameter frame 'background-color) desktop)
           (set-frame-parameter frame 'background-color desktop))
         (set-face-background 'fringe desktop frame))
       (with-current-buffer (window-buffer window)
+        (setq-local cursor-type nil
+                    cursor-in-non-selected-windows nil
+                    evil-emacs-state-cursor '(nil)
+                    evil-normal-state-cursor '(nil)
+                    evil-insert-state-cursor '(nil)
+                    evil-motion-state-cursor '(nil))
         (erase-buffer)
         (insert (propertize " " 'display
                             (svg-image (lispm-desktop-assistant-draw lispm-ui-current-palette
@@ -1002,6 +1018,10 @@ Return a cleanup function restoring the window's prior state."
                     tab-line-format nil
                     cursor-type nil
                     cursor-in-non-selected-windows nil
+                    evil-emacs-state-cursor '(nil)
+                    evil-normal-state-cursor '(nil)
+                    evil-insert-state-cursor '(nil)
+                    evil-motion-state-cursor '(nil)
                     truncate-lines t
                     left-fringe-width 0
                     right-fringe-width 0
@@ -1009,6 +1029,8 @@ Return a cleanup function restoring the window's prior state."
                     right-margin-width 0
                     vertical-scroll-bar nil
                     horizontal-scroll-bar nil))
+      (let ((message-log-max nil))
+        (message nil))
       (cond
        (was-visible
         ;; Temporarily clear the setup card so the alert dialog does not
@@ -1022,6 +1044,7 @@ Return a cleanup function restoring the window's prior state."
                    (fboundp 'lispm-desktop-platinum-scroll-sync))
           (lispm-desktop-platinum-scroll-sync))
         (set-window-scroll-bars lispm-desktop-assistant--window 0 nil 0 nil)
+        (internal-show-cursor lispm-desktop-assistant--window nil)
         (redisplay t)
         (lambda ()
           (when (and (lispm-desktop-assistant--visible-p)
@@ -1038,8 +1061,10 @@ Return a cleanup function restoring the window's prior state."
         (set-window-scroll-bars window 0 nil 0 nil)
         (set-window-fringes window 0 0)
         (set-window-margins window 0 0)
+        (internal-show-cursor window nil)
         (redisplay t)
         (lambda ()
+          (internal-show-cursor window t)
           (unless (lispm-desktop-assistant--visible-p)
             (lispm-desktop-assistant--restore-frame-colors))))
        (t
@@ -1171,6 +1196,8 @@ in Focus Mode, prompt with `y-or-n-p'."
 
 (defun lispm-desktop-assistant-close ()
   "Put the assistant's page away, if it is shown."
+  (when (window-live-p lispm-desktop-assistant--window)
+    (internal-show-cursor lispm-desktop-assistant--window t))
   (when-let* ((buffer (get-buffer lispm-desktop-assistant-buffer-name)))
     (when (and (window-live-p lispm-desktop-assistant--window)
                (eq (window-buffer lispm-desktop-assistant--window) buffer)
@@ -1179,6 +1206,8 @@ in Focus Mode, prompt with `y-or-n-p'."
         (set-window-buffer lispm-desktop-assistant--window
                            (lispm-desktop-empty-buffer))))
     (kill-buffer buffer))
+  (let ((message-log-max nil))
+    (message nil))
   (lispm-desktop-assistant--restore-frame-colors)
   (setq lispm-desktop-assistant--window nil
         lispm-desktop-assistant--shown nil
