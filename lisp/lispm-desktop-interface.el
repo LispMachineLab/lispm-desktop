@@ -332,6 +332,8 @@ terminal, the fonts, and neither splash screen nor bell."
   ;; outlined in lines, not in | - and +.
   (when (fboundp 'standard-display-unicode-special-glyphs)
     (standard-display-unicode-special-glyphs))
+  (mapc #'lispm-desktop-frame-menu-bar (frame-list))
+  (add-hook 'after-make-frame-functions #'lispm-desktop-frame-menu-bar)
   (when (lispm-desktop-gui-p)
     (lispm-desktop-pin-default-font)
     (lispm-desktop-pin-cjk-font))

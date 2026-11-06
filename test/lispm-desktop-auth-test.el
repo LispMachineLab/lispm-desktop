@@ -556,6 +556,7 @@ subsequent starts."
     (cl-letf (((symbol-function 'lispm-auth--service-program)
                (lambda ()
                  (if installed "/service" (signal 'lispm-auth-unavailable nil))))
+              ((symbol-function 'lispm-desktop-auth--existing-service-program) #'ignore)
               ((symbol-function 'lispm-desktop-assistant-ensure-progress)
                (lambda (&optional status) (setq progress-shown status)))
               ((symbol-function 'lispm-auth-install-service)
