@@ -589,5 +589,33 @@ keeps the existing binary when declined."
                      "/existing/v0.2.0/lispm-auth-service"))
       (should prompted))))
 
+(ert-deftest lispm-desktop-auth-test-confirm-update-modes ()
+  "Desktop Mode (GUI/TUI) uses visual alert popups; Focus Mode uses y-or-n-p."
+  (require 'lispm-desktop-assistant)
+  (require 'lispm-desktop-start-as)
+  ;; 1. Desktop Mode with popup available -> calls lispm-ui-alert
+  (let ((noninteractive nil)
+        (lispm-desktop-started-as 'desktop)
+        (alert-called nil))
+    (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
+              ((symbol-function 'frame-visible-p) #'always)
+              ((symbol-function 'lispm-ui-alert)
+               (lambda (icon msg buttons &optional _detail)
+                 (setq alert-called (list icon msg buttons))
+                 'update)))
+      (should (lispm-desktop-assistant-confirm-update
+               "Update LispM Auth service to %s? " "v0.2.6"))
+      (should (equal (car alert-called) 'note))
+      (should (= (length (nth 2 alert-called)) 2))))
+  ;; 2. Focus Mode -> calls y-or-n-p
+  (let ((noninteractive nil)
+        (lispm-desktop-started-as 'terminal)
+        (yn-called nil))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (prompt) (setq yn-called prompt) nil)))
+      (should-not (lispm-desktop-assistant-confirm-update
+                   "Update LispM Auth service to %s? " "v0.2.6"))
+      (should yn-called))))
+
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

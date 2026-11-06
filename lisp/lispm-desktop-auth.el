@@ -74,6 +74,7 @@
 (declare-function lispm-desktop-platinum-show-window "lispm-desktop-platinum" (frame))
 (declare-function lispm-desktop-platinum-scroll-sync "lispm-desktop-platinum-scroll" ())
 (declare-function lispm-desktop-assistant-ensure-progress "lispm-desktop-assistant" (&optional status))
+(declare-function lispm-desktop-assistant-confirm-update "lispm-desktop-assistant" (template &rest args))
 (declare-function lispm-desktop-assistant--visible-p "lispm-desktop-assistant" ())
 (declare-function lispm-desktop-assistant--package-message "lispm-desktop-assistant" (original format-string &rest args))
 (declare-function lispm-desktop-assistant--tr-status "lispm-desktop-assistant" (status &rest args))
@@ -687,11 +688,10 @@ This is `lispm-auth-page-window-draw-function'."
            (ver (or (bound-and-true-p lispm-auth-service-version) "latest")))
        (if (and existing
                 (not noninteractive)
-                (not (y-or-n-p
-                      (if (fboundp 'lispm-desktop-assistant--tr-status)
-                          (lispm-desktop-assistant--tr-status
-                           "Update LispM Auth service to %s? " ver)
-                        (format "Update LispM Auth service to %s? " ver)))))
+                (not (if (fboundp 'lispm-desktop-assistant-confirm-update)
+                         (lispm-desktop-assistant-confirm-update
+                          "Update LispM Auth service to %s? " ver)
+                       (y-or-n-p (format "Update LispM Auth service to %s? " ver)))))
            (setq lispm-auth-service-program existing)
          (when (and (not noninteractive)
                     (fboundp 'lispm-desktop-assistant-ensure-progress)

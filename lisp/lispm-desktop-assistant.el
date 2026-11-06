@@ -840,6 +840,115 @@ page then stays, saying LispM is being set up, until
                               (lispm-desktop-assistant--tr-status status))))
       (lispm-desktop-assistant--show page nil nil))))
 
+(defun lispm-desktop-assistant--focus-mode-p ()
+  "Return non-nil when LispM runs in or is starting as Focus Mode."
+  (if (bound-and-true-p lispm-desktop-started-as)
+      (eq lispm-desktop-started-as 'terminal)
+    (eq (or (and (fboundp 'lispm-desktop-start-as--argument)
+                 (lispm-desktop-start-as--argument (cdr command-line-args)))
+            (bound-and-true-p lispm-desktop-start-as))
+        'terminal)))
+
+(defun lispm-desktop-assistant--tty-alert (icon message buttons &optional detail)
+  "Render a visual text alert in the selected window when child frames lack."
+  (let* ((default (nth 1 (seq-find (lambda (b) (eq (nth 2 b) 'default)) buttons)))
+         (cancel (nth 1 (seq-find (lambda (b) (eq (nth 2 b) 'cancel)) buttons)))
+         (values (mapcar #'cadr buttons))
+         (buf (generate-new-buffer " *lispm-tty-alert*"))
+         (win (selected-window))
+         (old-buf (window-buffer win))
+         (old-ded (window-dedicated-p win))
+         (pressed nil)
+         (focused default)
+         (choice cancel))
+    (unwind-protect
+        (cl-flet ((redraw ()
+                    (with-current-buffer buf
+                      (let ((inhibit-read-only t)
+                            (box (lispm-ui-alert--text icon message detail buttons
+                                                       pressed focused))
+                            (win-w (window-body-width win))
+                            (win-h (window-body-height win)))
+                        (erase-buffer)
+                        (setq-local mode-line-format nil
+                                    header-line-format nil
+                                    tab-line-format nil
+                                    cursor-type nil
+                                    truncate-lines t)
+                        (let* ((lines (split-string box "\n"))
+                               (box-h (length lines))
+                               (box-w (if lines (string-width (car lines)) 0))
+                               (pad-top (max 0 (/ (- win-h box-h) 2)))
+                               (pad-left (make-string (max 0 (/ (- win-w box-w) 2)) ?\s)))
+                          (insert (make-string pad-top ?\n))
+                          (dolist (line lines)
+                            (insert pad-left line "\n")))
+                        (goto-char (point-min))))
+                    (set-window-dedicated-p win nil)
+                    (set-window-buffer win buf)
+                    (redisplay t)))
+          (redraw)
+          (catch 'done
+            (while t
+              (let* ((event (lispm-ui-modal-read))
+                     (role (lispm-ui-modal-role event))
+                     (step (lispm-ui-modal-step event)))
+                (cond
+                 ((seq-find (lambda (b) (memql event (nthcdr 3 b))) buttons)
+                  (setq choice (nth 1 (seq-find (lambda (b) (memql event (nthcdr 3 b))) buttons)))
+                  (throw 'done nil))
+                 ((and (eq role 'cancel) (or cancel default))
+                  (setq choice (or cancel default))
+                  (throw 'done nil))
+                 ((and (eq role 'confirm) default)
+                  (setq choice default)
+                  (throw 'done nil))
+                 (step
+                  (setq focused (nth (lispm-ui-modal-cycle (seq-position values focused)
+                                                           step (length values))
+                                     values))
+                  (redraw))
+                 ((and focused (eq role 'press))
+                  (setq choice focused)
+                  (throw 'done nil)))))))
+      (when (window-live-p win)
+        (set-window-buffer win old-buf)
+        (set-window-dedicated-p win old-ded))
+      (when (buffer-live-p buf)
+        (kill-buffer buf)))
+    choice))
+
+(defun lispm-desktop-assistant-confirm-update (template &rest args)
+  "Confirm an update with TEMPLATE and ARGS.
+In GUI and TUI Desktop Mode, display a visual Mac OS 9 alert dialog;
+in Focus Mode, prompt with `y-or-n-p'."
+  (if noninteractive
+      t
+    (let* ((question (apply #'lispm-desktop-assistant--tr-status template args))
+           (trimmed (string-trim question)))
+      (cond
+       ((or (lispm-desktop-assistant--focus-mode-p)
+            (and (not (subrp (symbol-function 'y-or-n-p)))
+                 (not (lispm-ui-popup-available-p))))
+        (let ((use-dialog-box nil))
+          (y-or-n-p question)))
+       (t
+        (when (and (bound-and-true-p lispm-desktop-setup--in-progress)
+                   (lispm-desktop-assistant-available-p))
+          (lispm-desktop-assistant-ensure-progress))
+        (unless (frame-visible-p (selected-frame))
+          (make-frame-visible (selected-frame))
+          (redisplay t))
+        (let* ((lispm-ui-current-palette
+                (or (bound-and-true-p lispm-ui-current-palette)
+                    (bound-and-true-p lispm-ui-platinum-palette)))
+               (buttons `((,(lispm-desktop-tr "Later") later cancel ?n ?N)
+                          (,(lispm-desktop-tr "Update") update default ?y ?Y))))
+          (eq 'update
+              (if (lispm-ui-popup-available-p)
+                  (lispm-ui-alert 'note trimmed buttons)
+                (lispm-desktop-assistant--tty-alert 'note trimmed buttons)))))))))
+
 (defun lispm-desktop-assistant-progress (done total status)
   "Show DONE of TOTAL synchronous setup stages and STATUS on the page."
   (setq lispm-desktop-assistant--setup-stage status

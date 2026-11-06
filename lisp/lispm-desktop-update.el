@@ -81,6 +81,9 @@
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
 (declare-function lispm-desktop-assistant-ensure-progress "lispm-desktop-assistant" (&optional status))
+(declare-function lispm-desktop-assistant-confirm-update "lispm-desktop-assistant" (template &rest args))
+(declare-function lispm-desktop-assistant--focus-mode-p "lispm-desktop-assistant" ())
+(declare-function lispm-desktop-assistant--tty-alert "lispm-desktop-assistant" (icon message buttons &optional detail))
 (declare-function lispm-desktop-assistant-progress "lispm-desktop-assistant" (done total stage))
 (declare-function lispm-desktop-assistant--visible-p "lispm-desktop-assistant" ())
 (declare-function lispm-desktop-assistant--tr-status "lispm-desktop-assistant" (status &rest args))
@@ -768,10 +771,10 @@ An update to LispM.app is installed by install.sh, once Emacs is gone."
                  lispm-desktop-update--requested
                  (let ((summary (lispm-desktop-update--summary
                                  (lispm-desktop-update-updates))))
-                   (y-or-n-p
-                    (if (fboundp 'lispm-desktop-assistant--tr-status)
-                        (lispm-desktop-assistant--tr-status
-                         "Install LispM updates (%s) now? " summary)
+                   (if (fboundp 'lispm-desktop-assistant-confirm-update)
+                       (lispm-desktop-assistant-confirm-update
+                        "Install LispM updates (%s) now? " summary)
+                     (y-or-n-p
                       (format "Install LispM updates (%s) now? " summary))))))
     (when (and (not noninteractive)
                (fboundp 'lispm-desktop-assistant-ensure-progress))
@@ -808,26 +811,46 @@ Update's own may come up while you type.  This runs from a timer, where
 C-g is let quit the alert."
   (when-let* ((updates (lispm-desktop-update-updates)))
     (with-local-quit
-      (if (or (active-minibuffer-window) (not (fboundp 'lispm-ui-popup-available-p))
-              ;; Without its window, the alert asks in the minibuffer, where
-              ;; a key typed meanwhile would answer.
-              (and (not asked) (not (lispm-ui-popup-available-p))))
-          (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
-                   (lispm-desktop-update--summary updates))
-        (when (eq 'restart
-                  (lispm-ui-alert
-                   'note (lispm-desktop-tr-n "An update to LispM is ready." "Updates to LispM are ready."
-                                             (length updates))
-                   `((,(lispm-desktop-tr "Later") later cancel)
-                     (,(lispm-desktop-tr "Restart") restart ,(and asked 'default)))
-                   (if (lispm-desktop-update-needs-installer-p)
-                       (lispm-desktop-tr "%s.  LispM quits for install.sh to make LispM.app again, and opens when it is done."
-                                         (lispm-desktop-update--summary updates))
-                     (lispm-desktop-tr-n
-                      "%s.  Restarting installs it; terminals and agents stop, and their sessions can be resumed."
-                      "%s.  Restarting installs them; terminals and agents stop, and their sessions can be resumed."
-                      (length updates) (lispm-desktop-update--summary updates)))))
-          (lispm-desktop-update-restart))))))
+      (cond
+       ((and (fboundp 'lispm-desktop-assistant--focus-mode-p)
+             (lispm-desktop-assistant--focus-mode-p))
+        (if (or (active-minibuffer-window) (not asked))
+            (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
+                     (lispm-desktop-update--summary updates))
+          (when (let ((use-dialog-box nil))
+                  (y-or-n-p
+                   (if (fboundp 'lispm-desktop-assistant--tr-status)
+                       (lispm-desktop-assistant--tr-status
+                        "Install LispM updates (%s) now? "
+                        (lispm-desktop-update--summary updates))
+                     (format "Install LispM updates (%s) now? "
+                             (lispm-desktop-update--summary updates)))))
+            (lispm-desktop-update-restart))))
+       ((or (active-minibuffer-window) (not (fboundp 'lispm-ui-popup-available-p))
+            ;; Without its window, the alert asks in the minibuffer, where
+            ;; a key typed meanwhile would answer.
+            (and (not asked) (not (lispm-ui-popup-available-p))))
+        (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
+                 (lispm-desktop-update--summary updates)))
+       (t
+        (let ((title (lispm-desktop-tr-n "An update to LispM is ready." "Updates to LispM are ready."
+                                         (length updates)))
+              (buttons `((,(lispm-desktop-tr "Later") later cancel)
+                         (,(lispm-desktop-tr "Restart") restart ,(and asked 'default))))
+              (detail (if (lispm-desktop-update-needs-installer-p)
+                          (lispm-desktop-tr "%s.  LispM quits for install.sh to make LispM.app again, and opens when it is done."
+                                            (lispm-desktop-update--summary updates))
+                        (lispm-desktop-tr-n
+                         "%s.  Restarting installs it; terminals and agents stop, and their sessions can be resumed."
+                         "%s.  Restarting installs them; terminals and agents stop, and their sessions can be resumed."
+                         (length updates) (lispm-desktop-update--summary updates)))))
+          (when (eq 'restart
+                    (if (and (not (lispm-ui-popup-available-p))
+                             (not (display-graphic-p))
+                             (fboundp 'lispm-desktop-assistant--tty-alert))
+                        (lispm-desktop-assistant--tty-alert 'note title buttons detail)
+                      (lispm-ui-alert 'note title buttons detail)))
+            (lispm-desktop-update-restart))))))))
 
 (defun lispm-desktop-update-now ()
   "Check for updates at once, then offer to restart into those found."

@@ -849,12 +849,14 @@ else is an error saying what to update."
                 dirs))))
 
 (defun lispm-desktop-deps--confirm-update (template &rest args)
-  "Ask via `y-or-n-p' with TEMPLATE and ARGS whether to update a component."
+  "Confirm updating a component with TEMPLATE and ARGS."
   (or noninteractive
-      (y-or-n-p
-       (if (fboundp 'lispm-desktop-assistant--tr-status)
-           (apply #'lispm-desktop-assistant--tr-status template args)
-         (apply #'format template args)))))
+      (progn
+        (unless (fboundp 'lispm-desktop-assistant-confirm-update)
+          (require 'lispm-desktop-assistant nil t))
+        (if (fboundp 'lispm-desktop-assistant-confirm-update)
+            (apply #'lispm-desktop-assistant-confirm-update template args)
+          (y-or-n-p (apply #'format template args))))))
 
 (defun lispm-desktop-deps--auth-install ()
   "Install verified Auth client beside existing packages without replacing them."
