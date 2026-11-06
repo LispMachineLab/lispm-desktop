@@ -251,9 +251,9 @@ it puts the terminal on the frame."
 
 (ert-deftest lispm-desktop-auth-test-pinned-client-release ()
   (require 'lispm-desktop-deps)
-  (should (equal lispm-desktop-deps-auth-version "0.2.5"))
+  (should (equal lispm-desktop-deps-auth-version "0.2.6"))
   (should (equal lispm-desktop-deps-auth-sha256
-                 "9c6a8c3289f85a7900c2e7b44dc29fa575cb05ec8224e398edc51bddd4455168")))
+                 "b39295ff84ffd1619b4a2793e3df47a535063bb3a7d6ed8d920c8a2f00a22eff")))
 
 (ert-deftest lispm-desktop-auth-test-service-is-installed-automatically ()
   (require 'lispm-auth)
@@ -542,6 +542,96 @@ them on hide, even when invoked while a dedicated side window is selected."
         (when (buffer-live-p page-buf) (kill-buffer page-buf))
         (when (buffer-live-p main-buf) (kill-buffer main-buf))
         (when (buffer-live-p side-buf) (kill-buffer side-buf))))))
+
+(ert-deftest lispm-desktop-auth-test-service-install-opens-progress-ui ()
+  "Installing the Auth service during setup opens the progress UI even on
+subsequent starts."
+  (require 'lispm-auth)
+  (require 'lispm-desktop-assistant)
+  (let ((noninteractive nil)
+        (lispm-desktop-setup--in-progress t)
+        (lispm-auth-service-program nil)
+        (installed nil)
+        (progress-shown nil))
+    (cl-letf (((symbol-function 'lispm-auth--service-program)
+               (lambda ()
+                 (if installed "/service" (signal 'lispm-auth-unavailable nil))))
+              ((symbol-function 'lispm-desktop-auth--existing-service-program) #'ignore)
+              ((symbol-function 'lispm-desktop-assistant-ensure-progress)
+               (lambda (&optional status) (setq progress-shown status)))
+              ((symbol-function 'lispm-auth-install-service)
+               (lambda () (setq installed t)))
+              ((symbol-function 'redisplay) #'ignore))
+      (should (equal (lispm-desktop-auth-ensure-service) "/service"))
+      (should installed)
+      (should (equal progress-shown "Installing LispM Auth service…")))))
+
+(ert-deftest lispm-desktop-auth-test-service-update-prompts-and-falls-back ()
+  "When an older Auth service exists, interactive startup asks Y/N and
+keeps the existing binary when declined."
+  (require 'lispm-auth)
+  (require 'lispm-desktop-assistant)
+  (let ((noninteractive nil)
+        (lispm-auth-service-program nil)
+        (prompted nil))
+    (cl-letf (((symbol-function 'lispm-auth--service-program)
+               (lambda ()
+                 (or lispm-auth-service-program
+                     (signal 'lispm-auth-unavailable nil))))
+              ((symbol-function 'lispm-desktop-auth--existing-service-program)
+               (lambda () "/existing/v0.2.0/lispm-auth-service"))
+              ((symbol-function 'y-or-n-p)
+               (lambda (prompt) (setq prompted prompt) nil))
+              ((symbol-function 'lispm-auth-install-service)
+               (lambda () (ert-fail "Should not force install when declined"))))
+      (should (equal (lispm-desktop-auth-ensure-service)
+                     "/existing/v0.2.0/lispm-auth-service"))
+      (should (equal lispm-auth-service-program
+                     "/existing/v0.2.0/lispm-auth-service"))
+      (should prompted))))
+
+(ert-deftest lispm-desktop-auth-test-confirm-update-modes ()
+  "Desktop Mode (GUI/TUI) uses visual alert popups without overlapping the
+setup progress window; Focus Mode uses y-or-n-p; setup buffers omit scroll bars."
+  (require 'lispm-desktop-assistant)
+  (require 'lispm-desktop-platinum-scroll)
+  (require 'lispm-desktop-start-as)
+  ;; 1. Desktop Mode with popup available -> calls lispm-ui-alert without opening progress window
+  (let ((noninteractive nil)
+        (lispm-desktop-setup--in-progress t)
+        (lispm-desktop-started-as 'desktop)
+        (progress-opened nil)
+        (alert-called nil))
+    (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
+              ((symbol-function 'frame-visible-p) #'always)
+              ((symbol-function 'lispm-desktop-assistant-ensure-progress)
+               (lambda (&rest _) (setq progress-opened t)))
+              ((symbol-function 'lispm-ui-alert)
+               (lambda (icon msg buttons &optional _detail)
+                 (setq alert-called (list icon msg buttons))
+                 'update)))
+      (should (lispm-desktop-assistant-confirm-update
+               "Update LispM Auth service to %s? " "v0.2.6"))
+      (should-not progress-opened)
+      (should (equal (car alert-called) 'note))
+      (should (= (length (nth 2 alert-called)) 2))))
+  ;; 2. Focus Mode -> calls y-or-n-p
+  (let ((noninteractive nil)
+        (lispm-desktop-started-as 'terminal)
+        (yn-called nil))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (prompt) (setq yn-called prompt) nil)))
+      (should-not (lispm-desktop-assistant-confirm-update
+                   "Update LispM Auth service to %s? " "v0.2.6"))
+      (should yn-called)))
+  ;; 3. Setup assistant and alert buffers do not receive Platinum scroll bars
+  (dolist (name (list lispm-desktop-assistant-buffer-name
+                      " *lispm-tty-alert*"
+                      " *lispm-confirm-backdrop*"))
+    (let ((buf (get-buffer-create name)))
+      (unwind-protect
+          (should (eq 'no (lispm-desktop-assistant--scroll-bar buf)))
+        (kill-buffer buf)))))
 
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

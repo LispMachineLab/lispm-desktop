@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.22.3
+;; Version: 0.23.0
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -115,6 +115,8 @@
 (when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
            (fboundp 'lispm-desktop-deps-flush-deferred-compiles))
   (lispm-desktop-deps-flush-deferred-compiles t))
+(when (fboundp 'lispm-desktop-installer-screen-stop-auto)
+  (lispm-desktop-installer-screen-stop-auto))
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)
@@ -176,6 +178,10 @@
 
 (defvar nerd-icons-font-family)
 (declare-function nerd-icons-install-fonts "nerd-icons" (&optional pfx))
+(declare-function lispm-desktop-installer-screen-fail "lispm-desktop-installer-screen" (stage))
+
+(defvar lispm-desktop-setup--in-progress nil
+  "Non-nil while `lispm-desktop-setup' is running.")
 
 (defcustom lispm-desktop-startup-view 'agents
   "Sidebar view shown when Emacs starts, or nil for none.
@@ -229,6 +235,8 @@ boxes.  A download that fails, as offline, is only reported."
   (when (and (display-graphic-p) (not noninteractive))
     (require 'nerd-icons)
     (unless (lispm-desktop--icon-font-installed-p)
+      (when (fboundp 'lispm-desktop-assistant-ensure-progress)
+        (lispm-desktop-assistant-ensure-progress "Installing the icon font…"))
       (lispm-desktop-assistant-report (lispm-desktop-tr "Installing the icon font…"))
       (condition-case err
           (lispm-desktop-install-fonts)
@@ -365,6 +373,7 @@ when LispM starts as that, see `lispm-desktop-start-as'."
   (let ((as (lispm-desktop-setup-start-as))
         (first (setq lispm-desktop-first-start (lispm-desktop--first-start)))
         (previously-set-up lispm-desktop--set-up)
+        (lispm-desktop-setup--in-progress t)
         (completed nil)
         (failure nil))
     ;; The first start's page stays up while LispM is set up, and goes

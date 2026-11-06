@@ -80,6 +80,13 @@
 
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
+(declare-function lispm-desktop-assistant-ensure-progress "lispm-desktop-assistant" (&optional status))
+(declare-function lispm-desktop-assistant-confirm-update "lispm-desktop-assistant" (template &rest args))
+(declare-function lispm-desktop-assistant--focus-mode-p "lispm-desktop-assistant" ())
+(declare-function lispm-desktop-assistant--tty-alert "lispm-desktop-assistant" (icon message buttons &optional detail))
+(declare-function lispm-desktop-assistant-progress "lispm-desktop-assistant" (done total stage))
+(declare-function lispm-desktop-assistant--visible-p "lispm-desktop-assistant" ())
+(declare-function lispm-desktop-assistant--tr-status "lispm-desktop-assistant" (status &rest args))
 
 (defgroup lispm-desktop-update nil
   "Software Update: keeping LispM up to date."
@@ -98,7 +105,7 @@
                  (const :tag "Every week" weekly))
   :group 'lispm-desktop-update)
 
-(defcustom lispm-desktop-update-install-automatically t
+(defcustom lispm-desktop-update-install-automatically nil
   "Non-nil means updates found are installed when LispM quits, without
 asking, and run from its next start.  nil means Software Update asks
 first, and installs when told to."
@@ -686,15 +693,26 @@ loads any of the files changed."
             (lispm-desktop-update-check-dependencies
              (plist-get desktop :directory) (plist-get desktop :to) updates))
           (catch 'stopped
-            (dolist (update (append packages (seq-difference dependencies packages) desktops))
-              (when (memq update desktops)
-                ;; Re-read disk, not the plan, after the dependencies have
-                ;; actually installed.  A skipped dependency cannot pass.
-                (lispm-desktop-update-check-dependencies
-                 (plist-get update :directory) (plist-get update :to)))
-              (unless (lispm-desktop-update--install-checkout update)
-                (throw 'stopped nil))
-              (push update installed))))
+            (let* ((ordered (append packages (seq-difference dependencies packages) desktops))
+                   (total (max 1 (length ordered)))
+                   (done 0))
+              (dolist (update ordered)
+                (when (and (not noninteractive)
+                           (fboundp 'lispm-desktop-assistant--visible-p)
+                           (lispm-desktop-assistant--visible-p)
+                           (fboundp 'lispm-desktop-assistant-progress))
+                  (lispm-desktop-assistant-progress
+                   done total
+                   (format "Updating component: %s…" (lispm-desktop-update-title update))))
+                (when (memq update desktops)
+                  ;; Re-read disk, not the plan, after the dependencies have
+                  ;; actually installed.  A skipped dependency cannot pass.
+                  (lispm-desktop-update-check-dependencies
+                   (plist-get update :directory) (plist-get update :to)))
+                (unless (lispm-desktop-update--install-checkout update)
+                  (throw 'stopped nil))
+                (setq done (1+ done))
+                (push update installed)))))
       (error (message "Software Update: %s" (error-message-string err))))
     (setq installed (nreverse installed))
     (dolist (update installed)
@@ -748,7 +766,19 @@ again; it opens APP after when REOPEN."
 (defun lispm-desktop-update--install-on-quit ()
   "Install the updates found, as Emacs quits, when they are to be.
 An update to LispM.app is installed by install.sh, once Emacs is gone."
-  (when (lispm-desktop-update-installs-on-quit-p)
+  (when (and (lispm-desktop-update-installs-on-quit-p)
+             (or noninteractive
+                 lispm-desktop-update--requested
+                 (let ((summary (lispm-desktop-update--summary
+                                 (lispm-desktop-update-updates))))
+                   (if (fboundp 'lispm-desktop-assistant-confirm-update)
+                       (lispm-desktop-assistant-confirm-update
+                        "Install LispM updates (%s) now? " summary)
+                     (y-or-n-p
+                      (format "Install LispM updates (%s) now? " summary))))))
+    (when (and (not noninteractive)
+               (fboundp 'lispm-desktop-assistant-ensure-progress))
+      (lispm-desktop-assistant-ensure-progress "Installing updates…"))
     (let* ((app (lispm-desktop-update-needs-installer-p))
            (installed (lispm-desktop-update-install)))
       (when (and app (seq-some (lambda (update) (plist-get update :app)) installed))
@@ -781,26 +811,46 @@ Update's own may come up while you type.  This runs from a timer, where
 C-g is let quit the alert."
   (when-let* ((updates (lispm-desktop-update-updates)))
     (with-local-quit
-      (if (or (active-minibuffer-window) (not (fboundp 'lispm-ui-popup-available-p))
-              ;; Without its window, the alert asks in the minibuffer, where
-              ;; a key typed meanwhile would answer.
-              (and (not asked) (not (lispm-ui-popup-available-p))))
-          (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
-                   (lispm-desktop-update--summary updates))
-        (when (eq 'restart
-                  (lispm-ui-alert
-                   'note (lispm-desktop-tr-n "An update to LispM is ready." "Updates to LispM are ready."
-                                             (length updates))
-                   `((,(lispm-desktop-tr "Later") later cancel)
-                     (,(lispm-desktop-tr "Restart") restart ,(and asked 'default)))
-                   (if (lispm-desktop-update-needs-installer-p)
-                       (lispm-desktop-tr "%s.  LispM quits for install.sh to make LispM.app again, and opens when it is done."
-                                         (lispm-desktop-update--summary updates))
-                     (lispm-desktop-tr-n
-                      "%s.  Restarting installs it; terminals and agents stop, and their sessions can be resumed."
-                      "%s.  Restarting installs them; terminals and agents stop, and their sessions can be resumed."
-                      (length updates) (lispm-desktop-update--summary updates)))))
-          (lispm-desktop-update-restart))))))
+      (cond
+       ((and (fboundp 'lispm-desktop-assistant--focus-mode-p)
+             (lispm-desktop-assistant--focus-mode-p))
+        (if (or (active-minibuffer-window) (not asked))
+            (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
+                     (lispm-desktop-update--summary updates))
+          (when (let ((use-dialog-box nil))
+                  (y-or-n-p
+                   (if (fboundp 'lispm-desktop-assistant--tr-status)
+                       (lispm-desktop-assistant--tr-status
+                        "Install LispM updates (%s) now? "
+                        (lispm-desktop-update--summary updates))
+                     (format "Install LispM updates (%s) now? "
+                             (lispm-desktop-update--summary updates)))))
+            (lispm-desktop-update-restart))))
+       ((or (active-minibuffer-window) (not (fboundp 'lispm-ui-popup-available-p))
+            ;; Without its window, the alert asks in the minibuffer, where
+            ;; a key typed meanwhile would answer.
+            (and (not asked) (not (lispm-ui-popup-available-p))))
+        (message (lispm-desktop-tr "Software Update: %s; restart LispM to install it (M-x lispm-desktop-update-restart).")
+                 (lispm-desktop-update--summary updates)))
+       (t
+        (let ((title (lispm-desktop-tr-n "An update to LispM is ready." "Updates to LispM are ready."
+                                         (length updates)))
+              (buttons `((,(lispm-desktop-tr "Later") later cancel)
+                         (,(lispm-desktop-tr "Restart") restart ,(and asked 'default))))
+              (detail (if (lispm-desktop-update-needs-installer-p)
+                          (lispm-desktop-tr "%s.  LispM quits for install.sh to make LispM.app again, and opens when it is done."
+                                            (lispm-desktop-update--summary updates))
+                        (lispm-desktop-tr-n
+                         "%s.  Restarting installs it; terminals and agents stop, and their sessions can be resumed."
+                         "%s.  Restarting installs them; terminals and agents stop, and their sessions can be resumed."
+                         (length updates) (lispm-desktop-update--summary updates)))))
+          (when (eq 'restart
+                    (if (and (not (lispm-ui-popup-available-p))
+                             (not (display-graphic-p))
+                             (fboundp 'lispm-desktop-assistant--tty-alert))
+                        (lispm-desktop-assistant--tty-alert 'note title buttons detail)
+                      (lispm-ui-alert 'note title buttons detail)))
+            (lispm-desktop-update-restart))))))))
 
 (defun lispm-desktop-update-now ()
   "Check for updates at once, then offer to restart into those found."

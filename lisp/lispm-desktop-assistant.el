@@ -47,6 +47,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'face-remap)
 (require 'seq)
 (require 'subr-x)
 (require 'svg)
@@ -447,29 +448,184 @@ page with a :picture shows LispM's λ instead of choices, and its
 
 ;;;; The page
 
+(defun lispm-desktop-assistant--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER when it is the setup assistant or alert.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (member (buffer-name buffer)
+               (list lispm-desktop-assistant-buffer-name
+                     " *lispm-tty-alert*"
+                     " *lispm-confirm-backdrop*"
+                     " *lispm-focus-backdrop*"))
+       'no))
+
+(add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-assistant--scroll-bar)
+
+(defvar lispm-desktop-assistant--saved-frame-colors nil
+  "Cons (FRAME BG . FRINGE-BG) saved before colouring the frame as desktop.")
+
+(defvar lispm-desktop-assistant--echo-remap-cookies nil
+  "Alist of (BUFFER . COOKIES) remapping the echo area to the desktop colour.")
+
+(defun lispm-desktop-assistant--color-echo-area (color)
+  "Colour the idle minibuffer and echo area buffers with COLOR."
+  (when (stringp color)
+    (dolist (name '(" *Minibuf-0*" " *Echo Area 0*" " *Echo Area 1*"))
+      (when-let* ((buf (get-buffer name)))
+        (with-current-buffer buf
+          (mapc #'face-remap-remove-relative
+                (alist-get buf lispm-desktop-assistant--echo-remap-cookies))
+          (setf (alist-get buf lispm-desktop-assistant--echo-remap-cookies)
+                (list (face-remap-add-relative 'default :background color)
+                      (face-remap-add-relative 'fringe :background color))))))))
+
+(defun lispm-desktop-assistant--restore-echo-area ()
+  "Remove face remappings added by `lispm-desktop-assistant--color-echo-area'."
+  (pcase-dolist (`(,buf . ,cookies) lispm-desktop-assistant--echo-remap-cookies)
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (mapc #'face-remap-remove-relative cookies))))
+  (setq lispm-desktop-assistant--echo-remap-cookies nil))
+
+(defun lispm-desktop-assistant--save-frame-colors (frame)
+  "Remember FRAME's background and fringe colours before changing them."
+  (when (and (frame-live-p frame)
+             (not (eq (car-safe lispm-desktop-assistant--saved-frame-colors) frame)))
+    (setq lispm-desktop-assistant--saved-frame-colors
+          (cons frame
+                (cons (frame-parameter frame 'background-color)
+                      (face-background 'fringe frame nil))))))
+
+(defun lispm-desktop-assistant--restore-frame-colors ()
+  "Restore the frame colours saved by `lispm-desktop-assistant--save-frame-colors'."
+  (lispm-desktop-assistant--restore-echo-area)
+  (when-let* ((saved lispm-desktop-assistant--saved-frame-colors)
+              (frame (car saved))
+              ((frame-live-p frame)))
+    (let ((bg (or (cadr saved)
+                  (and (bound-and-true-p lispm-ui-current-palette)
+                       (plist-get lispm-ui-current-palette :content))
+                  (face-attribute 'default :background nil 'default)))
+          (fringe-bg (cddr saved)))
+      (when (stringp bg)
+        (set-frame-parameter frame 'background-color bg))
+      (set-face-background 'fringe (or fringe-bg bg 'unspecified) frame)))
+  (setq lispm-desktop-assistant--saved-frame-colors nil))
+
 (defun lispm-desktop-assistant-available-p ()
   "Return non-nil when the page can be drawn: an interactive Emacs showing SVG."
   (and (not noninteractive) (display-graphic-p) (image-type-available-p 'svg)))
 
+(defun lispm-desktop-assistant--draw-tty (palette width height page)
+  "Return a text rendering of PAGE in PALETTE for a terminal WIDTH by HEIGHT."
+  (let* ((desktop (or (plist-get palette :desktop) "#666699"))
+         (chrome (or (plist-get palette :chrome) "#DDDDDD"))
+         (outline (or (plist-get palette :outline) "#000000"))
+         (text (or (plist-get palette :text) "#000000"))
+         (muted (or (plist-get palette :muted) "#555555"))
+         (accent "#306ba4")
+         (box-w (min (max 44 (- width 6)) 64))
+         (inner-w (- box-w 2))
+         (content-w (- inner-w 6))
+         (title (concat " " (lispm-desktop-tr "Welcome to LispM") " "))
+         (title-w (string-width title))
+         (left-eq (max 2 (/ (- inner-w title-w) 2)))
+         (right-eq (max 2 (- inner-w title-w left-eq)))
+         (border-face `(:foreground ,outline :background ,chrome))
+         (body-face `(:foreground ,text :background ,chrome))
+         (muted-face `(:foreground ,muted :background ,chrome))
+         (heading-face `(:foreground ,text :background ,chrome :weight bold))
+         (shadow-face `(:foreground ,outline :background ,desktop))
+         (top-bar (concat (propertize (concat "┌" (make-string left-eq ?═)) 'face border-face)
+                          (propertize title 'face heading-face)
+                          (propertize (concat (make-string right-eq ?═) "┐") 'face border-face)))
+         (sep-bar (propertize (concat "├" (make-string inner-w ?─) "┤") 'face border-face))
+         (bot-bar (concat (propertize (concat "└" (make-string inner-w ?─) "┘") 'face border-face)
+                          (propertize "█" 'face shadow-face)))
+         (shadow-bar (concat " " (propertize (make-string box-w ?▀) 'face shadow-face)))
+         (heading (truncate-string-to-width
+                   (or (plist-get page :title) (lispm-desktop-tr "Setting LispM up…"))
+                   content-w))
+         (details (lispm-ui-alert--wrap (or (plist-get page :detail) "") content-w 'lispm-ui-list))
+         (logo (or (ignore-errors (lispm-ui-icon-picture "lambda" 16 nil chrome))
+                   (list (propertize "  λ  " 'face `(:foreground ,accent :background ,chrome :weight bold)))))
+         (done (or (plist-get page :progress) 0))
+         (sub (or (plist-get page :subprogress) 0.0))
+         (total (max 1 (or (plist-get page :total) 1)))
+         (effective (min (float total) (+ (float done) (if (< done total) sub 0.0))))
+         (bar-w (max 12 content-w))
+         (filled (min bar-w (max 0 (round (/ (* bar-w effective) (float total))))))
+         (bar (concat (propertize (make-string filled ?\s)
+                                  'face `(:background ,accent :foreground "#ffffff"))
+                      (propertize (make-string (- bar-w filled) ?\s)
+                                  'face '(:background "#ffffff" :foreground "#222222"))))
+         (count-str (format "%d / %d" done total))
+         (status-str (truncate-string-to-width (or (plist-get page :status) "") content-w))
+         (msg-str (truncate-string-to-width (or (plist-get page :message) "") content-w))
+         (rows nil))
+    (cl-flet ((make-row (content &optional face centered)
+                (let* ((f (or face body-face))
+                       (w (string-width content))
+                       (pad-l (if centered (max 0 (/ (- inner-w w) 2)) 3))
+                       (pad-r (max 0 (- inner-w pad-l w)))
+                       (styled (copy-sequence content)))
+                  (add-face-text-property 0 (length styled) f t styled)
+                  (concat (propertize "│" 'face border-face)
+                          (propertize (make-string pad-l ?\s) 'face body-face)
+                          styled
+                          (propertize (make-string pad-r ?\s) 'face body-face)
+                          (propertize "│" 'face border-face)
+                          (propertize "█" 'face shadow-face)))))
+      (push top-bar rows)
+      (push (concat sep-bar (propertize "█" 'face shadow-face)) rows)
+      (push (make-row "") rows)
+      (push (make-row heading heading-face) rows)
+      (dolist (d details)
+        (push (make-row d body-face) rows))
+      (push (make-row "") rows)
+      (dolist (l logo)
+        (push (make-row l body-face t) rows))
+      (push (make-row "") rows)
+      (push (make-row bar) rows)
+      (push (make-row count-str muted-face) rows)
+      (push (make-row status-str body-face) rows)
+      (push (make-row msg-str muted-face) rows)
+      (push bot-bar rows)
+      (push shadow-bar rows))
+    (setq rows (nreverse rows))
+    (let* ((box-h (length rows))
+           (pad-top (max 0 (/ (- height box-h) 2)))
+           (pad-left (make-string (max 0 (/ (- width (1+ box-w)) 2)) ?\s)))
+      (concat (make-string pad-top ?\n)
+              (mapconcat (lambda (r) (concat pad-left r)) rows "\n")))))
+
 (defun lispm-desktop-assistant--open ()
   "Fill the selected frame with the assistant's page, drawn in Platinum.
-The Platinum theme is enabled for it; setting LispM up afterwards loads
-the theme chosen."
-  (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
-  (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
-    (load-theme 'platinum t))
+The Platinum theme is enabled for it when no theme is active yet; setting
+LispM up afterwards loads the theme chosen."
+  (unless custom-enabled-themes
+    (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
+    (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
+      (load-theme 'platinum t)))
   (lispm-ui-palette-update)
-  (let ((buffer (get-buffer-create lispm-desktop-assistant-buffer-name)))
+  (let ((buffer (get-buffer-create lispm-desktop-assistant-buffer-name))
+        (desktop (plist-get lispm-ui-current-palette :desktop)))
     ;; What the page leaves bare, the frame's border, the column kept for
     ;; the sign of a truncated line and the echo area's fringes, in the
     ;; desktop's colour too.  The theme loaded once LispM is set up
     ;; colours the frame anew.
-    (let ((desktop (plist-get lispm-ui-current-palette :desktop)))
-      (set-frame-parameter nil 'background-color desktop)
-      (set-face-background 'fringe desktop (selected-frame)))
+    (lispm-desktop-assistant--save-frame-colors (selected-frame))
+    (set-frame-parameter nil 'background-color desktop)
+    (set-face-background 'fringe desktop (selected-frame))
+    (lispm-desktop-assistant--color-echo-area desktop)
     (with-current-buffer buffer
+      (face-remap-add-relative 'default :background desktop)
+      (face-remap-add-relative 'fringe :background desktop)
       ;; One image fills the window, edge to edge: nothing about it.  The
       ;; window is never scrolled sideways to show point after it.
+      (let ((table (or buffer-display-table
+                       (setq buffer-display-table (make-display-table)))))
+        (set-display-table-slot table 'truncation (vector))
+        (set-display-table-slot table 'wrap (vector)))
       (setq-local auto-hscroll-mode nil
                   hscroll-margin 0)
       (setq-local mode-line-format nil
@@ -477,6 +633,10 @@ the theme chosen."
                   tab-line-format nil
                   cursor-type nil
                   cursor-in-non-selected-windows nil
+                  evil-emacs-state-cursor '(nil)
+                  evil-normal-state-cursor '(nil)
+                  evil-insert-state-cursor '(nil)
+                  evil-motion-state-cursor '(nil)
                   truncate-lines t
                   line-spacing nil
                   left-fringe-width 0
@@ -484,38 +644,65 @@ the theme chosen."
                   left-margin-width 0
                   right-margin-width 0
                   vertical-scroll-bar nil
+                  horizontal-scroll-bar nil
                   indicate-empty-lines nil
                   show-trailing-whitespace nil
                   scroll-margin 0))
+    (let ((message-log-max nil))
+      (message nil))
     (delete-other-windows)
-    (set-window-buffer (selected-window) buffer)
-    (setq lispm-desktop-assistant--window (selected-window)
-          lispm-desktop-assistant--shown nil)))
+    (let ((window (selected-window)))
+      (set-window-buffer window buffer)
+      (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                 (fboundp 'lispm-desktop-platinum-scroll-sync))
+        (lispm-desktop-platinum-scroll-sync))
+      (set-window-scroll-bars window 0 nil 0 nil)
+      (set-window-fringes window 0 0)
+      (set-window-margins window 0 0)
+      (internal-show-cursor window nil)
+      (setq lispm-desktop-assistant--window window
+            lispm-desktop-assistant--shown nil))))
 
 (defun lispm-desktop-assistant--show (page focused pressed)
   "Show PAGE filling the assistant's window, FOCUSED ringed, PRESSED held.
 See `lispm-desktop-assistant-draw'.  Return PAGE's layout.  Nothing is
 drawn again while the page and the window's size stay as they are."
   (let* ((window lispm-desktop-assistant--window)
-         ;; Without a right fringe, a line's last column is kept for the
-         ;; sign of a truncated line: the image leaves it.
-         (width (- (window-body-width window t) (frame-char-width (window-frame window))))
-         (height (window-body-height window t))
-         (shown (list width height page focused pressed lispm-ui-palette-generation)))
+         (graphic (display-graphic-p (window-frame window)))
+         (width (window-body-width window graphic))
+         (height (window-body-height window graphic))
+         (shown (list graphic width height page focused pressed lispm-ui-palette-generation)))
     (setq lispm-desktop-assistant--last-page page)
     (unless (equal shown lispm-desktop-assistant--shown)
       (setq lispm-desktop-assistant--shown shown)
+      (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                 (fboundp 'lispm-desktop-platinum-scroll-sync))
+        (lispm-desktop-platinum-scroll-sync))
+      (set-window-scroll-bars window 0 nil 0 nil)
+      (set-window-fringes window 0 0)
+      (set-window-margins window 0 0)
+      (internal-show-cursor window nil)
       (when-let* ((frame (window-frame window))
                   (desktop (plist-get lispm-ui-current-palette :desktop)))
         (unless (equal (frame-parameter frame 'background-color) desktop)
           (set-frame-parameter frame 'background-color desktop))
-        (set-face-background 'fringe desktop frame))
+        (set-face-background 'fringe desktop frame)
+        (lispm-desktop-assistant--color-echo-area desktop))
       (with-current-buffer (window-buffer window)
+        (setq-local cursor-type nil
+                    cursor-in-non-selected-windows nil
+                    evil-emacs-state-cursor '(nil)
+                    evil-normal-state-cursor '(nil)
+                    evil-insert-state-cursor '(nil)
+                    evil-motion-state-cursor '(nil))
         (erase-buffer)
-        (insert (propertize " " 'display
-                            (svg-image (lispm-desktop-assistant-draw lispm-ui-current-palette
-                                                                     width height page focused pressed)
-                                       :ascent 100 :scale 1)))
+        (if graphic
+            (insert (propertize " " 'display
+                                (svg-image (lispm-desktop-assistant-draw lispm-ui-current-palette
+                                                                         width height page focused pressed)
+                                           :ascent 100 :scale 1)))
+          (insert (lispm-desktop-assistant--draw-tty lispm-ui-current-palette
+                                                     width height page)))
         (goto-char (point-min)))
       (set-window-point window (point-min))
       (set-window-start window (point-min) t)
@@ -677,6 +864,8 @@ page then stays, saying LispM is being set up, until
        lispm-desktop-assistant--last-page))
 
 (defvar lispm-desktop-assistant--setup-stage "Preparing setup")
+(defvar lispm-desktop-assistant--last-done 0)
+(defvar lispm-desktop-assistant--last-total 4)
 (defvar lispm-desktop-assistant--package-count nil
   "Cons (INSTALLED . TOTAL) while installing archive packages during setup.")
 
@@ -691,6 +880,14 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "正在准备密码保护…")
      ("Synchronous setup finished" . "基础设置已完成")
      ("Installing LispM Auth service…" . "正在安装 LispM 认证服务…")
+     ("Installing the icon font…" . "正在安装图标字体…")
+     ("Installing updates…" . "正在安装更新…")
+     ("Installing component: %s…" . "正在安装组件：%s…")
+     ("Updating component: %s…" . "正在更新组件：%s…")
+     ("Update LispM Auth service to %s? " . "是否将 LispM 认证服务更新至 %s？")
+     ("Update LispM Auth client to %s? " . "是否将 LispM 认证客户端更新至 %s？")
+     ("Update component %s to its latest release? " . "是否将组件 %s 更新至最新版本？")
+     ("Install LispM updates (%s) now? " . "是否现在安装 LispM 更新（%s）？")
      ("Installing package: %s (%d / %d)…" . "正在安装软件包：%s（%d / %d）…")
      ("Installing package: %s…" . "正在安装软件包：%s…")
      ("Compiling packages (%d / %d)…" . "正在编译软件包（%d / %d）…"))
@@ -704,6 +901,14 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "正在準備密碼保護…")
      ("Synchronous setup finished" . "基礎設定已完成")
      ("Installing LispM Auth service…" . "正在安裝 LispM 認證服務…")
+     ("Installing the icon font…" . "正在安裝圖示字型…")
+     ("Installing updates…" . "正在安裝更新…")
+     ("Installing component: %s…" . "正在安裝組件：%s…")
+     ("Updating component: %s…" . "正在更新組件：%s…")
+     ("Update LispM Auth service to %s? " . "是否將 LispM 認證服務更新至 %s？")
+     ("Update LispM Auth client to %s? " . "是否將 LispM 認證用戶端更新至 %s？")
+     ("Update component %s to its latest release? " . "是否將組件 %s 更新至最新版本？")
+     ("Install LispM updates (%s) now? " . "是否現在安裝 LispM 更新（%s）？")
      ("Installing package: %s (%d / %d)…" . "正在安裝套件：%s（%d / %d）…")
      ("Installing package: %s…" . "正在安裝套件：%s…")
      ("Compiling packages (%d / %d)…" . "正在編譯套件（%d / %d）…"))
@@ -717,6 +922,14 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "パスワード保護を準備中…")
      ("Synchronous setup finished" . "基本セットアップ完了")
      ("Installing LispM Auth service…" . "LispM 認証サービスをインストール中…")
+     ("Installing the icon font…" . "アイコンフォントをインストール中…")
+     ("Installing updates…" . "アップデートをインストール中…")
+     ("Installing component: %s…" . "コンポーネントをインストール中: %s…")
+     ("Updating component: %s…" . "コンポーネントを更新中: %s…")
+     ("Update LispM Auth service to %s? " . "LispM 認証サービスを %s に更新しますか？ ")
+     ("Update LispM Auth client to %s? " . "LispM 認証クライアントを %s に更新しますか？ ")
+     ("Update component %s to its latest release? " . "コンポーネント %s を最新リリースに更新しますか？ ")
+     ("Install LispM updates (%s) now? " . "LispM のアップデート (%s) を今すぐインストールしますか？ ")
      ("Installing package: %s (%d / %d)…" . "パッケージをインストール中: %s (%d / %d)…")
      ("Installing package: %s…" . "パッケージをインストール中: %s…")
      ("Compiling packages (%d / %d)…" . "パッケージをコンパイル中 (%d / %d)…"))
@@ -730,6 +943,14 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "Préparation de la protection par mot de passe…")
      ("Synchronous setup finished" . "Configuration terminée")
      ("Installing LispM Auth service…" . "Installation du service d'authentification LispM…")
+     ("Installing the icon font…" . "Installation de la police d'icônes…")
+     ("Installing updates…" . "Installation des mises à jour…")
+     ("Installing component: %s…" . "Installation du composant : %s…")
+     ("Updating component: %s…" . "Mise à jour du composant : %s…")
+     ("Update LispM Auth service to %s? " . "Mettre à jour le service d'authentification LispM vers %s ? ")
+     ("Update LispM Auth client to %s? " . "Mettre à jour le client d'authentification LispM vers %s ? ")
+     ("Update component %s to its latest release? " . "Mettre à jour le composant %s vers sa dernière version ? ")
+     ("Install LispM updates (%s) now? " . "Installer les mises à jour de LispM (%s) maintenant ? ")
      ("Installing package: %s (%d / %d)…" . "Installation du paquet : %s (%d / %d)…")
      ("Installing package: %s…" . "Installation du paquet : %s…")
      ("Compiling packages (%d / %d)…" . "Compilation des paquets (%d / %d)…"))
@@ -743,6 +964,14 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "Passwortschutz wird vorbereitet …")
      ("Synchronous setup finished" . "Einrichtung abgeschlossen")
      ("Installing LispM Auth service…" . "LispM-Authentifizierungsdienst wird installiert …")
+     ("Installing the icon font…" . "Symbolschriftart wird installiert …")
+     ("Installing updates…" . "Updates werden installiert …")
+     ("Installing component: %s…" . "Komponente wird installiert: %s …")
+     ("Updating component: %s…" . "Komponente wird aktualisiert: %s …")
+     ("Update LispM Auth service to %s? " . "LispM-Authentifizierungsdienst auf %s aktualisieren? ")
+     ("Update LispM Auth client to %s? " . "LispM-Authentifizierungs-Client auf %s aktualisieren? ")
+     ("Update component %s to its latest release? " . "Komponente %s auf die neueste Version aktualisieren? ")
+     ("Install LispM updates (%s) now? " . "LispM-Updates (%s) jetzt installieren? ")
      ("Installing package: %s (%d / %d)…" . "Paket wird installiert: %s (%d / %d) …")
      ("Installing package: %s…" . "Paket wird installiert: %s …")
      ("Compiling packages (%d / %d)…" . "Pakete werden kompiliert (%d / %d) …"))))
@@ -754,13 +983,308 @@ page then stays, saying LispM is being set up, until
          (lang-sym (if (symbolp lang) lang (and (stringp lang) (intern lang))))
          (table (alist-get lang-sym lispm-desktop-assistant--stage-translations))
          (template (or (cdr (assoc status table)) status)))
-    (if args
-        (apply #'format template args)
-      template)))
+    (cond
+     (args (apply #'format template args))
+     ((and (stringp status)
+           (string-match "\\`\\(Installing component\\|Updating component\\): \\(.*\\)…\\'" status))
+      (lispm-desktop-assistant--tr-status
+       (concat (match-string 1 status) ": %s…")
+       (match-string 2 status)))
+     (t template))))
+
+(defun lispm-desktop-assistant--update-page (&optional status)
+  "Return the progress page shown when setup installs or updates components."
+  (let* ((answers (mapcar (lambda (question)
+                            (cons (car question)
+                                  (if (boundp (car question))
+                                      (symbol-value (car question))
+                                    (lispm-desktop-assistant-default question))))
+                          lispm-desktop-assistant-questions))
+         (page (lispm-desktop-assistant--done-page
+                lispm-desktop-assistant-questions answers)))
+    (setq page (plist-put page :progress lispm-desktop-assistant--last-done))
+    (setq page (plist-put page :total (max 1 lispm-desktop-assistant--last-total)))
+    (setq page (plist-put page :status
+                          (and status (lispm-desktop-assistant--tr-status status))))
+    page))
+
+(defun lispm-desktop-assistant--activate-frame (frame)
+  "Make FRAME visible and active on the desktop, including when started hidden."
+  (when (frame-live-p frame)
+    (unless (frame-visible-p frame)
+      (make-frame-visible frame))
+    (raise-frame frame)
+    (select-frame-set-input-focus frame)))
+
+(defun lispm-desktop-assistant-ensure-progress (&optional status)
+  "Ensure the assistant's Platinum progress page is visible during setup."
+  (when (and (not noninteractive)
+             (not (daemonp))
+             (not (equal (terminal-name) "initial_terminal"))
+             (not (lispm-desktop-assistant--focus-mode-p))
+             (or (lispm-desktop-assistant-available-p)
+                 (not (display-graphic-p))))
+    (unless (frame-visible-p (selected-frame))
+      (lispm-desktop-assistant--activate-frame (selected-frame)))
+    (unless (lispm-desktop-assistant--visible-p)
+      (lispm-desktop-assistant--open)
+      (setq lispm-desktop-assistant--last-page
+            (lispm-desktop-assistant--update-page
+             (or status lispm-desktop-assistant--setup-stage))))
+    (let ((page (copy-sequence lispm-desktop-assistant--last-page)))
+      (when status
+        (setq page (plist-put page :status
+                              (lispm-desktop-assistant--tr-status status))))
+      (lispm-desktop-assistant--show page nil nil))))
+
+(defun lispm-desktop-assistant--focus-mode-p ()
+  "Return non-nil when LispM runs in or is starting as Focus Mode."
+  (if (bound-and-true-p lispm-desktop-started-as)
+      (eq lispm-desktop-started-as 'terminal)
+    (eq (or (and (fboundp 'lispm-desktop-start-as--argument)
+                 (lispm-desktop-start-as--argument (cdr command-line-args)))
+            (bound-and-true-p lispm-desktop-start-as))
+        'terminal)))
+
+(defun lispm-desktop-assistant--tty-alert (icon message buttons &optional detail)
+  "Render a visual text alert in the selected window when child frames lack."
+  (let* ((default (nth 1 (seq-find (lambda (b) (eq (nth 2 b) 'default)) buttons)))
+         (cancel (nth 1 (seq-find (lambda (b) (eq (nth 2 b) 'cancel)) buttons)))
+         (values (mapcar #'cadr buttons))
+         (desktop (or (plist-get lispm-ui-current-palette :desktop) "#666699"))
+         (buf (generate-new-buffer " *lispm-tty-alert*"))
+         (win (selected-window))
+         (old-buf (window-buffer win))
+         (old-ded (window-dedicated-p win))
+         (pressed nil)
+         (focused default)
+         (choice cancel))
+    (with-current-buffer buf
+      (face-remap-add-relative 'default :background desktop)
+      (face-remap-add-relative 'fringe :background desktop)
+      (setq-local mode-line-format nil
+                  header-line-format nil
+                  tab-line-format nil
+                  cursor-type nil
+                  truncate-lines t))
+    (unwind-protect
+        (cl-flet ((redraw ()
+                    (with-current-buffer buf
+                      (let ((inhibit-read-only t)
+                            (box (lispm-ui-alert--text icon message detail buttons
+                                                       pressed focused))
+                            (win-w (window-body-width win))
+                            (win-h (window-body-height win)))
+                        (erase-buffer)
+                        (let* ((lines (split-string box "\n"))
+                               (box-h (length lines))
+                               (box-w (if lines (string-width (car lines)) 0))
+                               (pad-top (max 0 (/ (- win-h box-h) 2)))
+                               (pad-left (make-string (max 0 (/ (- win-w box-w) 2)) ?\s)))
+                          (insert (make-string pad-top ?\n))
+                          (dolist (line lines)
+                            (insert pad-left line "\n")))
+                        (goto-char (point-min))))
+                    (set-window-dedicated-p win nil)
+                    (set-window-buffer win buf)
+                    (redisplay t)))
+          (redraw)
+          (catch 'done
+            (while t
+              (let* ((event (lispm-ui-modal-read))
+                     (role (lispm-ui-modal-role event))
+                     (step (lispm-ui-modal-step event)))
+                (cond
+                 ((seq-find (lambda (b) (memql event (nthcdr 3 b))) buttons)
+                  (setq choice (nth 1 (seq-find (lambda (b) (memql event (nthcdr 3 b))) buttons)))
+                  (throw 'done nil))
+                 ((and (eq role 'cancel) (or cancel default))
+                  (setq choice (or cancel default))
+                  (throw 'done nil))
+                 ((and (eq role 'confirm) default)
+                  (setq choice default)
+                  (throw 'done nil))
+                 (step
+                  (setq focused (nth (lispm-ui-modal-cycle (seq-position values focused)
+                                                           step (length values))
+                                     values))
+                  (redraw))
+                 ((and focused (eq role 'press))
+                  (setq choice focused)
+                  (throw 'done nil)))))))
+      (when (window-live-p win)
+        (set-window-buffer win old-buf)
+        (set-window-dedicated-p win old-ded))
+      (when (buffer-live-p buf)
+        (kill-buffer buf)))
+    choice))
+
+(defun lispm-desktop-assistant--prepare-focus-backdrop ()
+  "Show a clean modeline-free, cursor-free backdrop in Focus Mode during setup."
+  (when (and (not noninteractive)
+             (not (equal (terminal-name) "initial_terminal"))
+             (or (bound-and-true-p lispm-desktop-setup--in-progress)
+                 (not (bound-and-true-p lispm-desktop--set-up))))
+    (let ((window (selected-window))
+          (backdrop (get-buffer-create " *lispm-focus-backdrop*")))
+      (with-current-buffer backdrop
+        (setq-local mode-line-format nil
+                    header-line-format nil
+                    tab-line-format nil
+                    cursor-type nil
+                    cursor-in-non-selected-windows nil
+                    evil-emacs-state-cursor '(nil)
+                    evil-normal-state-cursor '(nil)
+                    evil-insert-state-cursor '(nil)
+                    evil-motion-state-cursor '(nil)
+                    truncate-lines t
+                    left-fringe-width 0
+                    right-fringe-width 0
+                    left-margin-width 0
+                    right-margin-width 0
+                    vertical-scroll-bar nil
+                    horizontal-scroll-bar nil))
+      (when (window-live-p window)
+        (delete-other-windows window)
+        (set-window-dedicated-p window nil)
+        (set-window-buffer window backdrop)
+        (set-window-scroll-bars window 0 nil 0 nil)
+        (set-window-fringes window 0 0)
+        (set-window-margins window 0 0)
+        (internal-show-cursor window nil)
+        (redisplay t)))))
+
+(defun lispm-desktop-assistant--prepare-confirm-backdrop ()
+  "Ensure a clean desktop backdrop in the selected window while confirming.
+Return a cleanup function restoring the window's prior state."
+  (let ((was-visible (lispm-desktop-assistant--visible-p))
+        (in-setup (or (bound-and-true-p lispm-desktop-setup--in-progress)
+                      (not (bound-and-true-p lispm-desktop--set-up)))))
+    (if (or (equal (terminal-name) "initial_terminal")
+            (and (not was-visible) (not in-setup)))
+        #'ignore
+      (unless custom-enabled-themes
+        (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
+        (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
+          (load-theme 'platinum t)))
+      (unless lispm-ui-current-palette
+        (lispm-ui-palette-update))
+      (let* ((palette (or (bound-and-true-p lispm-ui-current-palette)
+                          (bound-and-true-p lispm-ui-platinum-palette)))
+             (desktop (or (plist-get palette :desktop) "#6E6E6E"))
+             (frame (selected-frame))
+             (window (selected-window))
+             (backdrop (get-buffer-create " *lispm-confirm-backdrop*")))
+        (lispm-desktop-assistant--save-frame-colors frame)
+        (set-frame-parameter frame 'background-color desktop)
+        (set-face-background 'fringe desktop frame)
+        (lispm-desktop-assistant--color-echo-area desktop)
+        (with-current-buffer backdrop
+          (setq-local face-remapping-alist
+                      `((default (:background ,desktop) default)
+                        (fringe (:background ,desktop) fringe))
+                      mode-line-format nil
+                      header-line-format nil
+                      tab-line-format nil
+                      cursor-type nil
+                      cursor-in-non-selected-windows nil
+                      evil-emacs-state-cursor '(nil)
+                      evil-normal-state-cursor '(nil)
+                      evil-insert-state-cursor '(nil)
+                      evil-motion-state-cursor '(nil)
+                      truncate-lines t
+                      left-fringe-width 0
+                      right-fringe-width 0
+                      left-margin-width 0
+                      right-margin-width 0
+                      vertical-scroll-bar nil
+                      horizontal-scroll-bar nil))
+        (let ((message-log-max nil))
+          (message nil))
+        (cond
+         (was-visible
+          ;; Temporarily clear the setup card so the alert dialog does not
+          ;; collide with the "Setting LispM up…" window underneath.
+          (with-current-buffer (window-buffer lispm-desktop-assistant--window)
+            (let ((inhibit-read-only t))
+              (erase-buffer)))
+          (setq lispm-desktop-assistant--shown nil)
+          (when (and (window-parameter lispm-desktop-assistant--window
+                                       'lispm-desktop-platinum-scroll-frame)
+                     (fboundp 'lispm-desktop-platinum-scroll-sync))
+            (lispm-desktop-platinum-scroll-sync))
+          (set-window-scroll-bars lispm-desktop-assistant--window 0 nil 0 nil)
+          (internal-show-cursor lispm-desktop-assistant--window nil)
+          (redisplay t)
+          (lambda ()
+            (when (buffer-live-p backdrop)
+              (kill-buffer backdrop))
+            (when (and (lispm-desktop-assistant--visible-p)
+                       lispm-desktop-assistant--last-page)
+              (lispm-desktop-assistant--show lispm-desktop-assistant--last-page nil nil))))
+         (t
+          (delete-other-windows window)
+          (set-window-dedicated-p window nil)
+          (set-window-buffer window backdrop)
+          (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                     (fboundp 'lispm-desktop-platinum-scroll-sync))
+            (lispm-desktop-platinum-scroll-sync))
+          (set-window-scroll-bars window 0 nil 0 nil)
+          (set-window-fringes window 0 0)
+          (set-window-margins window 0 0)
+          (internal-show-cursor window nil)
+          (redisplay t)
+          (lambda ()
+            (when (window-live-p window)
+              (internal-show-cursor window t))
+            (unless (lispm-desktop-assistant--visible-p)
+              (lispm-desktop-assistant--restore-frame-colors)))))))))
+
+(defun lispm-desktop-assistant-confirm-update (template &rest args)
+  "Confirm an update with TEMPLATE and ARGS.
+In GUI and TUI Desktop Mode, display a visual Mac OS 9 alert dialog;
+in Focus Mode, prompt with `y-or-n-p'."
+  (if noninteractive
+      t
+    (let* ((question (apply #'lispm-desktop-assistant--tr-status template args))
+           (trimmed (string-trim question)))
+      (cond
+       ((or (lispm-desktop-assistant--focus-mode-p)
+            (and (not (subrp (symbol-function 'y-or-n-p)))
+                 (not (byte-code-function-p (symbol-function 'y-or-n-p)))
+                 (or (equal (terminal-name) "initial_terminal")
+                     (not (lispm-ui-popup-available-p)))))
+        (let ((win (selected-window)))
+          (when (lispm-desktop-assistant--focus-mode-p)
+            (lispm-desktop-assistant--prepare-focus-backdrop))
+          (unwind-protect
+              (let ((use-dialog-box nil))
+                (y-or-n-p question))
+            (when (window-live-p win)
+              (internal-show-cursor win t)))))
+       (t
+        (let ((restore (lispm-desktop-assistant--prepare-confirm-backdrop)))
+          (unwind-protect
+              (progn
+                (unless (frame-visible-p (selected-frame))
+                  (lispm-desktop-assistant--activate-frame (selected-frame))
+                  (redisplay t))
+                (let* ((lispm-ui-current-palette
+                        (or (bound-and-true-p lispm-ui-current-palette)
+                            (bound-and-true-p lispm-ui-platinum-palette)))
+                       (buttons `((,(lispm-desktop-tr "Later") later cancel ?n ?N)
+                                  (,(lispm-desktop-tr "Update") update default ?y ?Y))))
+                  (eq 'update
+                      (if (lispm-ui-popup-available-p)
+                          (lispm-ui-alert 'note trimmed buttons)
+                        (lispm-desktop-assistant--tty-alert 'note trimmed buttons)))))
+            (funcall restore))))))))
 
 (defun lispm-desktop-assistant-progress (done total status)
   "Show DONE of TOTAL synchronous setup stages and STATUS on the page."
   (setq lispm-desktop-assistant--setup-stage status
+        lispm-desktop-assistant--last-done done
+        lispm-desktop-assistant--last-total total
         lispm-desktop-assistant--package-count nil)
   (when (lispm-desktop-assistant--visible-p)
     (let ((page (copy-sequence lispm-desktop-assistant--last-page)))
@@ -809,6 +1333,9 @@ page then stays, saying LispM is being set up, until
 
 (defun lispm-desktop-assistant--package-operation (original &rest args)
   "Capture messages and update progress during package operation ORIGINAL."
+  (when (and (bound-and-true-p lispm-desktop-setup--in-progress)
+             (not (lispm-desktop-assistant--visible-p)))
+    (lispm-desktop-assistant-ensure-progress lispm-desktop-assistant--setup-stage))
   (when (and (lispm-desktop-assistant--visible-p)
              (package-desc-p (car args))
              lispm-desktop-assistant--last-page)
@@ -843,6 +1370,14 @@ page then stays, saying LispM is being set up, until
 
 (defun lispm-desktop-assistant-close ()
   "Put the assistant's page away, if it is shown."
+  (when (window-live-p lispm-desktop-assistant--window)
+    (internal-show-cursor lispm-desktop-assistant--window t))
+  (when (window-live-p (selected-window))
+    (internal-show-cursor (selected-window) t))
+  (when-let* ((focus-buf (get-buffer " *lispm-focus-backdrop*")))
+    (kill-buffer focus-buf))
+  (when-let* ((confirm-buf (get-buffer " *lispm-confirm-backdrop*")))
+    (kill-buffer confirm-buf))
   (when-let* ((buffer (get-buffer lispm-desktop-assistant-buffer-name)))
     (when (and (window-live-p lispm-desktop-assistant--window)
                (eq (window-buffer lispm-desktop-assistant--window) buffer)
@@ -851,6 +1386,9 @@ page then stays, saying LispM is being set up, until
         (set-window-buffer lispm-desktop-assistant--window
                            (lispm-desktop-empty-buffer))))
     (kill-buffer buffer))
+  (let ((message-log-max nil))
+    (message nil))
+  (lispm-desktop-assistant--restore-frame-colors)
   (setq lispm-desktop-assistant--window nil
         lispm-desktop-assistant--shown nil
         lispm-desktop-assistant--last-page nil))

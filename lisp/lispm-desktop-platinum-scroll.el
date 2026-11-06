@@ -81,8 +81,12 @@ desktop say no; the sidebar's lists say yes.")
               (mode (buffer-local-value 'major-mode buffer)))
          (and (not (provided-mode-derived-p mode 'lispm-auth-page-mode))
               (not (member name '(" *LispM Password*"
+                                  "*LispM Setup*"
                                   "*LispM Setup Assistant*"
-                                  "*LispM Installer*")))
+                                  "*LispM Installer*"
+                                  " *lispm-tty-alert*"
+                                  " *lispm-confirm-backdrop*"
+                                  " *lispm-focus-backdrop*")))
               (pcase (run-hook-with-args-until-success 'lispm-desktop-platinum-scroll-bar-functions
                                                        buffer)
                 ('yes t)
