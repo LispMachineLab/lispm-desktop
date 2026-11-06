@@ -808,11 +808,11 @@ else is an error saying what to update."
           (setq lispm-desktop-deps--refreshed
                 (cons settings (copy-tree package-archive-contents))))))))
 
-(defconst lispm-desktop-deps-auth-version "0.2.5")
+(defconst lispm-desktop-deps-auth-version "0.2.6")
 (defconst lispm-desktop-deps-auth-sha256
-  "9c6a8c3289f85a7900c2e7b44dc29fa575cb05ec8224e398edc51bddd4455168")
+  "b39295ff84ffd1619b4a2793e3df47a535063bb3a7d6ed8d920c8a2f00a22eff")
 (defconst lispm-desktop-deps-auth-source-sha256
-  "37cde5b79b1cca04749e7ff89405dfca5d14134d09a998ce5ce5353932bd2421")
+  "44f0f1d5aea17ef8193e42ca0685dbded499e5d182f4cae2dea51ea7eff1a364")
 
 (defun lispm-desktop-deps--auth-install ()
   "Install the verified Auth client beside existing packages, without replacing them."
