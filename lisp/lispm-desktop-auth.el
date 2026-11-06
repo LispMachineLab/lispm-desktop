@@ -68,6 +68,14 @@
 (declare-function lispm-auth--read-password "lispm-auth" (prompt &optional confirm))
 (declare-function lispm-terminal-p "lispm-terminal" (&optional frame))
 (declare-function lispm-desktop-started-as-terminal-p "lispm-desktop-start-as" ())
+(declare-function lispm-desktop-apps-screen "lispm-desktop-apps" (&optional frame))
+(declare-function lispm-desktop-apps-windows "lispm-desktop-apps" (&optional screen))
+(declare-function lispm-desktop-platinum-hide-window "lispm-desktop-platinum" (frame))
+(declare-function lispm-desktop-platinum-show-window "lispm-desktop-platinum" (frame))
+(declare-function lispm-desktop-platinum-scroll-sync "lispm-desktop-platinum-scroll" ())
+(declare-function lispm-desktop-assistant-ensure-progress "lispm-desktop-assistant" (&optional status))
+(declare-function lispm-desktop-assistant--visible-p "lispm-desktop-assistant" ())
+(declare-function lispm-desktop-assistant--package-message "lispm-desktop-assistant" (original format-string &rest args))
 (defvar lispm-desktop-console--quiet)
 (defvar lispm-auth-page-logo)
 (defvar lispm-auth-page-window-draw-function)
@@ -529,7 +537,7 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
                   ((and (<= confirm-x (car xy)) (< (car xy) (+ confirm-x confirm-w))) 'confirm))))))))
 
 (defun lispm-desktop-auth--around-page-show (orig page)
-  "Ensure the window and frame are prepared before `lispm-auth--page-show' redisplays."
+  "Ensure the window and frame are prepared before showing PAGE."
   (when (not noninteractive)
     (when (and (window-live-p (selected-window))
                (or (window-minibuffer-p (selected-window))
@@ -645,9 +653,26 @@ This is `lispm-auth-page-window-draw-function'."
     (lispm-auth-unavailable
      (when lispm-auth-service-program
        (signal (car err) (cdr err)))
+     (when (and (not noninteractive)
+                (fboundp 'lispm-desktop-assistant-ensure-progress)
+                (or (bound-and-true-p lispm-desktop-setup--in-progress)
+                    (not (bound-and-true-p lispm-desktop--set-up))))
+       (lispm-desktop-assistant-ensure-progress "Installing LispM Auth service…"))
      (message "Installing LispM Auth service…")
+     (when (and (not noninteractive)
+                (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                          (lispm-desktop-assistant--visible-p))))
+       (redisplay t))
      (condition-case install-error
-         (lispm-auth-install-service)
+         (if (and (fboundp 'lispm-desktop-assistant--visible-p)
+                  (lispm-desktop-assistant--visible-p)
+                  (fboundp 'lispm-desktop-assistant--package-message))
+             (progn
+               (advice-add 'message :around #'lispm-desktop-assistant--package-message)
+               (unwind-protect
+                   (lispm-auth-install-service)
+                 (advice-remove 'message #'lispm-desktop-assistant--package-message)))
+           (lispm-auth-install-service))
        (error
         (error "LispM Auth service installation failed: %s; check the service installation or configure lispm-auth-service-program"
                (error-message-string install-error))))

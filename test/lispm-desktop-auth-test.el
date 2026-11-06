@@ -543,5 +543,27 @@ them on hide, even when invoked while a dedicated side window is selected."
         (when (buffer-live-p main-buf) (kill-buffer main-buf))
         (when (buffer-live-p side-buf) (kill-buffer side-buf))))))
 
+(ert-deftest lispm-desktop-auth-test-service-install-opens-progress-ui ()
+  "Installing the Auth service during setup opens the progress UI even on
+subsequent starts."
+  (require 'lispm-auth)
+  (require 'lispm-desktop-assistant)
+  (let ((noninteractive nil)
+        (lispm-desktop-setup--in-progress t)
+        (lispm-auth-service-program nil)
+        (installed nil)
+        (progress-shown nil))
+    (cl-letf (((symbol-function 'lispm-auth--service-program)
+               (lambda ()
+                 (if installed "/service" (signal 'lispm-auth-unavailable nil))))
+              ((symbol-function 'lispm-desktop-assistant-ensure-progress)
+               (lambda (&optional status) (setq progress-shown status)))
+              ((symbol-function 'lispm-auth-install-service)
+               (lambda () (setq installed t)))
+              ((symbol-function 'redisplay) #'ignore))
+      (should (equal (lispm-desktop-auth-ensure-service) "/service"))
+      (should installed)
+      (should (equal progress-shown "Installing LispM Auth service…")))))
+
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

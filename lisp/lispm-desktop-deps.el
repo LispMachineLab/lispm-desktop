@@ -340,7 +340,7 @@ When FEATURES is nil, defaults to the core startup projects
         (and (file-directory-p dir) (file-name-as-directory dir))))))
 
 (defun lispm-desktop-deps-prefetch-archives ()
-  "Download `archive-contents' for all `package-archives' concurrently via `curl --compressed'."
+  "Download `archive-contents' for `package-archives' concurrently via curl."
   (when (and lispm-desktop-deps--fast-install-active
              (executable-find "curl"))
     (let* ((cache-root (or lispm-desktop-deps--prefetch-dir
@@ -539,7 +539,7 @@ When FEATURES is nil, defaults to the core startup projects
     (delete-dups (nreverse result))))
 
 (defun lispm-desktop-deps-compile-files-parallel (files &optional sync on-progress)
-  "Byte-compile FILES in parallel across up to `lispm-desktop-deps-compile-jobs' workers.
+  "Byte-compile FILES in parallel across worker processes.
 Each worker compiles individual `.el' files into atomic temporary `.elc' files
 before renaming them into place, preventing race conditions when files require
 siblings during compilation.  When SYNC or `noninteractive' is non-nil, wait
@@ -637,13 +637,13 @@ otherwise run them asynchronously in the background."
             (ignore-errors (package--reload-previously-loaded desc))))))))
 
 (defun lispm-desktop-deps-recompile-all-parallel ()
-  "Recompile all activated packages in `package-alist' in parallel across CPU cores."
+  "Recompile all activated packages in `package-alist' in parallel."
   (let* ((descs (mapcar #'cadr package-alist))
          (files (lispm-desktop-deps--collect-compile-files descs)))
     (lispm-desktop-deps-compile-files-parallel files t)))
 
 (defun lispm-desktop-deps--prefetch-vc-deps (deps)
-  "Refresh archives and prefetch archive tarballs before `package-vc-install-dependencies'."
+  "Refresh archives and prefetch archive tarballs for DEPS."
   (when lispm-desktop-deps--fast-install-active
     (when-let* ((missing (seq-remove
                           (lambda (dep)
@@ -655,13 +655,19 @@ otherwise run them asynchronously in the background."
       (lispm-desktop-deps--refresh missing)
       (lispm-desktop-deps-prefetch-packages missing))))
 
+(defvar lispm-desktop-deps--refreshed nil
+  "Archive configuration and contents last refreshed for project dependencies.")
+
+(defvar lispm-desktop-deps--refresh-failed nil
+  "Non-nil when an archive failed during the current refresh.")
+
 (defun lispm-desktop-deps--before-refresh (&rest _)
-  "Prefetch archive indices via `curl --compressed' before `package-refresh-contents'."
+  "Prefetch archive indices via curl before `package-refresh-contents'."
   (when lispm-desktop-deps--fast-install-active
     (lispm-desktop-deps-prefetch-archives)))
 
 (defun lispm-desktop-deps--after-refresh (&rest _)
-  "Record `lispm-desktop-deps--refreshed' when `package-refresh-contents' succeeds."
+  "Record `lispm-desktop-deps--refreshed' after refreshing archives."
   (when (and package-archive-contents
              (not lispm-desktop-deps--refresh-failed))
     (setq lispm-desktop-deps--refreshed
@@ -761,12 +767,6 @@ else is an error saying what to update."
     (when-let* ((behind (lispm-desktop-deps--behind main spec)))
       (error "%s" behind))))
 
-(defvar lispm-desktop-deps--refreshed nil
-  "Archive configuration and contents last refreshed for project dependencies.")
-
-(defvar lispm-desktop-deps--refresh-failed nil
-  "Non-nil when an archive failed during the current refresh.")
-
 (defun lispm-desktop-deps--watch-archive (original archive file &rest args)
   "Run ORIGINAL for ARCHIVE and FILE, recording unsuccessful downloads."
   (let* ((path (expand-file-name (concat "archives/" (car archive) "/" file) package-user-dir))
@@ -814,8 +814,24 @@ else is an error saying what to update."
 (defconst lispm-desktop-deps-auth-source-sha256
   "44f0f1d5aea17ef8193e42ca0685dbded499e5d182f4cae2dea51ea7eff1a364")
 
+(defun lispm-desktop-deps--notify-progress (installer-status &optional assistant-status)
+  "Ensure a visible progress UI when an installation or update begins."
+  (cond
+   ((and (bound-and-true-p lispm-desktop-setup--in-progress)
+         (fboundp 'lispm-desktop-assistant-ensure-progress)
+         (fboundp 'lispm-desktop-assistant-available-p)
+         (lispm-desktop-assistant-available-p))
+    (lispm-desktop-assistant-ensure-progress (or assistant-status installer-status)))
+   (t
+    (unless (fboundp 'lispm-desktop-installer-screen-ensure)
+      (require 'lispm-desktop-installer-screen nil t))
+    (if (fboundp 'lispm-desktop-installer-screen-ensure)
+        (lispm-desktop-installer-screen-ensure installer-status)
+      (when (fboundp 'lispm-desktop-installer-screen-report)
+        (lispm-desktop-installer-screen-report installer-status))))))
+
 (defun lispm-desktop-deps--auth-install ()
-  "Install the verified Auth client beside existing packages, without replacing them."
+  "Install verified Auth client beside existing packages without replacing them."
   (require 'url)
   (let* ((root (expand-file-name "lispm-desktop-components" user-emacs-directory))
           (directory (expand-file-name (concat "lispm-auth-" lispm-desktop-deps-auth-version) root))
@@ -832,6 +848,10 @@ else is an error saying what to update."
                           (secure-hash 'sha256 (current-buffer)))))
       (when (file-exists-p directory)
         (error "Auth client directory already exists but is not the verified release: %s" directory))
+      (let ((updating (file-directory-p root)))
+        (lispm-desktop-deps--notify-progress
+         (format "%s: lispm-auth" (if updating "Updating project" "Installing project"))
+         (format "%s: lispm-auth…" (if updating "Updating component" "Installing component"))))
       (make-directory root t)
       (let ((archive (make-temp-file "lispm-auth-client-" nil ".tar.gz"))
             (stage (make-temp-file (expand-file-name ".auth-" root) t)))
@@ -909,8 +929,9 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
         (unless package-alist
           (package-load-all-descriptors))
         (unless (assq feature package-alist)
-          (when (fboundp 'lispm-desktop-installer-screen-report)
-            (lispm-desktop-installer-screen-report (format "Installing project: %s" feature)))
+          (lispm-desktop-deps--notify-progress
+           (format "Installing project: %s" feature)
+           (format "Installing component: %s…" feature))
           (advice-add 'vc-git-clone :override #'lispm-desktop-store-installer--clone)
           (advice-add 'package-vc--release-rev :before #'lispm-desktop-store-installer--whole-history)
           (unwind-protect
@@ -933,10 +954,14 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
           (package-activate-1 desc))))
     (when-let* ((main (locate-library file t)))
       (when (lispm-desktop-deps--behind main spec)
-        (when (fboundp 'lispm-desktop-installer-screen-report)
-          (lispm-desktop-installer-screen-report (format "Updating project: %s" feature)))
+        (lispm-desktop-deps--notify-progress
+         (format "Updating project: %s" feature)
+         (format "Updating component: %s…" feature))
         (lispm-desktop-deps--catch-up main spec))
       (when-let* ((missing (lispm-desktop-deps--requirements main)))
+        (lispm-desktop-deps--notify-progress
+         (format "Preparing: %s" feature)
+         (format "Installing component: %s…" feature))
         (lispm-desktop-deps--refresh missing)
         (when lispm-desktop-deps--fast-install-active
           (lispm-desktop-deps-prefetch-packages missing))

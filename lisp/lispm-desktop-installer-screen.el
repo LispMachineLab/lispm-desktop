@@ -20,6 +20,7 @@
   "The bundled LispM logo, available before packages are installed.")
 
 (defvar lispm-desktop-installer-screen--active nil)
+(defvar lispm-desktop-installer-screen--auto-started nil)
 (defvar lispm-desktop-installer-screen--window nil)
 (defvar lispm-desktop-installer-screen--previous nil)
 (defvar lispm-desktop-installer-screen--completed 0)
@@ -499,10 +500,30 @@
   (when lispm-desktop-installer-screen--active
     (advice-add 'lispm-desktop-deps-ensure :around #'lispm-desktop-installer-screen--ensure)))
 
+(defun lispm-desktop-installer-screen-ensure (&optional status)
+  "Start the early installer screen on demand when an install or update begins."
+  (when (and (not noninteractive)
+             (not (daemonp))
+             (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                       (lispm-desktop-assistant--visible-p))))
+    (unless lispm-desktop-installer-screen--active
+      (setq lispm-desktop-installer-screen--auto-started t)
+      (lispm-desktop-installer-screen-start)
+      (lispm-desktop-installer-screen-watch-deps))
+    (when status
+      (lispm-desktop-installer-screen-report status))))
+
+(defun lispm-desktop-installer-screen-stop-auto ()
+  "Stop the installer screen if it was started on demand."
+  (when lispm-desktop-installer-screen--auto-started
+    (setq lispm-desktop-installer-screen--auto-started nil)
+    (lispm-desktop-installer-screen-stop)))
+
 (defun lispm-desktop-installer-screen-stop ()
   "Remove startup instrumentation and restore the previous window."
   (interactive)
   (setq lispm-desktop-installer-screen--active nil
+        lispm-desktop-installer-screen--auto-started nil
         lispm-desktop-installer-screen--failure nil)
   (advice-remove 'message #'lispm-desktop-installer-screen--capture-message)
   (advice-remove 'lispm-desktop-deps-ensure #'lispm-desktop-installer-screen--ensure)

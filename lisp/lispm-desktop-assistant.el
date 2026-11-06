@@ -677,6 +677,8 @@ page then stays, saying LispM is being set up, until
        lispm-desktop-assistant--last-page))
 
 (defvar lispm-desktop-assistant--setup-stage "Preparing setup")
+(defvar lispm-desktop-assistant--last-done 0)
+(defvar lispm-desktop-assistant--last-total 4)
 (defvar lispm-desktop-assistant--package-count nil
   "Cons (INSTALLED . TOTAL) while installing archive packages during setup.")
 
@@ -691,6 +693,10 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "正在准备密码保护…")
      ("Synchronous setup finished" . "基础设置已完成")
      ("Installing LispM Auth service…" . "正在安装 LispM 认证服务…")
+     ("Installing the icon font…" . "正在安装图标字体…")
+     ("Installing updates…" . "正在安装更新…")
+     ("Installing component: %s…" . "正在安装组件：%s…")
+     ("Updating component: %s…" . "正在更新组件：%s…")
      ("Installing package: %s (%d / %d)…" . "正在安装软件包：%s（%d / %d）…")
      ("Installing package: %s…" . "正在安装软件包：%s…")
      ("Compiling packages (%d / %d)…" . "正在编译软件包（%d / %d）…"))
@@ -704,6 +710,10 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "正在準備密碼保護…")
      ("Synchronous setup finished" . "基礎設定已完成")
      ("Installing LispM Auth service…" . "正在安裝 LispM 認證服務…")
+     ("Installing the icon font…" . "正在安裝圖示字型…")
+     ("Installing updates…" . "正在安裝更新…")
+     ("Installing component: %s…" . "正在安裝組件：%s…")
+     ("Updating component: %s…" . "正在更新組件：%s…")
      ("Installing package: %s (%d / %d)…" . "正在安裝套件：%s（%d / %d）…")
      ("Installing package: %s…" . "正在安裝套件：%s…")
      ("Compiling packages (%d / %d)…" . "正在編譯套件（%d / %d）…"))
@@ -717,6 +727,10 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "パスワード保護を準備中…")
      ("Synchronous setup finished" . "基本セットアップ完了")
      ("Installing LispM Auth service…" . "LispM 認証サービスをインストール中…")
+     ("Installing the icon font…" . "アイコンフォントをインストール中…")
+     ("Installing updates…" . "アップデートをインストール中…")
+     ("Installing component: %s…" . "コンポーネントをインストール中: %s…")
+     ("Updating component: %s…" . "コンポーネントを更新中: %s…")
      ("Installing package: %s (%d / %d)…" . "パッケージをインストール中: %s (%d / %d)…")
      ("Installing package: %s…" . "パッケージをインストール中: %s…")
      ("Compiling packages (%d / %d)…" . "パッケージをコンパイル中 (%d / %d)…"))
@@ -730,6 +744,10 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "Préparation de la protection par mot de passe…")
      ("Synchronous setup finished" . "Configuration terminée")
      ("Installing LispM Auth service…" . "Installation du service d'authentification LispM…")
+     ("Installing the icon font…" . "Installation de la police d'icônes…")
+     ("Installing updates…" . "Installation des mises à jour…")
+     ("Installing component: %s…" . "Installation du composant : %s…")
+     ("Updating component: %s…" . "Mise à jour du composant : %s…")
      ("Installing package: %s (%d / %d)…" . "Installation du paquet : %s (%d / %d)…")
      ("Installing package: %s…" . "Installation du paquet : %s…")
      ("Compiling packages (%d / %d)…" . "Compilation des paquets (%d / %d)…"))
@@ -743,6 +761,10 @@ page then stays, saying LispM is being set up, until
      ("Preparing password protection" . "Passwortschutz wird vorbereitet …")
      ("Synchronous setup finished" . "Einrichtung abgeschlossen")
      ("Installing LispM Auth service…" . "LispM-Authentifizierungsdienst wird installiert …")
+     ("Installing the icon font…" . "Symbolschriftart wird installiert …")
+     ("Installing updates…" . "Updates werden installiert …")
+     ("Installing component: %s…" . "Komponente wird installiert: %s …")
+     ("Updating component: %s…" . "Komponente wird aktualisiert: %s …")
      ("Installing package: %s (%d / %d)…" . "Paket wird installiert: %s (%d / %d) …")
      ("Installing package: %s…" . "Paket wird installiert: %s …")
      ("Compiling packages (%d / %d)…" . "Pakete werden kompiliert (%d / %d) …"))))
@@ -754,13 +776,55 @@ page then stays, saying LispM is being set up, until
          (lang-sym (if (symbolp lang) lang (and (stringp lang) (intern lang))))
          (table (alist-get lang-sym lispm-desktop-assistant--stage-translations))
          (template (or (cdr (assoc status table)) status)))
-    (if args
-        (apply #'format template args)
-      template)))
+    (cond
+     (args (apply #'format template args))
+     ((and (stringp status)
+           (string-match "\\`\\(Installing component\\|Updating component\\): \\(.*\\)…\\'" status))
+      (lispm-desktop-assistant--tr-status
+       (concat (match-string 1 status) ": %s…")
+       (match-string 2 status)))
+     (t template))))
+
+(defun lispm-desktop-assistant--update-page (&optional status)
+  "Return the progress page shown when setup installs or updates components."
+  (let* ((answers (mapcar (lambda (question)
+                            (cons (car question)
+                                  (if (boundp (car question))
+                                      (symbol-value (car question))
+                                    (lispm-desktop-assistant-default question))))
+                          lispm-desktop-assistant-questions))
+         (page (lispm-desktop-assistant--done-page
+                lispm-desktop-assistant-questions answers)))
+    (setq page (plist-put page :progress lispm-desktop-assistant--last-done))
+    (setq page (plist-put page :total (max 1 lispm-desktop-assistant--last-total)))
+    (setq page (plist-put page :status
+                          (and status (lispm-desktop-assistant--tr-status status))))
+    page))
+
+(defun lispm-desktop-assistant-ensure-progress (&optional status)
+  "Ensure the assistant's Platinum progress page is visible during setup."
+  (when (and (not noninteractive)
+             (not (daemonp))
+             (not (member "--lispm-hidden" command-line-args))
+             (lispm-desktop-assistant-available-p))
+    (unless (frame-visible-p (selected-frame))
+      (make-frame-visible (selected-frame)))
+    (unless (lispm-desktop-assistant--visible-p)
+      (lispm-desktop-assistant--open)
+      (setq lispm-desktop-assistant--last-page
+            (lispm-desktop-assistant--update-page
+             (or status lispm-desktop-assistant--setup-stage))))
+    (let ((page (copy-sequence lispm-desktop-assistant--last-page)))
+      (when status
+        (setq page (plist-put page :status
+                              (lispm-desktop-assistant--tr-status status))))
+      (lispm-desktop-assistant--show page nil nil))))
 
 (defun lispm-desktop-assistant-progress (done total status)
   "Show DONE of TOTAL synchronous setup stages and STATUS on the page."
   (setq lispm-desktop-assistant--setup-stage status
+        lispm-desktop-assistant--last-done done
+        lispm-desktop-assistant--last-total total
         lispm-desktop-assistant--package-count nil)
   (when (lispm-desktop-assistant--visible-p)
     (let ((page (copy-sequence lispm-desktop-assistant--last-page)))
@@ -809,6 +873,9 @@ page then stays, saying LispM is being set up, until
 
 (defun lispm-desktop-assistant--package-operation (original &rest args)
   "Capture messages and update progress during package operation ORIGINAL."
+  (when (and (bound-and-true-p lispm-desktop-setup--in-progress)
+             (not (lispm-desktop-assistant--visible-p)))
+    (lispm-desktop-assistant-ensure-progress lispm-desktop-assistant--setup-stage))
   (when (and (lispm-desktop-assistant--visible-p)
              (package-desc-p (car args))
              lispm-desktop-assistant--last-page)

@@ -686,15 +686,26 @@ loads any of the files changed."
             (lispm-desktop-update-check-dependencies
              (plist-get desktop :directory) (plist-get desktop :to) updates))
           (catch 'stopped
-            (dolist (update (append packages (seq-difference dependencies packages) desktops))
-              (when (memq update desktops)
-                ;; Re-read disk, not the plan, after the dependencies have
-                ;; actually installed.  A skipped dependency cannot pass.
-                (lispm-desktop-update-check-dependencies
-                 (plist-get update :directory) (plist-get update :to)))
-              (unless (lispm-desktop-update--install-checkout update)
-                (throw 'stopped nil))
-              (push update installed))))
+            (let* ((ordered (append packages (seq-difference dependencies packages) desktops))
+                   (total (max 1 (length ordered)))
+                   (done 0))
+              (dolist (update ordered)
+                (when (and (not noninteractive)
+                           (fboundp 'lispm-desktop-assistant--visible-p)
+                           (lispm-desktop-assistant--visible-p)
+                           (fboundp 'lispm-desktop-assistant-progress))
+                  (lispm-desktop-assistant-progress
+                   done total
+                   (format "Updating component: %s…" (lispm-desktop-update-title update))))
+                (when (memq update desktops)
+                  ;; Re-read disk, not the plan, after the dependencies have
+                  ;; actually installed.  A skipped dependency cannot pass.
+                  (lispm-desktop-update-check-dependencies
+                   (plist-get update :directory) (plist-get update :to)))
+                (unless (lispm-desktop-update--install-checkout update)
+                  (throw 'stopped nil))
+                (setq done (1+ done))
+                (push update installed)))))
       (error (message "Software Update: %s" (error-message-string err))))
     (setq installed (nreverse installed))
     (dolist (update installed)
@@ -749,6 +760,9 @@ again; it opens APP after when REOPEN."
   "Install the updates found, as Emacs quits, when they are to be.
 An update to LispM.app is installed by install.sh, once Emacs is gone."
   (when (lispm-desktop-update-installs-on-quit-p)
+    (when (and (not noninteractive)
+               (fboundp 'lispm-desktop-assistant-ensure-progress))
+      (lispm-desktop-assistant-ensure-progress "Installing updates…"))
     (let* ((app (lispm-desktop-update-needs-installer-p))
            (installed (lispm-desktop-update-install)))
       (when (and app (seq-some (lambda (update) (plist-get update :app)) installed))
