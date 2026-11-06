@@ -458,6 +458,33 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 
 (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-assistant--scroll-bar)
 
+(defvar lispm-desktop-assistant--saved-frame-colors nil
+  "Cons (FRAME BG . FRINGE-BG) saved before colouring the frame as desktop.")
+
+(defun lispm-desktop-assistant--save-frame-colors (frame)
+  "Remember FRAME's background and fringe colours before changing them."
+  (when (and (frame-live-p frame)
+             (not (eq (car-safe lispm-desktop-assistant--saved-frame-colors) frame)))
+    (setq lispm-desktop-assistant--saved-frame-colors
+          (cons frame
+                (cons (frame-parameter frame 'background-color)
+                      (face-background 'fringe frame nil))))))
+
+(defun lispm-desktop-assistant--restore-frame-colors ()
+  "Restore the frame colours saved by `lispm-desktop-assistant--save-frame-colors'."
+  (when-let* ((saved lispm-desktop-assistant--saved-frame-colors)
+              (frame (car saved))
+              ((frame-live-p frame)))
+    (let ((bg (or (cadr saved)
+                  (and (bound-and-true-p lispm-ui-current-palette)
+                       (plist-get lispm-ui-current-palette :content))
+                  (face-attribute 'default :background nil 'default)))
+          (fringe-bg (cddr saved)))
+      (when (stringp bg)
+        (set-frame-parameter frame 'background-color bg))
+      (set-face-background 'fringe (or fringe-bg bg 'unspecified) frame)))
+  (setq lispm-desktop-assistant--saved-frame-colors nil))
+
 (defun lispm-desktop-assistant-available-p ()
   "Return non-nil when the page can be drawn: an interactive Emacs showing SVG."
   (and (not noninteractive) (display-graphic-p) (image-type-available-p 'svg)))
@@ -476,6 +503,7 @@ LispM up afterwards loads the theme chosen."
     ;; the sign of a truncated line and the echo area's fringes, in the
     ;; desktop's colour too.  The theme loaded once LispM is set up
     ;; colours the frame anew.
+    (lispm-desktop-assistant--save-frame-colors (selected-frame))
     (let ((desktop (plist-get lispm-ui-current-palette :desktop)))
       (set-frame-parameter nil 'background-color desktop)
       (set-face-background 'fringe desktop (selected-frame)))
@@ -965,6 +993,7 @@ Return a cleanup function restoring the window's prior state."
                          (lispm-desktop-empty-buffer)
                        (get-buffer-create " *lispm-confirm-backdrop*"))))
       (when (display-graphic-p frame)
+        (lispm-desktop-assistant--save-frame-colors frame)
         (set-frame-parameter frame 'background-color desktop)
         (set-face-background 'fringe desktop frame))
       (with-current-buffer backdrop
@@ -1010,8 +1039,13 @@ Return a cleanup function restoring the window's prior state."
         (set-window-fringes window 0 0)
         (set-window-margins window 0 0)
         (redisplay t)
-        #'ignore)
-       (t #'ignore)))))
+        (lambda ()
+          (unless (lispm-desktop-assistant--visible-p)
+            (lispm-desktop-assistant--restore-frame-colors))))
+       (t
+        (lambda ()
+          (unless (lispm-desktop-assistant--visible-p)
+            (lispm-desktop-assistant--restore-frame-colors))))))))
 
 (defun lispm-desktop-assistant-confirm-update (template &rest args)
   "Confirm an update with TEMPLATE and ARGS.
@@ -1145,6 +1179,7 @@ in Focus Mode, prompt with `y-or-n-p'."
         (set-window-buffer lispm-desktop-assistant--window
                            (lispm-desktop-empty-buffer))))
     (kill-buffer buffer))
+  (lispm-desktop-assistant--restore-frame-colors)
   (setq lispm-desktop-assistant--window nil
         lispm-desktop-assistant--shown nil
         lispm-desktop-assistant--last-page nil))
