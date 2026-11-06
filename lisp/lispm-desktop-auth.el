@@ -574,6 +574,9 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
          (was-invisible (and (not noninteractive)
                              (frame-live-p frame)
                              (not (frame-visible-p frame))))
+         (saved-bg (and (not noninteractive)
+                        (display-graphic-p frame)
+                        (frame-parameter frame 'background-color)))
          (saved-fringe (and (not noninteractive)
                             (display-graphic-p frame)
                             (face-background 'fringe frame nil))))
@@ -637,7 +640,13 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
           (when (and windowed (frame-live-p frame) (display-graphic-p frame))
             (add-hook 'kill-buffer-hook
                       (lambda ()
-                        (when (frame-live-p frame)
+                        (when (and (frame-live-p frame) (not (frame-parent frame)))
+                          (let ((bg (or saved-bg
+                                        (and (bound-and-true-p lispm-ui-current-palette)
+                                             (plist-get lispm-ui-current-palette :content))
+                                        (face-attribute 'default :background nil 'default))))
+                            (when (stringp bg)
+                              (set-frame-parameter frame 'background-color bg)))
                           (set-face-background 'fringe (or saved-fringe 'unspecified) frame)))
                       nil t)))))))
 

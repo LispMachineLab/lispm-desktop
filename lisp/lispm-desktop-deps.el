@@ -818,9 +818,7 @@ else is an error saying what to update."
   "Ensure a visible progress UI when an installation or update begins."
   (cond
    ((and (bound-and-true-p lispm-desktop-setup--in-progress)
-         (fboundp 'lispm-desktop-assistant-ensure-progress)
-         (fboundp 'lispm-desktop-assistant-available-p)
-         (lispm-desktop-assistant-available-p))
+         (fboundp 'lispm-desktop-assistant-ensure-progress))
     (lispm-desktop-assistant-ensure-progress (or assistant-status installer-status)))
    (t
     (unless (fboundp 'lispm-desktop-installer-screen-ensure)

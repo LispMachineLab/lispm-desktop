@@ -85,7 +85,8 @@ desktop say no; the sidebar's lists say yes.")
                                   "*LispM Setup Assistant*"
                                   "*LispM Installer*"
                                   " *lispm-tty-alert*"
-                                  " *lispm-confirm-backdrop*")))
+                                  " *lispm-confirm-backdrop*"
+                                  " *lispm-focus-backdrop*")))
               (pcase (run-hook-with-args-until-success 'lispm-desktop-platinum-scroll-bar-functions
                                                        buffer)
                 ('yes t)
