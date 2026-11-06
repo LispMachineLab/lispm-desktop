@@ -590,21 +590,28 @@ keeps the existing binary when declined."
       (should prompted))))
 
 (ert-deftest lispm-desktop-auth-test-confirm-update-modes ()
-  "Desktop Mode (GUI/TUI) uses visual alert popups; Focus Mode uses y-or-n-p."
+  "Desktop Mode (GUI/TUI) uses visual alert popups without overlapping the
+setup progress window; Focus Mode uses y-or-n-p; setup buffers omit scroll bars."
   (require 'lispm-desktop-assistant)
+  (require 'lispm-desktop-platinum-scroll)
   (require 'lispm-desktop-start-as)
-  ;; 1. Desktop Mode with popup available -> calls lispm-ui-alert
+  ;; 1. Desktop Mode with popup available -> calls lispm-ui-alert without opening progress window
   (let ((noninteractive nil)
+        (lispm-desktop-setup--in-progress t)
         (lispm-desktop-started-as 'desktop)
+        (progress-opened nil)
         (alert-called nil))
     (cl-letf (((symbol-function 'lispm-ui-popup-available-p) #'always)
               ((symbol-function 'frame-visible-p) #'always)
+              ((symbol-function 'lispm-desktop-assistant-ensure-progress)
+               (lambda (&rest _) (setq progress-opened t)))
               ((symbol-function 'lispm-ui-alert)
                (lambda (icon msg buttons &optional _detail)
                  (setq alert-called (list icon msg buttons))
                  'update)))
       (should (lispm-desktop-assistant-confirm-update
                "Update LispM Auth service to %s? " "v0.2.6"))
+      (should-not progress-opened)
       (should (equal (car alert-called) 'note))
       (should (= (length (nth 2 alert-called)) 2))))
   ;; 2. Focus Mode -> calls y-or-n-p
@@ -615,7 +622,15 @@ keeps the existing binary when declined."
                (lambda (prompt) (setq yn-called prompt) nil)))
       (should-not (lispm-desktop-assistant-confirm-update
                    "Update LispM Auth service to %s? " "v0.2.6"))
-      (should yn-called))))
+      (should yn-called)))
+  ;; 3. Setup assistant and alert buffers do not receive Platinum scroll bars
+  (dolist (name (list lispm-desktop-assistant-buffer-name
+                      " *lispm-tty-alert*"
+                      " *lispm-confirm-backdrop*"))
+    (let ((buf (get-buffer-create name)))
+      (unwind-protect
+          (should (eq 'no (lispm-desktop-assistant--scroll-bar buf)))
+        (kill-buffer buf)))))
 
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

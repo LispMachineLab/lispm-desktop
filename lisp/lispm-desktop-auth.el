@@ -693,30 +693,39 @@ This is `lispm-auth-page-window-draw-function'."
                           "Update LispM Auth service to %s? " ver)
                        (y-or-n-p (format "Update LispM Auth service to %s? " ver)))))
            (setq lispm-auth-service-program existing)
-         (when (and (not noninteractive)
-                    (fboundp 'lispm-desktop-assistant-ensure-progress)
-                    (or (bound-and-true-p lispm-desktop-setup--in-progress)
-                        (not (bound-and-true-p lispm-desktop--set-up))))
-           (lispm-desktop-assistant-ensure-progress "Installing LispM Auth service…"))
-         (message "Installing LispM Auth service…")
-         (when (and (not noninteractive)
-                    (not (and (fboundp 'lispm-desktop-assistant--visible-p)
-                              (lispm-desktop-assistant--visible-p))))
-           (redisplay t))
-         (condition-case install-error
-             (if (and (fboundp 'lispm-desktop-assistant--visible-p)
-                      (lispm-desktop-assistant--visible-p)
-                      (fboundp 'lispm-desktop-assistant--package-message))
-                 (progn
-                   (advice-add 'message :around #'lispm-desktop-assistant--package-message)
-                   (unwind-protect
-                       (lispm-auth-install-service)
-                     (advice-remove 'message #'lispm-desktop-assistant--package-message)))
-               (lispm-auth-install-service))
-           (error
-            (error "LispM Auth service installation failed: %s; check the service installation or configure lispm-auth-service-program"
-                   (error-message-string install-error))))
-         (lispm-auth--service-program))))))
+         (let ((opened-progress
+                (and (not noninteractive)
+                     (fboundp 'lispm-desktop-assistant-ensure-progress)
+                     (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                               (lispm-desktop-assistant--visible-p)))
+                     (or (bound-and-true-p lispm-desktop-setup--in-progress)
+                         (not (bound-and-true-p lispm-desktop--set-up))))))
+           (when opened-progress
+             (lispm-desktop-assistant-ensure-progress "Installing LispM Auth service…"))
+           (message "Installing LispM Auth service…")
+           (when (and (not noninteractive)
+                      (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                                (lispm-desktop-assistant--visible-p))))
+             (redisplay t))
+           (unwind-protect
+               (condition-case install-error
+                   (if (and (fboundp 'lispm-desktop-assistant--visible-p)
+                            (lispm-desktop-assistant--visible-p)
+                            (fboundp 'lispm-desktop-assistant--package-message))
+                       (progn
+                         (advice-add 'message :around #'lispm-desktop-assistant--package-message)
+                         (unwind-protect
+                             (lispm-auth-install-service)
+                           (advice-remove 'message #'lispm-desktop-assistant--package-message)))
+                     (lispm-auth-install-service))
+                 (error
+                  (error "LispM Auth service installation failed: %s; check the service installation or configure lispm-auth-service-program"
+                         (error-message-string install-error))))
+             (when (and opened-progress
+                        (not (bound-and-true-p lispm-desktop-first-start))
+                        (fboundp 'lispm-desktop-assistant-close))
+               (lispm-desktop-assistant-close)))
+           (lispm-auth--service-program)))))))
 
 (defun lispm-desktop-auth-prepare (&optional apps)
   "Load Auth and prepare its service when APPS require a password."

@@ -447,17 +447,29 @@ page with a :picture shows LispM's λ instead of choices, and its
 
 ;;;; The page
 
+(defun lispm-desktop-assistant--scroll-bar (buffer)
+  "Say no scroll bar for BUFFER when it is the setup assistant or alert.
+This is one of `lispm-desktop-platinum-scroll-bar-functions'."
+  (and (member (buffer-name buffer)
+               (list lispm-desktop-assistant-buffer-name
+                     " *lispm-tty-alert*"
+                     " *lispm-confirm-backdrop*"))
+       'no))
+
+(add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-assistant--scroll-bar)
+
 (defun lispm-desktop-assistant-available-p ()
   "Return non-nil when the page can be drawn: an interactive Emacs showing SVG."
   (and (not noninteractive) (display-graphic-p) (image-type-available-p 'svg)))
 
 (defun lispm-desktop-assistant--open ()
   "Fill the selected frame with the assistant's page, drawn in Platinum.
-The Platinum theme is enabled for it; setting LispM up afterwards loads
-the theme chosen."
-  (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
-  (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
-    (load-theme 'platinum t))
+The Platinum theme is enabled for it when no theme is active yet; setting
+LispM up afterwards loads the theme chosen."
+  (unless custom-enabled-themes
+    (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
+    (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
+      (load-theme 'platinum t)))
   (lispm-ui-palette-update)
   (let ((buffer (get-buffer-create lispm-desktop-assistant-buffer-name)))
     ;; What the page leaves bare, the frame's border, the column kept for
@@ -484,13 +496,21 @@ the theme chosen."
                   left-margin-width 0
                   right-margin-width 0
                   vertical-scroll-bar nil
+                  horizontal-scroll-bar nil
                   indicate-empty-lines nil
                   show-trailing-whitespace nil
                   scroll-margin 0))
     (delete-other-windows)
-    (set-window-buffer (selected-window) buffer)
-    (setq lispm-desktop-assistant--window (selected-window)
-          lispm-desktop-assistant--shown nil)))
+    (let ((window (selected-window)))
+      (set-window-buffer window buffer)
+      (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                 (fboundp 'lispm-desktop-platinum-scroll-sync))
+        (lispm-desktop-platinum-scroll-sync))
+      (set-window-scroll-bars window 0 nil 0 nil)
+      (set-window-fringes window 0 0)
+      (set-window-margins window 0 0)
+      (setq lispm-desktop-assistant--window window
+            lispm-desktop-assistant--shown nil))))
 
 (defun lispm-desktop-assistant--show (page focused pressed)
   "Show PAGE filling the assistant's window, FOCUSED ringed, PRESSED held.
@@ -505,6 +525,12 @@ drawn again while the page and the window's size stay as they are."
     (setq lispm-desktop-assistant--last-page page)
     (unless (equal shown lispm-desktop-assistant--shown)
       (setq lispm-desktop-assistant--shown shown)
+      (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                 (fboundp 'lispm-desktop-platinum-scroll-sync))
+        (lispm-desktop-platinum-scroll-sync))
+      (set-window-scroll-bars window 0 nil 0 nil)
+      (set-window-fringes window 0 0)
+      (set-window-margins window 0 0)
       (when-let* ((frame (window-frame window))
                   (desktop (plist-get lispm-ui-current-palette :desktop)))
         (unless (equal (frame-parameter frame 'background-color) desktop)
@@ -918,6 +944,75 @@ page then stays, saying LispM is being set up, until
         (kill-buffer buf)))
     choice))
 
+(defun lispm-desktop-assistant--prepare-confirm-backdrop ()
+  "Ensure a clean desktop backdrop in the selected window while confirming.
+Return a cleanup function restoring the window's prior state."
+  (if (equal (terminal-name) "initial_terminal")
+      #'ignore
+    (unless custom-enabled-themes
+      (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
+      (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
+        (load-theme 'platinum t)))
+    (unless lispm-ui-current-palette
+      (lispm-ui-palette-update))
+    (let* ((palette (or (bound-and-true-p lispm-ui-current-palette)
+                        (bound-and-true-p lispm-ui-platinum-palette)))
+           (desktop (or (plist-get palette :desktop) "#6E6E6E"))
+           (frame (selected-frame))
+           (window (selected-window))
+           (was-visible (lispm-desktop-assistant--visible-p))
+           (backdrop (if (fboundp 'lispm-desktop-empty-buffer)
+                         (lispm-desktop-empty-buffer)
+                       (get-buffer-create " *lispm-confirm-backdrop*"))))
+      (when (display-graphic-p frame)
+        (set-frame-parameter frame 'background-color desktop)
+        (set-face-background 'fringe desktop frame))
+      (with-current-buffer backdrop
+        (setq-local mode-line-format nil
+                    header-line-format nil
+                    tab-line-format nil
+                    cursor-type nil
+                    cursor-in-non-selected-windows nil
+                    truncate-lines t
+                    left-fringe-width 0
+                    right-fringe-width 0
+                    left-margin-width 0
+                    right-margin-width 0
+                    vertical-scroll-bar nil
+                    horizontal-scroll-bar nil))
+      (cond
+       (was-visible
+        ;; Temporarily clear the setup card so the alert dialog does not
+        ;; collide with the "Setting LispM up…" window underneath.
+        (with-current-buffer (window-buffer lispm-desktop-assistant--window)
+          (let ((inhibit-read-only t))
+            (erase-buffer)))
+        (setq lispm-desktop-assistant--shown nil)
+        (when (and (window-parameter lispm-desktop-assistant--window
+                                     'lispm-desktop-platinum-scroll-frame)
+                   (fboundp 'lispm-desktop-platinum-scroll-sync))
+          (lispm-desktop-platinum-scroll-sync))
+        (set-window-scroll-bars lispm-desktop-assistant--window 0 nil 0 nil)
+        (redisplay t)
+        (lambda ()
+          (when (and (lispm-desktop-assistant--visible-p)
+                     lispm-desktop-assistant--last-page)
+            (lispm-desktop-assistant--show lispm-desktop-assistant--last-page nil nil))))
+       ((or (bound-and-true-p lispm-desktop-setup--in-progress)
+            (not (bound-and-true-p lispm-desktop--set-up)))
+        (delete-other-windows window)
+        (set-window-dedicated-p window nil)
+        (set-window-buffer window backdrop)
+        (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+                   (fboundp 'lispm-desktop-platinum-scroll-sync))
+          (lispm-desktop-platinum-scroll-sync))
+        (set-window-scroll-bars window 0 nil 0 nil)
+        (set-window-fringes window 0 0)
+        (set-window-margins window 0 0)
+        (redisplay t)
+        #'ignore)
+       (t #'ignore)))))
+
 (defun lispm-desktop-assistant-confirm-update (template &rest args)
   "Confirm an update with TEMPLATE and ARGS.
 In GUI and TUI Desktop Mode, display a visual Mac OS 9 alert dialog;
@@ -929,25 +1024,28 @@ in Focus Mode, prompt with `y-or-n-p'."
       (cond
        ((or (lispm-desktop-assistant--focus-mode-p)
             (and (not (subrp (symbol-function 'y-or-n-p)))
-                 (not (lispm-ui-popup-available-p))))
+                 (not (byte-code-function-p (symbol-function 'y-or-n-p)))
+                 (or (equal (terminal-name) "initial_terminal")
+                     (not (lispm-ui-popup-available-p)))))
         (let ((use-dialog-box nil))
           (y-or-n-p question)))
        (t
-        (when (and (bound-and-true-p lispm-desktop-setup--in-progress)
-                   (lispm-desktop-assistant-available-p))
-          (lispm-desktop-assistant-ensure-progress))
-        (unless (frame-visible-p (selected-frame))
-          (make-frame-visible (selected-frame))
-          (redisplay t))
-        (let* ((lispm-ui-current-palette
-                (or (bound-and-true-p lispm-ui-current-palette)
-                    (bound-and-true-p lispm-ui-platinum-palette)))
-               (buttons `((,(lispm-desktop-tr "Later") later cancel ?n ?N)
-                          (,(lispm-desktop-tr "Update") update default ?y ?Y))))
-          (eq 'update
-              (if (lispm-ui-popup-available-p)
-                  (lispm-ui-alert 'note trimmed buttons)
-                (lispm-desktop-assistant--tty-alert 'note trimmed buttons)))))))))
+        (let ((restore (lispm-desktop-assistant--prepare-confirm-backdrop)))
+          (unwind-protect
+              (progn
+                (unless (frame-visible-p (selected-frame))
+                  (make-frame-visible (selected-frame))
+                  (redisplay t))
+                (let* ((lispm-ui-current-palette
+                        (or (bound-and-true-p lispm-ui-current-palette)
+                            (bound-and-true-p lispm-ui-platinum-palette)))
+                       (buttons `((,(lispm-desktop-tr "Later") later cancel ?n ?N)
+                                  (,(lispm-desktop-tr "Update") update default ?y ?Y))))
+                  (eq 'update
+                      (if (lispm-ui-popup-available-p)
+                          (lispm-ui-alert 'note trimmed buttons)
+                        (lispm-desktop-assistant--tty-alert 'note trimmed buttons)))))
+            (funcall restore))))))))
 
 (defun lispm-desktop-assistant-progress (done total status)
   "Show DONE of TOTAL synchronous setup stages and STATUS on the page."
