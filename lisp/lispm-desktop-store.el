@@ -1624,13 +1624,15 @@ again."
                                 (reverse (package--sort-by-dependence reachable)))))
     (dolist (desc changed)
       (dolist (required (package-desc-reqs desc))
-        (unless (package-installed-p (car required) (cadr required))
+        (unless (or (package-installed-p (car required) (cadr required))
+                    (locate-library (concat (symbol-name (car required)) ".el") t))
           (error "%s needs %s %s" (package-desc-name desc) (car required)
                  (package-version-join (cadr required))))))
     ;; Use package.el's normal update reload, not forced feature unloading:
     ;; Desktop may already use these libraries.  Dependencies reload first.
     (dolist (desc changed)
-      (unless (package-activate-1 desc nil 'deps)
+      (unless (or (package-activate-1 desc nil 'deps)
+                  (package-activate-1 desc))
         (error (lispm-desktop-tr "Its package %s cannot be activated") (package-desc-name desc)))
       (let* ((library (package-desc-name desc))
              (selected (alist-get library (bound-and-true-p package-vc-selected-packages) nil nil #'string=))
@@ -2356,10 +2358,31 @@ App Store becomes the desktop's, at its install and at every start."
            behaviour))
   (lispm-desktop-needs-guard-all (plist-get props :needs) (plist-get props :name)))
 
+(defun lispm-desktop-store--activate-package (package)
+  "Ensure PACKAGE and its installed dependencies in `package-alist' are active.
+`package-initialize' leaves a package inactive when a requirement in its
+`Package-Requires' (such as `lispm-ui', `lispm-kit', or `lispm') is satisfied
+by a checkout on `load-path' rather than an ELPA package in `package-alist'."
+  (when-let* ((name (lispm-desktop-store--package-name package))
+              (root (cadr (assq name package-alist)))
+              ((not (memq name package-activated-list))))
+    (let ((visited nil))
+      (cl-labels ((activate (desc)
+                    (let ((pkg (package-desc-name desc)))
+                      (unless (or (memq pkg package-activated-list)
+                                  (memq pkg visited))
+                        (push pkg visited)
+                        (dolist (req (package-desc-reqs desc))
+                          (when-let* ((req-desc (cadr (assq (car req) package-alist))))
+                            (activate req-desc)))
+                        (package-activate-1 desc)))))
+        (activate root)))))
+
 (defun lispm-desktop-store--register (id props)
   "Make the installed item ID, of PROPS, take part: an application one of
 the desktop's, an extension loaded, the commands its needs name offering
 them where they are missing."
+  (lispm-desktop-store--activate-package (plist-get props :package))
   (pcase (plist-get props :kind)
     ('app (lispm-desktop-store--register-app id props))
     ('extension (require (plist-get props :feature))

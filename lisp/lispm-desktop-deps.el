@@ -93,7 +93,7 @@ while LispM Kit, which translates them, is being installed."
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.
-           :needs "lispm-agents-work" :version "0.17.1")
+           :needs "lispm-agents-work" :version "0.17.2")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"
