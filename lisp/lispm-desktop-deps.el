@@ -89,7 +89,7 @@ while LispM Kit, which translates them, is being installed."
                :needs "lispm-kit-i18n")
     (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
               ;; Its palette, drawing, icons, alerts, menus and fields.
-              :version "0.7.1")
+              :version "0.7.2")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.

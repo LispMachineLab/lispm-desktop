@@ -201,14 +201,16 @@ left out."
 
 (defun lispm-desktop-console--message (text)
   "Record TEXT, a message the echo area is about to show, when asked to.
-This is one of `set-message-functions'.  Return nil, that the message
-shows as it would."
-  (when (and lispm-desktop-console-capture-messages
-             (not lispm-desktop-console--quiet)
-             (stringp text)
-             (not (string-empty-p text)))
-    (lispm-desktop-console-report 'note "Emacs" text))
-  nil)
+When a GUI action produced TEXT, record it in the Console and return t
+so the echo area stays quiet; keyboard operations return nil."
+  (let ((gui (and (fboundp 'lispm-ui-gui-action-p)
+                  (lispm-ui-gui-action-p))))
+    (when (and (or lispm-desktop-console-capture-messages gui)
+               (not lispm-desktop-console--quiet)
+               (stringp text)
+               (not (string-empty-p text)))
+      (lispm-desktop-console-report 'note (if gui "LispM" "Emacs") text))
+    (and gui (stringp text) (not (string-empty-p text)) t)))
 
 ;;;; What the Console shows
 

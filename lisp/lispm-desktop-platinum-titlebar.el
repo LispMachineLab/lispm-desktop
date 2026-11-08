@@ -170,7 +170,8 @@ cancels."
       (when (and (consp release)
                  (eq (event-basic-type release) 'mouse-1)
                  (funcall pressed-p (event-end release)))
-        (funcall command)))))
+        (let ((lispm-ui-in-gui-action t))
+          (funcall command))))))
 
 (defun lispm-desktop-platinum--press-target (position)
   "Return what the press at POSITION is on: the target named there.

@@ -69,6 +69,9 @@ gives them.  Where no menu can be drawn, the form's own way is taken."
 
 ;;;; Showing
 
+(defvar-local lispm-desktop-form--prompt nil
+  "Non-nil in the buffer of a modal prompt form shown in its desktop window.")
+
 (defun lispm-desktop-form-window-size (form)
   "The size of the window of FORM, a form's buffer: as wide as its group
 boxes, as tall as all of it, as far as the screen allows."
@@ -76,13 +79,14 @@ boxes, as tall as all of it, as far as the screen allows."
          (height (with-current-buffer form
                    (let ((truncate-lines t))
                      (cdr (buffer-text-pixel-size form (get-buffer-window form t))))))
+         (min-h (if (buffer-local-value 'lispm-desktop-form--prompt form) 180 340))
          (screen (lispm-desktop-apps-screen))
          (max-height (if (and (frame-live-p screen) (lispm-desktop-apps-hidden-p screen))
                          (- (nth 3 (lispm-desktop-apps--workarea screen))
                             (lispm-desktop-px 120))
                        (- (frame-pixel-height screen) (lispm-desktop-px 120)))))
     (cons (max (lispm-desktop-px 500) (+ outer (lispm-desktop-px 40)))
-          (min (max (lispm-desktop-px 340) (+ height (lispm-desktop-px 36)))
+          (min (max (lispm-desktop-px min-h) (+ height (lispm-desktop-px 36)))
                max-height))))
 
 (defun lispm-desktop-form-window-closed (kind variable)
@@ -164,9 +168,33 @@ narrower than Emacs's own, so its fields widen."
               (lispm-desktop-platinum-frame-update frame)
               (lispm-desktop-apps-keep-on-desktop frame))))))))
 
+(defun lispm-desktop-form--modal-show (buffer)
+  "Show modal prompt form BUFFER in a desktop window; return a cleanup function."
+  (if (and (display-graphic-p) (not noninteractive))
+      (let ((prev-frame (selected-frame))
+            (prev-window (selected-window))
+            (frame (lispm-desktop-form-show 'prompt buffer 'lispm-desktop-form--prompt)))
+        (when (frame-live-p frame)
+          (select-frame-set-input-focus frame)
+          (select-window (frame-root-window frame)))
+        (lambda ()
+          (when (lispm-desktop-app-window-open-p 'prompt)
+            (lispm-desktop-app-window-close 'prompt))
+          (when (frame-live-p prev-frame)
+            (select-frame-set-input-focus prev-frame))
+          (when (window-live-p prev-window)
+            (select-window prev-window))))
+    (lispm-ui-form--modal-show-default buffer)))
+
 (defun lispm-desktop-form-setup ()
   "Show LispM UI's forms in the desktop's windows and language."
-  (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose)
+  (lispm-desktop-app-window-define 'prompt
+                                   :size '(520 . 220)
+                                   :documents 'keep
+                                   :close #'lispm-desktop-app-window-close-box)
+  (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose
+        lispm-ui-form-modal-show-function #'lispm-desktop-form--modal-show)
+  (lispm-ui-intercept-enable)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--layout)
   (add-hook 'lispm-ui-form-drawn-hook #'lispm-desktop-form--fit)
   ;; Before LispM's agent's, which follows the desktop's too.

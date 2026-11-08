@@ -437,7 +437,8 @@ ENABLED non-nil or nil."
   "Run ACTION, a command or a function, in WINDOW, selected, as typed there."
   (when (window-live-p window)
     (select-window window)
-    (if (commandp action) (call-interactively action) (funcall action))))
+    (let ((lispm-ui-in-gui-action t))
+      (if (commandp action) (call-interactively action) (funcall action)))))
 
 (defun lispm-desktop-app-ui-window (app)
   "Return the window application APP shows its buffer in, or nil."

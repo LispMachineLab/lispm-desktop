@@ -785,7 +785,9 @@ Space and the mouse press it as a push button."
                       'lispm-ui-plain (lispm-desktop-platinum-icon-button icon nil nil)
                       'lispm-ui-focused (lispm-desktop-platinum-icon-button icon nil t)
                       'lispm-ui-pressed (lispm-desktop-platinum-icon-button icon 'pressed nil)
-                      'action (lambda (_) (funcall action))
+                      'action (lambda (_)
+                                (let ((lispm-ui-in-gui-action t))
+                                  (funcall action)))
                       'lispm-ui-label label
                       'face nil 'keymap lispm-ui-push-button-map
                       'help-echo (or help label)))

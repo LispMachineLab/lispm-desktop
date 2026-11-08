@@ -19007,5 +19007,35 @@ holds no longer.  Run with `make i18n'."
           (should (file-regular-p (expand-file-name "pkg2.elc" pkg2))))
       (ignore-errors (delete-directory tmp t)))))
 
+(ert-deftest lispm-desktop-test-gui-console-and-prompt-routing ()
+  "GUI-initiated actions route messages to the Console (suppressing the
+echo area) and route prompts to LispM UI, whereas keyboard operations
+behave natively."
+  (let ((lispm-ui-intercept-in-tests t)
+        (lispm-desktop-console-capture-messages nil)
+        (lispm-desktop-console--events nil)
+        (lispm-desktop-console--quiet nil))
+    ;; 1. Native keyboard operation: returns nil (shown in echo area) and does not enter Console.
+    (let ((lispm-ui-in-gui-action nil)
+          (lispm-ui--command-from-mouse nil)
+          (last-input-event ?a)
+          (last-command-event ?a))
+      (should-not (lispm-desktop-console--message "Keyboard echo"))
+      (should-not lispm-desktop-console--events))
+    ;; 2. GUI-initiated operation: returns t (suppressed from echo area) and enters Console.
+    (let ((lispm-ui-in-gui-action t))
+      (should (eq (lispm-desktop-console--message "GUI status log") t))
+      (should (= (length lispm-desktop-console--events) 1))
+      (let ((ev (car lispm-desktop-console--events)))
+        (should (eq (lispm-desktop-console-event-severity ev) 'note))
+        (should (equal (lispm-desktop-console-event-source ev) "LispM"))
+        (should (equal (lispm-desktop-console-event-message ev) "GUI status log"))))
+    ;; 3. App UI button/menu call binds `lispm-ui-in-gui-action' to t.
+    (let ((seen-gui nil))
+      (lispm-desktop-app-ui-call (selected-window)
+                                 (lambda ()
+                                   (setq seen-gui (lispm-ui-gui-action-p))))
+      (should seen-gui))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
