@@ -5308,7 +5308,9 @@ one of its panels is, as a control panel, not an application."
         (funcall (plist-get (car (funcall named "Network")) :open))
         (should (eq shown 'network))
         (funcall (plist-get (car (funcall named "System")) :open))
-        (should (eq shown 'settings-system))))))
+        (should (eq shown 'settings-system))
+        (lispm-desktop-bar-setup-model)
+        (should (eq shown 'lispm))))))
 
 (ert-deftest lispm-desktop-test-bar-activity ()
   "The bar says what LispM does with the desktop's tools in its words."
@@ -6206,11 +6208,30 @@ opens its form to change or add one, or removes it once told to."
         (lispm-desktop-test--press "Remove…"))
       (should-not (assq 'test lispm-backends))
       (should (memq 'lispm-backends saved))
-      ;; With none, the panel says so, and only offers to add one.
+      ;; With none chosen, the panel says so, offers to set a key for
+      ;; the remaining backends or add one, and hides Change… and Remove….
       (should (string-search "No backend" (lispm-desktop-test--settings-text)))
+      (should (lispm-desktop-test--settings-button "Set Key…"))
       (should (lispm-desktop-test--settings-button "Add…"))
       (should-not (lispm-desktop-test--settings-button "Change…"))
-      (should-not (lispm-desktop-test--settings-button "Remove…")))))
+      (should-not (lispm-desktop-test--settings-button "Remove…"))
+      ;; With a single unchosen backend, Set Key… opens its form directly;
+      ;; with no backends left at all, only Add… remains.
+      (setq lispm-backends '((openai :api openai :url "https://api.openai.com/v1"
+                                     :model "gpt-5.4" :key openai))
+            lispm-backend nil)
+      (run-hooks 'lispm-settings-change-hook)
+      (let ((form nil))
+        (cl-letf (((symbol-function 'lispm-desktop-form-show)
+                   (lambda (_kind buffer _variable) (setq form buffer))))
+          (lispm-desktop-test--press "Set Key…"))
+        (should form)
+        (with-current-buffer form
+          (should (equal (lispm-ui-form-title) (lispm-desktop-tr "Backend %s" 'openai)))
+          (kill-buffer)))
+      (setq lispm-backends nil)
+      (run-hooks 'lispm-settings-change-hook)
+      (should-not (lispm-desktop-test--settings-button "Set Key…")))))
 
 (ert-deftest lispm-desktop-test-settings-security ()
   "The Security panel says how LispM's password stands, offers to make or
@@ -11128,6 +11149,9 @@ talks to LispM in its listener."
   (should (equal (directory-files lispm-desktop-skill-directory nil "\\.org\\'")
                  '("app-store.org" "desktop.org" "settings.org")))
   (let ((lispm-skill-sources nil)
+        (lispm-desktop-apps (copy-sequence lispm-desktop-apps))
+        (lispm-desktop-apps-changed-hook nil)
+        (lispm-desktop-app-window-kinds (copy-sequence lispm-desktop-app-window-kinds))
         (lispm-desktop-conversation-modes nil)
         (lispm-chat-mode-hook nil)
         (lispm-session-mode-hook nil)
@@ -11150,6 +11174,8 @@ talks to LispM in its listener."
         (let ((lispm-desktop-started-as as))
           (lispm-desktop-setup-lispm))))
     (should (equal bars '((terminal desktop) desktop)))
+    (should (assq 'lispm lispm-desktop-apps))
+    (should (memq 'lispm (lispm-desktop-standalone-apps)))
     ;; Started as the terminal, leaving it is going to the desktop.
     (should (eq lispm-terminal-leave-function #'lispm-desktop-start-as-leave-terminal))
     (should (equal lispm-skill-sources '(lispm-desktop-store-skill-sources lispm-desktop--system-skills)))))

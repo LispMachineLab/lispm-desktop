@@ -55,8 +55,11 @@
 
 (require 'lispm-desktop-ai)
 (require 'lispm-desktop-apps)
+(require 'lispm-desktop-app-window)
 (require 'lispm-desktop-deps)
+(require 'lispm-desktop-form)
 (require 'lispm-desktop-i18n)
+(require 'lispm-desktop-platinum)
 (require 'lispm-desktop-start-as)
 
 (defvar lispm-desktop-conversation-modes)
@@ -66,6 +69,9 @@
 (declare-function lispm-sessions "lispm-runtime" ())
 (declare-function lispm-agent-display-buffer "lispm" (agent))
 (declare-function lispm-start "lispm-runtime" (&optional role root))
+(declare-function lispm-system-agent "lispm-runtime" ())
+(declare-function lispm-maybe-setup-model "lispm-backend-form" (&optional agent))
+(declare-function lispm-desktop-app-ui-menus "lispm-desktop-app-ui" (app))
 (declare-function lispm-resume-file "lispm-runtime" (file))
 (declare-function lispm-rename-session "lispm-runtime" (file title))
 (declare-function lispm-session-files "lispm-runtime" (id))
@@ -116,7 +122,10 @@
 
 (defun lispm-desktop-lispm-new (directory &optional role)
   "Start a LispM agent of ROLE in DIRECTORY; return its chat."
-  (lispm-desktop-lispm--compose (lispm-agent-display-buffer (lispm-start role directory))))
+  (let ((agent (lispm-start role directory)))
+    (prog1 (lispm-desktop-lispm--compose (lispm-agent-display-buffer agent))
+      (when (fboundp 'lispm-maybe-setup-model)
+        (lispm-maybe-setup-model agent)))))
 
 (defun lispm-desktop-lispm-resume (session)
   "Resume the LispM SESSION; return its chat."
@@ -340,6 +349,83 @@ Application menu, see `lispm-desktop-apps-application-items'."
     ;; Before the terminal's own, which leaves it as its frame goes.
     (add-hook 'delete-frame-functions #'lispm-desktop-lispm-terminal--deleted -90)))
 
+(declare-function lispm-desktop-settings-show "lispm-desktop-settings" (&optional panel))
+(declare-function lispm-model-status "lispm-settings" ())
+
+(defun lispm-desktop-lispm-settings ()
+  "Open LispM Agent's settings panel in its control panel window."
+  (interactive)
+  (when (fboundp 'lispm-desktop-settings-show)
+    (lispm-desktop-settings-show 'lispm)))
+
+(defun lispm-desktop-lispm-security ()
+  "Open the Security & Encryption control panel in its window."
+  (interactive)
+  (when (fboundp 'lispm-desktop-settings-show)
+    (lispm-desktop-settings-show 'security)))
+
+(defun lispm-desktop-lispm-chat-buttons ()
+  "Return the toolbar buttons of LispM Agent's window."
+  `((,(lispm-desktop-tr-noop "New Session") lispm-new-session)
+    (,(lispm-desktop-tr-noop "Set Up a Model…") lispm-setup-model)
+    (,(lispm-desktop-tr-noop "Settings…") lispm-desktop-lispm-settings)
+    (,(lispm-desktop-tr-noop "Security…") lispm-desktop-lispm-security)))
+
+(defun lispm-desktop-lispm-chat-status ()
+  "Return the status placards at the bottom of LispM Agent's window."
+  (when (fboundp 'lispm-model-status)
+    (let* ((status (lispm-model-status))
+           (backend (plist-get status :backend))
+           (model (plist-get status :model))
+           (msg (plist-get status :message)))
+      (delq nil
+            (list (if (and backend model)
+                      (format "%s · %s" backend model)
+                    (lispm-desktop-tr "No model configured"))
+                  msg)))))
+
+(defun lispm-desktop-lispm-open ()
+  "Open LispM's own conversation in its application window."
+  (interactive)
+  (let* ((agent (lispm-system-agent))
+         (chat (lispm-desktop-lispm--compose (lispm-agent-display-buffer agent)))
+         (frame (lispm-desktop-app-window-show
+                 'lispm
+                 :name (lispm-desktop-tr "LispM Agent")
+                 :buffer chat)))
+    (unless (window-live-p (frame-root-window frame))
+      (delete-other-windows (frame-first-window frame)))
+    (let ((window (frame-root-window frame)))
+      (unless (eq (window-buffer window) chat)
+        (set-window-dedicated-p window nil)
+        (set-window-buffer window chat)
+        (set-window-dedicated-p window t)))
+    (unless noninteractive
+      (redisplay t))
+    (when (fboundp 'lispm-maybe-setup-model)
+      (with-selected-frame frame
+        (lispm-maybe-setup-model agent)))
+    frame))
+
+(defun lispm-desktop-lispm-setup-app ()
+  "Make LispM Agent an application of its own, in a window of its own."
+  (lispm-desktop-app-window-define 'lispm
+                                   :name (lispm-desktop-tr-noop "LispM Agent")
+                                   :size '(720 . 560)
+                                   :params '((unsplittable . t))
+                                   :documents 'keep
+                                   :close #'lispm-desktop-app-window-close-box)
+  (lispm-desktop-define-app 'lispm
+                            :name (lispm-desktop-tr-noop "LispM Agent")
+                            :icon "lispm"
+                            :folder "lispm-32"
+                            :description (lispm-desktop-tr-noop "Talk to LispM, the system's agent, in a window of its own.")
+                            :standalone t
+                            :menus (lambda () (lispm-desktop-app-ui-menus 'lispm))
+                            :activate #'lispm-desktop-lispm-open
+                            :visible (lambda () (lispm-desktop-app-window-open-p 'lispm))
+                            :listed-while-open t))
+
 (defun lispm-desktop--system-skills ()
   "Return where the desktop's own skills are, as LispM Agent's
 `lispm-skill-sources' are told: the manuals of the desktop, its Control
@@ -399,7 +485,8 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
   (if (lispm-desktop-started-as-terminal-p)
       (setq lispm-terminal-leave-function #'lispm-desktop-start-as-leave-terminal)
     (lispm-desktop-setup-bar)
-    (lispm-desktop-lispm-setup-terminal)))
+    (lispm-desktop-lispm-setup-terminal)
+    (lispm-desktop-lispm-setup-app)))
 
 (provide 'lispm-desktop-lispm)
 ;;; lispm-desktop-lispm.el ends here

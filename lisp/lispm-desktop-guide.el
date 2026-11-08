@@ -859,13 +859,17 @@ topics."
            (substitute-command-keys
             (lispm-desktop-tr "LispM is ready.  \\`C-c a l' starts an agent in this project, \\`C-c a a' shows the agents, \\`C-c a s' resumes a session."))))
 
+(declare-function lispm-desktop-standalone-started-hidden-p "lispm-desktop-standalone" ())
+
 (defun lispm-desktop-guide-first-time ()
   "Show the guide unless it has shown itself before, see
 `lispm-desktop-guide-shown'; where it cannot be shown, as in a text
 terminal, say how to start instead.  Once is kept for every later start.
-A batch Emacs, or a daemon, which has no frame to show it on yet, does
+A batch Emacs, a daemon, or a start with the desktop out of sight does
 neither."
-  (unless (or lispm-desktop-guide-shown noninteractive (daemonp))
+  (unless (or lispm-desktop-guide-shown noninteractive (daemonp)
+              (and (fboundp 'lispm-desktop-standalone-started-hidden-p)
+                   (lispm-desktop-standalone-started-hidden-p)))
     (let ((inhibit-message t))
       (customize-save-variable 'lispm-desktop-guide-shown t))
     (if (and (display-graphic-p) (image-type-available-p 'svg))

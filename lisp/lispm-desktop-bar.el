@@ -53,12 +53,14 @@
 (defvar lispm-bar-read-function)
 (defvar lispm-bar-show-function)
 (defvar lispm-bar-hide-function)
+(defvar lispm-bar-setup-function)
 (defvar lispm-bar-triangle-function)
 (defvar lispm-bar-ask-icon)
 (defvar lispm-bar-activity-functions)
 (defvar lispm-desktop-store-installed)
 (declare-function lispm-ai "lispm-bar" ())
 (declare-function lispm-bar-open-p "lispm-bar" ())
+(declare-function lispm-bar-setup-model "lispm-bar" ())
 (declare-function lispm-bar-expanded-p "lispm-bar" ())
 (declare-function lispm-bar-show-in-window "lispm-bar" (buffer))
 (declare-function lispm-bar-hide-window "lispm-bar" (buffer))
@@ -401,6 +403,12 @@ function."
   (list (lispm-desktop-platinum-status-title 'lispm-desktop-bar "find" nil #'lispm-desktop-bar-open
                                              (lispm-desktop-tr "Find, or ask LispM"))))
 
+(defun lispm-desktop-bar-setup-model ()
+  "Open the Agents control panel to set up a model backend."
+  (if (fboundp 'lispm-desktop-settings-show)
+      (lispm-desktop-settings-show 'lispm)
+    (lispm-bar-setup-model)))
+
 (defun lispm-desktop-setup-bar ()
   "Give the LispM bar its title in the menu bar, its field and panel under
 it, what it finds of the desktop's and its key, C-c l.  Nothing is done
@@ -411,6 +419,7 @@ without LispM Agent's bar, lispm-bar.el."
     (setq lispm-bar-read-function #'lispm-desktop-bar-read
           lispm-bar-show-function #'lispm-desktop-bar-show
           lispm-bar-hide-function #'lispm-desktop-bar-hide
+          lispm-bar-setup-function #'lispm-desktop-bar-setup-model
           lispm-bar-triangle-function #'lispm-ui-triangle
           lispm-bar-ask-icon (lambda () (lispm-ui-icon 'lambda)))
     (add-hook 'lispm-desktop-platinum-status-functions #'lispm-desktop-bar-status)

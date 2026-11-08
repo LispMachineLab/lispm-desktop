@@ -60,16 +60,22 @@
 (declare-function lispm-auth-start-apps "lispm-auth" (apps))
 (declare-function lispm-auth-store-exists-p "lispm-auth" ())
 (declare-function lispm-auth-locked-p "lispm-auth" ())
-(declare-function lispm-auth-unlock "lispm-auth" ())
+(declare-function lispm-auth-unlock "lispm-auth" (&optional mode))
+(declare-function lispm-auth-unlock-window "lispm-auth" ())
+(declare-function lispm-auth-unlock-fullscreen "lispm-auth" ())
 (declare-function lispm-auth-lock "lispm-auth" ())
 (declare-function lispm-auth-change-password "lispm-auth" (&optional new-password))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 (declare-function lispm-auth--page-logo-file "lispm-auth" ())
+(declare-function lispm-auth--page-read "lispm-auth" (prompt confirm message))
 (declare-function lispm-auth--read-password "lispm-auth" (prompt &optional confirm))
 (declare-function lispm-terminal-p "lispm-terminal" (&optional frame))
 (declare-function lispm-desktop-started-as-terminal-p "lispm-desktop-start-as" ())
 (declare-function lispm-desktop-apps-screen "lispm-desktop-apps" (&optional frame))
+(declare-function lispm-desktop-apps-hidden-p "lispm-desktop-apps" (&optional screen))
+(declare-function lispm-auth--dialog-minibuffer-window "lispm-auth" (&optional screen))
 (declare-function lispm-desktop-apps-windows "lispm-desktop-apps" (&optional screen))
+(declare-function lispm-desktop-coherence--minibuffer "lispm-desktop-coherence" (screen))
 (declare-function lispm-desktop-platinum-hide-window "lispm-desktop-platinum" (frame))
 (declare-function lispm-desktop-platinum-show-window "lispm-desktop-platinum" (frame))
 (declare-function lispm-desktop-platinum-scroll-sync "lispm-desktop-platinum-scroll" ())
@@ -244,6 +250,9 @@ non-nil when LispM Auth is loaded."
     (when (boundp 'lispm-auth-page-window-event-function)
       (setq lispm-auth-page-window-event-function
             #'lispm-desktop-auth--setup-page-event))
+    (when (fboundp 'lispm-auth--page-read)
+      (advice-add 'lispm-auth--page-read :around
+                  #'lispm-desktop-auth--around-page-read))
     (when (fboundp 'lispm-auth--page-show)
       (advice-add 'lispm-auth--page-show :around
                   #'lispm-desktop-auth--around-page-show))
@@ -262,7 +271,12 @@ non-nil when LispM Auth is loaded."
 (defun lispm-desktop-auth-started-hidden-p ()
   "Return non-nil when LispM was started with its desktop out of sight,
 as for an application opened on its own."
-  (and (member lispm-desktop-auth-hidden-switch command-line-args) t))
+  (if (and (not noninteractive)
+           (bound-and-true-p lispm-desktop--screen)
+           (frame-live-p lispm-desktop--screen)
+           (fboundp 'lispm-desktop-apps-hidden-p))
+      (lispm-desktop-apps-hidden-p lispm-desktop--screen)
+    (and (member lispm-desktop-auth-hidden-switch command-line-args) t)))
 
 (defun lispm-desktop-auth-command-line-app ()
   "Return the application key this start was given with --lispm-app, or nil."
@@ -565,6 +579,24 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
           (lispm-desktop-platinum-scroll-sync))
         (set-window-scroll-bars win 0 nil 0 nil)))))
 
+(defun lispm-desktop-auth--around-page-read (orig prompt confirm message)
+  "Open a dedicated Platinum dialog frame for password prompts when needed.
+Used when LispM is started hidden for a standalone application, when the
+desktop is out of sight, when `lispm-auth-page-windowed' is non-nil, or
+when the selected frame is a floating Platinum application window."
+  (if (and (not noninteractive)
+           (display-graphic-p)
+           (not (bound-and-true-p lispm-auth--force-fullscreen))
+           (not (frame-parameter (selected-frame) 'lispm-auth-dialog))
+           (not (frame-parameter (selected-frame) 'lispm-desktop-auth-dialog))
+           (or lispm-auth-page-windowed
+               (lispm-desktop-auth-started-hidden-p)
+               (frame-parameter (selected-frame) 'lispm-desktop-hidden)
+               (frame-parameter (selected-frame) 'lispm-desktop-window)))
+      (lispm-desktop-auth--call-in-dialog
+       (lambda () (funcall orig prompt confirm message)))
+    (funcall orig prompt confirm message)))
+
 (defun lispm-desktop-auth--around-page-show (orig page)
   "Ensure the window and frame are prepared before showing PAGE."
   (let* ((frame (selected-frame))
@@ -637,7 +669,7 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
             (raise-frame frame)
             (select-frame-set-input-focus frame))
           (lispm-desktop-auth--hide-page-cursor page)
-          (when (and windowed (frame-live-p frame) (display-graphic-p frame))
+          (when (and (or windowed was-invisible) (frame-live-p frame) (display-graphic-p frame))
             (add-hook 'kill-buffer-hook
                       (lambda ()
                         (when (and (frame-live-p frame) (not (frame-parent frame)))
@@ -647,7 +679,9 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
                                         (face-attribute 'default :background nil 'default))))
                             (when (stringp bg)
                               (set-frame-parameter frame 'background-color bg)))
-                          (set-face-background 'fringe (or saved-fringe 'unspecified) frame)))
+                          (set-face-background 'fringe (or saved-fringe 'unspecified) frame)
+                          (when was-invisible
+                            (ignore-errors (make-frame-invisible frame t)))))
                       nil t)))))))
 
 (defun lispm-desktop-auth--scroll-bar (buffer)
@@ -682,7 +716,9 @@ This is `lispm-auth-page-window-draw-function'."
   (let* ((frame (plist-get page :frame))
          (window (get-buffer-window (current-buffer) t))
          (palette (lispm-desktop-auth--setup-page-palette))
-         (child-p (and (framep frame) (frame-parent frame)))
+         (child-p (and (framep frame)
+                       (or (frame-parent frame)
+                           (frame-parameter frame 'lispm-desktop-auth-dialog))))
          (bg (if child-p
                  (lispm-ui-grey palette #xDD)
                (or (plist-get palette :desktop) "#6E6E6E"))))
@@ -891,7 +927,9 @@ define them again, over any a caller has put in their place."
 
 (defun lispm-desktop-auth--call-in-dialog (function)
   "Call FUNCTION in a temporary child frame over the desktop when possible."
+  (lispm-desktop-auth--clear-echo)
   (let ((echo-keystrokes 0)
+        (inhibit-message t)
         (lispm-desktop-console--quiet t)
         (lispm-auth-page-windowed t))
     (lispm-desktop-auth--call-in-dialog-1 function)))
@@ -905,20 +943,27 @@ define them again, over any a caller has put in their place."
       (funcall function)
     (let* ((previous (selected-frame))
            (screen (lispm-desktop-apps-screen))
-           (width (min lispm-desktop-auth-setup-page-width
-                       (frame-pixel-width screen)))
-           (height (min lispm-desktop-auth-setup-page-height
-                        (frame-pixel-height screen)))
+           (parent (and (not (lispm-desktop-auth-started-hidden-p))
+                        (or (not (framep screen))
+                            (and (frame-live-p screen) (frame-visible-p screen)))
+                        screen))
+           (screen-w (if parent (frame-pixel-width screen) (display-pixel-width)))
+           (screen-h (if parent (frame-pixel-height screen) (display-pixel-height)))
+           (width (min lispm-desktop-auth-setup-page-width screen-w))
+           (height (min lispm-desktop-auth-setup-page-height screen-h))
            (palette (lispm-desktop-auth--setup-page-palette))
            (after-make-frame-functions nil)
            (before-make-frame-hook nil)
-           (frame (make-frame `((parent-frame . ,screen)
-                                (minibuffer . nil)
+           (frame (make-frame `((parent-frame . ,parent)
+                                (lispm-desktop-auth-dialog . t)
+                                (minibuffer . ,(when (and (not parent)
+                                                          (fboundp 'lispm-auth--dialog-minibuffer-window))
+                                                 (lispm-auth--dialog-minibuffer-window screen)))
                                 (undecorated . t)
                                 (visibility . nil)
                                 (no-accept-focus . nil)
-                                (left . ,(max 0 (/ (- (frame-pixel-width screen) width) 2)))
-                                (top . ,(max 0 (/ (- (frame-pixel-height screen) height) 2)))
+                                (left . ,(max 0 (/ (- screen-w width) 2)))
+                                (top . ,(max 0 (/ (- screen-h height) 2)))
                                 (width . (text-pixels . ,width))
                                 (height . (text-pixels . ,height))
                                 (background-color . ,(lispm-ui-grey palette #xDD))
@@ -947,10 +992,20 @@ define them again, over any a caller has put in their place."
             (when (fboundp 'lispm-ui-popup-set-size)
               (lispm-ui-popup-set-size frame width height))
             (make-frame-visible frame)
+            (when (and (not parent) (framep screen) (frame-live-p screen) (frame-visible-p screen))
+              (ignore-errors (make-frame-invisible screen t)))
             (select-frame-set-input-focus frame)
             (with-selected-frame frame (funcall function)))
-        (when (frame-live-p frame) (delete-frame frame t))
-        (when (frame-live-p previous) (select-frame-set-input-focus previous))))))
+        (when (frame-live-p frame)
+          (ignore-errors (make-frame-invisible frame t))
+          (delete-frame frame t))
+        (when (and (not parent) (framep screen) (frame-live-p screen) (frame-visible-p screen))
+          (ignore-errors (make-frame-invisible screen t)))
+        (when (frame-live-p previous)
+          (if (and (not (lispm-desktop-auth-started-hidden-p))
+                   (or (not (framep previous)) (frame-visible-p previous)))
+              (select-frame-set-input-focus previous)
+            (select-frame previous 'norecord)))))))
 
 (defun lispm-desktop-auth-change-password ()
   "Change LispM's password using Auth's password reader.
@@ -1016,7 +1071,9 @@ Hide the desktop's visible application windows during authentication."
             (select-frame-set-input-focus screen)
             (while (lispm-auth-locked-p)
               (condition-case nil
-                  (lispm-auth-unlock)
+                  (if (fboundp 'lispm-auth-unlock-fullscreen)
+                      (lispm-auth-unlock-fullscreen)
+                    (lispm-auth-unlock))
                 (quit nil)
                 (user-error nil))))
         ;; Never reveal the application windows after a failed unlock.

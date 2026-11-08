@@ -562,7 +562,11 @@ a soul, a picture, a memory and a past of its own, whom you and every agent reac
             ((,(lispm-desktop-tr-noop "New Character…") lispm-desktop-characters-new))))
   ;; A character's window shows its conversation, wrapped at words as
   ;; LispM's chat wraps it, not cut off as an application's lines are.
-  (lispm-desktop-app-ui-define 'lispm-chat-mode :setup #'lispm-desktop-characters--wrap))
+  (lispm-desktop-app-ui-define
+   'lispm-chat-mode
+   :setup #'lispm-desktop-characters--wrap
+   :buttons #'lispm-desktop-lispm-chat-buttons
+   :status #'lispm-desktop-lispm-chat-status))
 
 (defun lispm-desktop-characters--wrap ()
   "Wrap the lines of the conversation in this buffer at words, as LispM's

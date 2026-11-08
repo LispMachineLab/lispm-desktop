@@ -406,7 +406,9 @@ be framed, see `lispm-desktop-platinum-frame-window'."
     (unless (eq outer frame)
       (lispm-desktop-platinum-frame-update frame)
       (make-frame-visible outer))
-    (make-frame-visible frame)))
+    (make-frame-visible frame)
+    (unless (eq outer frame)
+      (lispm-desktop-platinum-frame-update frame))))
 
 (defun lispm-desktop-platinum-hide-window (frame)
   "Hide floating window FRAME, and its frame with it."

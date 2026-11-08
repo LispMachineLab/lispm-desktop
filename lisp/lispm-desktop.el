@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.23.0
+;; Version: 0.23.1
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -314,9 +314,13 @@ boxes.  A download that fails, as offline, is only reported."
             (lispm-desktop-tr "LispM's agents are not set up: %s"
                               (error-message-string err)))))
   ;; After LispM's own, whose backends the first opening moves into the store.
+  ;; When started hidden for a standalone application, defer password prompts
+  ;; until `window-setup-hook' (`lispm-desktop-standalone--hide-at-start') so
+  ;; `redisplay' during `init.el' never maps the hidden desktop frame.
   (lispm-desktop-assistant-progress 3 4 "Preparing password protection")
   (when (lispm-desktop-auth-prepare)
-    (lispm-desktop-auth-setup))
+    (unless (lispm-desktop-auth-started-hidden-p)
+      (lispm-desktop-auth-setup)))
   (lispm-agents-setup-claude)
   (lispm-agents-setup-codex)
   ;; After the agents, whose sessions it reads; off unless asked for.

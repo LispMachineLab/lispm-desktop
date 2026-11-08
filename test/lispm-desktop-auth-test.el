@@ -251,9 +251,9 @@ it puts the terminal on the frame."
 
 (ert-deftest lispm-desktop-auth-test-pinned-client-release ()
   (require 'lispm-desktop-deps)
-  (should (equal lispm-desktop-deps-auth-version "0.2.6"))
+  (should (equal lispm-desktop-deps-auth-version "0.2.7"))
   (should (equal lispm-desktop-deps-auth-sha256
-                 "b39295ff84ffd1619b4a2793e3df47a535063bb3a7d6ed8d920c8a2f00a22eff")))
+                 "3132efda17feea2d5433bcf30e9ad63f91d3acb01100da8b60bba9d6565f4a53")))
 
 (ert-deftest lispm-desktop-auth-test-service-is-installed-automatically ()
   (require 'lispm-auth)

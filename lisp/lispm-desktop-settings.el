@@ -163,6 +163,8 @@
 (declare-function lispm-backend-remove "lispm-settings" (name &optional save))
 (declare-function lispm-backend-api-name "lispm-settings" (api))
 (declare-function lispm-backend-form "lispm-backend-form" (&optional name))
+(declare-function lispm-model-setup-form "lispm-backend-form" ())
+(defvar lispm-backend-form-show-function)
 (declare-function lispm-auth-app-requires-password-p "lispm-auth" (app))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 (declare-function lispm-auth-locked-p "lispm-auth" ())
@@ -494,7 +496,9 @@ indent of a row of settings."
 
 (defun lispm-desktop-settings--save (variable value)
   "Set VARIABLE to VALUE now and for every later start."
-  (customize-save-variable variable value))
+  (let ((inhibit-message t)
+        (save-silently t))
+    (customize-save-variable variable value)))
 
 ;;;; Panels
 
@@ -787,19 +791,28 @@ models of each backend, a separator between backends, then Other Model…."
                   items)))))
     (when items
       (push 'separator items))
-    (push (list :label (lispm-desktop-tr "Other Model…") :enabled (and (assq backend lispm-backends) t)
+    (push (list :label (lispm-desktop-tr "Other Model…")
+                :enabled (or (fboundp 'lispm-model-setup-form)
+                             (fboundp 'lispm-backend-form)
+                             (and (assq backend lispm-backends) t))
                 :action #'lispm-desktop-settings--other-model)
           items)
     (nreverse items)))
 
 (defun lispm-desktop-settings--other-model ()
-  "Ask for a model of the backend LispM's agents use, by its name, and have
-them use it, now and at later starts."
-  (let* ((status (lispm-model-status))
-         (backend (plist-get status :backend))
-         (model (string-trim (read-string (lispm-desktop-tr "Model of %s: " backend) (plist-get status :model)))))
-    (unless (string-empty-p model)
-      (lispm-set-model backend model t))))
+  "Open the model setup form to choose or enter another model."
+  (interactive)
+  (cond
+   ((and (not noninteractive) (fboundp 'lispm-model-setup-form))
+    (lispm-desktop-settings--show-backend-form (lispm-model-setup-form)))
+   ((and (not noninteractive) (fboundp 'lispm-backend-form))
+    (lispm-desktop-settings--edit-backend))
+   (t
+    (let* ((status (lispm-model-status))
+           (backend (plist-get status :backend))
+           (model (string-trim (read-string (lispm-desktop-tr "Model of %s: " backend) (plist-get status :model)))))
+      (unless (string-empty-p model)
+        (lispm-set-model backend model t))))))
 
 (defun lispm-desktop-settings--popup-under-button (items)
   "Pop up the menu of ITEMS under the push button pressed."
@@ -865,6 +878,27 @@ speaks, its address and its other models."
       (lispm-desktop-settings--show-backend-form (lispm-backend-form name))
     (lispm-desktop-settings--add-backend)))
 
+(defun lispm-desktop-settings--set-backend-key ()
+  "Open a backend's form to set its API key.
+When a backend is chosen, open its form; when none is chosen yet,
+offer the backends of `lispm-backends'."
+  (interactive)
+  (cond ((lispm-backend-name)
+         (lispm-desktop-settings--show-backend-form (lispm-backend-form (lispm-backend-name))))
+        ((null lispm-backends)
+         (lispm-desktop-settings--add-backend))
+        ((null (cdr lispm-backends))
+         (lispm-desktop-settings--show-backend-form (lispm-backend-form (caar lispm-backends))))
+        (t
+         (lispm-desktop-settings--popup-under-button
+          (mapcar (pcase-lambda (`(,name . ,props))
+                    (let ((model (plist-get props :model)))
+                      (list :label (if model (format "%s (%s)" name model) (symbol-name name))
+                            :action (lambda ()
+                                      (lispm-desktop-settings--show-backend-form
+                                       (lispm-backend-form name))))))
+                  lispm-backends)))))
+
 (defun lispm-desktop-settings--remove-backend ()
   "Remove the backend agents that name no model use, once you agree."
   (interactive)
@@ -895,6 +929,12 @@ about it."
     ;; remove it.
     (insert "\n" (lispm-desktop-settings--indent))
     (when (fboundp 'lispm-backend-form)
+      (when (or (and (null backend) lispm-backends)
+                (and backend (memq (plist-get status :state) '(no-key unchecked))))
+        (lispm-desktop-settings--button (lispm-desktop-tr "Set Key…")
+                                        #'lispm-desktop-settings--set-backend-key
+                                        (lispm-desktop-tr "Set the API key of a model backend"))
+        (insert " "))
       (when backend
         (lispm-desktop-settings--button (lispm-desktop-tr "Change…")
                                         #'lispm-desktop-settings--edit-backend
@@ -1007,10 +1047,30 @@ the models of the backend agents use, and Other Model…."
    (list 'separator
          (list :label (lispm-desktop-tr "Other Model…") :action #'lispm-desktop-settings--other-memory-model))))
 
+(defun lispm-desktop-settings--memory-model-form ()
+  "Make the form that sets the model consolidating long-term memory."
+  (let ((buffer
+         (lispm-ui-form
+          (lispm-desktop-tr "Memory Model")
+          `((model :type text :label ,(lispm-desktop-tr "Model")
+                   :value ,(or lispm-memory-model "")
+                   :help ,(lispm-desktop-tr "The model that consolidates long-term memory; leave empty to use each agent's own model.")))
+          :submit (lispm-desktop-tr "Save")
+          :cancel (lispm-desktop-tr "Cancel")
+          :on-submit (lambda (values)
+                       (let ((model (string-trim (or (alist-get 'model values) ""))))
+                         (lispm-set-memory-model (unless (string-empty-p model) model) t))))))
+    (with-current-buffer buffer
+      (when-let* ((widget (alist-get 'model (lispm-ui-form-widgets buffer))))
+        (goto-char (or (widget-field-start widget) (widget-get widget :from)))))
+    buffer))
+
 (defun lispm-desktop-settings--other-memory-model ()
-  "Ask for the model that consolidates memory, by its name, and use it,
-now and at later starts; an empty name is each agent's own."
-  (lispm-set-memory-model (read-string (lispm-desktop-tr "Model consolidating memory: ") lispm-memory-model) t))
+  "Open the form to set the model that consolidates memory."
+  (interactive)
+  (if (and (not noninteractive) (fboundp 'lispm-ui-form))
+      (lispm-desktop-settings--show-backend-form (lispm-desktop-settings--memory-model-form))
+    (lispm-set-memory-model (read-string (lispm-desktop-tr "Model consolidating memory: ") lispm-memory-model) t)))
 
 (defun lispm-desktop-settings--choose-memory-model ()
   "Pop up the models that may consolidate memory under the button pressed."
@@ -2308,6 +2368,7 @@ one."
   (add-hook 'lispm-kernel-program-obtained-functions
             (lambda (&rest _) (lispm-desktop-settings--render)))
   ;; LispM Agent's, which may be loaded later, or never.
+  (setq lispm-backend-form-show-function #'lispm-desktop-settings--show-backend-form)
   (add-hook 'lispm-sandbox-change-hook #'lispm-desktop-settings--render)
   (add-hook 'lispm-settings-change-hook #'lispm-desktop-settings--render))
 

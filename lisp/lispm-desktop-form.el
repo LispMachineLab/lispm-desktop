@@ -73,11 +73,17 @@ gives them.  Where no menu can be drawn, the form's own way is taken."
   "The size of the window of FORM, a form's buffer: as wide as its group
 boxes, as tall as all of it, as far as the screen allows."
   (let* ((outer (or (plist-get (lispm-ui-form-geometry form) :outer) 480))
-         (height (cdr (buffer-text-pixel-size form)))
-         (screen (lispm-desktop-apps-screen)))
-    (cons (+ outer (lispm-desktop-px 40))
-          (min (+ height (lispm-desktop-px 24))
-               (- (frame-pixel-height screen) (lispm-desktop-px 120))))))
+         (height (with-current-buffer form
+                   (let ((truncate-lines t))
+                     (cdr (buffer-text-pixel-size form (get-buffer-window form t))))))
+         (screen (lispm-desktop-apps-screen))
+         (max-height (if (and (frame-live-p screen) (lispm-desktop-apps-hidden-p screen))
+                         (- (nth 3 (lispm-desktop-apps--workarea screen))
+                            (lispm-desktop-px 120))
+                       (- (frame-pixel-height screen) (lispm-desktop-px 120)))))
+    (cons (max (lispm-desktop-px 500) (+ outer (lispm-desktop-px 40)))
+          (min (max (lispm-desktop-px 340) (+ height (lispm-desktop-px 36)))
+               max-height))))
 
 (defun lispm-desktop-form-window-closed (kind variable)
   "Close the window of kind KIND once no form it holds is left.
@@ -92,12 +98,26 @@ VARIABLE is non-nil in the buffer of each form KIND's window shows."
   "Show FORM, a form's buffer, in the window of kind KIND: one at a time.
 VARIABLE, made non-nil in FORM, marks it as a form KIND's window shows
 until it dies, when the window closes."
+  (dolist (buffer (buffer-list))
+    (when (and (not (eq buffer form))
+               (buffer-live-p buffer)
+               (eq (buffer-local-value 'major-mode buffer) 'lispm-ui-form-mode)
+               (buffer-local-value variable buffer))
+      (with-current-buffer buffer
+        (set (make-local-variable variable) nil))
+      (kill-buffer buffer)))
   (when (lispm-desktop-app-window-open-p kind)
     (lispm-desktop-app-window-close kind))
   (with-current-buffer form
+    (when-let* ((title (lispm-ui-form-title form))
+                (base (format "*%s*" title)))
+      (unless (equal (buffer-name form) base)
+        (rename-buffer base t)))
     (set (make-local-variable variable) t)
     (add-hook 'kill-buffer-hook
-              (lambda () (run-at-time 0 nil #'lispm-desktop-form-window-closed kind variable))
+              (lambda ()
+                (set (make-local-variable variable) nil)
+                (lispm-desktop-form-window-closed kind variable))
               nil t))
   (pcase-let* ((`(,width . ,height) (lispm-desktop-form-window-size form))
                (frame (lispm-desktop-app-window-show
@@ -129,10 +149,26 @@ narrower than Emacs's own, so its fields widen."
   (setq-local truncate-lines nil
               word-wrap t))
 
+(defun lispm-desktop-form--fit ()
+  "Size the floating window showing this form to the form's current size."
+  (let ((buffer (current-buffer)))
+    (dolist (window (get-buffer-window-list buffer 'never t))
+      (let ((frame (window-frame window)))
+        (when (and (frame-live-p frame)
+                   (frame-parameter frame 'lispm-desktop-window)
+                   (null (cdr (window-list frame 'never)))
+                   (not (lispm-desktop-app-window-rolled-p frame)))
+          (pcase-let ((`(,width . ,height) (lispm-desktop-form-window-size buffer)))
+            (unless (and (= width (frame-text-width frame)) (= height (frame-text-height frame)))
+              (set-frame-size frame width height t)
+              (lispm-desktop-platinum-frame-update frame)
+              (lispm-desktop-apps-keep-on-desktop frame))))))))
+
 (defun lispm-desktop-form-setup ()
   "Show LispM UI's forms in the desktop's windows and language."
   (setq lispm-ui-form-choose-function #'lispm-desktop-form-choose)
   (add-hook 'lispm-ui-form-mode-hook #'lispm-desktop-form--layout)
+  (add-hook 'lispm-ui-form-drawn-hook #'lispm-desktop-form--fit)
   ;; Before LispM's agent's, which follows the desktop's too.
   (add-hook 'lispm-ui-language-functions #'lispm-desktop-current-language -50)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-ui-language-changed)

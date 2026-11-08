@@ -89,11 +89,11 @@ while LispM Kit, which translates them, is being installed."
                :needs "lispm-kit-i18n")
     (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
               ;; Its palette, drawing, icons, alerts, menus and fields.
-              :version "0.7.0")
+              :version "0.7.1")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.
-           :needs "lispm-agents-work" :version "0.15.0")
+           :needs "lispm-agents-work" :version "0.17.1")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"
@@ -808,11 +808,11 @@ else is an error saying what to update."
           (setq lispm-desktop-deps--refreshed
                 (cons settings (copy-tree package-archive-contents))))))))
 
-(defconst lispm-desktop-deps-auth-version "0.2.6")
+(defconst lispm-desktop-deps-auth-version "0.2.7")
 (defconst lispm-desktop-deps-auth-sha256
-  "b39295ff84ffd1619b4a2793e3df47a535063bb3a7d6ed8d920c8a2f00a22eff")
+  "3132efda17feea2d5433bcf30e9ad63f91d3acb01100da8b60bba9d6565f4a53")
 (defconst lispm-desktop-deps-auth-source-sha256
-  "44f0f1d5aea17ef8193e42ca0685dbded499e5d182f4cae2dea51ea7eff1a364")
+  "871a57d1b00f7df41f9a569579a824b59659a9549740b5226ab521bb36a0cd00")
 
 (defun lispm-desktop-deps--notify-progress (installer-status &optional assistant-status)
   "Ensure a visible progress UI when an installation or update begins."

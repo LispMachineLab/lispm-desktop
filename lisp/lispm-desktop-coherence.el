@@ -196,6 +196,7 @@ computer's screen as Spotlight's field, and hides again once done."
                         (menu-bar-lines . 0) (tool-bar-lines . 0) (tab-bar-lines . 0)
                         (internal-border-width . 6) (vertical-scroll-bars . nil)
                         (left-fringe . 0) (right-fringe . 0)
+                        (user-position . t) (left . -10000) (top . -10000)
                         (width . 90) (height . 3)))))
             (title (get-buffer-create lispm-desktop-coherence--title-buffer-name)))
         (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
@@ -297,9 +298,7 @@ This is a `minibuffer-exit-hook' function."
                (lambda ()
                  (when (zerop (minibuffer-depth))
                    (lispm-ui-field-hide-all)
-                   (dolist (entry lispm-desktop-coherence--minibuffers)
-                     (when (and (frame-live-p (cdr entry)) (frame-visible-p (cdr entry)))
-                       (make-frame-invisible (cdr entry) t)))))))
+                   (lispm-desktop-coherence--hide-minibuffer-frames)))))
 
 ;;;; Messages
 
@@ -317,34 +316,76 @@ This is a `minibuffer-exit-hook' function."
     (cancel-timer lispm-desktop-coherence--echo-timer))
   (setq lispm-desktop-coherence--echo-timer nil))
 
+(defun lispm-desktop-coherence--hide-minibuffer-frames ()
+  "Park all shared minibuffer frames off-screen and invisible when no
+interactive minibuffer read is active."
+  (when (zerop (minibuffer-depth))
+    (dolist (entry lispm-desktop-coherence--minibuffers)
+      (let ((f (cdr entry)))
+        (when (frame-live-p f)
+          (ignore-errors (set-frame-position f -10000 -10000))
+          (when (frame-visible-p f)
+            (ignore-errors (make-frame-invisible f t))))))
+    (when (and (boundp 'lispm-auth--minibuffer-frame)
+               (frame-live-p lispm-auth--minibuffer-frame))
+      (ignore-errors (set-frame-position lispm-auth--minibuffer-frame -10000 -10000))
+      (when (frame-visible-p lispm-auth--minibuffer-frame)
+        (ignore-errors (make-frame-invisible lispm-auth--minibuffer-frame t))))))
+
+(defun lispm-desktop-coherence--guard-make-frame-visible (orig &optional frame)
+  "Prevent shared minibuffer frames from becoming visible windows when no
+minibuffer prompt is active."
+  (let ((target (or frame (selected-frame))))
+    (if (and (zerop (minibuffer-depth))
+             (or (lispm-desktop-coherence--minibuffer-frame-p target)
+                 (and (boundp 'lispm-auth--minibuffer-frame)
+                      (eq target lispm-auth--minibuffer-frame))))
+        (progn
+          (ignore-errors (set-frame-position target -10000 -10000))
+          (when (frame-visible-p target)
+            (ignore-errors (make-frame-invisible target t)))
+          target)
+      (funcall orig frame))))
+
 (defun lispm-desktop-coherence--echo (message)
-  "Show MESSAGE, echoed for a window out, in the minibuffer of the
-windows out, under the window's name, or in that window's field when it
-is drawn in an application's process, for
-`lispm-desktop-coherence-echo-seconds'.  Emacs shows the frame a message
-goes to by itself; this titles it, sizes it to the message and hides it
-again.  This is one of `set-message-functions'; it lets the message be
-displayed as usual."
+  "Show MESSAGE in an application's field when drawn in an application's
+process; otherwise keep the shared Minibuffer frame hidden off-screen
+whenever no interactive minibuffer prompt is active."
   (let* ((asking (selected-frame))
          (mini (and (not (active-minibuffer-window)) (minibuffer-window asking)))
          (frame (and mini (window-frame mini))))
     (cond
      ((and frame (lispm-ui-field-p frame))
       (lispm-ui-field-echo message))
-     ((and frame
-           (lispm-desktop-apps-out-p asking)
-           (eq frame (alist-get (lispm-desktop-apps-out-p asking)
-                                lispm-desktop-coherence--minibuffers)))
-      (lispm-desktop-coherence--title-minibuffer frame asking)
-      (set-frame-height frame (+ 1 (min 5 (1+ (cl-count ?\n message)))))
+     ((not (active-minibuffer-window))
       (lispm-desktop-coherence--stop-echo)
-      (setq lispm-desktop-coherence--echo-timer
-            (run-with-timer lispm-desktop-coherence-echo-seconds nil
-                            (lambda ()
-                              (setq lispm-desktop-coherence--echo-timer nil)
-                              (when (and (frame-live-p frame) (not (active-minibuffer-window)))
-                                (make-frame-invisible frame t)))))))
-    nil))
+      (lispm-desktop-coherence--hide-minibuffer-frames)
+      (run-at-time 0 nil #'lispm-desktop-coherence--hide-minibuffer-frames)
+      (when (or (and frame (lispm-desktop-coherence--minibuffer-frame-p frame))
+                (and (boundp 'lispm-auth--minibuffer-frame)
+                     (eq frame lispm-auth--minibuffer-frame))
+                (lispm-desktop-apps-out-p asking))
+        'inhibit-message)))))
+
+(defun lispm-desktop-coherence--quiet-message (msg-fn format-string &rest args)
+  "Prevent `(message ...)' from popping up the external Minibuffer frame when
+no interactive minibuffer prompt is active, while still logging to *Messages*."
+  (if (or (null format-string) (equal format-string ""))
+      (prog1 (apply msg-fn format-string args)
+        (lispm-desktop-coherence--stop-echo)
+        (lispm-desktop-coherence--hide-minibuffer-frames))
+    (let* ((asking (selected-frame))
+           (mini (and (zerop (minibuffer-depth)) (minibuffer-window asking)))
+           (mframe (and mini (window-frame mini)))
+           (external-mini-p (and (zerop (minibuffer-depth))
+                                 (or (lispm-desktop-apps-out-p asking)
+                                     (and mframe (lispm-desktop-coherence--minibuffer-frame-p mframe))
+                                     (and (boundp 'lispm-auth--minibuffer-frame)
+                                          (eq mframe lispm-auth--minibuffer-frame)))))
+           (inhibit-message (or inhibit-message external-mini-p)))
+      (prog1 (apply msg-fn format-string args)
+        (when external-mini-p
+          (lispm-desktop-coherence--hide-minibuffer-frames))))))
 
 (defun lispm-desktop-coherence--quiet-selection (set-region click)
   "Select as SET-REGION does for CLICK, a double or triple click or a drag,
@@ -357,6 +398,13 @@ around `mouse-set-region'."
          (frame (if (windowp window) (window-frame window) (selected-frame)))
          (inhibit-message (or inhibit-message (and (lispm-desktop-apps-out-p frame) t))))
     (funcall set-region click)))
+
+(defun lispm-desktop-coherence--quiet-custom-save (save-all &rest args)
+  "Save Customize settings quietly so \"Wrote custom.el\" does not show
+the minibuffer frame over the screen."
+  (let ((inhibit-message t)
+        (save-silently t))
+    (apply save-all args)))
 
 ;;;; Out and in
 
@@ -597,8 +645,12 @@ front then comes in front."
   (add-hook 'lispm-desktop-platinum-frame-moved-functions #'lispm-desktop-coherence--dropped -50)
   (add-hook 'minibuffer-setup-hook #'lispm-desktop-coherence--place-minibuffer 90)
   (add-hook 'minibuffer-exit-hook #'lispm-desktop-coherence--hide-minibuffer)
+  (add-hook 'post-command-hook #'lispm-desktop-coherence--hide-minibuffer-frames)
   (add-hook 'set-message-functions #'lispm-desktop-coherence--echo)
+  (advice-add 'make-frame-visible :around #'lispm-desktop-coherence--guard-make-frame-visible)
   (advice-add 'mouse-set-region :around #'lispm-desktop-coherence--quiet-selection)
+  (advice-add 'custom-save-all :around #'lispm-desktop-coherence--quiet-custom-save)
+  (advice-add 'message :around #'lispm-desktop-coherence--quiet-message)
   ;; Hide Desktop and Show Desktop, from the keyboard.
   (keymap-global-set "C-c h" #'lispm-desktop-toggle-desktop))
 

@@ -324,7 +324,12 @@ there, unless it opened over the desktop shown: then the desktop takes
 it, and the process leaves."
   (interactive "e")
   (let* ((client (nth 1 event))
-         (app (process-get client :app)))
+         (raw-app (process-get client :app))
+         (app (if (memq raw-app (or (bound-and-true-p lispm-desktop-auth-lispm-apps)
+                                    '(lispm lispm-agent agent)))
+                  'lispm
+                raw-app)))
+    (process-put client :app app)
     (cond ((not (memq app (lispm-desktop-standalone-apps)))
            (message (lispm-desktop-tr "LispM has no application %s to open") app)
            (lispm-desktop-display--send client :op "bye"))
@@ -625,9 +630,16 @@ process starting: that process comes in front instead, LispM staying out
 of sight and out of the Dock.  This is around `x-focus-frame'."
   (let* ((app (and (frame-live-p frame) (frame-parameter frame 'lispm-desktop-app)))
          (client (or (lispm-desktop-display--client-of frame)
-                     lispm-desktop-display--opening
+                     (and lispm-desktop-display--opening
+                          (eq app (process-get lispm-desktop-display--opening :app))
+                          (or (null (process-get lispm-desktop-display--opening :frame))
+                              (eq (process-get lispm-desktop-display--opening :frame) frame))
+                          lispm-desktop-display--opening)
                      ;; Shown a moment after it opened.
-                     (and app (seq-find (lambda (client) (eq (process-get client :app) app))
+                     (and app (seq-find (lambda (client)
+                                          (and (eq (process-get client :app) app)
+                                               (or (null (process-get client :frame))
+                                                   (eq (process-get client :frame) frame))))
                                         lispm-desktop-display--clients)))))
     (cond (client
            (select-frame frame 'norecord)

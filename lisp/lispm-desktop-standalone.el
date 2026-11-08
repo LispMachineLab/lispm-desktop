@@ -81,8 +81,10 @@
 (require 'lispm-exec)
 
 (declare-function lispm-browser-available-p "lispm-browser" ())
+(declare-function lispm-desktop-auth-command-line-app "lispm-desktop-auth" ())
 (declare-function lispm-desktop-console-error "lispm-desktop-console"
                   (source message &optional details))
+(defvar lispm-desktop-auth-lispm-apps)
 (defvar lispm-desktop-first-start)
 
 (defgroup lispm-desktop-standalone nil
@@ -156,6 +158,15 @@ for an application opened on its own."
                    (lispm-desktop-coherence-out-of-sight-p frame)))
             (frame-list)))
 
+(defun lispm-desktop-standalone--command-line-app ()
+  "Return the application key `--lispm-app' named on the command line, or nil."
+  (when-let* ((app (and (fboundp 'lispm-desktop-auth-command-line-app)
+                        (lispm-desktop-auth-command-line-app))))
+    (if (memq app (or (bound-and-true-p lispm-desktop-auth-lispm-apps)
+                      '(lispm lispm-agent agent)))
+        'lispm
+      app)))
+
 (defun lispm-desktop-standalone--hide-at-start ()
   "Put the desktop out of sight as LispM starts so, and listen for the
 application that started it at once; but show the desktop where windows
@@ -168,8 +179,21 @@ This is a `window-setup-hook' function."
           (make-frame-visible screen)
         (lispm-desktop-coherence-put-out-of-sight screen)
         (lispm-desktop-display-start)
-        ;; The application that started LispM has its own tile already.
-        (lispm-desktop-standalone--dock-show 'none)))))
+        (if-let* ((app (and (not (and (lispm-desktop-display-backend-p)
+                                      (bound-and-true-p lispm-desktop-display--clients)))
+                            (lispm-desktop-standalone--command-line-app))))
+            (progn
+              (lispm-desktop-apps-activate app)
+              (lispm-desktop-standalone--dock-update)
+              (when (and (not (eq app 'lispm))
+                         (fboundp 'lispm-auth-store-exists-p)
+                         (lispm-auth-store-exists-p)
+                         (fboundp 'lispm-desktop-auth-prepare)
+                         (fboundp 'lispm-desktop-auth-setup)
+                         (lispm-desktop-auth-prepare))
+                (lispm-desktop-auth-setup)))
+          ;; The application that started LispM has its own tile already.
+          (lispm-desktop-standalone--dock-show 'none))))))
 
 ;;;; Opening an application
 
@@ -206,10 +230,18 @@ sight or in the Dock, LispM's own."
                                         (not (lispm-desktop-standalone--launching-p
                                               (frame-parameter frame 'lispm-desktop-app)))))
                                  (lispm-desktop-apps-windows screen))))
-        (let ((front (lispm-desktop-apps-frontmost)))
-          (if (seq-some (lambda (frame) (eq (frame-parameter frame 'lispm-desktop-app) front)) shown)
-              front
-            (or (frame-parameter (car shown) 'lispm-desktop-app) 'desktop)))
+        (let ((front (lispm-desktop-apps-frontmost))
+              (cli-app (lispm-desktop-standalone--command-line-app)))
+          (cond ((and (seq-some (lambda (frame) (eq (frame-parameter frame 'lispm-desktop-app) front)) shown)
+                      (or (not cli-app)
+                          (eq front cli-app)
+                          (memq front (lispm-desktop-standalone-apps))))
+                 front)
+                ((and cli-app
+                      (seq-some (lambda (frame) (eq (frame-parameter frame 'lispm-desktop-app) cli-app)) shown))
+                 cli-app)
+                (t
+                 (or (frame-parameter (car shown) 'lispm-desktop-app) 'desktop))))
       'none)))
 
 (defvar lispm-desktop-standalone--launched nil
@@ -219,6 +251,9 @@ sight or in the Dock, LispM's own."
   "Return non-nil when APP's windows shown out of sight are drawn in its own
 process: its application of the computer's own is made."
   (and (lispm-desktop-standalone--screen)
+       (or (and (lispm-desktop-display-backend-p)
+                (bound-and-true-p lispm-desktop-display--clients))
+           (null (lispm-desktop-standalone--command-line-app)))
        (memq app (lispm-desktop-standalone-apps))
        (file-directory-p (lispm-desktop-standalone-bundle app))))
 
