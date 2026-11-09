@@ -31,6 +31,11 @@
 (require 'lispm-desktop-deps)
 (require 'lispm-desktop-auth)
 (defvar lispm-auth-password-function)
+(defvar lispm-auth-page-windowed)
+(defvar lispm--auth-started)
+(defvar lispm-desktop--set-up)
+(defvar lispm-desktop-setup--in-progress)
+(defvar lispm-desktop--screen)
 
 (defun lispm-desktop-auth-test--skip-unless-lispm-auth ()
   "Skip unless LispM Auth is on `load-path', without loading it.
@@ -50,12 +55,14 @@ Loading it here would change what the panels of other tests show."
 (ert-deftest lispm-desktop-auth-test-setup-hands-it-the-apps ()
   "The desktop starts with the applications it starts, the desktop first."
   (lispm-desktop-auth-test--skip-unless-lispm-auth)
-  (let (started)
+  (let ((lispm--auth-started nil)
+        started)
     (cl-letf (((symbol-function 'lispm-desktop-auth-ensure) (lambda () t))
               ((symbol-function 'lispm-auth-start-apps)
                (lambda (apps) (setq started apps) t)))
       (lispm-desktop-auth-setup)
       (should (equal started '(desktop)))
+      (should lispm--auth-started)
       (setq started nil)
       (lispm-desktop-auth-setup '(terminal))
       (should (equal started '(terminal))))))
@@ -632,6 +639,43 @@ setup progress window; Focus Mode uses y-or-n-p; setup buffers omit scroll bars.
       (unwind-protect
           (should (eq 'no (lispm-desktop-assistant--scroll-bar buf)))
         (kill-buffer buf)))))
+
+(ert-deftest lispm-desktop-auth-test-apps-and-around-page-read-modes ()
+  "Verify Solo App explicit app lists, Desktop on-demand dialog, Focus Mode, and TUI."
+  ;; 1. Solo App (--lispm-hidden): explicit GIVEN is respected when no --lispm-app is set
+  (let ((command-line-args '("emacs" "--lispm-hidden")))
+    (should-not (lispm-desktop-auth--apps nil))
+    (should (equal (lispm-desktop-auth--apps '(lispm)) '(lispm))))
+  ;; 2. Focus Mode never opens a floating dialog in `lispm-desktop-auth--around-page-read'
+  (let ((noninteractive nil)
+        (lispm-auth-page-windowed t)
+        (dialog-called nil))
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+              ((symbol-function 'lispm-desktop-started-as-terminal-p) (lambda () t))
+              ((symbol-function 'lispm-desktop-auth--call-in-dialog)
+               (lambda (fn) (setq dialog-called t) (funcall fn))))
+      (should (equal "pw"
+                     (lispm-desktop-auth--around-page-read
+                      (lambda (&rest _) "pw") "Prompt: " nil nil)))
+      (should-not dialog-called)))
+  ;; 3. Desktop Mode after setup opens a floating dialog even on the main screen frame
+  (let ((noninteractive nil)
+        (lispm-auth-page-windowed nil)
+        (lispm-desktop-auth-started-hidden nil)
+        (lispm-desktop--set-up t)
+        (lispm-desktop-setup--in-progress nil)
+        (lispm-desktop--screen (selected-frame))
+        (dialog-called nil))
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+              ((symbol-function 'lispm-desktop-started-as-terminal-p) (lambda () nil))
+              ((symbol-function 'lispm-terminal-p) (lambda (&rest _) nil))
+              ((symbol-function 'frame-parameter) (lambda (&rest _) nil))
+              ((symbol-function 'lispm-desktop-auth--call-in-dialog)
+               (lambda (fn) (setq dialog-called t) (funcall fn))))
+      (should (equal "pw"
+                     (lispm-desktop-auth--around-page-read
+                      (lambda (&rest _) "pw") "Prompt: " nil nil)))
+      (should dialog-called))))
 
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

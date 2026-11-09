@@ -318,9 +318,11 @@ boxes.  A download that fails, as offline, is only reported."
   ;; until `window-setup-hook' (`lispm-desktop-standalone--hide-at-start') so
   ;; `redisplay' during `init.el' never maps the hidden desktop frame.
   (lispm-desktop-assistant-progress 3 4 "Preparing password protection")
-  (when (lispm-desktop-auth-prepare)
-    (unless (lispm-desktop-auth-started-hidden-p)
-      (lispm-desktop-auth-setup)))
+  (if (lispm-desktop-auth-prepare)
+      (unless (lispm-desktop-auth-started-hidden-p)
+        (lispm-desktop-auth-setup))
+    (when (lispm-desktop-auth-started-hidden-p)
+      (lispm-desktop-auth-ensure)))
   (lispm-agents-setup-claude)
   (lispm-agents-setup-codex)
   ;; After the agents, whose sessions it reads; off unless asked for.
