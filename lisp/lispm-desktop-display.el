@@ -80,6 +80,10 @@
 (declare-function lispm-desktop-console-error "lispm-desktop-console"
                   (source message &optional details))
 (declare-function lispm-desktop-platinum-drag-outline "lispm-desktop-platinum-frames" (frame kind))
+(declare-function lispm-desktop-auth-started-hidden-p "lispm-desktop-auth" ())
+(declare-function lispm-desktop-auth-prepare "lispm-desktop-auth" (&optional apps))
+(declare-function lispm-desktop-auth-setup "lispm-desktop-auth" (&optional apps))
+(declare-function lispm-auth-store-exists-p "lispm-auth" ())
 
 (defgroup lispm-desktop-display nil
   "LispM drawing the windows of its applications opened on their own."
@@ -338,6 +342,15 @@ it, and the process leaves."
                (progn
                  (let ((lispm-desktop-display--opening client))
                    (lispm-desktop-apps-activate app))
+                 (when (and (not (eq app 'lispm))
+                            (fboundp 'lispm-desktop-auth-started-hidden-p)
+                            (lispm-desktop-auth-started-hidden-p)
+                            (fboundp 'lispm-auth-store-exists-p)
+                            (lispm-auth-store-exists-p)
+                            (fboundp 'lispm-desktop-auth-prepare)
+                            (fboundp 'lispm-desktop-auth-setup)
+                            (lispm-desktop-auth-prepare (list app)))
+                   (lispm-desktop-auth-setup (list app)))
                  (let ((frame (lispm-desktop-display--app-frame app)))
                    (cond ((and frame (eq frame (process-get client :frame))
                                (frame-live-p frame)))

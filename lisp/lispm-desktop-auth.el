@@ -94,6 +94,7 @@
 (defvar lispm-auth-password-function)
 (defvar lispm-auth-translate-function)
 (defvar lispm--auth-started)
+(defvar lispm-desktop--screen)
 (defconst lispm-desktop-auth--directory
   (file-name-directory
    (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
@@ -309,12 +310,13 @@ function of `command-switch-alist'."
 
 (defun lispm-desktop-auth--apps (&optional given)
   "Return the applications this start asks LispM Auth about.
-An application opened on its own is the one named with --lispm-app; a
-start out of sight that names none asks about none.  Otherwise GIVEN,
-defaulting to `lispm-desktop-auth-apps'."
+An application opened on its own is GIVEN when passed explicitly, or the
+one named with --lispm-app; a start out of sight that names none asks
+about none.  Otherwise GIVEN, defaulting to `lispm-desktop-auth-apps'."
   (if (lispm-desktop-auth-started-hidden-p)
-      (when-let* ((app (lispm-desktop-auth-command-line-app)))
-        (list app))
+      (or given
+          (when-let* ((app (lispm-desktop-auth-command-line-app)))
+            (list app)))
     (or given lispm-desktop-auth-apps)))
 
 ;;;; The page that sets the password
@@ -583,17 +585,26 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
 (defun lispm-desktop-auth--around-page-read (orig prompt confirm message)
   "Open a dedicated Platinum dialog frame for password prompts when needed.
 Used when LispM is started hidden for a standalone application, when the
-desktop is out of sight, when `lispm-auth-page-windowed' is non-nil, or
-when the selected frame is a floating Platinum application window."
+desktop is out of sight, when `lispm-auth-page-windowed' is non-nil,
+when the selected frame is a floating Platinum application window, or
+when the desktop has finished setting up and prompts on demand."
   (if (and (not noninteractive)
            (display-graphic-p)
            (not (bound-and-true-p lispm-auth--force-fullscreen))
+           (not (and (fboundp 'lispm-desktop-started-as-terminal-p)
+                     (lispm-desktop-started-as-terminal-p)))
+           (not (and (fboundp 'lispm-terminal-p)
+                     (lispm-terminal-p)))
            (not (frame-parameter (selected-frame) 'lispm-auth-dialog))
            (not (frame-parameter (selected-frame) 'lispm-desktop-auth-dialog))
-           (or lispm-auth-page-windowed
+           (or (bound-and-true-p lispm-auth-page-windowed)
                (lispm-desktop-auth-started-hidden-p)
                (frame-parameter (selected-frame) 'lispm-desktop-hidden)
-               (frame-parameter (selected-frame) 'lispm-desktop-window)))
+               (frame-parameter (selected-frame) 'lispm-desktop-window)
+               (and (bound-and-true-p lispm-desktop--set-up)
+                    (not (bound-and-true-p lispm-desktop-setup--in-progress))
+                    (bound-and-true-p lispm-desktop--screen)
+                    (eq (selected-frame) lispm-desktop--screen))))
       (lispm-desktop-auth--call-in-dialog
        (lambda () (funcall orig prompt confirm message)))
     (funcall orig prompt confirm message)))
