@@ -93,6 +93,7 @@
 (defvar lispm-auth-page-windowed)
 (defvar lispm-auth-password-function)
 (defvar lispm-auth-translate-function)
+(defvar lispm--auth-started)
 (defconst lispm-desktop-auth--directory
   (file-name-directory
    (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
@@ -881,6 +882,7 @@ installation does not ask for a password."
            (lispm-desktop-auth-start-lispm))
           (t
            (when (lispm-desktop-auth-ensure)
+             (setq lispm--auth-started t)
              (let ((opened (lispm-auth-start-apps apps)))
                (when (and (not noninteractive) (not opened)
                           (or (not (fboundp 'lispm-auth-store-exists-p))
@@ -895,6 +897,7 @@ This is Focus Mode's and LispM's terminal's start, and the start out of
 sight for LispM Agent: it does not depend on the desktop's declaration,
 which Control Panels may revoke."
   (when (lispm-desktop-auth-prepare '(lispm))
+    (setq lispm--auth-started t)
     (let* ((echo-keystrokes 0)
            (lispm-desktop-console--quiet t)
            (opened (lispm-auth-start-app 'lispm)))
