@@ -598,10 +598,20 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
       (concat (make-string pad-top ?\n)
               (mapconcat (lambda (r) (concat pad-left r)) rows "\n")))))
 
+(defun lispm-desktop-assistant--root-frame (&optional frame)
+  "Return the top-level parent frame of FRAME, by default the selected frame."
+  (let ((frame (or frame (selected-frame))))
+    (while (and (frame-live-p frame) (frame-parent frame))
+      (setq frame (frame-parent frame)))
+    frame))
+
 (defun lispm-desktop-assistant--open ()
   "Fill the selected frame with the assistant's page, drawn in Platinum.
 The Platinum theme is enabled for it when no theme is active yet; setting
 LispM up afterwards loads the theme chosen."
+  (let ((root (lispm-desktop-assistant--root-frame)))
+    (when (and (frame-live-p root) (not (eq root (selected-frame))))
+      (select-frame root)))
   (unless custom-enabled-themes
     (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
     (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
@@ -650,8 +660,11 @@ LispM up afterwards loads the theme chosen."
                   scroll-margin 0))
     (let ((message-log-max nil))
       (message nil))
-    (delete-other-windows)
     (let ((window (selected-window)))
+      (set-window-dedicated-p window nil)
+      (ignore-errors (delete-other-windows window))
+      (setq window (selected-window))
+      (set-window-dedicated-p window nil)
       (set-window-buffer window buffer)
       (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)
                  (fboundp 'lispm-desktop-platinum-scroll-sync))
@@ -1024,8 +1037,11 @@ page then stays, saying LispM is being set up, until
              (not (lispm-desktop-assistant--focus-mode-p))
              (or (lispm-desktop-assistant-available-p)
                  (not (display-graphic-p))))
-    (unless (frame-visible-p (selected-frame))
-      (lispm-desktop-assistant--activate-frame (selected-frame)))
+    (let ((root (lispm-desktop-assistant--root-frame)))
+      (when (and (frame-live-p root) (not (eq root (selected-frame))))
+        (select-frame root))
+      (unless (frame-visible-p (selected-frame))
+        (lispm-desktop-assistant--activate-frame (selected-frame))))
     (unless (lispm-desktop-assistant--visible-p)
       (lispm-desktop-assistant--open)
       (setq lispm-desktop-assistant--last-page
@@ -1125,6 +1141,9 @@ page then stays, saying LispM is being set up, until
              (not (equal (terminal-name) "initial_terminal"))
              (or (bound-and-true-p lispm-desktop-setup--in-progress)
                  (not (bound-and-true-p lispm-desktop--set-up))))
+    (let ((root (lispm-desktop-assistant--root-frame)))
+      (when (and (frame-live-p root) (not (eq root (selected-frame))))
+        (select-frame root)))
     (let ((window (selected-window))
           (backdrop (get-buffer-create " *lispm-focus-backdrop*")))
       (with-current-buffer backdrop
@@ -1145,7 +1164,9 @@ page then stays, saying LispM is being set up, until
                     vertical-scroll-bar nil
                     horizontal-scroll-bar nil))
       (when (window-live-p window)
-        (delete-other-windows window)
+        (set-window-dedicated-p window nil)
+        (ignore-errors (delete-other-windows window))
+        (setq window (selected-window))
         (set-window-dedicated-p window nil)
         (set-window-buffer window backdrop)
         (set-window-scroll-bars window 0 nil 0 nil)
@@ -1163,6 +1184,9 @@ Return a cleanup function restoring the window's prior state."
     (if (or (equal (terminal-name) "initial_terminal")
             (and (not was-visible) (not in-setup)))
         #'ignore
+      (let ((root (lispm-desktop-assistant--root-frame)))
+        (when (and (frame-live-p root) (not (eq root (selected-frame))))
+          (select-frame root)))
       (unless custom-enabled-themes
         (add-to-list 'custom-theme-load-path (expand-file-name "themes/" lispm-desktop-directory))
         (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
@@ -1223,7 +1247,9 @@ Return a cleanup function restoring the window's prior state."
                        lispm-desktop-assistant--last-page)
               (lispm-desktop-assistant--show lispm-desktop-assistant--last-page nil nil))))
          (t
-          (delete-other-windows window)
+          (set-window-dedicated-p window nil)
+          (ignore-errors (delete-other-windows window))
+          (setq window (selected-window))
           (set-window-dedicated-p window nil)
           (set-window-buffer window backdrop)
           (when (and (window-parameter window 'lispm-desktop-platinum-scroll-frame)

@@ -701,9 +701,10 @@ loads any of the files changed."
                            (fboundp 'lispm-desktop-assistant--visible-p)
                            (lispm-desktop-assistant--visible-p)
                            (fboundp 'lispm-desktop-assistant-progress))
-                  (lispm-desktop-assistant-progress
-                   done total
-                   (format "Updating component: %s…" (lispm-desktop-update-title update))))
+                  (with-demoted-errors "Software Update progress UI: %S"
+                    (lispm-desktop-assistant-progress
+                     done total
+                     (format "Updating component: %s…" (lispm-desktop-update-title update)))))
                 (when (memq update desktops)
                   ;; Re-read disk, not the plan, after the dependencies have
                   ;; actually installed.  A skipped dependency cannot pass.
@@ -778,7 +779,8 @@ An update to LispM.app is installed by install.sh, once Emacs is gone."
                       (format "Install LispM updates (%s) now? " summary))))))
     (when (and (not noninteractive)
                (fboundp 'lispm-desktop-assistant-ensure-progress))
-      (lispm-desktop-assistant-ensure-progress "Installing updates…"))
+      (with-demoted-errors "Software Update progress UI: %S"
+        (lispm-desktop-assistant-ensure-progress "Installing updates…")))
     (let* ((app (lispm-desktop-update-needs-installer-p))
            (installed (lispm-desktop-update-install)))
       (when (and app (seq-some (lambda (update) (plist-get update :app)) installed))
