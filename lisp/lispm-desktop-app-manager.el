@@ -27,6 +27,8 @@
 (declare-function lispm-desktop-settings--paragraph "lispm-desktop-settings" (text))
 (declare-function lispm-desktop-settings--note "lispm-desktop-settings" (text))
 (declare-function lispm-desktop-settings--indent "lispm-desktop-settings" ())
+(declare-function lispm-desktop-settings--check-box "lispm-desktop-settings" (label on action &optional note))
+(declare-function lispm-desktop-settings--save "lispm-desktop-settings" (variable value))
 
 (defvar lispm-desktop-app-manager-field-map)
 
@@ -35,7 +37,7 @@
 (defvar-local lispm-desktop-app-manager--search ""
   "Words to match against installed items, without case.")
 (defvar-local lispm-desktop-app-manager--filter 'all
-  "Kind of installed item to show: all, app, extension or builtin.")
+  "Kind of installed item to show: all, app or extension.")
 (defvar-local lispm-desktop-app-manager--page 0
   "Zero-based page of installed items shown.")
 (defvar-local lispm-desktop-app-manager--field nil
@@ -78,21 +80,20 @@ the rest of the panel, see `lispm-desktop-app-manager--page-room'."
 
 (defun lispm-desktop-app-manager-items ()
   "Return installed applications and extensions as (ID . PROPERTIES).
-Include built-in applications and application registrations with large
-icons, but not transient windows.  Store records win over registrations;
-:managed distinguishes them from applications the Store cannot remove."
-  (let ((installed (lispm-desktop-store-installed-items)))
-    (append
-     (mapcar (pcase-lambda (`(,id . ,props))
-               (cons id (append (list :managed t) props))) installed)
-     (mapcan (pcase-lambda (`(,id . ,props))
-               (when (and (not (assq id installed))
-                          (or (memq id '(desktop editor browser store))
-                              (lispm-desktop-apps-large-icon id)))
-                 (list (cons id (append (list :name (lispm-desktop-apps-name id)
-                                              :kind 'app :managed nil)
-                                        props)))))
-             lispm-desktop-apps))))
+Include only items the App Store installed, even when a catalog no
+longer lists them or their library failed to load."
+  (mapcar (pcase-lambda (`(,id . ,props))
+            (cons id (append (list :managed t) props)))
+          (lispm-desktop-store-installed-items)))
+
+(defun lispm-desktop-app-manager-update-items ()
+  "Return installed applications and extensions with updates available
+as (ID . PROPERTIES)."
+  (let ((updates (lispm-desktop-store-updates)))
+    (seq-filter (pcase-lambda (`(,id . ,_))
+                  (or (memq id updates)
+                      (plist-get (lispm-desktop-store-installed-info id) :update-available)))
+                (lispm-desktop-app-manager-items))))
 
 (defun lispm-desktop-app-manager--matches ()
   "Return installed items matching this buffer's search and filter."
@@ -101,7 +102,6 @@ icons, but not transient windows.  Store records win over registrations;
      (pcase-lambda (`(,id . ,props))
        (and (pcase lispm-desktop-app-manager--filter
               ('all t)
-              ('builtin (not (plist-get props :managed)))
               (kind (eq kind (plist-get props :kind))))
             (let ((text (downcase (format "%s %s %s" id (plist-get props :name)
                                            (or (plist-get props :description) "")))))
@@ -415,10 +415,45 @@ An empty TEXT clears the search.  For the keyboard, see
         lispm-desktop-app-manager--selected nil)
   (lispm-desktop-app-manager-refresh))
 
+(defun lispm-desktop-app-manager--clear-field ()
+  "Clear the search field markers and overlay when the Updates tab is drawn."
+  (setq lispm-desktop-app-manager--field-start nil
+        lispm-desktop-app-manager--field-end nil
+        lispm-desktop-app-manager--field-focused nil)
+  (when (overlayp lispm-desktop-app-manager--field)
+    (delete-overlay lispm-desktop-app-manager--field))
+  (setq-local cursor-type nil
+              evil-emacs-state-cursor '(nil)
+              evil-normal-state-cursor '(nil)))
+
+(defun lispm-desktop-app-manager-update-item (id)
+  "Update the installed item ID."
+  (let ((info (and (assq id (lispm-desktop-app-manager-items))
+                   (lispm-desktop-store-installed-info id))))
+    (unless (and info (not (plist-get info :busy))
+                 (or (plist-get info :update-available)
+                     (memq id (lispm-desktop-store-updates))))
+      (user-error (lispm-desktop-tr "No update is available")))
+    (lispm-desktop-store-update id)
+    (lispm-desktop-app-manager-refresh)))
+
+(defun lispm-desktop-app-manager-update-all ()
+  "Update every installed item that has an update available."
+  (interactive)
+  (let ((ids (seq-filter (lambda (id)
+                           (let ((info (lispm-desktop-store-installed-info id)))
+                             (and info (not (plist-get info :busy)))))
+                         (mapcar #'car (lispm-desktop-app-manager-update-items)))))
+    (unless ids
+      (user-error (lispm-desktop-tr "No update is available")))
+    (dolist (id ids)
+      (lispm-desktop-store-update id))
+    (lispm-desktop-app-manager-refresh)))
+
 (defun lispm-desktop-app-manager-action (action)
   "Perform ACTION, open, update or uninstall, on the selected item.
 Recheck current state before acting.  Store actions always ask for their
-normal confirmation; built-ins and busy items cannot be uninstalled."
+normal confirmation; busy items cannot be updated or uninstalled."
   (let* ((id lispm-desktop-app-manager--selected)
          (props (cdr (assq id (lispm-desktop-app-manager-items))))
          (info (and (plist-get props :managed) (lispm-desktop-store-installed-info id))))
@@ -427,16 +462,14 @@ normal confirmation; built-ins and busy items cannot be uninstalled."
       ('open (unless (and (eq (plist-get props :kind) 'app)
                           (lispm-desktop-apps-openable-p id))
                (user-error (lispm-desktop-tr "This application cannot be opened")))
-             (lispm-desktop-apps-activate id))
-      ('update (unless (and info (not (plist-get info :busy))
-                            (plist-get info :update-available))
-                 (user-error (lispm-desktop-tr "No update is available")))
-               (lispm-desktop-store-update id))
+             (lispm-desktop-apps-activate id)
+             (lispm-desktop-app-manager-refresh))
+      ('update (lispm-desktop-app-manager-update-item id))
       ('uninstall (unless (and info (not (plist-get info :busy)))
                     (user-error (lispm-desktop-tr "This application cannot be uninstalled")))
-                  (lispm-desktop-store-uninstall id))
-      (_ (error "Unknown Apps action: %s" action)))
-    (lispm-desktop-app-manager-refresh)))
+                  (lispm-desktop-store-uninstall id)
+                  (lispm-desktop-app-manager-refresh))
+      (_ (error "Unknown Apps action: %s" action)))))
 
 (defun lispm-desktop-app-manager--button (label action &optional disabled)
   "Insert a push button with LABEL and ACTION, optionally DISABLED."
@@ -444,17 +477,14 @@ normal confirmation; built-ins and busy items cannot be uninstalled."
 
 (defun lispm-desktop-app-manager--details (id props)
   "Insert details and management actions for installed item ID of PROPS."
-  (let* ((managed (plist-get props :managed))
-         (info (and managed (lispm-desktop-store-installed-info id)))
+  (let* ((info (lispm-desktop-store-installed-info id))
          (busy (plist-get info :busy)))
     (lispm-desktop-settings--heading (plist-get props :name))
     (lispm-desktop-settings--note
-     (if managed
-         (lispm-desktop-tr "%s · Version: %s"
-                           (if (eq (plist-get props :kind) 'extension)
-                               (lispm-desktop-tr "Extension") (lispm-desktop-tr "Application"))
-                           (plist-get info :version))
-       (lispm-desktop-tr "Built-in")))
+     (lispm-desktop-tr "%s · Version: %s"
+                       (if (eq (plist-get props :kind) 'extension)
+                           (lispm-desktop-tr "Extension") (lispm-desktop-tr "Application"))
+                       (plist-get info :version)))
     (when info
       (lispm-desktop-settings--paragraph (lispm-desktop-tr "Source: %s" (plist-get info :origin))))
     (when-let* ((description (plist-get props :description)))
@@ -466,12 +496,8 @@ normal confirmation; built-ins and busy items cannot be uninstalled."
      (not (and (eq (plist-get props :kind) 'app) (lispm-desktop-apps-openable-p id))))
     (insert " ")
     (lispm-desktop-app-manager--button
-     (lispm-desktop-tr "Update") (lambda () (lispm-desktop-app-manager-action 'update))
-     (not (and info (not busy) (plist-get info :update-available))))
-    (insert " ")
-    (lispm-desktop-app-manager--button
      (lispm-desktop-tr "Uninstall") (lambda () (lispm-desktop-app-manager-action 'uninstall))
-     (or (not managed) busy))
+     (or (not info) busy))
     (insert "\n")))
 
 (defun lispm-desktop-app-manager-insert ()
@@ -483,11 +509,10 @@ normal confirmation; built-ins and busy items cannot be uninstalled."
   (lispm-ui-insert-popup-button
    (pcase lispm-desktop-app-manager--filter
      ('app (lispm-desktop-tr "Applications")) ('extension (lispm-desktop-tr "Extensions"))
-     ('builtin (lispm-desktop-tr "Built-in")) (_ (lispm-desktop-tr "All")))
+     (_ (lispm-desktop-tr "All")))
    (list (cons 'all (lispm-desktop-tr "All"))
          (cons 'app (lispm-desktop-tr "Applications"))
-         (cons 'extension (lispm-desktop-tr "Extensions"))
-         (cons 'builtin (lispm-desktop-tr "Built-in")))
+         (cons 'extension (lispm-desktop-tr "Extensions")))
    (lambda (filter)
      (setq lispm-desktop-app-manager--filter filter
            lispm-desktop-app-manager--selected nil lispm-desktop-app-manager--page 0)
@@ -523,6 +548,57 @@ normal confirmation; built-ins and busy items cannot be uninstalled."
          (= lispm-desktop-app-manager--page (1- pages)))
         (insert "\n"))
       (when selected (lispm-desktop-app-manager--details (car selected) (cdr selected))))))
+
+(defun lispm-desktop-app-manager-insert-updates ()
+  "Insert the Apps manager's Updates tab: automatic update setting and
+installed items with updates available, with Update All and per-item Update
+buttons."
+  (lispm-desktop-app-manager--clear-field)
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Automatic Updates"))
+  (lispm-desktop-settings--check-box
+   (lispm-desktop-tr "Update applications automatically") lispm-desktop-store-update-automatically
+   (lambda () (lispm-desktop-settings--save 'lispm-desktop-store-update-automatically
+                                            (not lispm-desktop-store-update-automatically)))
+   (if lispm-desktop-store-update-automatically
+       (lispm-desktop-tr "when LispM is idle, an application once closed")
+     (lispm-desktop-tr "they wait in the App Store")))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Updates"))
+  (let* ((items (lispm-desktop-app-manager-update-items))
+         (ready (seq-some (pcase-lambda (`(,id . ,_))
+                            (let ((info (lispm-desktop-store-installed-info id)))
+                              (and info (not (plist-get info :busy)))))
+                          items)))
+    (insert (lispm-desktop-settings--indent))
+    (lispm-desktop-app-manager--button
+     (lispm-desktop-tr "Check for Updates") #'lispm-desktop-store-check-for-updates)
+    (insert " ")
+    (lispm-desktop-app-manager--button
+     (lispm-desktop-tr "Update All") #'lispm-desktop-app-manager-update-all (not ready))
+    (insert "\n")
+    (if (null items)
+        (lispm-desktop-settings--paragraph
+         (lispm-desktop-tr "The applications from the App Store are up to date."))
+      (pcase-dolist (`(,id . ,props) items)
+        (let* ((info (lispm-desktop-store-installed-info id))
+               (busy (plist-get info :busy)))
+          (insert (lispm-desktop-settings--indent)
+                  (propertize (plist-get props :name) 'face 'bold)
+                  "  "
+                  (propertize
+                   (lispm-desktop-tr "%s · Version: %s"
+                                     (if (eq (plist-get props :kind) 'extension)
+                                         (lispm-desktop-tr "Extension")
+                                       (lispm-desktop-tr "Application"))
+                                     (plist-get info :version))
+                   'face 'shadow))
+          (when busy
+            (insert "  " (propertize (lispm-desktop-tr "Updating…") 'face 'shadow)))
+          (insert "  ")
+          (lispm-desktop-app-manager--button
+           (lispm-desktop-tr "Update")
+           (lambda () (lispm-desktop-app-manager-update-item id))
+           busy)
+          (insert "\n"))))))
 
 ;;;###autoload
 (defun lispm-desktop-app-manager ()

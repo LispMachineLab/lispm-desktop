@@ -1479,7 +1479,7 @@ Rust 的套件管理器 Cargo 會在安裝程式中
   ("No update is available" . "沒有可用的更新")
   ("This application cannot be uninstalled" . "無法解除安裝此應用程式")
   ("%s · Version: %s" . "%s · 版本：%s")
-  ("Built-in" . "內建")
+  ("Update All" . "全部更新")
   ("Source: %s" . "來源：%s")
   ("Updating…" . "正在更新…")
   ("Apps" . "應用程式")

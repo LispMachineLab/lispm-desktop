@@ -1479,7 +1479,7 @@ Rust のパッケージマネージャ Cargo が
   ("No update is available" . "利用可能な更新はありません")
   ("This application cannot be uninstalled" . "このアプリケーションはアンインストールできません")
   ("%s · Version: %s" . "%s · バージョン：%s")
-  ("Built-in" . "標準搭載")
+  ("Update All" . "すべてアップデート")
   ("Source: %s" . "入手元：%s")
   ("Updating…" . "更新中…")
   ("Apps" . "アプリケーション")
