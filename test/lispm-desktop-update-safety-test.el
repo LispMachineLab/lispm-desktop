@@ -147,4 +147,37 @@ The proposed list deliberately puts Desktop first to exercise ordering."
              (lambda (&rest _) (ert-fail "Installer ran after rejected update"))))
     (lispm-desktop-update--install-on-quit)))
 
+(ert-deftest lispm-desktop-test-update-safety-install-on-quit-from-dedicated-window ()
+  "Installing on quit from a dedicated Platinum window still installs updates."
+  (let ((window (selected-window))
+        (old-buffer (window-buffer (selected-window)))
+        (old-dedicated (window-dedicated-p (selected-window)))
+        (installed-called nil))
+    (unwind-protect
+        (progn
+          (set-window-dedicated-p window t)
+          (let ((noninteractive nil)
+                (lispm-desktop-update--requested t))
+            (cl-letf (((symbol-function 'terminal-name) (lambda (&rest _) "gui"))
+                      ((symbol-function 'daemonp) #'ignore)
+                      ((symbol-function 'lispm-desktop-assistant--focus-mode-p) #'ignore)
+                      ((symbol-function 'lispm-desktop-assistant-available-p) #'always)
+                      ((symbol-function 'frame-visible-p) #'always)
+                      ((symbol-function 'lispm-desktop-update-installs-on-quit-p) #'always)
+                      ((symbol-function 'lispm-desktop-update-needs-installer-p) #'ignore)
+                      ((symbol-function 'lispm-desktop-update-install)
+                       (lambda (&rest _)
+                         (setq installed-called t)
+                         nil)))
+              (lispm-desktop-update--install-on-quit)
+              (should installed-called)
+              (should (eq (window-buffer window)
+                          (get-buffer lispm-desktop-assistant-buffer-name))))))
+      (ignore-errors (lispm-desktop-assistant-close))
+      (when (window-live-p window)
+        (set-window-dedicated-p window nil)
+        (when (buffer-live-p old-buffer)
+          (set-window-buffer window old-buffer))
+        (set-window-dedicated-p window old-dedicated)))))
+
 ;;; lispm-desktop-update-safety-test.el ends here
