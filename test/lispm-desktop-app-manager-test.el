@@ -15,10 +15,11 @@
             (builtin :name "Built-in test" :folder "applications-32" :activate ignore)
             (transient :name "A temporary window")))
          (lispm-desktop-store-installed
-          '((calc :name "Calculator" :kind app :installed "1.0" :package nil)
-            (missing :name "Missing App" :kind app :installed "abcdef123456" :package (missing :url "https://example.com/app" :rev "abcdef123456"))
-            (extension :name "Harness" :kind extension :installed "2.0" :package nil)
-            (skill :name "Companion manual" :kind skill)))
+          (copy-sequence
+           '((calc :name "Calculator" :kind app :installed "1.0" :package nil)
+             (missing :name "Missing App" :kind app :installed "abcdef123456" :package (missing :url "https://example.com/app" :rev "abcdef123456"))
+             (extension :name "Harness" :kind extension :installed "2.0" :package nil)
+             (skill :name "Companion manual" :kind skill))))
          (lispm-desktop-store--catalogs nil)
          (lispm-desktop-store--jobs nil))
      ,@body))
@@ -34,10 +35,11 @@
 (ert-deftest lispm-desktop-app-manager-test-inventory ()
   (lispm-desktop-app-manager-test--inventory
     (let ((items (lispm-desktop-app-manager-items)))
-      (should (equal (mapcar #'car items) '(calc missing extension editor builtin)))
+      (should (equal (mapcar #'car items) '(calc missing extension)))
       (should (equal (plist-get (cdr (assq 'calc items)) :name) "Calculator"))
       (should (plist-get (cdr (assq 'missing items)) :managed))
-      (should-not (plist-get (cdr (assq 'builtin items)) :managed))
+      (should-not (assq 'editor items))
+      (should-not (assq 'builtin items))
       (should-not (assq 'skill items))
       (should-not (assq 'transient items)))))
 
@@ -48,8 +50,8 @@
       (should (equal (mapcar #'car (lispm-desktop-app-manager--matches)) '(missing)))
       (setq lispm-desktop-app-manager--search "" lispm-desktop-app-manager--filter 'extension)
       (should (equal (mapcar #'car (lispm-desktop-app-manager--matches)) '(extension)))
-      (setq lispm-desktop-app-manager--filter 'builtin)
-      (should (equal (mapcar #'car (lispm-desktop-app-manager--matches)) '(editor builtin))))))
+      (setq lispm-desktop-app-manager--filter 'app)
+      (should (equal (mapcar #'car (lispm-desktop-app-manager--matches)) '(calc missing))))))
 
 (ert-deftest lispm-desktop-app-manager-test-installed-info ()
   (lispm-desktop-app-manager-test--inventory
@@ -63,7 +65,8 @@
 
 (ert-deftest lispm-desktop-app-manager-test-independent-category ()
   (should (eq (lispm-desktop-settings-category 'apps) 'settings-apps))
-  (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-apps)) '(apps)))
+  (should (eq (lispm-desktop-settings-category 'app-updates) 'settings-apps))
+  (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-apps)) '(apps app-updates)))
   (should (assq 'settings-apps (lispm-desktop-settings--categories)))
   (let (opened)
     (cl-letf (((symbol-function 'lispm-desktop-settings-show) (lambda (panel) (setq opened panel))))
@@ -174,7 +177,7 @@
                             lispm-desktop-app-manager--field-start
                             lispm-desktop-app-manager--field-end)
                            ""))
-            (should (equal (mapcar #'car choices) '(all app extension builtin)))
+            (should (equal (mapcar #'car choices) '(all app extension)))
             (should-not (string-search "Search…" (buffer-string)))
             ;; What is typed into the field is the search, at once.
             (goto-char lispm-desktop-app-manager--field-end)
@@ -205,7 +208,57 @@
         ;; Removing the selected item keeps the list usable on its page.
         (setq lispm-desktop-store-installed (assq-delete-all 'extension lispm-desktop-store-installed))
         (lispm-desktop-app-manager-test--fill)
-        (should (eq lispm-desktop-app-manager--selected 'editor))))))
+        (should (eq lispm-desktop-app-manager--selected 'calc))))))
+
+(ert-deftest lispm-desktop-app-manager-test-updates-tab ()
+  "The Updates tab controls automatic updates and lists updatable items
+with Update All and individual Update buttons."
+  (lispm-desktop-app-manager-test--inventory
+    (let ((name (lispm-desktop-settings--buffer-name 'settings-apps))
+          (lispm-desktop-store-update-automatically nil)
+          saved updated)
+      (unwind-protect
+          (cl-letf (((symbol-function 'customize-save-variable)
+                     (lambda (variable value)
+                       (push (cons variable value) saved)
+                       (set variable value)))
+                    ((symbol-function 'lispm-desktop-store-update)
+                     (lambda (id &optional quietly) (push (list id quietly) updated))))
+            ;; When no updates are available, the tab says so and Update All errors.
+            (cl-letf (((symbol-function 'lispm-desktop-store-update-available-p) #'ignore))
+              (lispm-desktop-settings-select 'app-updates)
+              (with-current-buffer name
+                (should (equal (lispm-desktop-platinum-title-text) "Apps"))
+                (should-not (lispm-desktop-app-manager--field-bounds))
+                (should (string-search "Update applications automatically" (buffer-string)))
+                (should (string-search "The applications from the App Store are up to date." (buffer-string)))
+                (should-error (lispm-desktop-app-manager-update-all) :type 'user-error)))
+            ;; When updates are available, they are listed with Update All and per-item Update.
+            (cl-letf (((symbol-function 'lispm-desktop-store-update-available-p)
+                       (lambda (id) (memq id '(calc extension)))))
+              (lispm-desktop-settings-select 'app-updates)
+              (with-current-buffer name
+                (should (equal (mapcar #'car (lispm-desktop-app-manager-update-items)) '(calc extension)))
+                (should (string-search "Calculator" (buffer-string)))
+                (should (string-search "Harness" (buffer-string)))
+                (should-not (string-search "Missing App" (buffer-string)))
+                (let ((labels nil)
+                      (pos (point-min)))
+                  (while (setq pos (next-single-property-change pos 'lispm-ui-label))
+                    (when-let* ((label (get-text-property pos 'lispm-ui-label)))
+                      (push label labels)))
+                  (setq labels (nreverse labels))
+                  (should (member "Check for Updates" labels))
+                  (should (member "Update All" labels))
+                  (should (= (cl-count "Update" labels :test #'equal) 2)))
+                ;; Individual update action.
+                (lispm-desktop-app-manager-update-item 'calc)
+                (should (equal (reverse updated) '((calc nil))))
+                ;; Update All action updates every non-busy updatable item.
+                (setq updated nil)
+                (lispm-desktop-app-manager-update-all)
+                (should (equal (reverse updated) '((calc nil) (extension nil)))))))
+        (when (get-buffer name) (kill-buffer name))))))
 
 (ert-deftest lispm-desktop-app-manager-test-fill-keeps-the-field-focused ()
   "A redraw puts point back in the field while it had the keyboard."

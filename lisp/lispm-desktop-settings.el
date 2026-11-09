@@ -70,8 +70,11 @@
 ;;                 themselves, and which can be
 ;;   Apps
 ;;     Apps        installed applications and extensions, their versions
-;;                 and sources, opening, updating and uninstalling them,
-;;                 see lispm-desktop-app-manager.el
+;;                 and sources, opening and uninstalling them, see
+;;                 lispm-desktop-app-manager.el
+;;     Updates     whether the App Store's applications update by
+;;                 themselves, and which can be updated, see
+;;                 lispm-desktop-app-manager.el
 ;;
 ;; Each choice takes effect at once where it can, and is saved for the next
 ;; start with Customize, as the menus' choices are; personal.el can still
@@ -222,7 +225,8 @@
     (startup ,(lispm-desktop-tr-noop "Startup") lispm-desktop-settings--startup "startup-32")
     (kernel ,(lispm-desktop-tr-noop "Kernel") lispm-desktop-settings--kernel "kernel-32")
     (update ,(lispm-desktop-tr-noop "Software Update") lispm-desktop-settings--update "software-update-32")
-    (apps ,(lispm-desktop-tr-noop "Apps") lispm-desktop-app-manager-insert "applications-32"))
+    (apps ,(lispm-desktop-tr-noop "Apps") lispm-desktop-app-manager-insert "applications-32")
+    (app-updates ,(lispm-desktop-tr-noop "Updates") lispm-desktop-app-manager-insert-updates "software-update-32"))
   "The panels: (KEY LABEL INSERT ICON [VISIBLE]).
 LABEL is in English, translated where shown, see
 `lispm-desktop-settings-panel-label'.  INSERT fills the window with the
@@ -244,7 +248,7 @@ a control panel, see `lispm-desktop-settings-categories'.")
     (settings-security ,(lispm-desktop-tr-noop "Security") "security" "security-32"
                        (security))
     (settings-apps ,(lispm-desktop-tr-noop "Apps") "applications" "applications-32"
-                   (apps)))
+                   (apps app-updates)))
   "The control panels, a category of settings each, in the Control Panels
 folder's order: (KEY LABEL ICON LARGE-ICON PANELS).  KEY is the control
 panel's application, in `lispm-desktop-apps', and the kind of its window;

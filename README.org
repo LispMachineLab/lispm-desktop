@@ -157,10 +157,10 @@ Optional, used when present:
   General (Language, Keyboard, Startup), Internet (Internet, Network), Agents (LispM: LispM
   Agent's model, permissions, memory, roles and skills; Sandbox), System (Kernel, Software
   Update), Security (Security: the password LispM's keys are kept under, locking them now, and
-  whether the Desktop asks for the password when it starts), and Apps, an independent manager for
-  installed applications and extensions:
-  search or filter the list, inspect versions and sources, open, update or uninstall with
-  confirmation.  Built-in applications are listed too, but cannot be uninstalled.
+  whether the Desktop asks for the password when it starts), and Apps (Apps, Updates), an
+  independent manager for installed applications and extensions: search or filter the list,
+  inspect versions and sources, open or uninstall with confirmation, control automatic updates,
+  and update individual items or all at once.
   Plus a Control Strip along the desktop's edge (=C-c b=, =C-c B=).
 - *Seven languages*: English (US and UK), German, French, Japanese, and Chinese, Simplified and
   Traditional; the computer's by default, asked at the first start.
