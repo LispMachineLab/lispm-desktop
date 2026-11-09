@@ -437,15 +437,13 @@
                   (when (= start 2)
                     (add-face-text-property start (point)
                                             '(:foreground "#ff7474" :weight bold)))))))
-           ((and (lispm-desktop-installer-screen--svg-available-p)
-                 (>= (window-body-width window t) 360)
-                 (>= (window-body-height window t) 390))
+           ((lispm-desktop-installer-screen--svg-available-p)
             (condition-case nil
                 (insert (propertize " " 'display
                                     (svg-image (lispm-desktop-installer-screen--draw
-                                                (- (window-body-width window t)
-                                                   (frame-char-width (window-frame window)))
-                                                (window-body-height window t) status)
+                                                (max 360 (- (window-body-width window t)
+                                                            (frame-char-width (window-frame window))))
+                                                (max 390 (window-body-height window t)) status)
                                                :ascent 100 :scale 1)))
               (error (insert top (mapconcat (lambda (line) (concat margin line)) lines "\n") "\n"))))
            (t (insert top (mapconcat (lambda (line) (concat margin line)) lines "\n") "\n")))

@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.23.4
+;; Version: 0.23.5
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -95,28 +95,33 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-proxy)
 (require 'lispm-desktop-deps)
-;; LispM UI, which draws the forms and asks what LispM and its
-;; applications ask; LispM's agent requires it too.
-(lispm-desktop-deps-ensure 'lispm-ui)
-;; The browser is lispm-browser, which the desktop's browser files require.
-(lispm-desktop-deps-ensure 'lispm-browser)
-;; Auth is installed before LispM Agent, which actively depends on it,
-;; but cannot prevent Desktop from loading.
-(condition-case err
+(unwind-protect
     (progn
-      (lispm-desktop-deps-ensure-auth)
-      (when (fboundp 'lispm-desktop-installer-screen-complete)
-        (lispm-desktop-installer-screen-complete 'lispm-auth)))
-  (error (display-warning 'lispm-desktop
-                          (format "LispM Auth could not be installed: %s. Password protection is unavailable."
-                                  (error-message-string err)) :warning)))
-;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
-(lispm-desktop-deps-ensure 'lispm)
-(when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
-           (fboundp 'lispm-desktop-deps-flush-deferred-compiles))
-  (lispm-desktop-deps-flush-deferred-compiles t))
-(when (fboundp 'lispm-desktop-installer-screen-stop-auto)
-  (lispm-desktop-installer-screen-stop-auto))
+      ;; LispM UI, which draws the forms and asks what LispM and its
+      ;; applications ask; LispM's agent requires it too.
+      (lispm-desktop-deps-ensure 'lispm-ui)
+      ;; The browser is lispm-browser, which the desktop's browser files require.
+      (lispm-desktop-deps-ensure 'lispm-browser)
+      ;; Auth is installed before LispM Agent, which actively depends on it,
+      ;; but cannot prevent Desktop from loading.
+      (condition-case err
+          (progn
+            (lispm-desktop-deps-ensure-auth)
+            (when (fboundp 'lispm-desktop-installer-screen-complete)
+              (lispm-desktop-installer-screen-complete 'lispm-auth)))
+        (error (display-warning 'lispm-desktop
+                                (format "LispM Auth could not be installed: %s. Password protection is unavailable."
+                                        (error-message-string err)) :warning)))
+      ;; The editor's agents are lispm-agent's, which lispm-desktop-ai.el requires.
+      (lispm-desktop-deps-ensure 'lispm))
+  (when (and (bound-and-true-p lispm-desktop-deps--fast-install-active)
+             (fboundp 'lispm-desktop-deps-flush-deferred-compiles))
+    (lispm-desktop-deps-flush-deferred-compiles t))
+  (when (fboundp 'lispm-desktop-installer-screen-stop-auto)
+    (lispm-desktop-installer-screen-stop-auto))
+  (when (and (not (bound-and-true-p lispm-desktop-setup--in-progress))
+             (fboundp 'lispm-desktop-assistant-close))
+    (lispm-desktop-assistant-close)))
 (require 'lispm-desktop-keys)
 (require 'lispm-desktop-packages)
 (require 'lispm-desktop-interface)

@@ -742,13 +742,35 @@ message saying what to update."
            (lispm-desktop-deps--tr "%s is older than %s, which this LispM Desktop needs; update it to its latest release"
                                    where version)))))
 
+(defun lispm-desktop-deps--checkout-root (main)
+  "Return the git repository root containing MAIN when it is a clean checkout
+on a branch, or nil."
+  (let ((dir (file-name-directory main)))
+    (when (and (file-regular-p main)
+               (file-directory-p dir))
+      (when-let* ((root (lispm-desktop-deps--git dir "rev-parse" "--show-toplevel"))
+                  ((not (string-empty-p root)))
+                  ((file-exists-p (expand-file-name ".git" root)))
+                  ((lispm-desktop-deps--git root "rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{upstream}"))
+                  ((equal (lispm-desktop-deps--git root "status" "--porcelain" "--untracked-files=no") "")))
+        (file-name-as-directory root)))))
+
+(defun lispm-desktop-deps--updatable-p (main)
+  "Return non-nil when MAIN belongs to a package or clean git checkout that
+`lispm-desktop-deps--catch-up' can update."
+  (or (lispm-desktop-deps--package main)
+      (lispm-desktop-deps--checkout-root main)))
+
 (defun lispm-desktop-deps--catch-up (main spec)
   "Make the project whose main file is MAIN have what the desktop needs of
 it, SPEC its plist in `lispm-desktop-deps': a package installed from
-git is updated to its latest release, in an Emacs of its own; anything
-else is an error saying what to update."
+git is updated to its latest release, in an Emacs of its own, and a
+clean git checkout on a branch is fast-forwarded to its latest release;
+anything else is an error saying what to update."
   (let* ((desc (lispm-desktop-deps--package main))
-         (directory (and desc (package-desc-dir desc)))
+         (directory (if desc
+                        (package-desc-dir desc)
+                      (lispm-desktop-deps--checkout-root main)))
          (tag (plist-get spec :tag))
          (release (and directory
                        (if tag
@@ -760,10 +782,16 @@ else is an error saying what to update."
       (error "%s" (lispm-desktop-deps--behind main spec)))
     (message "%s" (lispm-desktop-deps--tr "Updating %s to its latest release, which this LispM Desktop needs…"
                                           (abbreviate-file-name directory)))
-    (lispm-desktop-store-installer-call
-     `(update ,(package-desc-name desc) ,release ,(lispm-desktop-deps--git directory "rev-parse" "HEAD")))
-    ;; Built again: what it autoloads now.
-    (load (expand-file-name (format "%s-autoloads" (package-desc-name desc)) directory) t t)
+    (if desc
+        (progn
+          (lispm-desktop-store-installer-call
+           `(update ,(package-desc-name desc) ,release ,(lispm-desktop-deps--git directory "rev-parse" "HEAD")))
+          ;; Built again: what it autoloads now.
+          (load (expand-file-name (format "%s-autoloads" (package-desc-name desc)) directory) t t))
+      (lispm-desktop-store-checkout-preflight
+       directory release (lispm-desktop-deps--git directory "rev-parse" "HEAD"))
+      (lispm-desktop-store--git directory "merge" "--ff-only" "--quiet" "--no-autostash"
+                                "--no-overwrite-ignore" release))
     (when-let* ((behind (lispm-desktop-deps--behind main spec)))
       (error "%s" behind))))
 
@@ -817,7 +845,7 @@ else is an error saying what to update."
 (defun lispm-desktop-deps--notify-progress (installer-status &optional assistant-status)
   "Ensure a visible progress UI when an installation or update begins."
   (cond
-   ((and (bound-and-true-p lispm-desktop-setup--in-progress)
+   ((and (not (bound-and-true-p lispm-desktop-installer-screen--active))
          (fboundp 'lispm-desktop-assistant-ensure-progress))
     (lispm-desktop-assistant-ensure-progress (or assistant-status installer-status)))
    (t
@@ -989,14 +1017,16 @@ its :version, is brought up to date, see `lispm-desktop-deps--catch-up'."
           (package-activate-1 desc))))
     (when-let* ((main (locate-library file t)))
       (when-let* ((behind (lispm-desktop-deps--behind main spec)))
-        (if (lispm-desktop-deps--confirm-update
-             "Update component %s to its latest release? " feature)
-            (progn
-              (lispm-desktop-deps--notify-progress
-               (format "Updating project: %s" feature)
-               (format "Updating component: %s…" feature))
-              (lispm-desktop-deps--catch-up main spec))
-          (display-warning 'lispm-desktop behind :warning)))
+        (if (not (lispm-desktop-deps--updatable-p main))
+            (error "%s" behind)
+          (if (lispm-desktop-deps--confirm-update
+               "Update component %s to its latest release? " feature)
+              (progn
+                (lispm-desktop-deps--notify-progress
+                 (format "Updating project: %s" feature)
+                 (format "Updating component: %s…" feature))
+                (lispm-desktop-deps--catch-up main spec))
+            (display-warning 'lispm-desktop behind :warning))))
       (when-let* ((missing (lispm-desktop-deps--requirements main)))
         (lispm-desktop-deps--notify-progress
          (format "Preparing: %s" feature)
