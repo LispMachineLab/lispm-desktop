@@ -272,9 +272,12 @@ non-nil when one was."
 trail: the stack and the display are where the numbers are."
   (interactive)
   (require 'calc)
-  (let ((calc-display-trail nil)
-        (calc-inhibit-startup-message t))
-    (calc nil t))
+  (if-let* ((buffer (get-buffer "*Calculator*"))
+            ((eq (buffer-local-value 'major-mode buffer) 'calc-mode)))
+      (switch-to-buffer buffer)
+    (let ((calc-display-trail nil)
+          (calc-inhibit-startup-message t))
+      (calc nil t)))
   (setq-local calc-show-banner nil)
   (calc-refresh)
   (face-remap-add-relative 'default :height 1.3)
@@ -300,6 +303,7 @@ trail: the stack and the display are where the numbers are."
 (lispm-desktop-app-ui-define 'calc-mode
   :app 'calculator
   :run #'lispm-desktop-app-skins-calculator
+  :restore #'lispm-desktop-app-skins-calculator
   :bottom nil
   :buttons `((,(lispm-desktop-tr-noop "Undo") calc-undo) (,(lispm-desktop-tr-noop "Redo") calc-redo)
              (,(lambda ()

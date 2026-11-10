@@ -167,6 +167,9 @@ shown; a function may return them translated already:
 (defvar lispm-desktop-app-ui--buffers nil
   "The buffer each application's window showed last: (APP . BUFFER).")
 
+(defvar lispm-desktop-app-ui--panes nil
+  "Applications whose window held more than one pane when shown.")
+
 (defun lispm-desktop-app-ui-app (&optional window)
   "Return the key of the installed application whose window WINDOW, by
 default the selected one, belongs to, or nil."
@@ -739,7 +742,8 @@ declares, or those of its keymap's commands."
 the whole list in sight, without a bottom saying where in it point is."
   (face-remap-add-relative 'default 'lispm-ui-list)
   (setq-local line-spacing 4
-              mode-line-format nil))
+              mode-line-format (and (lispm-desktop-look-property :placards)
+                                    lispm-desktop-app-ui-bottom)))
 
 (defun lispm-desktop-app-ui--insert-keys (keys)
   "Insert KEYS, a value of `lispm-desktop-app-ui-key-list', as rows of key
@@ -934,6 +938,13 @@ aligned to the right edge."
 grow box on the right.  Aligned without `mode-line-format-right-align',
 which reads the buffer's own mode line, as Calendar's, a string.")
 
+(defun lispm-desktop-app-ui--bottom-p ()
+  "Return non-nil when the current buffer's window has its bottom:
+as :bottom says, by default t, or always when the look puts window
+controls on bottom placards."
+  (or (lispm-desktop-app-ui-get :bottom t)
+      (and (lispm-desktop-look-property :placards) t)))
+
 ;;;; Giving buffers the interface
 
 (defconst lispm-desktop-app-ui--letters
@@ -1046,15 +1057,21 @@ where its mode sets its own mode line, as Calendar's does."
       (unless (and lispm-desktop-app-ui-mode (eq lispm-desktop-app-ui--app app))
         (setq lispm-desktop-app-ui--app app)
         (lispm-desktop-app-ui-mode 1))
-      (when (eq window (frame-selected-window (window-frame window)))
-        (setf (alist-get app lispm-desktop-app-ui--buffers) (current-buffer)))
+      (let* ((frame (window-frame window))
+             (windows (window-list frame 'never)))
+        (when (cdr windows)
+          (cl-pushnew app lispm-desktop-app-ui--panes))
+        (when (and (eq window (frame-selected-window frame))
+                   (or (not (window-dedicated-p window))
+                       (seq-every-p #'window-dedicated-p windows)))
+          (setf (alist-get app lispm-desktop-app-ui--buffers) (current-buffer))))
       ;; The global mode numbering lines turns it on again with every
       ;; major mode, after this buffer's set up.
       (when (bound-and-true-p display-line-numbers-mode)
         (display-line-numbers-mode -1))
       (set-window-fringes window 0 0)
       (set-window-parameter window 'mode-line-format
-                            (if (lispm-desktop-app-ui-get :bottom t) lispm-desktop-app-ui-bottom 'none))
+                            (if (lispm-desktop-app-ui--bottom-p) lispm-desktop-app-ui-bottom 'none))
       (set-window-parameter window 'header-line-format
                             (and (lispm-desktop-app-ui--strip-p) '(:eval (lispm-desktop-app-ui-strip))))
       (when (lispm-desktop-app-ui-get :prose)
@@ -1070,6 +1087,12 @@ interface.  This is one of `window-buffer-change-functions'."
   (when (and (frame-live-p frame) (frame-parameter frame 'lispm-desktop-app-window))
     (dolist (window (window-list frame 'never))
       (lispm-desktop-app-ui-dress window))))
+
+(defun lispm-desktop-app-ui--dress-all-frames ()
+  "Give the windows of every installed application's open frame its
+interface again, as after the desktop look changes."
+  (dolist (frame (frame-list))
+    (lispm-desktop-app-ui--dress-frame frame)))
 
 (defun lispm-desktop-app-ui--mode-changed ()
   "Give the current buffer its interface again in the applications' windows
@@ -1132,17 +1155,20 @@ unless MISSING; once they are installed, call its skin's :installed."
 when its window was closed, if still there, as a Mac OS 9 application
 kept its documents while its windows were closed; else as its :run
 says, or by COMMAND, as typed.  A game is so found as it was left,
-rather than asked whether to abandon it.  What it needs and lacks is
-offered first."
+rather than asked whether to abandon it; an application whose window
+held several panes runs its :restore, :run or COMMAND so all of its
+panes come back.  What it needs and lacks is offered first."
   (lispm-desktop-needs-refresh (lispm-desktop-app-ui-needs app))
   (unless noninteractive
     (lispm-desktop-app-ui--offer-missing app))
-  (let ((buffer (alist-get app lispm-desktop-app-ui--buffers)))
-    (cond ((and (buffer-live-p buffer) (plist-get (lispm-desktop-app-ui--app-skin app) :restore))
-           (funcall (plist-get (lispm-desktop-app-ui--app-skin app) :restore)))
-          ((buffer-live-p buffer) (switch-to-buffer buffer))
-          ((plist-get (lispm-desktop-app-ui--app-skin app) :run)
-           (funcall (plist-get (lispm-desktop-app-ui--app-skin app) :run)))
+  (let ((buffer (alist-get app lispm-desktop-app-ui--buffers))
+        (skin (lispm-desktop-app-ui--app-skin app)))
+    (cond ((and (buffer-live-p buffer) (plist-get skin :restore))
+           (funcall (plist-get skin :restore)))
+          ((and (buffer-live-p buffer) (not (memq app lispm-desktop-app-ui--panes)))
+           (switch-to-buffer buffer))
+          ((plist-get skin :run)
+           (funcall (plist-get skin :run)))
           (t (call-interactively command)))))
 
 ;;;; Auditing the applications
@@ -1266,6 +1292,7 @@ This is a `display-buffer' action function."
   (add-hook 'lispm-desktop-app-board-resized-functions #'lispm-desktop-app-ui--fit-board)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-app-ui--scroll-bar)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-ui--refresh-pages)
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-app-ui--dress-all-frames)
   (add-to-list 'display-buffer-alist '(lispm-desktop-app-ui--elsewhere-p lispm-desktop-app-ui-display-home))
   (advice-add 'y-or-n-p :around #'lispm-desktop-app-ui--asking)
   (advice-add 'yes-or-no-p :around #'lispm-desktop-app-ui--asking))
