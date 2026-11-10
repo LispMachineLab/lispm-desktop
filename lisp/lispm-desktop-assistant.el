@@ -222,43 +222,45 @@ platinum inside its title bar and frame; :cards, a rectangle for each of
 PAGE's choices, side by side under the question, or, for more than
 three, in two columns of smaller buttons, row after row; and :back, the
 Go Back button at the bottom right, when PAGE goes back."
-  (pcase-let* ((w lispm-desktop-assistant-width)
-               (h lispm-desktop-assistant-height)
-               (x (max 0 (/ (- width w) 2)))
-               (y (max 0 (/ (- height h) 2)))
-               ;; Inside the frame's band and black line, under the title
-               ;; bar, as `lispm-desktop-platinum-draw-window-frame' draws them.
-               (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
-               (cx (+ x left))
-               (cy (+ y top lispm-ui-title-bar-height))
-               (cw (- w left right))
-               (ch (- h top bottom lispm-ui-title-bar-height))
-               (margin 20)
-               (count (length (plist-get page :choices)))
-               (columns (if (> count 3) 2 count))
-               (rows (if (> columns 0) (/ (+ count columns -1) columns) 0))
-               (raw-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- columns))) columns) 0))
-               (card-width (if (and (> columns 1)
-                                    (/= (% (- cw (* 2 margin) (* columns raw-width)) (1- columns)) 0))
-                               (1+ raw-width)
-                             raw-width))
-               (card-height (if (> rows 1)
-                                (/ (- lispm-desktop-assistant-card-height (* 6 (1- rows))) rows)
-                              lispm-desktop-assistant-card-height))
-               ;; The pixels left over widen the gaps, so both margins match.
-               (gap (if (> columns 1) (/ (- cw (* 2 margin) (* columns card-width)) (1- columns)) 0))
-               (back-width (lispm-ui-push-button-width (lispm-desktop-tr "Go Back"))))
-    (list :window (list x y w h)
-          :content (list cx cy cw ch)
-          :cards (mapcar (lambda (index)
-                           (list (+ cx margin (* (% index columns) (+ card-width gap)))
-                                 (+ cy 92 (* (/ index columns) (+ card-height 6)))
-                                 card-width card-height))
-                         (number-sequence 0 (1- count)))
-          :back (and (plist-get page :back)
-                     (list (- (+ cx cw) margin back-width)
-                           (- (+ cy ch) 14 lispm-ui-button-height)
-                           back-width lispm-ui-button-height)))))
+  (let ((lispm-desktop-look 'platinum)
+        (lispm-ui-look 'platinum))
+    (pcase-let* ((w lispm-desktop-assistant-width)
+                 (h lispm-desktop-assistant-height)
+                 (x (max 0 (/ (- width w) 2)))
+                 (y (max 0 (/ (- height h) 2)))
+                 ;; Inside the frame's band and black line, under the title
+                 ;; bar, as `lispm-desktop-platinum-draw-window-frame' draws them.
+                 (`(,left ,top ,right ,bottom) (lispm-desktop-platinum-frame-margins))
+                 (cx (+ x left))
+                 (cy (+ y top lispm-ui-title-bar-height))
+                 (cw (- w left right))
+                 (ch (- h top bottom lispm-ui-title-bar-height))
+                 (margin 20)
+                 (count (length (plist-get page :choices)))
+                 (columns (if (> count 3) 2 count))
+                 (rows (if (> columns 0) (/ (+ count columns -1) columns) 0))
+                 (raw-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- columns))) columns) 0))
+                 (card-width (if (and (> columns 1)
+                                      (/= (% (- cw (* 2 margin) (* columns raw-width)) (1- columns)) 0))
+                                 (1+ raw-width)
+                               raw-width))
+                 (card-height (if (> rows 1)
+                                  (/ (- lispm-desktop-assistant-card-height (* 6 (1- rows))) rows)
+                                lispm-desktop-assistant-card-height))
+                 ;; The pixels left over widen the gaps, so both margins match.
+                 (gap (if (> columns 1) (/ (- cw (* 2 margin) (* columns card-width)) (1- columns)) 0))
+                 (back-width (lispm-ui-push-button-width (lispm-desktop-tr "Go Back"))))
+      (list :window (list x y w h)
+            :content (list cx cy cw ch)
+            :cards (mapcar (lambda (index)
+                             (list (+ cx margin (* (% index columns) (+ card-width gap)))
+                                   (+ cy 92 (* (/ index columns) (+ card-height 6)))
+                                   card-width card-height))
+                           (number-sequence 0 (1- count)))
+            :back (and (plist-get page :back)
+                       (list (- (+ cx cw) margin back-width)
+                             (- (+ cy ch) 14 lispm-ui-button-height)
+                             back-width lispm-ui-button-height))))))
 
 (defun lispm-desktop-assistant--target-at (layout x y)
   "Return what the page of LAYOUT has at X, Y: a choice's index, `back' or nil."
@@ -362,20 +364,20 @@ line, the key cap at its right."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
                (properties (cdr choice))
                (ink (plist-get (lispm-ui-bevel-button-colors palette state) :label))
-               (row (< h 60))
+               (row (< h 120))
                (cap 20))
     (when focused
       (lispm-ui-svg-focus-ring svg x y w h 1 palette))
     (lispm-ui-svg-embed
      svg (lispm-ui-draw-bevel-button palette w h :state state) x y w h)
+    (if row
+        (lispm-desktop-assistant--draw-row-card svg ink rect properties cap)
+      (lispm-desktop-assistant--draw-block-card svg palette ink rect properties))
     (lispm-ui-svg-embed
      svg (lispm-ui-draw-bevel-button
           palette cap cap :label (upcase (char-to-string (plist-get properties :key)))
           :face 'lispm-ui-title)
-     (- (+ x w) cap 8) (if row (+ y (/ (- h cap) 2)) (+ y 8)) cap cap)
-    (if row
-        (lispm-desktop-assistant--draw-row-card svg ink rect properties cap)
-      (lispm-desktop-assistant--draw-block-card svg palette ink rect properties))))
+     (- (+ x w) cap 8) (if row (+ y (/ (- h cap) 2)) (+ y 8)) cap cap)))
 
 (defun lispm-desktop-assistant--draw-block-card (svg palette ink rect properties)
   "Draw on SVG, in INK, the inside of a choice's button filling RECT, of
@@ -386,18 +388,20 @@ names no colours, its label and the lines of its text, centred."
                (preview-key (plist-get properties :preview))
                (preview (or (lispm-desktop-theme-get :preview preview-key)
                             (alist-get preview-key lispm-desktop-assistant--previews)))
-               (lines (lispm-ui-alert--wrap (or (plist-get properties :text) "") (- w 32)
+               (pw (min 120 (max 72 (- w 76))))
+               (ph (min 64 (max 50 (/ (* pw 8) 15))))
+               (lines (lispm-ui-alert--wrap (or (plist-get properties :text) "") (- w 24)
                                             'lispm-ui-list))
                (label (propertize (plist-get properties :label) 'face '(:height 1.25)))
-               (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2))))
+               (top (+ y (/ (- h (+ (if preview (+ ph 10) 0) 24 (* 16 (length lines)))) 2))))
     (when preview
       (let* ((base (if-let* ((colors (plist-get preview :colors)))
                        (apply #'lispm-ui-derive-palette colors)
                      palette))
              (picture (append (plist-get preview :palette) base)))
-        (lispm-desktop-assistant--draw-preview svg (+ x (/ (- w 120) 2)) top 120 64 picture
+        (lispm-desktop-assistant--draw-preview svg (+ x (/ (- w pw) 2)) top pw ph picture
                                                (plist-get preview :code)))
-      (setq top (+ top 74)))
+      (setq top (+ top ph 10)))
     (lispm-ui-svg-content
      svg label (+ x (/ (- w (lispm-ui-text-width label 'lispm-ui-title)) 2))
      top 20 ink 'lispm-ui-title)
@@ -429,7 +433,9 @@ and the one PRESSED, an index or `back', held down; under the buttons
 how to choose, then how far along the questions are and Go Back.  A
 page with a :picture shows LispM's λ instead of choices, and its
 :status under it."
-  (let* ((layout (lispm-desktop-assistant--layout width height page))
+  (let* ((lispm-desktop-look 'platinum)
+         (lispm-ui-look 'platinum)
+         (layout (lispm-desktop-assistant--layout width height page))
          (svg (svg-create width height))
          (text (plist-get palette :text))
          (title (propertize (lispm-desktop-tr "Welcome to LispM") 'face 'lispm-ui-title)))
@@ -571,7 +577,9 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
           (fringe-bg (cddr saved)))
       (when (stringp bg)
         (set-frame-parameter frame 'background-color bg))
-      (set-face-background 'fringe (or fringe-bg bg 'unspecified) frame)))
+      (set-face-background 'fringe (or fringe-bg bg 'unspecified) frame)
+      (dolist (face '(window-divider window-divider-first-pixel window-divider-last-pixel))
+        (set-face-attribute face frame :foreground 'unspecified))))
   (setq lispm-desktop-assistant--saved-frame-colors nil))
 
 (defun lispm-desktop-assistant-available-p ()
@@ -668,6 +676,29 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
       (setq frame (frame-parent frame)))
     frame))
 
+(defvar lispm-desktop-assistant--palette nil
+  "Platinum palette saved when the Setup Assistant opens.")
+
+(defun lispm-desktop-assistant--keep-platinum-on-theme (&rest _)
+  "Keep the Setup Assistant frame in Platinum while setup loads another theme."
+  (when (and lispm-desktop-assistant--palette
+             (lispm-desktop-assistant--visible-p))
+    (let ((desktop (plist-get lispm-desktop-assistant--palette :desktop))
+          (frame (and (window-live-p lispm-desktop-assistant--window)
+                      (window-frame lispm-desktop-assistant--window))))
+      (when (and (frame-live-p frame) (stringp desktop))
+        (set-frame-parameter frame 'background-color desktop)
+        (set-face-background 'fringe desktop frame)
+        (set-face-attribute 'window-divider frame :foreground desktop)
+        (set-face-attribute 'window-divider-first-pixel frame :foreground desktop)
+        (set-face-attribute 'window-divider-last-pixel frame :foreground desktop))
+      (lispm-desktop-assistant--color-echo-area desktop)
+      (setq lispm-desktop-assistant--shown nil)
+      (when lispm-desktop-assistant--last-page
+        (lispm-desktop-assistant--show lispm-desktop-assistant--last-page nil nil)))))
+
+(add-hook 'enable-theme-functions #'lispm-desktop-assistant--keep-platinum-on-theme 99)
+
 (defun lispm-desktop-assistant--open ()
   "Fill the selected frame with the assistant's page, drawn in Platinum.
 The Platinum theme is enabled for it when no theme is active yet; setting
@@ -680,6 +711,7 @@ LispM up afterwards loads the theme chosen."
     (with-demoted-errors "LispM's Setup Assistant could not load Platinum: %S"
       (load-theme 'platinum t)))
   (lispm-ui-palette-update)
+  (setq lispm-desktop-assistant--palette lispm-ui-current-palette)
   (let ((buffer (get-buffer-create lispm-desktop-assistant-buffer-name))
         (desktop (plist-get lispm-ui-current-palette :desktop)))
     ;; What the page leaves bare, the frame's border, the column kept for
@@ -744,7 +776,13 @@ LispM up afterwards loads the theme chosen."
 See `lispm-desktop-assistant-draw'.  Return PAGE's layout.  Nothing is
 drawn again while the page and the window's size stay as they are."
   (let* ((window lispm-desktop-assistant--window)
-         (graphic (display-graphic-p (window-frame window)))
+         (frame (window-frame window))
+         (palette (or lispm-desktop-assistant--palette lispm-ui-current-palette))
+         (_ (when (and (frame-live-p frame)
+                       (not (frame-parent frame))
+                       (> (or (frame-parameter frame 'tab-bar-lines) 0) 0))
+              (set-frame-parameter frame 'tab-bar-lines 0)))
+         (graphic (display-graphic-p frame))
          (width (window-body-width window graphic))
          (height (window-body-height window graphic))
          (shown (list graphic width height page focused pressed lispm-ui-palette-generation)))
@@ -758,11 +796,14 @@ drawn again while the page and the window's size stay as they are."
       (set-window-fringes window 0 0)
       (set-window-margins window 0 0)
       (internal-show-cursor window nil)
-      (when-let* ((frame (window-frame window))
-                  (desktop (plist-get lispm-ui-current-palette :desktop)))
-        (unless (equal (frame-parameter frame 'background-color) desktop)
-          (set-frame-parameter frame 'background-color desktop))
-        (set-face-background 'fringe desktop frame)
+      (when-let* ((desktop (plist-get palette :desktop)))
+        (when (frame-live-p frame)
+          (unless (equal (frame-parameter frame 'background-color) desktop)
+            (set-frame-parameter frame 'background-color desktop))
+          (set-face-background 'fringe desktop frame)
+          (set-face-attribute 'window-divider frame :foreground desktop)
+          (set-face-attribute 'window-divider-first-pixel frame :foreground desktop)
+          (set-face-attribute 'window-divider-last-pixel frame :foreground desktop))
         (lispm-desktop-assistant--color-echo-area desktop))
       (with-current-buffer (window-buffer window)
         (setq-local cursor-type nil
@@ -774,10 +815,10 @@ drawn again while the page and the window's size stay as they are."
         (erase-buffer)
         (if graphic
             (insert (propertize " " 'display
-                                (svg-image (lispm-desktop-assistant-draw lispm-ui-current-palette
+                                (svg-image (lispm-desktop-assistant-draw palette
                                                                          width height page focused pressed)
                                            :ascent 100 :scale 1)))
-          (insert (lispm-desktop-assistant--draw-tty lispm-ui-current-palette
+          (insert (lispm-desktop-assistant--draw-tty palette
                                                      width height page)))
         (goto-char (point-min)))
       (set-window-point window (point-min))
@@ -1482,7 +1523,10 @@ in Focus Mode, prompt with `y-or-n-p'."
     (lispm-ui-palette-update))
   (setq lispm-desktop-assistant--window nil
         lispm-desktop-assistant--shown nil
-        lispm-desktop-assistant--last-page nil))
+        lispm-desktop-assistant--last-page nil
+        lispm-desktop-assistant--palette nil)
+  (when (fboundp 'lispm-desktop-platinum-sync-menu-bar)
+    (lispm-desktop-platinum-sync-menu-bar)))
 
 
 (provide 'lispm-desktop-assistant)

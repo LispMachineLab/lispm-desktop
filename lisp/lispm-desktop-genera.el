@@ -833,15 +833,16 @@ black Mouse Documentation Line."
            (doc-h 36)
            (doc-y (max 0 (- height doc-h)))
            (pane-b (max 20 (- doc-y 4)))
-           (bar-y (max 20 (- pane-b 16)))
-           (label-y (max 20 (- pane-b 20)))
+           (bar-y (max 20 (- pane-b 18)))
+           (label-y (max 20 (- pane-b 11)))
            (left-x (max 64 (/ width 14)))
            (mid-x (+ left-x (max 260 (/ (* width 38) 100))))
-           (top-y (max 56 (/ pane-b 11)))
-           (table-y (+ top-y 136))
-           (rule-y (max (+ table-y 116) (/ (* pane-b 56) 100)))
-           (notice-y (+ rule-y 138))
-           (prompt-y (min (- bar-y 26) (+ notice-y 92)))
+           (right-x (max (+ left-x 420) (+ mid-x 24)))
+           (top-y (max 42 (/ pane-b 13)))
+           (table-y (+ top-y 118))
+           (rule-y (max (+ table-y 94) (/ (* pane-b 46) 100)))
+           (notice-y (+ rule-y 142))
+           (prompt-y (min (- bar-y 18) (+ notice-y 104)))
            (host (lispm-desktop-genera--xml-escape (or (system-name) "LISPM-HOST")))
            (root-dir (lispm-desktop-genera--xml-escape
                       (abbreviate-file-name (or lispm-desktop-directory default-directory)))))
@@ -864,35 +865,37 @@ black Mouse Documentation Line."
           "<rect x=\"18.5\" y=\"20.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
           (format "<rect x=\"18.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
                   (- pane-b 35))))
-       ;; Bottom horizontal scroll bar with 45-degree diagonal hatch and italic "Dynamic Lisp Listener 1" label.
+       ;; Bottom italic "Dynamic Lisp Listener 1" label and horizontal 45-degree diagonal-hatched scroll bar beside it.
        (when (and (> width 300) (> pane-b 100))
          (concat
-          (format "<rect x=\"34.5\" y=\"%d.5\" width=\"%d\" height=\"7\" fill=\"url(#genera-hatch)\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                  (- bar-y 14) (- width 60))
-          (format "<rect x=\"34.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                  (- bar-y 14))
-          (format "<rect x=\"%d.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                  (- width 33) (- bar-y 14))
           (format "<text x=\"34\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" font-style=\"italic\" fill=\"#000000\">Dynamic Lisp Listener 1</text>"
-                  (1+ label-y))))
+                  label-y)
+          (when (> width 360)
+            (concat
+             (format "<rect x=\"188.5\" y=\"%d.5\" width=\"%d\" height=\"7\" fill=\"url(#genera-hatch)\" stroke=\"#000000\" stroke-width=\"1\"/>"
+                     bar-y (- width 214))
+             (format "<rect x=\"188.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
+                     bar-y)
+             (format "<rect x=\"%d.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
+                     (- width 33) bar-y)))))
        ;; LispM Desktop herald and Dynamic Lisp Listener 1 content.
        (when (and (> width 480) (> height 260))
          (concat
           (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"22\" font-style=\"italic\" fill=\"#000000\">LispM Desktop™</text>"
                   cx top-y)
           (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">This machine is <tspan font-weight=\"bold\" font-style=\"italic\">%s</tspan>, a LispM Workstation,</text>"
-                  cx (+ top-y 38) host)
+                  cx (+ top-y 30) host)
           (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">running on <tspan font-weight=\"bold\" font-style=\"italic\">GNU Emacs %s</tspan> (%s).</text>"
-                  cx (+ top-y 53) (lispm-desktop-genera--xml-escape emacs-version)
+                  cx (+ top-y 44) (lispm-desktop-genera--xml-escape emacs-version)
                   (lispm-desktop-genera--xml-escape system-configuration))
           (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">LispM Desktop Environment</text>"
-                  cx (+ top-y 82))
+                  cx (+ top-y 66))
           (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">Loaded from %s</text>"
-                  cx (+ top-y 97) root-dir)
+                  cx (+ top-y 80) root-dir)
           (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">Multi-agent Lisp workstation with Dynamic Windows, Focus Mode, Editor and Control Panels.</text>"
-                  cx (+ top-y 112))
+                  cx (+ top-y 94))
           ;; LispM subsystem components table (shown when height permits).
-          (when (> pane-b 480)
+          (when (> pane-b 460)
             (concat
              (mapconcat
               (pcase-lambda (`(,dy ,sys ,ver ,note))
@@ -949,29 +952,31 @@ black Mouse Documentation Line."
              (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"#000000\" stroke-width=\"1\"/>"
                      left-x (+ rule-y 124) (+ left-x 450) (+ rule-y 124))))
           ;; LispM configuration tip & Free Software notice block (shown when height permits).
-          (when (> pane-b 560)
+          (when (> pane-b 530)
             (concat
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" font-weight=\"bold\" fill=\"#000000\">Use Control Panels or the Configure command to customize your LispM workstation:</text>"
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">Use Control Panels or Configure to customize your workstation:</text>"
                      (+ left-x 6) notice-y)
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" font-weight=\"bold\" fill=\"#000000\">Appearance, Language, Security, AI Providers and Sandboxed Tools.</text>"
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">Appearance, Language, Security, AI Providers &amp; Sandboxed Tools.</text>"
                      (+ left-x 6) (+ notice-y 13))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" font-weight=\"bold\" fill=\"#000000\">Double-click or right-click anywhere on this screen to open the System Menu,</text>"
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">Right-click or double-click anywhere for the LispM System Menu,</text>"
                      (+ left-x 6) (+ notice-y 26))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" font-weight=\"bold\" fill=\"#000000\">or press Return to evaluate a command or Lisp form.</text>"
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">or press Return to evaluate a command or Lisp form.</text>"
                      (+ left-x 6) (+ notice-y 39))
              (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"#000000\">Status:  All LispM Desktop subsystems are initialized and ready.</text>"
-                     left-x (+ notice-y 53))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">LispM Desktop — Free Software under the GNU Affero General Public License</text>"
-                     (+ mid-x 40) notice-y)
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">(AGPL-3.0-or-later). Built on GNU Emacs and the LispM Kit, LispM UI,</text>"
-                     (+ mid-x 40) (+ notice-y 11))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">LispM Browser, LispM Auth and LispM Agent workstation stack. Use the</text>"
-                     (+ mid-x 40) (+ notice-y 22))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\"><tspan font-style=\"italic\">Show System</tspan> command to inspect loaded LispM packages and active agents.</text>"
-                     (+ mid-x 40) (+ notice-y 33))))
+                     left-x (+ notice-y 56))
+             (when (> width (+ right-x 360))
+               (concat
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">LispM Desktop — Free Software under the GNU Affero General Public License</text>"
+                        right-x notice-y)
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">(AGPL-3.0-or-later). Built on GNU Emacs and the LispM Kit, LispM UI,</text>"
+                        right-x (+ notice-y 11))
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">LispM Browser, LispM Auth and LispM Agent workstation stack. Use the</text>"
+                        right-x (+ notice-y 22))
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\"><tspan font-style=\"italic\">Show System</tspan> command to inspect loaded LispM packages and active agents.</text>"
+                        right-x (+ notice-y 33))))))
           ;; Ready. / Command: █
           (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"#000000\">Ready.</text>"
-                  left-x (- prompt-y 13))
+                  left-x (- prompt-y 15))
           (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"#000000\">Command: █</text>"
                   left-x prompt-y)))
        ;; Bottom 2-line inverse-video black Mouse Documentation Line.

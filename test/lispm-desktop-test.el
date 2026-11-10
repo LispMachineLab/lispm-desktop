@@ -19533,13 +19533,20 @@ behavioral policies without writing any `cl-defmethod' or modifying consumers."
     (lispm-desktop-define-theme 'custom-workstation
       :label "Custom OS"
       :look 'custom-workstation
+      :emacs-theme 'genera
+      :colors '(:content "#1A1200" :text "#FFB000" :desktop "#1A1200" :chrome "#2A1D00")
       :note "custom workstation note"
       :assistant '(:order 0 :key ?c :label "Custom OS" :text "Declarative workstation.")
       :preview '(:colors ("#000000" "#FFFFFF" "#888888" "#FFFFFF")
                  :code ("#FFFFFF" "#FFFFFF" "#888888" "#888888" "#FFFFFF")))
-    ;; 1. Theme -> Look mapping & metadata come from `lispm-desktop-themes'.
+    ;; 1. Theme -> Look, Emacs deftheme & `:colors' metadata come from `lispm-desktop-themes'.
     (should (eq (lispm-desktop-theme-look 'custom-workstation) 'custom-workstation))
+    (should (eq (lispm-desktop-theme-emacs-theme 'custom-workstation) 'genera))
     (should (equal (lispm-desktop-theme-get :label 'custom-workstation) "Custom OS"))
+    (let ((lispm-desktop-theme 'custom-workstation)
+          (lispm-desktop-platinum-colors '(:desktop "#FFFFFF" :chrome "#FFFFFF")))
+      (should (equal (plist-get (lispm-desktop-platinum-named-colors) :desktop) "#1A1200"))
+      (should (equal (plist-get (lispm-desktop-platinum-named-colors) :chrome) "#2A1D00")))
     ;; 2. Control Strip Appearance menu includes the configured theme automatically.
     (let* ((lispm-desktop-theme 'custom-workstation)
            (strip-items (lispm-desktop-strip--appearance-items))

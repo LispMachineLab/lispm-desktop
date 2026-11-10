@@ -376,8 +376,8 @@ and the look's fonts, LispM UI's faces' too, whose colours LispM UI has
 set itself.  This is one of `lispm-ui-palette-changed-hook', which runs
 whenever a theme is enabled.  Colours come only from the palette and
 faces this function never sets, so re-running it is idempotent."
-  (let ((text (face-foreground 'default nil t))
-        (dim (face-foreground 'shadow nil t))
+  (let ((text (or (lispm-ui-color :text) (face-foreground 'default nil t)))
+        (dim (or (lispm-ui-color :dim) (face-foreground 'shadow nil t)))
         (chrome (lispm-ui-color :chrome))
         (header (lispm-ui-color :header))
         (system (and (display-graphic-p)

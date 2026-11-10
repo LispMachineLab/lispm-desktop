@@ -52,10 +52,14 @@ Configured by `:menu-bar' in `lispm-ui-look-define' (by default t)."
 (defun lispm-desktop-platinum-sync-menu-bar (&rest _)
   "Show or hide the screen's top menu bar as the active look requires."
   (let* ((show (and (lispm-desktop-platinum-menu-bar-look-p) t))
-         (lines (if show 1 0)))
+         (lines (if (and show
+                         (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                                   (lispm-desktop-assistant--visible-p))))
+                    1
+                  0)))
     (setq tab-bar-show show)
-    (setf (alist-get 'tab-bar-lines default-frame-alist) lines)
-    (setf (alist-get 'tab-bar-lines initial-frame-alist) lines)
+    (setf (alist-get 'tab-bar-lines default-frame-alist) (if show 1 0))
+    (setf (alist-get 'tab-bar-lines initial-frame-alist) (if show 1 0))
     (dolist (frame (frame-list))
       (when (and (not (frame-parent frame))
                  (not (frame-parameter frame 'lispm-desktop-own-frame)))

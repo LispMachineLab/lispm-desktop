@@ -863,7 +863,8 @@ neither."
                    (lispm-desktop-standalone-started-hidden-p)))
     (let ((inhibit-message t))
       (customize-save-variable 'lispm-desktop-guide-shown t))
-    (if (and (display-graphic-p) (image-type-available-p 'svg))
+    (if (and (display-graphic-p) (image-type-available-p 'svg)
+             (lispm-desktop-icon-side))
         ;; Once the frame has its size and the desktop is drawn.
         (run-with-idle-timer 0.3 nil (lambda () (lispm-desktop-guide 'again 'play)))
       (lispm-desktop-guide--welcome))))
