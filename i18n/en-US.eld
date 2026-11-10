@@ -8,12 +8,11 @@
 (:name "English (US)"
  :messages
  (("Mac OS 9's greys, black on white." . "Mac OS 9's grays, black on white.")
+  ("Navy captions and VGA grey." . "Navy captions and VGA gray.")
   ("Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars" . "Mac OS 9's Platinum appearance: beveled grays, pinstriped title bars")
-  ("Choosing a look takes its own colours with it, unless you chose a theme of your own." . "Choosing a look takes its own colors with it, unless you chose a theme of your own.")
   ("dark, Dracula's colours" . "dark, Dracula's colors")
   ("Mac OS 9's greys" . "Mac OS 9's grays")
   ("navy and VGA grey" . "navy and VGA gray")
-  ("teal, pale yellow, pale grey" . "teal, pale yellow, pale gray")
   ("The menu bar, the title bars and the lists take their colours from the theme." . "The menu bar, the title bars and the lists take their colors from the theme.")
   ("Desktop colour: " . "Desktop color: ")
   ("Colour" . "Color")

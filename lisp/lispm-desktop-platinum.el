@@ -99,7 +99,12 @@
  'platinum
  :title "Mac OS 9"
  :description (lispm-desktop-tr-noop "Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars")
- :theme 'platinum)
+ :theme 'platinum
+ :menu-bar t
+ :control-strip t
+ :icon-side :right
+ :floating-apps nil
+ :title-double-click 'collapse)
 
 (defcustom lispm-desktop-platinum-system-families
   '("Charcoal" "Charcoal CY" "ChicagoFLF" "Chicago" "Geneva" "Lucida Grande")
@@ -371,8 +376,8 @@ and the look's fonts, LispM UI's faces' too, whose colours LispM UI has
 set itself.  This is one of `lispm-ui-palette-changed-hook', which runs
 whenever a theme is enabled.  Colours come only from the palette and
 faces this function never sets, so re-running it is idempotent."
-  (let ((text (face-foreground 'default nil t))
-        (dim (face-foreground 'shadow nil t))
+  (let ((text (or (lispm-ui-color :text) (face-foreground 'default nil t)))
+        (dim (or (lispm-ui-color :dim) (face-foreground 'shadow nil t)))
         (chrome (lispm-ui-color :chrome))
         (header (lispm-ui-color :header))
         (system (and (display-graphic-p)
@@ -539,6 +544,10 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
                 mode-line-format lispm-desktop-platinum-mode-line-format)
   (setq mode-line-right-align-edge 'window)
   (setq tab-bar-format '(lispm-desktop-platinum-menu-bar-line))
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-platinum-sync-menu-bar)
+  (add-hook 'after-make-frame-functions #'lispm-desktop-platinum-sync-menu-bar)
+  (add-hook 'window-setup-hook #'lispm-desktop-platinum-sync-menu-bar 99)
+  (lispm-desktop-platinum-sync-menu-bar)
   (lispm-desktop-platinum--start-status)
   ;; Frames take sizes in pixels: a scroll bar is exactly as tall as its
   ;; window, and a maximized frame fills the screen.

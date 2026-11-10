@@ -103,6 +103,11 @@ with the desktop and hides from the full-screen editor.")
 (declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
 (defvar lispm-desktop-browser-floating)
 
+(cl-defgeneric lispm-desktop-apps-floating-look-p ()
+  "Return non-nil when workspace applications open in floating windows.
+Configured by `:floating-apps' in `lispm-ui-look-define' (by default nil)."
+  (lispm-desktop-look-property :floating-apps nil))
+
 (defun lispm-desktop-apps-full-screen-p (app)
   "Return non-nil when APP, in front, fills the screen and covers the
 floating windows: the editor or the browser, unless it floats itself.
@@ -191,14 +196,18 @@ A child frame's position counts from there."
 (defun lispm-desktop-apps--geometry (frame)
   "Return where FRAME is: (LEFT TOP TEXT-WIDTH TEXT-HEIGHT) in pixels, over
 its screen, whether it floats there or is out."
-  (pcase-let ((`(,left . ,top) (lispm-desktop-platinum-window-position frame)))
-    (when-let* ((screen (and (not (lispm-desktop-platinum-window-parent frame))
-                             (lispm-desktop-apps-out-p frame))))
-      (pcase-let ((`(,x . ,y) (lispm-desktop-apps--screen-origin screen)))
-        (setq left (- left x) top (- top y))))
-    ;; A window rolled up is remembered at the height it rolls down to.
-    (list left top (frame-text-width frame)
-          (or (lispm-desktop-platinum-rolled-up-height frame) (frame-text-height frame)))))
+  (if-let* ((minimized (and (framep frame) (frame-parameter frame 'lispm-desktop-pc-minimized))))
+      (pcase-let ((`(,left ,top ,width) minimized))
+        (list left top width
+              (or (lispm-desktop-platinum-rolled-up-height frame) (frame-text-height frame))))
+    (pcase-let ((`(,left . ,top) (lispm-desktop-platinum-window-position frame)))
+      (when-let* ((screen (and (not (lispm-desktop-platinum-window-parent frame))
+                               (lispm-desktop-apps-out-p frame))))
+        (pcase-let ((`(,x . ,y) (lispm-desktop-apps--screen-origin screen)))
+          (setq left (- left x) top (- top y))))
+      ;; A window rolled up is remembered at the height it rolls down to.
+      (list left top (frame-text-width frame)
+            (or (lispm-desktop-platinum-rolled-up-height frame) (frame-text-height frame))))))
 
 (defun lispm-desktop-apps--workarea (frame)
   "Return the part of the computer's screen windows may use where FRAME is:
@@ -294,12 +303,18 @@ the desktop's edge would hang out of Emacs's frame over the screen."
                  ;; What the window's own frame adds around its text: borders, mostly.
                  (extra-width (- (frame-pixel-width frame) (frame-text-width frame)))
                  (extra-height (- (frame-pixel-height frame) (frame-text-height frame)))
+                 (minimized (and (framep frame) (frame-parameter frame 'lispm-desktop-pc-minimized)))
+                 (current (and minimized (lispm-desktop-platinum-window-position frame)))
+                 (left (if current (car current) left))
+                 (top (if current (cdr current) top))
                  ;; At least 200 by 100 pixels, or 25 cells by 6 lines on
-                 ;; a text terminal.
+                 ;; a text terminal; a minimized PC window keeps its width.
                  (tty (lispm-desktop-tty-p screen))
-                 (fit-width (max (if tty 25 200)
-                                 (min width (- desktop-right desktop-left
-                                               frame-left extra-width frame-right))))
+                 (fit-width (if minimized
+                                (frame-text-width frame)
+                              (max (if tty 25 200)
+                                   (min width (- desktop-right desktop-left
+                                                 frame-left extra-width frame-right)))))
                  ;; A window rolled up keeps to its title bar.
                  (fit-height (if (lispm-desktop-platinum-rolled-up-height frame)
                                  (frame-text-height frame)
@@ -332,6 +347,23 @@ its screen is hidden goes out there at once."
         (lispm-desktop-apps--keep-on-screen frame)
       (lispm-desktop-apps--put frame (lispm-desktop-apps--geometry frame))
       (set-frame-parameter frame 'lispm-desktop-window-place (lispm-desktop-apps--geometry frame)))))
+
+(defun lispm-desktop-apps-apply-window-geometry (frame place)
+  "Place floating window FRAME at PLACE (LEFT TOP WIDTH HEIGHT) on its screen.
+When WIDTH or HEIGHT is nil, keep FRAME's current width or height."
+  (when (and (frame-live-p frame)
+             (frame-parameter frame 'lispm-desktop-window)
+             (consp place))
+    (pcase-let ((`(,left ,top ,width ,height) place)
+                (`(,cur-left ,cur-top ,cur-w ,cur-h) (lispm-desktop-apps--geometry frame)))
+      (lispm-desktop-apps--put
+       frame
+       (list (or left cur-left)
+             (or top cur-top)
+             (or width cur-w)
+             (or height cur-h)))
+      (set-frame-parameter frame 'lispm-desktop-window-place
+                           (lispm-desktop-apps--geometry frame)))))
 
 (defun lispm-desktop-apps-show-window (frame)
   "Show floating FRAME and keep it on the desktop, see

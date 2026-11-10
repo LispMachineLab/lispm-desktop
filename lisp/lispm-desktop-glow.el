@@ -85,6 +85,11 @@ installed one winning.")
  :system-families lispm-desktop-glow-families
  :list-families lispm-desktop-glow-families
  :family 'glow
+ :menu-bar t
+ :control-strip t
+ :icon-side :right
+ :floating-apps t
+ :title-double-click 'collapse
  :glass 4.0
  :picture "pictures/phosphor.jpg"
  :metrics '(:title-style scan))
@@ -97,6 +102,11 @@ installed one winning.")
  :system-families lispm-desktop-glow-families
  :list-families lispm-desktop-glow-families
  :family 'glow
+ :menu-bar t
+ :control-strip t
+ :icon-side :right
+ :floating-apps t
+ :title-double-click 'collapse
  :glass 1.9
  :picture "pictures/neon.jpg"
  :metrics '(:title-style gradient :glitch t :solid-thumb t))

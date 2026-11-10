@@ -57,8 +57,13 @@ does; users rarely need to."
 
 (defun lispm-desktop-platinum-named-colors ()
   "Return the colours the theme names outright, see
-`lispm-desktop-platinum-colors': one of `lispm-ui-palette-functions'."
-  lispm-desktop-platinum-colors)
+`lispm-desktop-platinum-colors' and `:colors' in `lispm-desktop-themes':
+one of `lispm-ui-palette-functions'."
+  (let ((overrides (lispm-desktop-theme-get :colors))
+        (result (copy-sequence lispm-desktop-platinum-colors)))
+    (cl-loop for (key value) on overrides by #'cddr
+             do (setq result (plist-put result key value)))
+    result))
 
 (add-hook 'lispm-ui-palette-functions #'lispm-desktop-platinum-named-colors)
 

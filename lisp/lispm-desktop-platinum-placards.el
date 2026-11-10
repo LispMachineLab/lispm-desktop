@@ -405,33 +405,43 @@ as finding keys takes long."
                     (substitute-command-keys (format "\\[%s]" command)))))
         (format (funcall help) keys)))))
 
+(cl-defgeneric lispm-desktop-platinum-look-placards (active)
+  "Return look-specific placards at the left of a window's bottom edge,
+configured by `:placards' in `lispm-ui-look-define'."
+  (let ((placards (lispm-desktop-look-property :placards)))
+    (if (functionp placards)
+        (funcall placards active)
+      placards)))
+
 (defun lispm-desktop-platinum-document-placards (active)
   "Return the placards the left of a window's bottom edge shows of its
 document, ACTIVE drawn as on the active window: its padlock, position and
 coding, see the commentary of this file."
   (delq nil
-        (list
-         (when (and buffer-read-only buffer-file-name)
-           (lispm-desktop-platinum-placard
-            (lispm-desktop-platinum-placard-icon 'locked)
-            :active active :keymap lispm-desktop-platinum-locked-placard-map
-            :help (lispm-desktop-platinum--placard-help
-                   (lambda () (lispm-desktop-tr "Read only.  Click to allow editing (%s)."))
-                   'read-only-mode)))
-         (lispm-desktop-platinum-placard
-          (lispm-desktop-platinum-position-text)
-          :active active :keymap lispm-desktop-platinum-position-placard-map
-          :help (lispm-desktop-platinum--placard-help
-                 (lambda () (lispm-desktop-tr "Click to go to a line (%s)."))
-                 'goto-line))
-         (when-let* ((coding (lispm-desktop-platinum-coding-text)))
-           (lispm-desktop-platinum-placard
-            coding
-            :active active :keymap lispm-desktop-platinum-coding-placard-map
-            :help (let ((system buffer-file-coding-system))
-                    (lispm-desktop-platinum--placard-help
-                     (lambda () (lispm-desktop-tr "Coding system %s.  Click to change it (%%s)." system))
-                     'set-buffer-file-coding-system)))))))
+        (append
+         (lispm-desktop-platinum-look-placards active)
+         (list
+          (when (and buffer-read-only buffer-file-name)
+            (lispm-desktop-platinum-placard
+             (lispm-desktop-platinum-placard-icon 'locked)
+             :active active :keymap lispm-desktop-platinum-locked-placard-map
+             :help (lispm-desktop-platinum--placard-help
+                    (lambda () (lispm-desktop-tr "Read only.  Click to allow editing (%s)."))
+                    'read-only-mode)))
+          (lispm-desktop-platinum-placard
+           (lispm-desktop-platinum-position-text)
+           :active active :keymap lispm-desktop-platinum-position-placard-map
+           :help (lispm-desktop-platinum--placard-help
+                  (lambda () (lispm-desktop-tr "Click to go to a line (%s)."))
+                  'goto-line))
+          (when-let* ((coding (lispm-desktop-platinum-coding-text)))
+            (lispm-desktop-platinum-placard
+             coding
+             :active active :keymap lispm-desktop-platinum-coding-placard-map
+             :help (let ((system buffer-file-coding-system))
+                     (lispm-desktop-platinum--placard-help
+                      (lambda () (lispm-desktop-tr "Coding system %s.  Click to change it (%%s)." system))
+                      'set-buffer-file-coding-system))))))))
 
 (defun lispm-desktop-platinum-state-placards (active)
   "Return the placards the right of a window's bottom edge shows of its

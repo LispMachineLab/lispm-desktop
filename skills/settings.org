@@ -28,10 +28,8 @@ for ~eval_elisp~.
   permission class ~write~, and asks the user before every change, whatever their policy says:
   say in one short line what you are about to change and to what, then call it.  The settings:
 
-  - ~look~: the forms the windows, menus and title bars are drawn in, ~platinum~ (classic), ~win3~,
-    ~os2~, ~phosphor~ or ~neon~; a look brings its own colours unless the user chose a theme.
-  - ~theme~: the colour theme, ~dracula~, ~platinum~, ~win3~, ~os2~, ~phosphor~, ~neon~, or any
-    other theme installed.
+  - ~look~: the forms the windows, menus and title bars are drawn in, ~platinum~ (classic), ~win3~ or ~genera~.
+  - ~theme~: the appearance and colour theme, ~dracula~, ~platinum~, ~win3~ or ~genera~.
   - ~language~: the language LispM's menus and windows speak, ~computer~ for the computer's own,
     or ~en-US~, ~en-GB~, ~de~, ~fr~, ~ja~, ~zh-Hans~, ~zh-Hant~.  What agents say is not changed.
   - ~editing-style~: ~vim~ or ~emacs~ keys in files; it takes effect at the next start.
@@ -222,8 +220,8 @@ holds the function, approved as any call is: ~lispm-desktop-arrange-icons~,
 (declare-function lispm-auth-app-requires-password-p "lispm-auth" (app))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 
-(defconst lispm-desktop-skill-themes '(dracula platinum win3 os2 phosphor neon)
-  "The colour themes LispM Desktop brings.")
+(defvar lispm-desktop-skill-themes (mapcar #'car lispm-desktop-themes)
+  "The colour themes LispM Desktop brings, from `lispm-desktop-themes'.")
 
 (defconst lispm-desktop-skill-strictness '(none low middle high)
   "The sandbox levels from the loosest to the strictest; custom is the user's own.")
@@ -715,12 +713,10 @@ does not change."
          (lispm-desktop-set-look
           (lispm-desktop-skill-choice value (mapcar #'car lispm-ui-looks)))))
      ("theme" themes ,(lambda () lispm-desktop-theme)
-      ,(concat (mapconcat #'symbol-name lispm-desktop-skill-themes ", ")
-               ", or any theme installed")
+      ,(mapconcat (lambda (theme) (symbol-name (car theme))) lispm-desktop-themes ", ")
       ,(lambda (value _ _)
          (lispm-desktop-set-theme
-          (lispm-desktop-skill-choice
-           value (append lispm-desktop-skill-themes (custom-available-themes))))))
+          (lispm-desktop-skill-choice value (mapcar #'car lispm-desktop-themes)))))
      ("language" language ,(lambda () (or lispm-desktop-language "computer"))
       ,(concat "computer, "
                (mapconcat (lambda (language) (symbol-name (car language)))

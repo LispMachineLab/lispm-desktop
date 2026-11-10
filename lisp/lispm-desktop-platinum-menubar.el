@@ -44,15 +44,37 @@
 
 ;;;; Menu bar
 
+(cl-defgeneric lispm-desktop-platinum-menu-bar-look-p ()
+  "Return non-nil when the look shows a global menu bar across the screen's top.
+Configured by `:menu-bar' in `lispm-ui-look-define' (by default t)."
+  (lispm-desktop-look-property :menu-bar t))
+
+(defun lispm-desktop-platinum-sync-menu-bar (&rest _)
+  "Show or hide the screen's top menu bar as the active look requires."
+  (let* ((show (and (lispm-desktop-platinum-menu-bar-look-p) t))
+         (lines (if (and show
+                         (not (and (fboundp 'lispm-desktop-assistant--visible-p)
+                                   (lispm-desktop-assistant--visible-p))))
+                    1
+                  0)))
+    (setq tab-bar-show show)
+    (setf (alist-get 'tab-bar-lines default-frame-alist) (if show 1 0))
+    (setf (alist-get 'tab-bar-lines initial-frame-alist) (if show 1 0))
+    (dolist (frame (frame-list))
+      (when (and (not (frame-parent frame))
+                 (not (frame-parameter frame 'lispm-desktop-own-frame)))
+        (set-frame-parameter frame 'tab-bar-lines lines)))))
+
 (defun lispm-desktop-platinum-redraw-menu-bar ()
   "Draw the menu bar again at the next redisplay, and nothing else.
 A frame's menu bar is worked out again once the buffer of its selected
 window is marked, while `(force-mode-line-update t)' would redraw every
 window's title bar and bottom too."
-  (dolist (frame (frame-list))
-    (unless (frame-parent frame)
-      (with-current-buffer (window-buffer (frame-selected-window frame))
-        (force-mode-line-update)))))
+  (when (lispm-desktop-platinum-menu-bar-look-p)
+    (dolist (frame (frame-list))
+      (unless (frame-parent frame)
+        (with-current-buffer (window-buffer (frame-selected-window frame))
+          (force-mode-line-update))))))
 
 (defvar lispm-desktop-platinum--open-menu nil
   "The menu bar item whose menu is popped up, drawn highlighted meanwhile.")
@@ -205,7 +227,7 @@ bottom line, which the menu's outline then draws, as on Mac OS 9.  On a
 text terminal the bar is a line of text, and the outline starts under it."
   (if (lispm-desktop-tty-p)
       (+ (or (frame-parameter nil 'menu-bar-lines) 0) (or (frame-parameter nil 'tab-bar-lines) 0))
-    (1- (tab-bar-height nil t))))
+    (max 0 (1- (tab-bar-height nil t)))))
 
 (defvar lispm-desktop-platinum-lambda-items-function nil
   "Function returning the λ menu's items between About and Customize, as

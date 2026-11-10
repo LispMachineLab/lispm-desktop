@@ -56,25 +56,173 @@ has not been made yet: the first start asks for it and saves the answer."
                  (const :tag "Emacs" emacs)
                  (const :tag "Ask at the next start" nil)))
 
+(defvar lispm-desktop-themes nil
+  "The system themes LispM Desktop brings, in the order shown: (NAME . PROPS).
+Each entry is a declarative configuration defined with
+`lispm-desktop-define-theme':
+  :label      the theme's display name in menus and Control Panels
+  :look       the look (`lispm-ui-looks') the theme pairs with
+  :note       a short description for Control Panels' Appearance panel,
+              marked with `lispm-desktop-tr-noop'
+  :assistant  optional plist (:order N :key CHAR :label STRING :text STRING)
+              for the First-Start Assistant's \"Which system do you know?\"
+              choices, sorted by :order
+  :preview    plist (:colors ... :palette ... :code ...) telling
+              `lispm-desktop-assistant' how to draw its preview card.
+  :emacs-theme Emacs `deftheme' symbol loaded for this theme when different
+              from the theme's own key.
+  :colors     plist of palette colours overriding the Emacs theme's own
+              colours (see `lispm-desktop-platinum-colors').")
+
+(defun lispm-desktop-define-theme (name &rest properties)
+  "Define or update system theme NAME with PROPERTIES in `lispm-desktop-themes'.
+See `lispm-desktop-themes' for the supported properties.  Return NAME."
+  (declare (indent 1))
+  (let ((entry (cons name properties)))
+    (setq lispm-desktop-themes
+          (if (assq name lispm-desktop-themes)
+              (mapcar (lambda (item) (if (eq (car item) name) entry item))
+                      lispm-desktop-themes)
+            (append lispm-desktop-themes (list entry)))))
+  name)
+
+(lispm-desktop-define-theme 'dracula
+  :label "Dracula"
+  :look 'platinum
+  :note (lispm-desktop-tr-noop "dark, Dracula's colours")
+  :preview '(:colors ("#282A36" "#F8F8F2" "#6272A4" "#BD93F9")
+             :code ("#FF79C6" "#50FA7B" "#F1FA8C" "#6272A4" "#F8F8F2")))
+
+(lispm-desktop-define-theme 'platinum
+  :label "Platinum"
+  :look 'platinum
+  :note (lispm-desktop-tr-noop "Mac OS 9's greys")
+  :assistant (list :order 2 :key ?m :label "Mac OS 9"
+                   :text (lispm-desktop-tr-noop "Mac OS 9's greys, black on white."))
+  :preview '(:code ("#3163FF" "#427B7B" "#316331" "#CE3131" "#000000")))
+
+(lispm-desktop-define-theme 'win3
+  :label "Windows 3.2"
+  :look 'win3
+  :note (lispm-desktop-tr-noop "navy and VGA grey")
+  :assistant (list :order 3 :key ?w :label "Windows 3.1"
+                   :text (lispm-desktop-tr-noop "Navy captions and VGA grey."))
+  :preview '(:colors ("#FFFFFF" "#000000" "#808080" "#000080")
+             :palette (:win3 t :desktop "#008080" :chrome "#C0C0C0" :title "#000080")
+             :code ("#000080" "#008080" "#008000" "#800000" "#000000")))
+
+(lispm-desktop-define-theme 'genera
+  :label "Genera"
+  :look 'genera
+  :note (lispm-desktop-tr-noop "Symbolics Lisp Machine, monochrome")
+  :assistant (list :order 1 :key ?g :label "Open Genera"
+                   :text (lispm-desktop-tr-noop "Monochrome Lisp Machine, Zmacs and Listener."))
+  :preview '(:colors ("#FFFFFF" "#000000" "#555555" "#000000")
+             :palette (:genera t :desktop "#FFFFFF" :chrome "#FFFFFF" :title "#FFFFFF")
+             :code ("#000000" "#000000" "#555555" "#555555" "#000000")))
+
 (defcustom lispm-desktop-theme nil
-  "The colour theme: `dracula', `platinum' (Mac OS 9's Platinum greys),
-`win3' (Windows 3.2's scheme), `os2' (OS/2 2.0's), or any other theme
-installed; the chrome takes its colours from whichever.  nil
-means the choice has not been made yet: the first start asks for it.  Change
-it from the λ menu, with `lispm-desktop-set-theme', or by setting it in your
-personal.el: once Emacs is set up, a new value is loaded at once."
-  :type '(choice (const :tag "Dracula" dracula)
-                 (const :tag "Platinum" platinum)
-                 (const :tag "Windows 3.2" win3)
-                 (const :tag "OS/2 2.0" os2)
-                 (symbol :tag "Another installed theme")
+  "The appearance and colour theme: a key of `lispm-desktop-themes'.
+nil means the choice has not been made yet: the first start asks for it.
+Change it from Control Panels, with `lispm-desktop-set-theme', or by
+setting it in your personal.el: once Emacs is set up, a new value is
+loaded at once."
+  :type `(choice ,@(mapcar (pcase-lambda (`(,theme . ,props))
+                             `(const :tag ,(or (plist-get props :label) (symbol-name theme)) ,theme))
+                           lispm-desktop-themes)
                  (const :tag "Ask at the next start" nil)))
+
+(defvar lispm-desktop--loading-theme nil
+  "Non-nil while `lispm-desktop--load-theme-now' loads a theme.")
+
+(defun lispm-desktop-theme-get (property &optional theme)
+  "Return PROPERTY of system THEME (by default the loading or active theme)."
+  (let ((target (or theme
+                    (and (symbolp lispm-desktop--loading-theme)
+                         (not (eq lispm-desktop--loading-theme t))
+                         lispm-desktop--loading-theme)
+                    lispm-desktop-theme)))
+    (plist-get (alist-get target lispm-desktop-themes) property)))
+
+(defun lispm-desktop-theme-look (theme)
+  "Return the look corresponding to THEME from `lispm-desktop-themes'."
+  (or (lispm-desktop-theme-get :look theme) 'platinum))
+
+(defun lispm-desktop-theme-emacs-theme (&optional theme)
+  "Return the Emacs deftheme symbol loaded for system THEME."
+  (let ((target (or theme lispm-desktop-theme 'platinum)))
+    (or (lispm-desktop-theme-get :emacs-theme target) target)))
+
+(defvar lispm-desktop-look)
+(defvar lispm-desktop-look-changed-hook)
 
 (defvar lispm-desktop--set-up nil
   "Non-nil once lispm-desktop is set up, its theme loaded.")
 
-(defvar lispm-desktop--loading-theme nil
-  "Non-nil while `lispm-desktop--load-theme-now' loads a theme.")
+(defvar lispm-desktop--color-faces nil
+  "Faces overridden by the previous theme's `:colors' plist.")
+
+(defun lispm-desktop--reset-theme-color-faces ()
+  "Clear `user' face overrides installed by `lispm-desktop--apply-theme-colors'."
+  (when lispm-desktop--color-faces
+    (dolist (face lispm-desktop--color-faces)
+      (when (facep face)
+        (custom-push-theme 'theme-face face 'user 'reset)))
+    (setq lispm-desktop--color-faces nil)))
+
+(defun lispm-desktop--apply-theme-colors (colors)
+  "Apply `:colors' plist COLORS to base document and syntax faces."
+  (let ((content (plist-get colors :content))
+        (text (plist-get colors :text))
+        (dim (or (plist-get colors :dim) (plist-get colors :muted)))
+        (accent (plist-get colors :accent))
+        (header (or (plist-get colors :header) (plist-get colors :chrome)))
+        (highlight (plist-get colors :highlight))
+        (highlight-text (plist-get colors :highlight-text))
+        (faces nil))
+    (cl-flet ((set-face (face &rest attrs)
+                (when (facep face)
+                  (push face faces)
+                  (apply #'set-face-attribute face nil attrs))))
+      (when (or content text)
+        (set-face 'default
+                  :background (or content 'unspecified)
+                  :foreground (or text 'unspecified))
+        (when content
+          (set-face 'fringe :background content)))
+      (when text
+        (set-face 'cursor :background text)
+        (set-face 'font-lock-variable-name-face :foreground text))
+      (when dim
+        (set-face 'shadow :foreground dim)
+        (set-face 'font-lock-comment-face :foreground dim)
+        (set-face 'font-lock-comment-delimiter-face :foreground dim)
+        (set-face 'font-lock-doc-face :foreground dim)
+        (when content
+          (set-face 'line-number :foreground dim :background content)))
+      (when (and text content)
+        (set-face 'line-number-current-line :foreground text :background content))
+      (when accent
+        (set-face 'minibuffer-prompt :foreground accent :weight 'bold)
+        (set-face 'link :foreground accent :underline t)
+        (set-face 'button :foreground accent :underline t)
+        (set-face 'font-lock-keyword-face :foreground accent :weight 'bold)
+        (set-face 'font-lock-function-name-face :foreground accent :weight 'bold)
+        (set-face 'font-lock-constant-face :foreground accent)
+        (set-face 'font-lock-builtin-face :foreground accent)
+        (set-face 'font-lock-type-face :foreground accent)
+        (set-face 'font-lock-string-face :foreground (or dim accent)))
+      (when header
+        (set-face 'hl-line :background header :extend t)
+        (set-face 'highlight :background header))
+      (when highlight
+        (set-face 'region
+                  :background highlight
+                  :foreground (or highlight-text 'unspecified)
+                  :extend t)))
+    (setq lispm-desktop--color-faces (delete-dups faces))
+    (when (fboundp 'lispm-ui-palette-update)
+      (lispm-ui-palette-update))))
 
 (defvar lispm-desktop--pending-theme nil
   "The theme the next redisplay loads before it draws, as (THEME), or nil.")
@@ -96,20 +244,46 @@ new one.  This is a variable watcher."
 
 (defun lispm-desktop--follow-theme ()
   "Load `lispm-desktop-theme' unless it is already the only theme enabled."
-  (when (and lispm-desktop-theme
-             (not (equal custom-enabled-themes (list lispm-desktop-theme))))
-    (lispm-desktop-load-theme lispm-desktop-theme)))
+  (when lispm-desktop-theme
+    (let* ((look (lispm-desktop-theme-look lispm-desktop-theme))
+           (emacs-theme (lispm-desktop-theme-emacs-theme lispm-desktop-theme))
+           (has-colors (and (lispm-desktop-theme-get :colors lispm-desktop-theme) t))
+           (look-changed (and (boundp 'lispm-desktop-look)
+                              (assq lispm-desktop-theme lispm-desktop-themes)
+                              (not (eq lispm-desktop-look look)))))
+      (when look-changed
+        (let ((lispm-desktop--set-up nil))
+          (set-default 'lispm-desktop-look look)
+          (setq lispm-desktop-look look)))
+      (when (or has-colors
+                (not (equal custom-enabled-themes (list emacs-theme))))
+        (lispm-desktop-load-theme lispm-desktop-theme))
+      (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
+        (run-hooks 'lispm-desktop-look-changed-hook)))))
 
 (defun lispm-desktop--load-theme-now (theme)
-  "Make THEME, by default Dracula, the only colour theme enabled."
-  (let ((lispm-desktop--loading-theme t)
-        (chosen lispm-desktop-theme))
+  "Make THEME, by default Platinum, the only colour theme enabled."
+  (when (and (boundp 'lispm-desktop-look)
+             (assq theme lispm-desktop-themes))
+    (let ((look (lispm-desktop-theme-look theme))
+          (lispm-desktop--set-up nil))
+      (unless (eq lispm-desktop-look look)
+        (set-default 'lispm-desktop-look look)
+        (setq lispm-desktop-look look))))
+  (let* ((target (or theme 'platinum))
+         (lispm-desktop--loading-theme target)
+         (chosen lispm-desktop-theme)
+         (emacs-theme (lispm-desktop-theme-emacs-theme target))
+         (colors (lispm-desktop-theme-get :colors target)))
+    (lispm-desktop--reset-theme-color-faces)
     (mapc #'disable-theme custom-enabled-themes)
-    (load-theme (or theme 'dracula) t)
+    (load-theme emacs-theme t)
     ;; The `user' theme enabled again set the variable back to the value
     ;; saved with Customize; it keeps the one it had.
     (unless (eq lispm-desktop-theme chosen)
-      (set-default 'lispm-desktop-theme chosen))))
+      (set-default 'lispm-desktop-theme chosen))
+    (when colors
+      (lispm-desktop--apply-theme-colors colors))))
 
 (defun lispm-desktop--load-pending-theme (&rest _)
   "Load the theme left for this redisplay, before it draws anything.
@@ -150,10 +324,22 @@ third of a second on the desktop."
 
 (defun lispm-desktop-set-theme (theme)
   "Switch to colour THEME now and at every later start."
-  (interactive (list (intern (completing-read (lispm-desktop-tr "Theme: ") '("dracula" "platinum" "win3" "os2" "phosphor" "neon") nil t))))
-  ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
-  (customize-save-variable 'lispm-desktop-theme theme)
-  (lispm-desktop-load-theme theme))
+  (interactive
+   (list (intern (completing-read (lispm-desktop-tr "Theme: ")
+                                  (mapcar (lambda (entry) (symbol-name (car entry)))
+                                          lispm-desktop-themes)
+                                  nil t))))
+  (let* ((look (lispm-desktop-theme-look theme))
+         (look-changed (and (boundp 'lispm-desktop-look)
+                            (not (eq lispm-desktop-look look)))))
+    ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
+    (when look-changed
+      (let ((lispm-desktop--set-up nil))
+        (customize-save-variable 'lispm-desktop-look look)))
+    (customize-save-variable 'lispm-desktop-theme theme)
+    (lispm-desktop-load-theme theme)
+    (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
+      (run-hooks 'lispm-desktop-look-changed-hook))))
 
 (defcustom lispm-desktop-user-file (locate-user-emacs-file "personal.el")
   "The user's own configuration, loaded after lispm-desktop is set up."

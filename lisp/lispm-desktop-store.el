@@ -146,6 +146,7 @@
 (require 'lispm-desktop-catalog)
 (require 'lispm-desktop-markdown)
 (require 'lispm-desktop-tty-images)
+(require 'lispm-exec)
 
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
@@ -311,21 +312,17 @@ git; then call CALLBACK with nil, or with what the step that failed said."
   (if (null steps)
       (funcall callback nil)
     (pcase-let* ((`(,directory . ,args) (car steps))
-                 (buffer (generate-new-buffer " *lispm-desktop-store git*"))
                  (default-directory (file-name-as-directory directory))
                  (process-environment (lispm-desktop-store--git-environment)))
-      (make-process
-       :name "lispm-desktop-store-git" :buffer buffer :command (cons "git" args)
-       :connection-type 'pipe :noquery t
-       :sentinel (lambda (process _event)
-                   (unless (process-live-p process)
-                     (let ((output (with-current-buffer buffer (string-trim (buffer-string)))))
-                       (kill-buffer buffer)
-                       (if (eql (process-exit-status process) 0)
-                           (lispm-desktop-store--git-steps (cdr steps) callback)
-                         (funcall callback (if (string-empty-p output)
-                                               (lispm-desktop-tr "git failed")
-                                             output))))))))))
+      (lispm-exec
+       "git" args
+       (lambda (exit output errors)
+         (if (eql exit 0)
+             (lispm-desktop-store--git-steps (cdr steps) callback)
+           (let ((said (string-trim (concat errors (if (string-empty-p errors) output "")))))
+             (funcall callback (cond ((stringp exit) exit)
+                                     ((string-empty-p said) (lispm-desktop-tr "git failed"))
+                                     (t said))))))))))
 
 (defun lispm-desktop-store--fetch-steps (url)
   "Return the git steps bringing the clone of the catalog at URL up to date:

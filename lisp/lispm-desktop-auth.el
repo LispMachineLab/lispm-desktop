@@ -343,11 +343,22 @@ contents.")
 
 (defun lispm-desktop-auth--setup-page-palette ()
   "Return the palette the password window is drawn in."
-  (or (bound-and-true-p lispm-ui-current-palette)
-      (ignore-errors (lispm-ui-palette-update))
-      '(:desktop "#6E6E6E" :content "#FFFFFF" :chrome "#DDDDDD"
-        :light "#FFFFFF" :text "#000000" :muted "#777777"
-        :outline "#000000" :alert-dark "#CE3131")))
+  (let ((palette (or (bound-and-true-p lispm-ui-current-palette)
+                     (ignore-errors (lispm-ui-palette-update)))))
+    (if (and palette
+             (not (equal (plist-get palette :desktop)
+                         (plist-get palette :content))))
+        palette
+      (or (bound-and-true-p lispm-desktop-assistant--palette)
+          (if (and (fboundp 'lispm-ui-derive-palette)
+                   (fboundp 'lispm-ui-merge-palette))
+              (lispm-ui-merge-palette
+               (lispm-ui-derive-palette "#FFFFFF" "#000000" "#777777" "#3163FF")
+               '(:desktop "#666699" :chrome "#DDDDDD" :header "#CCCCCC"
+                 :light "#FFFFFF" :shade "#BBBBBB" :frame "#EEEEEE"))
+            '(:desktop "#666699" :content "#FFFFFF" :chrome "#DDDDDD"
+              :light "#FFFFFF" :text "#000000" :muted "#777777"
+              :outline "#000000" :alert-dark "#CE3131"))))))
 
 (defun lispm-desktop-auth--setup-page-title (page)
   "Return the title of the password window showing PAGE."
@@ -446,7 +457,9 @@ and a keyhole."
 (defun lispm-desktop-auth--setup-page-svg (width height page palette)
   "Return an SVG WIDTH by HEIGHT pixels of PAGE as a window on the desktop.
 PAGE is a page asking for LispM's password; PALETTE colours it."
-  (let* ((w lispm-desktop-auth-setup-page-width)
+  (let* ((lispm-desktop-look 'platinum)
+         (lispm-ui-look 'platinum)
+         (w lispm-desktop-auth-setup-page-width)
          (h lispm-desktop-auth-setup-page-height)
          (x (max 0 (/ (- width w) 2)))
          (y (max 0 (/ (- height h) 2)))
@@ -533,7 +546,9 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
 
 (defun lispm-desktop-auth--setup-page-event (_page event)
   "Map a mouse EVENT on PAGE's buttons to an Auth action."
-  (let* ((posn (or (event-end event) (event-start event)))
+  (let* ((lispm-desktop-look 'platinum)
+         (lispm-ui-look 'platinum)
+         (posn (or (event-end event) (event-start event)))
          (window (posn-window posn))
          (xy (posn-object-x-y posn)))
     (when (and (windowp window) (consp xy))
@@ -692,6 +707,10 @@ when the desktop has finished setting up and prompts on demand."
                             (when (stringp bg)
                               (set-frame-parameter frame 'background-color bg)))
                           (set-face-background 'fringe (or saved-fringe 'unspecified) frame)
+                          (dolist (face '(window-divider window-divider-first-pixel window-divider-last-pixel))
+                            (set-face-attribute face frame :foreground 'unspecified))
+                          (when (fboundp 'lispm-desktop-assistant--restore-echo-area)
+                            (lispm-desktop-assistant--restore-echo-area))
                           (when was-invisible
                             (ignore-errors (make-frame-invisible frame t)))))
                       nil t)))))))
@@ -753,6 +772,11 @@ This is `lispm-auth-page-window-draw-function'."
             (set-frame-parameter frame (car parameter) (cdr parameter))))
         (when (framep frame)
           (set-face-background 'fringe bg frame)
+          (unless child-p
+            (dolist (face '(window-divider window-divider-first-pixel window-divider-last-pixel))
+              (set-face-attribute face frame :foreground bg))
+            (when (fboundp 'lispm-desktop-assistant--color-echo-area)
+              (lispm-desktop-assistant--color-echo-area bg)))
           (when (window-live-p (minibuffer-window frame))
             (set-window-fringes (minibuffer-window frame) 0 0))))
       (insert (propertize " " 'display

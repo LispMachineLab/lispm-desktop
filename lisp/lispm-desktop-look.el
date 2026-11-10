@@ -103,12 +103,13 @@
 
 (defcustom lispm-desktop-look 'platinum
   "The look the chrome is drawn in: `platinum' (Mac OS 9), `win3'
-\(Windows 3.2), `os2' (OS/2 2.0's Workplace Shell), `phosphor' or `neon'.  See
-lispm-desktop-look.el.  Change it from Control Panels, with
-`lispm-desktop-set-look', or by setting it in your personal.el: once
-Emacs is set up, a new value is drawn at once."
+\(Windows 3.2), `genera' (Symbolics Genera), `os2' (OS/2 2.0's Workplace
+Shell), `phosphor' or `neon'.  See lispm-desktop-look.el.  Change it from
+Control Panels, with `lispm-desktop-set-look', or by setting it in your
+personal.el: once Emacs is set up, a new value is drawn at once."
   :type '(choice (const :tag "Mac OS 9" platinum)
                  (const :tag "Windows 3.2" win3)
+                 (const :tag "Symbolics Genera" genera)
                  (const :tag "OS/2 2.0" os2)
                  (const :tag "Phosphor" phosphor)
                  (const :tag "Neon" neon)
@@ -127,6 +128,20 @@ Emacs is set up, a new value is drawn at once."
 
 (defvar lispm-desktop-look-changed-hook nil
   "Hook run once the chrome is drawn in another look.")
+
+(defun lispm-desktop-look-property (property &optional default look)
+  "Return PROPERTY of LOOK (by default `lispm-desktop-look'), or DEFAULT if unset.
+Unlike `lispm-ui-look-get', an explicit nil value in LOOK's definition
+or `:metrics' plist is returned rather than falling back to DEFAULT."
+  (let* ((name (or look lispm-desktop-look))
+         (spec (alist-get name lispm-ui-looks))
+         (cell (or (plist-member spec property)
+                   (plist-member (plist-get spec :metrics) property)))
+         (parent (or (plist-get spec :parent) (plist-get spec :family))))
+    (cond (cell (cadr cell))
+          ((and parent (not (eq parent name)) (assq parent lispm-ui-looks))
+           (lispm-desktop-look-property property default parent))
+          (t default))))
 
 (defun lispm-desktop-look-theme-to-follow (from to)
   "Return the colour theme a switch from look FROM to look TO switches to,
@@ -185,6 +200,13 @@ LOOK is a name of `lispm-ui-looks'; interactively, it is asked for."
 (defun lispm-desktop-setup-look ()
   "Follow `lispm-desktop-look' as it is set, once Emacs is set up, and
 draw the chrome again in a new language as it is chosen."
+  (when (assq lispm-desktop-theme lispm-desktop-themes)
+    (let ((look (lispm-desktop-theme-look lispm-desktop-theme))
+          (lispm-desktop--set-up nil))
+      (unless (eq lispm-desktop-look look)
+        (set-default 'lispm-desktop-look look)
+        (setq lispm-desktop-look look)
+        (lispm-desktop-look-redraw))))
   (add-variable-watcher 'lispm-desktop-look #'lispm-desktop-look--changed)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-look-redraw))
 

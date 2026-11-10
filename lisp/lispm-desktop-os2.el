@@ -81,6 +81,12 @@
             :strip-lines (:shadow :light) :strip-ink :text :tree-box :text :group-side (:shadow :light)
             :radio-sunk t :radio-dot 2 :child-frame-border :shadow :dividers (:border-inactive :shadow :light)
             :menu-inset 2 :menu-separator (3 :shadow :light) :submenu-button t)
+ :menu-bar nil
+ :control-strip nil
+ :icon-side :left
+ :floating-apps nil
+ :title-double-click 'zoom
+ :background-double-click #'lispm-desktop-pc-mouse-task-menu
  :box-help (list (lispm-desktop-tr-noop "System menu: restore, minimize, maximize, close")
                  (lispm-desktop-tr-noop "Minimize: roll up to the title bar")
                  (lispm-desktop-tr-noop "Maximize, or restore" "OS/2 2.0"))
@@ -148,10 +154,10 @@ would show it, its image included, or nil; PRESSED pushes it in."
 
 (cl-defmethod lispm-desktop-pc-draw-caption-button (palette kind &context (lispm-desktop-look (eql os2))
                                                             &optional pressed)
-  "Return an SVG of a title bar button of KIND, `minimize' or `maximize',
-raised between the title bar's grey lines: minimize holds a small window
-marked at its corners, maximize a large one outlined.  PRESSED pushes it
-in."
+  "Return an SVG of a title bar button of KIND, `minimize', `maximize' or
+`restore', raised between the title bar's grey lines: minimize holds a
+small window marked at its corners, maximize a large one outlined,
+restore a medium one.  PRESSED pushes it in."
   (let* ((w lispm-desktop-os2-button-width)
          (h lispm-ui-title-bar-height)
          (svg (svg-create w h))
@@ -160,11 +166,15 @@ in."
          (shift (if pressed 1 0)))
     (lispm-ui-svg-paint svg 0 0 w h (lispm-desktop-pc-shadow palette))
     (lispm-desktop-pc-svg-raise svg 0 1 w (- h 2) palette (and pressed :pushed))
-    (if (eq kind 'minimize)
-        (lispm-ui-svg-pixels svg (+ 6 shift) (+ 7 shift)
-                             '("##..##" "#....#" "......" "......" "#....#" "##..##")
-                             `((?# . ,ink)))
-      (lispm-ui-svg-outline svg (+ 5 shift) (+ 6 shift) 8 8 ink))
+    (pcase kind
+      ('minimize
+       (lispm-ui-svg-pixels svg (+ 6 shift) (+ 7 shift)
+                            '("##..##" "#....#" "......" "......" "#....#" "##..##")
+                            `((?# . ,ink))))
+      ('restore
+       (lispm-ui-svg-outline svg (+ 6 shift) (+ 7 shift) 6 6 ink))
+      (_
+       (lispm-ui-svg-outline svg (+ 5 shift) (+ 6 shift) 8 8 ink)))
     svg))
 
 ;;;; Borders

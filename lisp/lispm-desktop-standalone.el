@@ -681,8 +681,8 @@ directory, or nil when it could not be made, saying why."
                             (delete-directory bundle t))
                           (rename-file new bundle)
                           (when (file-executable-p lispm-desktop-standalone--register-program)
-                            (start-process "lispm-lsregister" nil lispm-desktop-standalone--register-program
-                                           "-f" bundle))
+                            (lispm-exec lispm-desktop-standalone--register-program
+                                        (list "-f" bundle) #'ignore))
                           bundle)
                       (error (lispm-desktop-standalone--not-made app err)
                              nil)))))))))

@@ -137,11 +137,25 @@ left at either end."
                    (cdr xy))))
       (cdr (mouse-pixel-position)))))
 
+(cl-defgeneric lispm-desktop-popup-augment-items (items &optional _window)
+  "Return context menu ITEMS augmented with look-specific items for WINDOW."
+  items)
+
+(cl-defgeneric lispm-desktop-popup-context-items (keymap &optional position)
+  "Return the right-click context menu items for KEYMAP at POSITION."
+  (let* ((posn (cond ((posnp position) position)
+                     ((eventp position) (event-start position))))
+         (window (or (and posn (windowp (posn-window posn)) (posn-window posn))
+                     (selected-window))))
+    (lispm-desktop-popup-augment-items
+     (lispm-desktop-popup-keymap-items keymap)
+     window)))
+
 (defun lispm-desktop-popup-keymap-menu (keymap &optional position)
   "Pop up menu KEYMAP at POSITION as a Mac OS 9 menu and run what is chosen.
 POSITION is an event, a posn, a buffer position or nil for the mouse."
   (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy position)))
-    (lispm-ui-menu (lispm-desktop-popup-keymap-items keymap) (1+ x) (1+ y))))
+    (lispm-ui-menu (lispm-desktop-popup-context-items keymap position) (1+ x) (1+ y))))
 
 (defun lispm-desktop-popup--local-right-click-p (position)
   "Return non-nil when a right click at POSITION has a binding of its own.

@@ -83,6 +83,12 @@
             :strip-lines (:outline) :strip-ink :outline :tree-box :shadow :group-side (:text :content)
             :radio-dot 2.5 :child-frame-border :outline :dividers (:border :outline :outline)
             :menu-inset 0 :menu-separator (1 :menu-text))
+ :menu-bar nil
+ :control-strip nil
+ :icon-side :left
+ :floating-apps nil
+ :title-double-click 'zoom
+ :background-double-click #'lispm-desktop-pc-mouse-task-menu
  :box-help (list (lispm-desktop-tr-noop "Control menu: restore, minimize, maximize, close")
                  (lispm-desktop-tr-noop "Minimize: roll up to the caption")
                  (lispm-desktop-tr-noop "Maximize, or restore" "Windows 3.2"))
@@ -133,24 +139,28 @@ drops from it."
 
 (cl-defmethod lispm-desktop-pc-draw-caption-button (palette kind &context (lispm-desktop-look (eql win3))
                                                             &optional pressed)
-  "Return an SVG of a caption button of KIND, `minimize' or `maximize'.
-A black line opens its left; the button is grey, lit along its top and
-left and shaded two pixels deep along its bottom and right, holding a
-black arrowhead, pointing down to minimize and up to maximize.  PRESSED
-shades its top and left instead and moves the arrowhead a pixel down and
-right."
+  "Return an SVG of a caption button of KIND, `minimize', `maximize' or
+`restore'.  A black line opens its left; the button is grey, lit along
+its top and left and shaded two pixels deep along its bottom and right,
+holding a black arrowhead, pointing down to minimize, up to maximize,
+and both up and down to restore.  PRESSED shades its top and left
+instead and moves the arrowhead a pixel down and right."
   (let* ((w lispm-desktop-win3-button-width)
          (h lispm-ui-title-bar-height)
          (svg (svg-create (1+ w) h))
          (outline (plist-get palette :outline))
+         (ink (lispm-ui-legible (plist-get palette :chrome)
+                                outline (plist-get palette :text)))
          (shift (if pressed 1 0)))
     (lispm-ui-svg-paint svg 0 0 1 h outline)
     (lispm-ui-svg-paint svg 1 0 w (1- h) (plist-get palette :chrome))
     (lispm-ui-svg-paint svg 1 (1- h) w 1 outline)
     (lispm-desktop-pc-svg-bevel svg 1 0 w (1- h) palette (if pressed :button-pushed :button))
-    (lispm-ui-svg-arrow svg (+ 6 shift) (+ 7 shift) 4 (if (eq kind 'minimize) 'down 'up)
-                        (lispm-ui-legible (plist-get palette :chrome)
-                                          outline (plist-get palette :text)))
+    (if (eq kind 'restore)
+        (progn
+          (lispm-ui-svg-arrow svg (+ 6 shift) (+ 4 shift) 4 'up ink)
+          (lispm-ui-svg-arrow svg (+ 6 shift) (+ 10 shift) 4 'down ink))
+      (lispm-ui-svg-arrow svg (+ 6 shift) (+ 7 shift) 4 (if (eq kind 'minimize) 'down 'up) ink))
     svg))
 
 ;;;; Sizing borders and the size box

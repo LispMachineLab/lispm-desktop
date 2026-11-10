@@ -1195,8 +1195,11 @@ tick stops once no address window is left."
 recent tab, opening `lispm-browser-home-url' when there is no tab.  The
 desktop's Browser icon runs this, and the browser comes in front."
   (interactive)
-  ;; With the desktop hidden, the browser floats out on the computer's screen.
-  (if (or lispm-desktop-browser-floating (lispm-desktop-apps-hidden-p))
+  ;; With the desktop hidden, or in looks where applications float over the
+  ;; root screen, the browser floats in its own window.
+  (if (or lispm-desktop-browser-floating
+          (lispm-desktop-apps-hidden-p)
+          (lispm-desktop-apps-floating-look-p))
       (lispm-desktop-browser--show-floating)
     (lispm-desktop-browser--show-full-screen))
   (force-mode-line-update t))
