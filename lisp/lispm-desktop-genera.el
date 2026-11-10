@@ -209,31 +209,19 @@ its buffers, or bury the buffer of a split pane."
 
 (defun lispm-desktop-genera-kill-window (&optional window)
   "Kill WINDOW (or the selected window) in Open Genera style:
-close its floating application or Finder pane, close the floating Emacs
-pane when WINDOW is its strip, sidebar or last main pane, or close a
-split pane."
+close its floating application, Finder or Emacs frame, or close a
+tiled pane."
   (interactive)
   (let* ((window (if (window-live-p window) window (selected-window)))
          (frame (window-frame window))
          (buffer (window-buffer window)))
     (cond
      ((equal (buffer-name buffer) lispm-desktop-buffer-name)
-      (message "Dynamic Lisp Listener 1 is the root screen."))
+       (message "Dynamic Lisp Listener 1 is the root screen."))
      ((and (bound-and-true-p lispm-desktop-editor--frame)
            (eq frame lispm-desktop-editor--frame)
            (fboundp 'lispm-desktop-editor-close))
-      (cond
-       ((or (lispm-desktop-platinum--box-function window :close)
-            (window-parameter window 'window-side))
-        (lispm-desktop-editor-close))
-       ((cdr (lispm-desktop-platinum-main-windows frame))
-        (lispm-desktop-platinum-close-window window))
-       (t
-        (when (lispm-desktop-platinum-confirm-close buffer)
-          (unless (equal (buffer-name buffer) "*GNU Emacs*")
-            (let ((kill-buffer-query-functions nil))
-              (kill-buffer buffer)))
-          (lispm-desktop-editor-close)))))
+      (lispm-desktop-editor-close))
      (t
       (lispm-desktop-platinum-close-window window)))))
 
@@ -845,7 +833,8 @@ a double-rule outer frame, 1-bit diagonal-hatched scroll bars, the
 `Dynamic Lisp Listener 1' pane label, LispM's system herald and subsystem
 table, Listener keyboard/mouse instructions, and the 2-line inverse-video
 black Mouse Documentation Line."
-  (if picture
+  (if (and (stringp picture) (not (string-empty-p picture))
+           (file-regular-p picture) (file-readable-p picture))
       (cl-call-next-method)
     (let* ((bg (or (plist-get lispm-ui-current-palette :content) "#FFFFFF"))
            (fg (or (plist-get lispm-ui-current-palette :outline) "#000000"))

@@ -542,10 +542,11 @@ desktop's SVG cannot read."
     (when color
       (lispm-desktop-settings--save 'lispm-desktop-color color))))
 
+(declare-function lispm-desktop-picture-file-p "lispm-desktop-surface" (&optional file))
+
 (defun lispm-desktop-settings--picture-preview ()
   "Insert a small view of the desktop picture."
-  (when-let* ((file (and lispm-desktop-picture (expand-file-name lispm-desktop-picture)))
-              ((file-readable-p file))
+  (when-let* ((file (lispm-desktop-picture-file-p))
               ((display-images-p)))
     (insert (lispm-desktop-settings--indent))
     (insert-image (create-image file nil nil :max-width 160 :max-height 100 :ascent 'center))
@@ -566,7 +567,7 @@ desktop's SVG cannot read."
   (insert "\n")
   (lispm-desktop-settings--heading (lispm-desktop-tr "Picture"))
   (lispm-desktop-settings--picture-preview)
-  (lispm-desktop-settings--note (if lispm-desktop-picture
+  (lispm-desktop-settings--note (if (lispm-desktop-picture-file-p)
                                     (abbreviate-file-name lispm-desktop-picture)
                                   (lispm-desktop-tr "None: the desktop shows its colour.")))
   (insert (lispm-desktop-settings--indent))
@@ -574,7 +575,7 @@ desktop's SVG cannot read."
                                   (lambda () (call-interactively #'lispm-desktop-choose-picture))
                                   (lispm-desktop-tr "Choose a picture for the desktop"))
   (insert " ")
-  (when lispm-desktop-picture
+  (when (lispm-desktop-picture-file-p)
     (lispm-desktop-settings--button (lispm-desktop-tr "None") #'lispm-desktop-remove-picture
                                     (lispm-desktop-tr "Show the desktop's colour alone")))
   (insert "\n\n")

@@ -9931,8 +9931,8 @@ point after a line of its grid."
     (should-not auto-hscroll-mode)))
 
 (ert-deftest lispm-desktop-test-app-window-close-box ()
-  "The close box of an application's window closes the window alone while
-others share the application's frame, else the application's window."
+  "The close box of an application's window closes the application's
+floating window even when several panes share its frame."
   (let ((closed nil))
     (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (id) (setq closed id))))
       (save-window-excursion
@@ -9942,9 +9942,6 @@ others share the application's frame, else the application's window."
           (unwind-protect
               (let ((other (split-window)))
                 (lispm-desktop-app-window-close-box other)
-                (should-not (window-live-p other))
-                (should-not closed)
-                (lispm-desktop-app-window-close-box (selected-window))
                 (should (eq closed 'elfeed)))
             (set-frame-parameter frame 'lispm-desktop-window-kind nil)))))))
 
@@ -14539,17 +14536,32 @@ its command runs again."
 
 (ert-deftest lispm-desktop-test-app-ui-restores-its-panes ()
   "An application whose window holds several panes is opened again by its
-:restore, which lays them out, rather than on the buffer it showed; its
-:size is the size its window first opens at."
+:restore, :run or command, which lays them out, rather than on the buffer
+it showed; its :size is the size its window first opens at, and a pane
+with :bottom nil still keeps its bottom when the look puts window
+controls on bottom placards."
   (let ((lispm-desktop-app-ui-skins nil)
-        (restored nil))
+        (lispm-desktop-app-ui--panes nil)
+        (restored nil)
+        (ran-command nil))
     (lispm-desktop-app-ui-define 'lispm-desktop-test-app-mode :app 'test :size '(1000 . 600)
+                                 :bottom nil
                                  :restore (lambda () (setq restored t)))
     (with-temp-buffer
+      (lispm-desktop-test-app-mode)
+      (let ((lispm-desktop-look 'platinum))
+        (should-not (lispm-desktop-app-ui--bottom-p)))
+      (let ((lispm-desktop-look 'genera))
+        (should (lispm-desktop-app-ui--bottom-p)))
       (let ((lispm-desktop-app-ui--buffers (list (cons 'test (current-buffer)))))
         (save-window-excursion
           (lispm-desktop-app-ui-run 'test 'ignore))
-        (should restored)))
+        (should restored))
+      (let ((lispm-desktop-app-ui--buffers (list (cons 'multi (current-buffer))))
+            (lispm-desktop-app-ui--panes '(multi)))
+        (save-window-excursion
+          (lispm-desktop-app-ui-run 'multi (lambda () (interactive) (setq ran-command t))))
+        (should ran-command)))
     (should (equal (lispm-desktop-app-ui-window-size 'test) '(1000 . 600)))
     (should-not (lispm-desktop-app-ui-window-size 'other))))
 
@@ -17819,6 +17831,11 @@ user's own, as they placed it, comes first."
         (should (eq position 'fill))))
     (let ((lispm-desktop-look 'platinum))
       (should-not (lispm-desktop--picture-in-use)))
+    (let ((lispm-desktop-look 'genera)
+          (lispm-desktop-picture ""))
+      (should-not (lispm-desktop--picture-in-use))
+      (should (string-search "Dynamic Lisp Listener 1"
+                             (lispm-desktop--background 1024 768 ""))))
     (let ((lispm-desktop-look 'neon)
           (lispm-desktop-picture (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory)))
       (should (equal (lispm-desktop--picture-in-use)

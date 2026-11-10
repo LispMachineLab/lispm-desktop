@@ -423,13 +423,10 @@ only when ID's application was."
     (delete-frame frame)))
 
 (defun lispm-desktop-app-window-close-box (window)
-  "Close WINDOW from its close box: the window alone, while others share its
-frame, else the floating window.
+  "Close WINDOW's floating window from its close box.
 This is the frame parameter `lispm-desktop-close-function' of the windows."
   (let ((frame (window-frame window)))
-    (if (cdr (window-list frame 'never))
-        (delete-window window)
-      (lispm-desktop-app-window-close (lispm-desktop-app-window-id frame)))))
+    (lispm-desktop-app-window-close (lispm-desktop-app-window-id frame))))
 
 (defun lispm-desktop-app-window--forget (frame)
   "Forget FRAME once deleted otherwise than by its close box, as with

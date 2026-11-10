@@ -269,10 +269,21 @@ this, see `lispm-desktop-make-alias'."
   :type '(repeat symbol)
   :group 'lispm-desktop)
 
+(defun lispm-desktop-picture-file-p (&optional file)
+  "Return expanded FILE (or `lispm-desktop-picture') when it is a regular file."
+  (let ((target (or file lispm-desktop-picture)))
+    (when (and (stringp target) (not (string-empty-p target)))
+      (let ((expanded (expand-file-name target)))
+        (and (file-regular-p expanded)
+             (file-readable-p expanded)
+             expanded)))))
+
 (defun lispm-desktop-choose-picture (file)
   "Cover the desktop with picture FILE, now and at every later start."
   (interactive (list (read-file-name (lispm-desktop-tr "Desktop picture: ") "~/Pictures/" nil t)))
-  (customize-save-variable 'lispm-desktop-picture (and file (abbreviate-file-name file))))
+  (customize-save-variable 'lispm-desktop-picture
+                           (and (lispm-desktop-picture-file-p file)
+                                (abbreviate-file-name file))))
 
 (defun lispm-desktop-remove-picture ()
   "Show the desktop's colour without a picture, now and at every later start."
@@ -543,11 +554,11 @@ Bound rather than that setting, whose watcher draws the desktop again.")
 `lispm-desktop-picture' as `lispm-desktop-picture-position' places it,
 else the look's own :picture filling the desktop, see
 `lispm-ui-look-define'."
-  (cond ((and lispm-desktop-picture (file-readable-p (expand-file-name lispm-desktop-picture)))
-         (cons (expand-file-name lispm-desktop-picture) lispm-desktop-picture-position))
+  (cond ((when-let* ((file (lispm-desktop-picture-file-p)))
+           (cons file lispm-desktop-picture-position)))
         ((when-let* ((own (lispm-ui-look-get :picture))
-                     (file (expand-file-name own lispm-desktop-directory))
-                     ((file-readable-p file)))
+                     (file (lispm-desktop-picture-file-p
+                            (expand-file-name own lispm-desktop-directory))))
            (cons file 'fill)))))
 
 (defun lispm-desktop--picture-file (width height &optional file)
@@ -556,7 +567,7 @@ picture FILE, by default `lispm-desktop-picture', scaled to it, when
 made, else the picture itself.  Only a picture filling the desktop or
 fitted to it is scaled, to the display's pixels; a copy too small is
 made again, larger."
-  (let* ((file (or file (expand-file-name lispm-desktop-picture)))
+  (let* ((file (or file (lispm-desktop-picture-file-p)))
          (time (file-attribute-modification-time (file-attributes file))))
     (pcase-let* ((`(,picture-width . ,picture-height) (lispm-desktop--picture-size file))
                  (density (if (fboundp 'frame-scale-factor) (frame-scale-factor) 1))
@@ -580,8 +591,7 @@ made again, larger."
   "Return the SVG laying a picture over WIDTH by HEIGHT, or nil: FILE, by
 default `lispm-desktop-picture'.  The picture is named relative to its own
 folder, the desktop image's base."
-  (when-let* ((file (or file (and lispm-desktop-picture (expand-file-name lispm-desktop-picture))))
-              ((file-readable-p file)))
+  (when-let* ((file (lispm-desktop-picture-file-p file)))
     (let ((href (lispm-desktop--escape (url-hexify-string (file-name-nondirectory file)))))
       (pcase (or lispm-desktop--picture-position lispm-desktop-picture-position)
         ('center
