@@ -845,7 +845,8 @@ a double-rule outer frame, 1-bit diagonal-hatched scroll bars, the
 `Dynamic Lisp Listener 1' pane label, LispM's system herald and subsystem
 table, Listener keyboard/mouse instructions, and the 2-line inverse-video
 black Mouse Documentation Line."
-  (if picture
+  (if (and (stringp picture) (not (string-empty-p picture))
+           (file-regular-p picture) (file-readable-p picture))
       (cl-call-next-method)
     (let* ((bg (or (plist-get lispm-ui-current-palette :content) "#FFFFFF"))
            (fg (or (plist-get lispm-ui-current-palette :outline) "#000000"))

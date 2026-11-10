@@ -17819,6 +17819,11 @@ user's own, as they placed it, comes first."
         (should (eq position 'fill))))
     (let ((lispm-desktop-look 'platinum))
       (should-not (lispm-desktop--picture-in-use)))
+    (let ((lispm-desktop-look 'genera)
+          (lispm-desktop-picture ""))
+      (should-not (lispm-desktop--picture-in-use))
+      (should (string-search "Dynamic Lisp Listener 1"
+                             (lispm-desktop--background 1024 768 ""))))
     (let ((lispm-desktop-look 'neon)
           (lispm-desktop-picture (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory)))
       (should (equal (lispm-desktop--picture-in-use)
