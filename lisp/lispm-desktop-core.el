@@ -132,9 +132,17 @@ loaded at once."
                            lispm-desktop-themes)
                  (const :tag "Ask at the next start" nil)))
 
+(defvar lispm-desktop--loading-theme nil
+  "Non-nil while `lispm-desktop--load-theme-now' loads a theme.")
+
 (defun lispm-desktop-theme-get (property &optional theme)
-  "Return PROPERTY of system THEME (by default `lispm-desktop-theme')."
-  (plist-get (alist-get (or theme lispm-desktop-theme) lispm-desktop-themes) property))
+  "Return PROPERTY of system THEME (by default the loading or active theme)."
+  (let ((target (or theme
+                    (and (symbolp lispm-desktop--loading-theme)
+                         (not (eq lispm-desktop--loading-theme t))
+                         lispm-desktop--loading-theme)
+                    lispm-desktop-theme)))
+    (plist-get (alist-get target lispm-desktop-themes) property)))
 
 (defun lispm-desktop-theme-look (theme)
   "Return the look corresponding to THEME from `lispm-desktop-themes'."
@@ -150,9 +158,6 @@ loaded at once."
 
 (defvar lispm-desktop--set-up nil
   "Non-nil once lispm-desktop is set up, its theme loaded.")
-
-(defvar lispm-desktop--loading-theme nil
-  "Non-nil while `lispm-desktop--load-theme-now' loads a theme.")
 
 (defvar lispm-desktop--color-faces nil
   "Faces overridden by the previous theme's `:colors' plist.")

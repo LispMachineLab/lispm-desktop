@@ -95,6 +95,22 @@
  :background-double-click #'lispm-desktop-genera-mouse-system-menu
  :background-open #'lispm-desktop-genera-command)
 
+(defun lispm-desktop-genera--look-p (&optional look)
+  "Return `genera' when LOOK is `genera' or inherits from `genera'."
+  (let ((name (or look lispm-desktop-look)))
+    (and (or (eq name 'genera)
+             (eq (lispm-ui-look-get :parent name) 'genera)
+             (eq (lispm-ui-look-family name) 'genera))
+         'genera)))
+
+(cl-generic-define-generalizer lispm-desktop-genera--generalizer
+  50 (lambda (look &rest _) `(lispm-desktop-genera--look-p ,look))
+  (lambda (tag &rest _) (and (eq tag 'genera) '((lispm-desktop-genera-look genera)))))
+
+(cl-defmethod cl-generic-generalizers ((_specializer (head lispm-desktop-genera-look)))
+  "Support for (lispm-desktop-genera-look genera) specializers."
+  (list lispm-desktop-genera--generalizer))
+
 ;;;; Paper-white bold-italic pane headers and Pane Command Menu
 
 (defun lispm-desktop-genera-draw-caption (palette width &optional active label label-x)
@@ -151,7 +167,7 @@ ACTIVE (italic when inactive) and a 1px solid black rule below."
     svg))
 
 (cl-defmethod lispm-ui-title-layout (width title-width
-                                           &context (lispm-ui-look (eql genera))
+                                           &context (lispm-ui-look (lispm-desktop-genera-look genera))
                                            &optional _controls margins)
   "Lay a Genera Dynamic Windows pane header WIDTH pixels wide out:
 a pure paper-white label bar with bold-italic text and no control buttons."
@@ -372,7 +388,7 @@ the Pane Command Menu (`Bury', `Kill', `Move', `Reshape', `Expand',
 `Select', `Create').")
 
 (cl-defmethod lispm-desktop-platinum-draw-title-bar (width active _icon title modified controls
-                                                           &context (lispm-desktop-look (eql genera))
+                                                           &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                            &optional _pressed status _edges margins)
   "Return a Genera Dynamic Windows pane header WIDTH pixels wide reading TITLE:
 a pure paper-white label bar with bold-italic black text and a 1px bottom
@@ -400,7 +416,7 @@ rule, without PC or Mac button boxes."
 ;;;; 1-bit Dynamic Windows double-rule pane frames and grow box
 
 (cl-defmethod lispm-desktop-platinum-draw-window-frame (palette width height
-                                                                &context (lispm-desktop-look (eql genera))
+                                                                &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                                 &key active)
   "Return a Genera 1-bit double-rule window frame WIDTH by HEIGHT pixels:
 a thick 3px outer black border (1px when inactive), a paper-white gap, and an
@@ -421,7 +437,7 @@ inner 1px black rule around the pane."
     svg))
 
 (cl-defmethod lispm-desktop-platinum-draw-grow-box (palette height
-                                                            &context (lispm-desktop-look (eql genera)))
+                                                            &context (lispm-desktop-look (lispm-desktop-genera-look genera)))
   "Return a 1-bit Genera corner resize box, sixteen pixels square, in PALETTE."
   (let* ((s 16)
          (svg (svg-create s height))
@@ -437,7 +453,7 @@ inner 1px black rule around the pane."
 ;;;; 1-bit Command Menus and Notification Alerts
 
 (cl-defmethod lispm-ui-draw-menu (palette items width highlight
-                                          &context (lispm-ui-look (eql genera)))
+                                          &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Return a 1-bit Genera Command Menu of ITEMS WIDTH pixels wide, in PALETTE:
 paper white framed with a black border and 2px bottom/right drop shadow,
 the highlighted row inverted in solid black."
@@ -498,7 +514,7 @@ the highlighted row inverted in solid black."
               :font-family "monospace" :font-size 8 :font-weight "bold")))
 
 (cl-defmethod lispm-ui-alert-layout (message detail buttons
-                                             &context (lispm-ui-look (eql genera)))
+                                             &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Lay a 1-bit Genera notification box of MESSAGE, DETAIL and BUTTONS out."
   (let* ((w lispm-desktop-look-alert-width)
          (border lispm-desktop-genera-alert-border)
@@ -528,7 +544,7 @@ the highlighted row inverted in solid black."
                                 #'< placed))))
 
 (cl-defmethod lispm-ui-draw-alert (palette icon message detail buttons pressed focused
-                                           &context (lispm-ui-look (eql genera)))
+                                           &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Return a 1-bit Genera notification dialog of ICON, MESSAGE, DETAIL and
 BUTTONS."
   (let* ((layout (lispm-ui-alert-layout message detail buttons))
@@ -557,14 +573,14 @@ BUTTONS."
 ;;;; 1-bit Controls, Placards, Tabs and Scroll Bars
 
 (cl-defmethod lispm-ui-svg-focus-ring (svg x y width height _radius palette
-                                           &context (lispm-ui-look (eql genera)))
+                                           &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Mark on SVG the control in the WIDTH by HEIGHT box at X, Y with a 1-bit
 dotted ring."
   (lispm-ui-svg-dotted svg (+ x 2) (+ y 2) (- width 4) (- height 4)
                        (plist-get palette :outline)))
 
 (cl-defmethod lispm-ui-svg-push-button (svg x y palette label width
-                                            &context (lispm-ui-look (eql genera))
+                                            &context (lispm-ui-look (lispm-desktop-genera-look genera))
                                             &key state default focused font)
   "Draw on SVG at X, Y a 1-bit Genera command button WIDTH pixels wide:
 paper white outlined in black with a 2px bottom/right drop shadow, or
@@ -590,7 +606,7 @@ solid black inverse video when STATE is `pressed'."
     (lispm-ui-svg-label svg label (+ x (/ width 2.0)) (+ y 14) fg font)))
 
 (cl-defmethod lispm-ui-svg-bevel-button (svg x y palette width height
-                                             &context (lispm-ui-look (eql genera))
+                                             &context (lispm-ui-look (lispm-desktop-genera-look genera))
                                              &key state label face)
   "Draw on SVG at X, Y a 1-bit Genera button WIDTH by HEIGHT pixels,
 inverted in solid black when STATE is `pressed'."
@@ -614,7 +630,7 @@ inverted in solid black when STATE is `pressed'."
        fg face))))
 
 (cl-defmethod lispm-desktop-platinum--draw-header-ground (svg width palette
-                                                              &context (lispm-desktop-look (eql genera)))
+                                                              &context (lispm-desktop-look (lispm-desktop-genera-look genera)))
   "Draw on SVG the ground of a Genera header strip WIDTH pixels wide:
 paper white over a 1px black rule."
   (let ((h lispm-desktop-platinum-header-strip-height))
@@ -622,7 +638,7 @@ paper white over a 1px black rule."
     (lispm-ui-svg-paint svg 0 (1- h) width 1 (plist-get palette :outline))))
 
 (cl-defmethod lispm-desktop-platinum-draw-header-strip (palette width
-                                                                &context (lispm-desktop-look (eql genera))
+                                                                &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                                 &optional label left)
   "Return a Genera strip under a pane header WIDTH pixels wide."
   (let* ((h lispm-desktop-platinum-header-strip-height)
@@ -638,7 +654,7 @@ paper white over a 1px black rule."
     svg))
 
 (cl-defmethod lispm-ui-draw-group-side (palette height
-                                                &context (lispm-ui-look (eql genera)))
+                                                &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Return a side of a 1-bit Genera group box: a 1px black line and pane."
   (let ((svg (svg-create 2 height)))
     (lispm-ui-svg-paint svg 0 0 1 height (plist-get palette :outline))
@@ -646,7 +662,7 @@ paper white over a 1px black rule."
     svg))
 
 (cl-defmethod lispm-desktop-platinum-draw-placard (palette width height
-                                                           &context (lispm-desktop-look (eql genera))
+                                                           &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                            &key label font state)
   "Return a Genera Who-Line plate WIDTH by HEIGHT pixels: a crisp 1px
 black-outlined box on paper white with a 1px drop edge when active."
@@ -666,7 +682,7 @@ black-outlined box on paper white with a 1px drop edge when active."
     svg))
 
 (cl-defmethod lispm-ui-draw-check-box (palette on
-                                               &context (lispm-ui-look (eql genera))
+                                               &context (lispm-ui-look (lispm-desktop-genera-look genera))
                                                &key state focused pad)
   "Return a 1-bit Genera check box: a square outlined in black, filled with
 an inverse-video black square when ON."
@@ -684,7 +700,7 @@ an inverse-video black square when ON."
     svg))
 
 (cl-defmethod lispm-ui-draw-radio (palette on
-                                           &context (lispm-ui-look (eql genera))
+                                           &context (lispm-ui-look (lispm-desktop-genera-look genera))
                                            &key state focused pad)
   "Return a 1-bit Genera option circle: a white circle outlined in black,
 holding a solid black dot when ON."
@@ -703,7 +719,7 @@ holding a solid black dot when ON."
     svg))
 
 (cl-defmethod lispm-ui-draw-triangle (palette open
-                                              &context (lispm-ui-look (eql genera)))
+                                              &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Return a 1-bit Genera tree disclosure box, twelve pixels square."
   (let ((svg (svg-create 12 12))
         (ink (plist-get palette :outline)))
@@ -715,7 +731,7 @@ holding a solid black dot when ON."
     svg))
 
 (cl-defmethod lispm-desktop-platinum-draw-tab (palette label width
-                                                       &context (lispm-desktop-look (eql genera))
+                                                       &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                        &key front face)
   "Return a 1-bit Genera tab WIDTH pixels wide reading LABEL: inverse-video
 black when in FRONT, paper white outlined in black when behind."
@@ -737,7 +753,7 @@ black when in FRONT, paper white outlined in black when behind."
     svg))
 
 (cl-defmethod lispm-desktop-platinum-draw-tab-edge (palette width
-                                                            &context (lispm-desktop-look (eql genera)))
+                                                            &context (lispm-desktop-look (lispm-desktop-genera-look genera)))
   "Return the pane's top edge WIDTH pixels wide beside Genera tabs."
   (let* ((h lispm-desktop-platinum-tab-height)
          (svg (svg-create width (+ h 3))))
@@ -761,14 +777,14 @@ black when in FRONT, paper white outlined in black when behind."
             (svg-line svg x1 y1 x2 y2 :stroke color :stroke-width 1)))
         (setq d (+ d step))))))
 
-(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-ui-look (eql genera)))
+(cl-defmethod lispm-ui-scroll-layout (height &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Lay a Genera 1-bit scroll bar HEIGHT pixels tall out: a square end-box at
 either end and the track between."
   (let ((b lispm-desktop-genera-scroll-button))
     (list :track b :track-length (max 0 (- height b b)) :up 0 :down (- height b) :arrow b)))
 
 (cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
-                                                &context (lispm-ui-look (eql genera)))
+                                                &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Return a Genera 1-bit scroll bar HEIGHT pixels tall: a paper-white
 track outlined in black, 1-bit empty square end-boxes at top and bottom,
 and a 45-degree diagonal-hatched (`////') elevator bar."
@@ -789,7 +805,7 @@ and a 45-degree diagonal-hatched (`////') elevator bar."
     svg))
 
 (cl-defmethod lispm-desktop--draw-icon (spec x y selected label-width family size ascent
-                                             &context (lispm-desktop-look (eql genera)))
+                                             &context (lispm-desktop-look (lispm-desktop-genera-look genera)))
   "Return SVG of the icon SPEC in Genera's 1-bit monochrome style: its
 label inverted in solid black when SELECTED."
   (let* ((palette lispm-ui-current-palette)
@@ -802,15 +818,17 @@ label inverted in solid black when SELECTED."
 
 ;;;; Dynamic Lisp Listener 1 (LispM-adapted root screen)
 
-(defun lispm-desktop-genera--svg-keycap (x y label)
+(defun lispm-desktop-genera--svg-keycap (x y label &optional bg fg)
   "Return an SVG 1-bit hexagonal LispM keycap at X, Y with LABEL."
-  (let ((w (+ 10 (* 5 (length label)))))
+  (let ((w (+ 10 (* 5 (length label))))
+        (bg (or bg (plist-get lispm-ui-current-palette :content) "#FFFFFF"))
+        (fg (or fg (plist-get lispm-ui-current-palette :outline) "#000000")))
     (concat
-     (format "<polygon points=\"%d,%d %d,%d %d,%d %d,%d %d,%d %d,%d\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
+     (format "<polygon points=\"%d,%d %d,%d %d,%d %d,%d %d,%d %d,%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/>"
              x (- y 4) (+ x 4) (- y 8) (- (+ x w) 4) (- y 8)
-             (+ x w) (- y 4) (- (+ x w) 4) y (+ x 4) y)
-     (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"7\" font-weight=\"bold\" fill=\"#000000\">%s</text>"
-             (+ x (/ w 2)) (- y 2) label))))
+             (+ x w) (- y 4) (- (+ x w) 4) y (+ x 4) y bg fg)
+     (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"7\" font-weight=\"bold\" fill=\"%s\">%s</text>"
+             (+ x (/ w 2)) (- y 2) fg label))))
 
 (defun lispm-desktop-genera--xml-escape (text)
   "Escape XML special characters in TEXT for inline SVG rendering."
@@ -820,7 +838,7 @@ label inverted in solid black when SELECTED."
     (setq s (string-replace ">" "&gt;" s))
     (string-replace "\"" "&quot;" s)))
 
-(cl-defmethod lispm-desktop--background (width height &context (lispm-desktop-look (eql genera))
+(cl-defmethod lispm-desktop--background (width height &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                &optional picture)
   "Return SVG of LispM's `Dynamic Lisp Listener 1' screen WIDTH by HEIGHT:
 a double-rule outer frame, 1-bit diagonal-hatched scroll bars, the
@@ -829,7 +847,9 @@ table, Listener keyboard/mouse instructions, and the 2-line inverse-video
 black Mouse Documentation Line."
   (if picture
       (cl-call-next-method)
-    (let* ((cx (/ width 2))
+    (let* ((bg (or (plist-get lispm-ui-current-palette :content) "#FFFFFF"))
+           (fg (or (plist-get lispm-ui-current-palette :outline) "#000000"))
+           (cx (/ width 2))
            (doc-h 36)
            (doc-y (max 0 (- height doc-h)))
            (pane-b (max 20 (- doc-y 4)))
@@ -848,64 +868,65 @@ black Mouse Documentation Line."
                       (abbreviate-file-name (or lispm-desktop-directory default-directory)))))
       (concat
        "<defs><pattern id=\"genera-hatch\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\">"
-       "<rect width=\"4\" height=\"4\" fill=\"#FFFFFF\"/>"
-       "<path d=\"M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2\" stroke=\"#000000\" stroke-width=\"1\"/>"
+       (format "<rect width=\"4\" height=\"4\" fill=\"%s\"/>" bg)
+       (format "<path d=\"M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2\" stroke=\"%s\" stroke-width=\"1\"/>" fg)
        "</pattern></defs>"
-       (format "<rect width=\"%d\" height=\"%d\" fill=\"#FFFFFF\"/>" width height)
+       (format "<rect width=\"%d\" height=\"%d\" fill=\"%s\"/>" width height bg)
        ;; Double-rule outer Dynamic Windows screen frame (3px black + 2px white + 1px black).
-       (format "<rect x=\"1.5\" y=\"1.5\" width=\"%d\" height=\"%d\" fill=\"none\" stroke=\"#000000\" stroke-width=\"3\"/>"
-               (max 0 (- width 3)) (max 0 (- doc-y 3)))
-       (format "<rect x=\"5.5\" y=\"5.5\" width=\"%d\" height=\"%d\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1\"/>"
-               (max 0 (- width 11)) (max 0 (- pane-b 6)))
+       (format "<rect x=\"1.5\" y=\"1.5\" width=\"%d\" height=\"%d\" fill=\"none\" stroke=\"%s\" stroke-width=\"3\"/>"
+               (max 0 (- width 3)) (max 0 (- doc-y 3)) fg)
+       (format "<rect x=\"5.5\" y=\"5.5\" width=\"%d\" height=\"%d\" fill=\"none\" stroke=\"%s\" stroke-width=\"1\"/>"
+               (max 0 (- width 11)) (max 0 (- pane-b 6)) fg)
        ;; Left 1-bit vertical scroll bar with empty square end-boxes and 45-degree diagonal hatch.
        (when (> pane-b 80)
          (concat
-          (format "<rect x=\"18.5\" y=\"20.5\" width=\"7\" height=\"%d\" fill=\"url(#genera-hatch)\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                  (- pane-b 48))
-          "<rect x=\"18.5\" y=\"20.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-          (format "<rect x=\"18.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                  (- pane-b 35))))
+          (format "<rect x=\"18.5\" y=\"20.5\" width=\"7\" height=\"%d\" fill=\"url(#genera-hatch)\" stroke=\"%s\" stroke-width=\"1\"/>"
+                  (- pane-b 48) fg)
+          (format "<rect x=\"18.5\" y=\"20.5\" width=\"7\" height=\"7\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/>"
+                  bg fg)
+          (format "<rect x=\"18.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/>"
+                  (- pane-b 35) bg fg)))
        ;; Bottom italic "Dynamic Lisp Listener 1" label and horizontal 45-degree diagonal-hatched scroll bar beside it.
        (when (and (> width 300) (> pane-b 100))
          (concat
-          (format "<text x=\"34\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" font-style=\"italic\" fill=\"#000000\">Dynamic Lisp Listener 1</text>"
-                  label-y)
+          (format "<text x=\"34\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" font-style=\"italic\" fill=\"%s\">Dynamic Lisp Listener 1</text>"
+                  label-y fg)
           (when (> width 360)
             (concat
-             (format "<rect x=\"188.5\" y=\"%d.5\" width=\"%d\" height=\"7\" fill=\"url(#genera-hatch)\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                     bar-y (- width 214))
-             (format "<rect x=\"188.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                     bar-y)
-             (format "<rect x=\"%d.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"#FFFFFF\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                     (- width 33) bar-y)))))
+             (format "<rect x=\"188.5\" y=\"%d.5\" width=\"%d\" height=\"7\" fill=\"url(#genera-hatch)\" stroke=\"%s\" stroke-width=\"1\"/>"
+                     bar-y (- width 214) fg)
+             (format "<rect x=\"188.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/>"
+                     bar-y bg fg)
+             (format "<rect x=\"%d.5\" y=\"%d.5\" width=\"7\" height=\"7\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/>"
+                     (- width 33) bar-y bg fg)))))
        ;; LispM Desktop herald and Dynamic Lisp Listener 1 content.
        (when (and (> width 480) (> height 260))
          (concat
-          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"22\" font-style=\"italic\" fill=\"#000000\">LispM Desktop™</text>"
-                  cx top-y)
-          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">This machine is <tspan font-weight=\"bold\" font-style=\"italic\">%s</tspan>, a LispM Workstation,</text>"
-                  cx (+ top-y 30) host)
-          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">running on <tspan font-weight=\"bold\" font-style=\"italic\">GNU Emacs %s</tspan> (%s).</text>"
-                  cx (+ top-y 44) (lispm-desktop-genera--xml-escape emacs-version)
+          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"22\" font-style=\"italic\" fill=\"%s\">LispM Desktop™</text>"
+                  cx top-y fg)
+          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"%s\">This machine is <tspan font-weight=\"bold\" font-style=\"italic\">%s</tspan>, a LispM Workstation,</text>"
+                  cx (+ top-y 30) fg host)
+          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"%s\">running on <tspan font-weight=\"bold\" font-style=\"italic\">GNU Emacs %s</tspan> (%s).</text>"
+                  cx (+ top-y 44) fg (lispm-desktop-genera--xml-escape emacs-version)
                   (lispm-desktop-genera--xml-escape system-configuration))
-          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">LispM Desktop Environment</text>"
-                  cx (+ top-y 66))
-          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">Loaded from %s</text>"
-                  cx (+ top-y 80) root-dir)
-          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"#000000\">Multi-agent Lisp workstation with Dynamic Windows, Focus Mode, Editor and Control Panels.</text>"
-                  cx (+ top-y 94))
+          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"%s\">LispM Desktop Environment</text>"
+                  cx (+ top-y 66) fg)
+          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"%s\">Loaded from %s</text>"
+                  cx (+ top-y 80) fg root-dir)
+          (format "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"12\" fill=\"%s\">Multi-agent Lisp workstation with Dynamic Windows, Focus Mode, Editor and Control Panels.</text>"
+                  cx (+ top-y 94) fg)
           ;; LispM subsystem components table (shown when height permits).
           (when (> pane-b 460)
             (concat
              (mapconcat
               (pcase-lambda (`(,dy ,sys ,ver ,note))
                 (concat
-                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9\" fill=\"#000000\">%s</text>"
-                         (+ left-x 60) (+ table-y dy) sys)
-                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9\" fill=\"#000000\">%s</text>"
-                         (- mid-x 64) (+ table-y dy) ver)
-                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9\" fill=\"#000000\">%s</text>"
-                         mid-x (+ table-y dy) note)))
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9\" fill=\"%s\">%s</text>"
+                         (+ left-x 60) (+ table-y dy) fg sys)
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9\" fill=\"%s\">%s</text>"
+                         (- mid-x 64) (+ table-y dy) fg ver)
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9\" fill=\"%s\">%s</text>"
+                         mid-x (+ table-y dy) fg note)))
               `((0  "LispM Desktop" "0.1"            "Dynamic Windows, Who-Line and 1-bit monochrome chrome")
                 (13 "LispM Agent"   "0.1"            "Multi-agent sessions, characters, diaries and workspace tools")
                 (26 "LispM UI"      "0.1"            "Command menus, dialogs, forms and file chooser")
@@ -917,75 +938,75 @@ black Mouse Documentation Line."
           ;; Horizontal rule and Dynamic Lisp Listener 1 instructions for LispM.
           (when (> pane-b 340)
             (concat
-             (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                     left-x rule-y (+ left-x 450) rule-y)
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">You are typing to <tspan font-style=\"italic\">Dynamic Lisp Listener 1.</tspan></text>"
-                     left-x (+ rule-y 15))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Press Return to enter a command in the LispM Command Processor.</text>"
-                     left-x (+ rule-y 29))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Press Control-</text>"
-                     left-x (+ rule-y 43))
-             (lispm-desktop-genera--svg-keycap (+ left-x 76) (+ rule-y 43) "HELP")
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">(or C-h ?) for Emacs and input editing commands.</text>"
-                     (+ left-x 112) (+ rule-y 43))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Type &quot;Help Commands&quot; to display a list of LispM Command Processor commands.</text>"
-                     left-x (+ rule-y 62))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Press</text>"
-                     left-x (+ rule-y 76))
-             (lispm-desktop-genera--svg-keycap (+ left-x 34) (+ rule-y 76) "SELECT")
-             (lispm-desktop-genera--svg-keycap (+ left-x 82) (+ rule-y 76) "HELP")
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">(or C-c ?) for the LispM Desktop Guide and applications.</text>"
-                     (+ left-x 118) (+ rule-y 76))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Press</text>"
-                     left-x (+ rule-y 90))
-             (lispm-desktop-genera--svg-keycap (+ left-x 34) (+ rule-y 90) "FUNCTION")
-             (lispm-desktop-genera--svg-keycap (+ left-x 92) (+ rule-y 90) "HELP")
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">(or C-c T) to enter Focus Mode (full-screen Agent &amp; Lisp Listener).</text>"
-                     (+ left-x 128) (+ rule-y 90))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Right-click (or click [Select] on the Who-Line) to open the LispM System Menu.</text>"
-                     left-x (+ rule-y 104))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">Press Symbol-</text>"
-                     left-x (+ rule-y 118))
-             (lispm-desktop-genera--svg-keycap (+ left-x 74) (+ rule-y 118) "HELP")
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"#000000\">(or C-c a) to switch or create an AI Agent session.</text>"
-                     (+ left-x 110) (+ rule-y 118))
-             (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"#000000\" stroke-width=\"1\"/>"
-                     left-x (+ rule-y 124) (+ left-x 450) (+ rule-y 124))))
+             (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1\"/>"
+                     left-x rule-y (+ left-x 450) rule-y fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">You are typing to <tspan font-style=\"italic\">Dynamic Lisp Listener 1.</tspan></text>"
+                     left-x (+ rule-y 15) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Press Return to enter a command in the LispM Command Processor.</text>"
+                     left-x (+ rule-y 29) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Press Control-</text>"
+                     left-x (+ rule-y 43) fg)
+             (lispm-desktop-genera--svg-keycap (+ left-x 76) (+ rule-y 43) "HELP" bg fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">(or C-h ?) for Emacs and input editing commands.</text>"
+                     (+ left-x 112) (+ rule-y 43) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Type &quot;Help Commands&quot; to display a list of LispM Command Processor commands.</text>"
+                     left-x (+ rule-y 62) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Press</text>"
+                     left-x (+ rule-y 76) fg)
+             (lispm-desktop-genera--svg-keycap (+ left-x 34) (+ rule-y 76) "SELECT" bg fg)
+             (lispm-desktop-genera--svg-keycap (+ left-x 82) (+ rule-y 76) "HELP" bg fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">(or C-c ?) for the LispM Desktop Guide and applications.</text>"
+                     (+ left-x 118) (+ rule-y 76) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Press</text>"
+                     left-x (+ rule-y 90) fg)
+             (lispm-desktop-genera--svg-keycap (+ left-x 34) (+ rule-y 90) "FUNCTION" bg fg)
+             (lispm-desktop-genera--svg-keycap (+ left-x 92) (+ rule-y 90) "HELP" bg fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">(or C-c T) to enter Focus Mode (full-screen Agent &amp; Lisp Listener).</text>"
+                     (+ left-x 128) (+ rule-y 90) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Right-click (or click [Select] on the Who-Line) to open the LispM System Menu.</text>"
+                     left-x (+ rule-y 104) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">Press Symbol-</text>"
+                     left-x (+ rule-y 118) fg)
+             (lispm-desktop-genera--svg-keycap (+ left-x 74) (+ rule-y 118) "HELP" bg fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Helvetica, Geneva, sans-serif\" font-size=\"11\" fill=\"%s\">(or C-c a) to switch or create an AI Agent session.</text>"
+                     (+ left-x 110) (+ rule-y 118) fg)
+             (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1\"/>"
+                     left-x (+ rule-y 124) (+ left-x 450) (+ rule-y 124) fg)))
           ;; LispM configuration tip & Free Software notice block (shown when height permits).
           (when (> pane-b 530)
             (concat
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">Use Control Panels or Configure to customize your workstation:</text>"
-                     (+ left-x 6) notice-y)
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">Appearance, Language, Security, AI Providers &amp; Sandboxed Tools.</text>"
-                     (+ left-x 6) (+ notice-y 13))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">Right-click or double-click anywhere for the LispM System Menu,</text>"
-                     (+ left-x 6) (+ notice-y 26))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"#000000\">or press Return to evaluate a command or Lisp form.</text>"
-                     (+ left-x 6) (+ notice-y 39))
-             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"#000000\">Status:  All LispM Desktop subsystems are initialized and ready.</text>"
-                     left-x (+ notice-y 56))
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Use Control Panels or Configure to customize your workstation:</text>"
+                     (+ left-x 6) notice-y fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Appearance, Language, Security, AI Providers &amp; Sandboxed Tools.</text>"
+                     (+ left-x 6) (+ notice-y 13) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Right-click or double-click anywhere for the LispM System Menu,</text>"
+                     (+ left-x 6) (+ notice-y 26) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">or press Return to evaluate a command or Lisp form.</text>"
+                     (+ left-x 6) (+ notice-y 39) fg)
+             (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">Status:  All LispM Desktop subsystems are initialized and ready.</text>"
+                     left-x (+ notice-y 56) fg)
              (when (> width (+ right-x 360))
                (concat
-                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">LispM Desktop — Free Software under the GNU Affero General Public License</text>"
-                        right-x notice-y)
-                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">(AGPL-3.0-or-later). Built on GNU Emacs and the LispM Kit, LispM UI,</text>"
-                        right-x (+ notice-y 11))
-                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\">LispM Browser, LispM Auth and LispM Agent workstation stack. Use the</text>"
-                        right-x (+ notice-y 22))
-                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"#000000\"><tspan font-style=\"italic\">Show System</tspan> command to inspect loaded LispM packages and active agents.</text>"
-                        right-x (+ notice-y 33))))))
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"%s\">LispM Desktop — Free Software under the GNU Affero General Public License</text>"
+                        right-x notice-y fg)
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"%s\">(AGPL-3.0-or-later). Built on GNU Emacs and the LispM Kit, LispM UI,</text>"
+                        right-x (+ notice-y 11) fg)
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"%s\">LispM Browser, LispM Auth and LispM Agent workstation stack. Use the</text>"
+                        right-x (+ notice-y 22) fg)
+                (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"8.5\" fill=\"%s\"><tspan font-style=\"italic\">Show System</tspan> command to inspect loaded LispM packages and active agents.</text>"
+                        right-x (+ notice-y 33) fg)))))
           ;; Ready. / Command: █
-          (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"#000000\">Ready.</text>"
-                  left-x (- prompt-y 15))
-          (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"#000000\">Command: █</text>"
-                  left-x prompt-y)))
+          (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">Ready.</text>"
+                  left-x (- prompt-y 15) fg)
+          (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">Command: █</text>"
+                  left-x prompt-y fg)))
        ;; Bottom 2-line inverse-video black Mouse Documentation Line.
-       (format "<rect x=\"0\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"#000000\"/>"
-               doc-y width doc-h)
-       (format "<text x=\"10\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"11\" font-weight=\"bold\" fill=\"#FFFFFF\">Mouse-L: Command Processor;  Mouse-R: LispM System Menu (Select / Create / Bury / Kill);  [Bury] / [Kill]: Close Pane.</text>"
-               (+ doc-y 14))
-       (format "<text x=\"10\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"11\" font-weight=\"bold\" fill=\"#FFFFFF\">Press Return to run a command, C-c T for Focus Mode, or C-c ? for the LispM Guide.</text>"
-               (+ doc-y 30))))))
+       (format "<rect x=\"0\" y=\"%d\" width=\"%d\" height=\"%d\" fill=\"%s\"/>"
+               doc-y width doc-h fg)
+       (format "<text x=\"10\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"11\" font-weight=\"bold\" fill=\"%s\">Mouse-L: Command Processor;  Mouse-R: LispM System Menu (Select / Create / Bury / Kill);  [Bury] / [Kill]: Close Pane.</text>"
+               (+ doc-y 14) bg)
+       (format "<text x=\"10\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"11\" font-weight=\"bold\" fill=\"%s\">Press Return to run a command, C-c T for Focus Mode, or C-c ? for the LispM Guide.</text>"
+               (+ doc-y 30) bg)))))
 
 (defun lispm-desktop-genera--dedup-items (items)
   "Return menu ITEMS with duplicate `:label' entries and extra separators removed."
@@ -1244,7 +1265,7 @@ from the declarative `Select', `Create', application and special menus."
           (or (lispm-desktop-platinum-window-parent frame) frame)))
     (lispm-ui-menu (lispm-desktop-genera-system-items window) x y)))
 
-(cl-defmethod lispm-desktop-popup-augment-items (items &context (lispm-desktop-look (eql genera)) &optional window)
+(cl-defmethod lispm-desktop-popup-augment-items (items &context (lispm-desktop-look (lispm-desktop-genera-look genera)) &optional window)
   "Include LispM's Genera System Menu items in right-click menus of any pane."
   (let* ((window (if (window-live-p window) window (selected-window)))
          (active (lispm-desktop-genera--active-items items))
@@ -1351,7 +1372,7 @@ of a window's bottom edge."
 (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-genera-sync-who-line)
 (add-hook 'lispm-desktop-mode-hook #'lispm-desktop-genera-sync-who-line)
 
-(cl-defmethod lispm-desktop-platinum-apply-look-faces (palette &context (lispm-desktop-look (eql genera)))
+(cl-defmethod lispm-desktop-platinum-apply-look-faces (palette &context (lispm-desktop-look (lispm-desktop-genera-look genera)))
   "Set the faces the `genera' look draws in PALETTE: 1px black-outlined
 buttons, paper-white list bodies and placards, crisp 1px dividers, and
 the white-ground Who-Line."

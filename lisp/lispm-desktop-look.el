@@ -133,10 +133,15 @@ personal.el: once Emacs is set up, a new value is drawn at once."
   "Return PROPERTY of LOOK (by default `lispm-desktop-look'), or DEFAULT if unset.
 Unlike `lispm-ui-look-get', an explicit nil value in LOOK's definition
 or `:metrics' plist is returned rather than falling back to DEFAULT."
-  (let* ((spec (alist-get (or look lispm-desktop-look) lispm-ui-looks))
+  (let* ((name (or look lispm-desktop-look))
+         (spec (alist-get name lispm-ui-looks))
          (cell (or (plist-member spec property)
-                   (plist-member (plist-get spec :metrics) property))))
-    (if cell (cadr cell) default)))
+                   (plist-member (plist-get spec :metrics) property)))
+         (parent (or (plist-get spec :parent) (plist-get spec :family))))
+    (cond (cell (cadr cell))
+          ((and parent (not (eq parent name)) (assq parent lispm-ui-looks))
+           (lispm-desktop-look-property property default parent))
+          (t default))))
 
 (defun lispm-desktop-look-theme-to-follow (from to)
   "Return the colour theme a switch from look FROM to look TO switches to,
