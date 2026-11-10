@@ -103,12 +103,13 @@
 
 (defcustom lispm-desktop-look 'platinum
   "The look the chrome is drawn in: `platinum' (Mac OS 9), `win3'
-\(Windows 3.2), `os2' (OS/2 2.0's Workplace Shell), `phosphor' or `neon'.  See
-lispm-desktop-look.el.  Change it from Control Panels, with
-`lispm-desktop-set-look', or by setting it in your personal.el: once
-Emacs is set up, a new value is drawn at once."
+\(Windows 3.2), `genera' (Symbolics Genera), `os2' (OS/2 2.0's Workplace
+Shell), `phosphor' or `neon'.  See lispm-desktop-look.el.  Change it from
+Control Panels, with `lispm-desktop-set-look', or by setting it in your
+personal.el: once Emacs is set up, a new value is drawn at once."
   :type '(choice (const :tag "Mac OS 9" platinum)
                  (const :tag "Windows 3.2" win3)
+                 (const :tag "Symbolics Genera" genera)
                  (const :tag "OS/2 2.0" os2)
                  (const :tag "Phosphor" phosphor)
                  (const :tag "Neon" neon)
@@ -185,6 +186,13 @@ LOOK is a name of `lispm-ui-looks'; interactively, it is asked for."
 (defun lispm-desktop-setup-look ()
   "Follow `lispm-desktop-look' as it is set, once Emacs is set up, and
 draw the chrome again in a new language as it is chosen."
+  (when (memq lispm-desktop-theme '(dracula platinum win3 genera))
+    (let ((look (lispm-desktop-theme-look lispm-desktop-theme))
+          (lispm-desktop--set-up nil))
+      (unless (eq lispm-desktop-look look)
+        (set-default 'lispm-desktop-look look)
+        (setq lispm-desktop-look look)
+        (lispm-desktop-look-redraw))))
   (add-variable-watcher 'lispm-desktop-look #'lispm-desktop-look--changed)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-look-redraw))
 

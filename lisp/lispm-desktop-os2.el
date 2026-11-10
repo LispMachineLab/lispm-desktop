@@ -148,10 +148,10 @@ would show it, its image included, or nil; PRESSED pushes it in."
 
 (cl-defmethod lispm-desktop-pc-draw-caption-button (palette kind &context (lispm-desktop-look (eql os2))
                                                             &optional pressed)
-  "Return an SVG of a title bar button of KIND, `minimize' or `maximize',
-raised between the title bar's grey lines: minimize holds a small window
-marked at its corners, maximize a large one outlined.  PRESSED pushes it
-in."
+  "Return an SVG of a title bar button of KIND, `minimize', `maximize' or
+`restore', raised between the title bar's grey lines: minimize holds a
+small window marked at its corners, maximize a large one outlined,
+restore a medium one.  PRESSED pushes it in."
   (let* ((w lispm-desktop-os2-button-width)
          (h lispm-ui-title-bar-height)
          (svg (svg-create w h))
@@ -160,11 +160,15 @@ in."
          (shift (if pressed 1 0)))
     (lispm-ui-svg-paint svg 0 0 w h (lispm-desktop-pc-shadow palette))
     (lispm-desktop-pc-svg-raise svg 0 1 w (- h 2) palette (and pressed :pushed))
-    (if (eq kind 'minimize)
-        (lispm-ui-svg-pixels svg (+ 6 shift) (+ 7 shift)
-                             '("##..##" "#....#" "......" "......" "#....#" "##..##")
-                             `((?# . ,ink)))
-      (lispm-ui-svg-outline svg (+ 5 shift) (+ 6 shift) 8 8 ink))
+    (pcase kind
+      ('minimize
+       (lispm-ui-svg-pixels svg (+ 6 shift) (+ 7 shift)
+                            '("##..##" "#....#" "......" "......" "#....#" "##..##")
+                            `((?# . ,ink))))
+      ('restore
+       (lispm-ui-svg-outline svg (+ 6 shift) (+ 7 shift) 6 6 ink))
+      (_
+       (lispm-ui-svg-outline svg (+ 5 shift) (+ 6 shift) 8 8 ink)))
     svg))
 
 ;;;; Borders

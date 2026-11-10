@@ -10,6 +10,9 @@
 ;;; Code:
 
 (add-to-list 'load-path (expand-file-name "lisp" (file-name-directory load-file-name)))
+(require 'lispm-desktop-early)
+(unless (bound-and-true-p package--initialized)
+  (package-initialize))
 
 (setq custom-file (locate-user-emacs-file "custom.el")
       use-package-always-ensure t)

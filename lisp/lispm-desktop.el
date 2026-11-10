@@ -141,6 +141,7 @@
 (require 'lispm-desktop-browser-places)
 (require 'lispm-desktop-surface)
 (require 'lispm-desktop-win3)
+(require 'lispm-desktop-genera)
 (require 'lispm-desktop-os2)
 (require 'lispm-desktop-glow)
 (require 'lispm-desktop-glass)

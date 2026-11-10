@@ -67,13 +67,15 @@
                (vim :key ?v :label ,(lispm-desktop-tr-noop "Vim keys")
                     :text ,(lispm-desktop-tr-noop "Evil in files, SPC as the leader key; Emacs keys in terminals, agents and lists."))))
     (lispm-desktop-theme
-     :title ,(lispm-desktop-tr-noop "Which appearance?")
+     :title ,(lispm-desktop-tr-noop "Which system do you know?")
      :detail ,(lispm-desktop-tr-noop "Control Panels, on the desktop, changes this later too.")
      :icon "appearance-32"
-     :choices ((dracula :key ?d :label "Dracula" :text ,(lispm-desktop-tr-noop "Light text on a dark background.")
-                        :preview dracula)
-               (platinum :key ?p :label "Platinum" :text ,(lispm-desktop-tr-noop "Mac OS 9's greys, black on white.")
-                         :preview platinum))))
+     :choices ((genera :key ?g :label "Open Genera" :text ,(lispm-desktop-tr-noop "Monochrome Lisp Machine, Zmacs and Listener.")
+                       :preview genera)
+               (platinum :key ?m :label "Mac OS 9" :text ,(lispm-desktop-tr-noop "Mac OS 9's greys, black on white.")
+                         :preview platinum)
+               (win3 :key ?w :label "Windows 3.1" :text ,(lispm-desktop-tr-noop "Navy captions and VGA grey.")
+                     :preview win3))))
   "The first start's questions, in the order asked: (VARIABLE . PROPERTIES).
 :title is the question, :detail a line or two under it, :icon the name
 of its large icon in icons/os9.  :choices are (VALUE . PROPERTIES), the
@@ -112,7 +114,13 @@ itself, chosen by the digits 1 to 8."
 (defconst lispm-desktop-assistant--previews
   '((dracula :colors ("#282A36" "#F8F8F2" "#6272A4" "#BD93F9")
              :code ("#FF79C6" "#50FA7B" "#F1FA8C" "#6272A4" "#F8F8F2"))
-    (platinum :code ("#3163FF" "#427B7B" "#316331" "#CE3131" "#000000")))
+    (platinum :code ("#3163FF" "#427B7B" "#316331" "#CE3131" "#000000"))
+    (win3 :colors ("#FFFFFF" "#000000" "#808080" "#000080")
+          :palette (:win3 t :desktop "#008080" :chrome "#C0C0C0" :title "#000080")
+          :code ("#000080" "#008080" "#008000" "#800000" "#000000"))
+    (genera :colors ("#FFFFFF" "#000000" "#555555" "#000000")
+            :palette (:genera t :desktop "#FFFFFF" :chrome "#FFFFFF" :title "#FFFFFF")
+            :code ("#000000" "#000000" "#555555" "#555555" "#000000")))
   "What the appearances' pictures are drawn in, by appearance.
 :colors are the theme's background, text, dimmed text and accent, which
 the chrome's palette is derived from, see
@@ -218,7 +226,11 @@ Go Back button at the bottom right, when PAGE goes back."
                (count (length (plist-get page :choices)))
                (columns (if (> count 3) 2 count))
                (rows (if (> columns 0) (/ (+ count columns -1) columns) 0))
-               (card-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- columns))) columns) 0))
+               (raw-width (if (> count 0) (/ (- cw (* 2 margin) (* 16 (1- columns))) columns) 0))
+               (card-width (if (and (> columns 1)
+                                    (/= (% (- cw (* 2 margin) (* columns raw-width)) (1- columns)) 0))
+                               (1+ raw-width)
+                             raw-width))
                (card-height (if (> rows 1)
                                 (/ (- lispm-desktop-assistant-card-height (* 6 (1- rows))) rows)
                               lispm-desktop-assistant-card-height))
@@ -250,30 +262,67 @@ Go Back button at the bottom right, when PAGE goes back."
   "Draw on SVG at X, Y a picture WIDTH by HEIGHT pixels of LispM in PALETTE:
 its desktop under the menu bar, and a window over it showing a document
 whose lines are coloured CODE, a list of colours."
-  (let ((outline (plist-get palette :outline))
-        (grey (lambda (level) (lispm-ui-grey palette level))))
+  (let* ((outline (plist-get palette :outline))
+         (win3 (plist-get palette :win3))
+         (genera (plist-get palette :genera))
+         (no-menubar (or win3 genera))
+         (grey (lambda (level) (lispm-ui-grey palette level))))
     (cl-flet ((fill (left top w h color) (lispm-ui-svg-fill svg left top w h color)))
       ;; The screen, outlined.
       (fill (1- x) (1- y) (+ width 2) (+ height 2) outline)
       (fill x y width height (plist-get palette :desktop))
-      ;; The menu bar.
-      (fill x y width 6 (plist-get palette :chrome))
-      (fill x (+ y 6) width 1 outline)
-      ;; A window, casting its shadow: a striped title bar over the document.
-      (let ((left (+ x 12)) (top (+ y 13)) (w (- width 30)) (h (- height 19)))
-        (fill (1+ left) (1+ top) w h outline)
-        (fill left top w h outline)
-        (fill (1+ left) (1+ top) (- w 2) 7 (funcall grey #xCC))
-        (dolist (row '(2 4 6))
-          (fill (+ left 4) (+ top row) (- w 8) 1 (funcall grey #xFF)))
-        (fill (1+ left) (+ top 8) (- w 2) 1 outline)
-        (fill (1+ left) (+ top 9) (- w 2) (- h 10) (plist-get palette :content))
-        ;; The document: a definition and its body, a comment, more code.
-        (seq-do-indexed
-         (pcase-lambda (`(,indent ,length ,color) index)
-           (when-let* ((ink (nth color code)))
-             (fill (+ left 5 indent) (+ top 13 (* 5 index)) (min length (- w 10 indent)) 2 ink)))
-         '((0 14 0) (0 28 1) (6 40 2) (6 22 4) (0 46 3) (6 30 0)))))))
+      ;; The menu bar on Mac OS 9; Windows 3.1 and Genera have none at the top.
+      (unless no-menubar
+        (fill x y width 6 (plist-get palette :chrome))
+        (fill x (+ y 6) width 1 outline))
+      ;; Open Genera has no desktop: the full screen is Dynamic Lisp Listener 1
+      ;; with a double-rule frame, left 1-bit scroll bar, inverse-video Mouse
+      ;; Documentation Line, and white Who-Line.
+      (if genera
+          (let ((pane-h (- height 8)))
+            (fill x y width pane-h outline)
+            (fill (+ x 2) (+ y 2) (- width 4) (- pane-h 4) (plist-get palette :content))
+            ;; Left 1-bit vertical scroll bar.
+            (fill (+ x 5) (+ y 5) 3 (- pane-h 12) outline)
+            (fill (+ x 6) (+ y 6) 1 (- pane-h 14) (plist-get palette :content))
+            ;; Centered Symbolics Open Genera 2.0 herald and listener lines.
+            (fill (+ x (/ (- width 44) 2)) (+ y 7) 44 3 outline)
+            (fill (+ x (/ (- width 64) 2)) (+ y 13) 64 2 (nth 2 code))
+            (fill (+ x 12) (+ y 21) (- width 24) 1 outline)
+            (seq-do-indexed
+             (pcase-lambda (`(,indent ,length ,color) index)
+               (when-let* ((ink (nth color code)))
+                 (fill (+ x 12 indent) (+ y 25 (* 5 index)) (min length (- width 20 indent)) 2 ink)))
+             '((0 36 0) (0 52 2) (0 44 1) (0 18 0)))
+            ;; Bottom 2-line inverse-video black Mouse Documentation Line + white Who-Line.
+            (fill x (- (+ y height) 7) width 4 outline)
+            (fill x (- (+ y height) 3) width 3 (plist-get palette :content)))
+        ;; A window over the desktop: on Windows 3.1, a navy caption with
+        ;; control-menu and sizing boxes; on Mac OS 9, a striped title bar
+        ;; casting its shadow.
+        (let ((left (+ x 12)) (top (+ y (if no-menubar 6 13))) (w (- width 30)) (h (- height (if win3 15 19))))
+          (unless no-menubar
+            (fill (1+ left) (1+ top) w h outline))
+          (fill left top w h outline)
+          (cond
+           (win3
+            (fill (1+ left) (1+ top) (- w 2) 7 (plist-get palette :title))
+            (fill (1+ left) (1+ top) 7 7 (plist-get palette :chrome))
+            (fill (+ left 3) (+ top 4) 3 1 outline)
+            (fill (- (+ left w) 15) (1+ top) 14 7 (plist-get palette :chrome))
+            (fill (- (+ left w) 8) (1+ top) 1 7 outline))
+           (t
+            (fill (1+ left) (1+ top) (- w 2) 7 (funcall grey #xCC))
+            (dolist (row '(2 4 6))
+              (fill (+ left 4) (+ top row) (- w 8) 1 (funcall grey #xFF)))))
+          (fill (1+ left) (+ top 8) (- w 2) 1 outline)
+          (fill (1+ left) (+ top 9) (- w 2) (- h 10) (plist-get palette :content))
+          ;; The document: a definition and its body, a comment, more code.
+          (seq-do-indexed
+           (pcase-lambda (`(,indent ,length ,color) index)
+             (when-let* ((ink (nth color code)))
+               (fill (+ left 5 indent) (+ top 13 (* 5 index)) (min length (- w 10 indent)) 2 ink)))
+           '((0 14 0) (0 28 1) (6 40 2) (6 22 4) (0 46 3) (6 30 0))))))))
 
 (defun lispm-desktop-assistant--draw-row-card (svg ink rect properties cap)
   "Draw on SVG, in INK, the words of a small button filling RECT, of
@@ -329,9 +378,10 @@ names no colours, its label and the lines of its text, centred."
                (label (propertize (plist-get properties :label) 'face '(:height 1.25)))
                (top (+ y (/ (- h (+ (if preview 74 0) 24 (* 16 (length lines)))) 2))))
     (when preview
-      (let ((picture (if-let* ((colors (plist-get preview :colors)))
-                         (apply #'lispm-ui-derive-palette colors)
-                       palette)))
+      (let* ((base (if-let* ((colors (plist-get preview :colors)))
+                       (apply #'lispm-ui-derive-palette colors)
+                     palette))
+             (picture (append (plist-get preview :palette) base)))
         (lispm-desktop-assistant--draw-preview svg (+ x (/ (- w 120) 2)) top 120 64 picture
                                                (plist-get preview :code)))
       (setq top (+ top 74)))
@@ -1415,6 +1465,8 @@ in Focus Mode, prompt with `y-or-n-p'."
   (let ((message-log-max nil))
     (message nil))
   (lispm-desktop-assistant--restore-frame-colors)
+  (when (fboundp 'lispm-ui-palette-update)
+    (lispm-ui-palette-update))
   (setq lispm-desktop-assistant--window nil
         lispm-desktop-assistant--shown nil
         lispm-desktop-assistant--last-page nil))

@@ -184,7 +184,7 @@ the match data a caller holds survives telling terminals apart."
         (mapc #'kill-buffer (list codex claude))))))
 
 (ert-deftest lispm-desktop-test-first-start-in-batch ()
-  "A batch Emacs settles on Emacs keys and Dracula without asking.
+  "A batch Emacs settles on Emacs keys and Platinum without asking.
 Choices already made are kept, and the start that finds them made is
 not a first start."
   (let ((lispm-desktop-editing-style nil)
@@ -195,7 +195,7 @@ not a first start."
                (lambda (&rest _) (error "Saved in batch"))))
       (should (lispm-desktop--first-start))
       (should (eq lispm-desktop-editing-style 'emacs))
-      (should (eq lispm-desktop-theme 'dracula))))
+      (should (eq lispm-desktop-theme 'genera))))
   (let ((lispm-desktop-editing-style 'vim)
         (lispm-desktop-theme 'platinum))
     (should-not (lispm-desktop--first-start))
@@ -210,7 +210,7 @@ questions put off take the first choices, saved nowhere."
         (noninteractive nil)
         (asked nil)
         (saved nil)
-        (answers '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum))))
+        (answers '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . win3))))
     (cl-letf (((symbol-function 'lispm-desktop-assistant-ask)
                (lambda (questions) (setq asked (mapcar #'car questions)) answers))
               ((symbol-function 'customize-save-variable)
@@ -221,14 +221,14 @@ questions put off take the first choices, saved nowhere."
       (should (equal asked '(lispm-desktop-editing-style lispm-desktop-theme)))
       (should (equal (reverse saved) answers))
       (should (eq lispm-desktop-editing-style 'vim))
-      (should (eq lispm-desktop-theme 'platinum))
+      (should (eq lispm-desktop-theme 'win3))
       ;; The editing style chosen already, only the appearance is asked;
-      ;; put off, it is Dracula for now.
+      ;; put off, it is Open Genera (`genera') for now.
       (setq lispm-desktop-theme nil saved nil answers nil)
       (should (lispm-desktop--first-start))
       (should (equal asked '(lispm-desktop-theme)))
       (should-not saved)
-      (should (eq lispm-desktop-theme 'dracula)))))
+      (should (eq lispm-desktop-theme 'genera)))))
 
 (defmacro lispm-desktop-test--with-assistant (events &rest body)
   "Run BODY with the assistant's page reading EVENTS, a list, in turn.
@@ -261,21 +261,24 @@ ring on and C-b, C-p back, round the choices, and Return or Space chooses
 the one ringed; DEL goes back a question, ringing the choice made there;
 Escape and C-g put the questions off."
   (let ((questions lispm-desktop-assistant-questions))
-    (lispm-desktop-test--with-assistant '(?v ?P)
+    (lispm-desktop-test--with-assistant '(?v ?W)
       (should (equal (lispm-desktop-assistant--ask-on-page questions)
-                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum)))))
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . win3)))))
+    (lispm-desktop-test--with-assistant '(?e ?G)
+      (should (equal (lispm-desktop-assistant--ask-on-page questions)
+                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . genera)))))
     (lispm-desktop-test--with-assistant '(tab return ?\C-f ?\C-n ?\s)
       (should (equal (lispm-desktop-assistant--ask-on-page questions)
-                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . dracula)))))
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . win3)))))
     (lispm-desktop-test--with-assistant '(?\C-b ?\C-p return backtab return)
       (should (equal (lispm-desktop-assistant--ask-on-page questions)
-                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . platinum)))))
+                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . win3)))))
     ;; DEL on the first question does nothing; on the second it goes back
     ;; to the first, Vim keys ringed, which Return chooses again.  A
     ;; button chosen blinks.
-    (lispm-desktop-test--with-assistant '(?\d ?v ?\d return ?d)
+    (lispm-desktop-test--with-assistant '(?\d ?v ?\d return ?g)
       (should (equal (lispm-desktop-assistant--ask-on-page questions)
-                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . dracula))))
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . genera))))
       (should (equal shown '(("Step 1 of 2" 0 nil) ("Step 1 of 2" 0 nil) ("Step 1 of 2" 0 1)
                              ("Step 2 of 2" 0 nil)
                              ("Step 1 of 2" 1 nil) ("Step 1 of 2" 1 1)
@@ -284,9 +287,9 @@ Escape and C-g put the questions off."
       (lispm-desktop-test--with-assistant (list ?e put-off)
         (should-not (lispm-desktop-assistant--ask-on-page questions))))
     ;; Keys meaning nothing here, and a while without any, are passed over.
-    (lispm-desktop-test--with-assistant '(nil ?x ?\M-v (switch-frame nil) ?e ?d)
+    (lispm-desktop-test--with-assistant '(nil ?x ?\M-v (switch-frame nil) ?e ?m)
       (should (equal (lispm-desktop-assistant--ask-on-page questions)
-                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . dracula)))))))
+                     '((lispm-desktop-editing-style . emacs) (lispm-desktop-theme . platinum)))))))
 
 (ert-deftest lispm-desktop-test-assistant-mouse ()
   "A choice is chosen by pressing its button and letting go over it; let go
@@ -319,16 +322,17 @@ inside it, as wide as one another, and Go Back at its bottom right."
          (layout (lispm-desktop-assistant--layout 1000 600 page)))
     (pcase-let ((`(,x ,y ,w ,h) (plist-get layout :window))
                 (`(,cx ,cy ,cw ,ch) (plist-get layout :content))
-                (`((,ax ,ay ,aw ,ah) (,bx ,by ,bw ,bh)) (plist-get layout :cards))
+                (`((,ax ,ay ,aw ,ah) (,bx ,by ,bw ,bh) (,dx ,dy ,dw ,dh)) (plist-get layout :cards))
                 (`(,gx ,gy ,gw ,gh) (plist-get layout :back)))
       (should (= x (/ (- 1000 w) 2)))
       (should (= y (/ (- 600 h) 2)))
-      (should (and (= ay by) (= aw bw) (= ah bh) (< (+ ax aw) bx)))
-      (should (= (- ax cx) (- (+ cx cw) (+ bx bw))))
+      (should (and (= ay by dy) (= aw bw dw) (= ah bh dh) (< (+ ax aw) bx) (< (+ bx bw) dx)))
+      (should (= (- ax cx) (- (+ cx cw) (+ dx dw))))
       (should (<= cy ay (+ ay ah) gy (+ gy gh) (+ cy ch)))
       (should (<= (+ cx (/ cw 2)) gx (+ gx gw) (+ cx cw)))
       (should (eq (lispm-desktop-assistant--target-at layout (+ ax 5) (+ ay 5)) 0))
       (should (eq (lispm-desktop-assistant--target-at layout (+ bx bw -1) (+ by bh -1)) 1))
+      (should (eq (lispm-desktop-assistant--target-at layout (+ dx dw -1) (+ dy dh -1)) 2))
       (should (eq (lispm-desktop-assistant--target-at layout (1+ gx) (1+ gy)) 'back))
       (should-not (lispm-desktop-assistant--target-at layout (+ ax aw 1) ay))
       (should-not (lispm-desktop-assistant--target-at layout 0 0)))
@@ -346,15 +350,15 @@ page, while LispM is set up, says so and what was chosen."
          (page (lispm-desktop-assistant--page (nth 1 questions) 1 2))
          (svg (lispm-desktop-assistant-draw palette 1000 600 page 0 nil))
          (texts (mapcar #'dom-text (dom-by-tag svg 'text))))
-    (dolist (text '("Welcome to LispM" "Which appearance?" "Dracula" "Platinum" "D" "P"
-                    "Step 2 of 2" "Go Back"))
+    (dolist (text '("Welcome to LispM" "Which system do you know?" "Open Genera" "Mac OS 9" "Windows 3.1"
+                    "G" "M" "W" "Step 2 of 2" "Go Back"))
       (should (member text texts)))
-    (should (seq-find (lambda (text) (string-prefix-p "Press D or P" text)) texts))
+    (should (seq-find (lambda (text) (string-prefix-p "Press G or M or W" text)) texts))
     (pcase-let ((`(,cx ,cy ,_ ,_) (plist-get (lispm-desktop-assistant--layout 1000 600 page) :content)))
       (should (equal (lispm-desktop-test--pixel svg 1 1) (upcase (plist-get palette :desktop))))
       (should (equal (lispm-desktop-test--pixel svg (+ cx 2) (+ cy 80)) "#DDDDDD")))
     (let* ((done (lispm-desktop-assistant--done-page
-                  questions '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum))))
+                  questions '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . win3))))
            (texts (mapcar #'dom-text (dom-by-tag (lispm-desktop-assistant-draw
                                                   palette 1000 600 (plist-put done :status "Installing…")
                                                   nil nil)
@@ -362,8 +366,8 @@ page, while LispM is set up, says so and what was chosen."
       ;; svg.el writes characters past ASCII as references: … is &#8230;.
       (should (seq-find (lambda (text) (string-prefix-p "Setting LispM up" text)) texts))
       (should (seq-find (lambda (text) (string-prefix-p "Installing" text)) texts))
-      (should (seq-find (lambda (text) (string-search "Vim keys, Platinum." text)) texts)))
-    (should (string-search "Emacs keys, Dracula for now"
+      (should (seq-find (lambda (text) (string-search "Vim keys, Windows 3.1." text)) texts)))
+    (should (string-search "Emacs keys, Open Genera for now"
                            (plist-get (lispm-desktop-assistant--done-page questions nil) :detail)))))
 
 (ert-deftest lispm-desktop-test-assistant-package-message-cleanup ()
@@ -405,11 +409,11 @@ page, while LispM is set up, says so and what was chosen."
   "Where the page cannot be drawn, the questions are asked in the
 minibuffer, by the same keys; C-g puts them off."
   (should-not (lispm-desktop-assistant-available-p))
-  (let ((keys (list ?v ?p)))
+  (let ((keys (list ?v ?w)))
     (cl-letf (((symbol-function 'read-multiple-choice)
                (lambda (_prompt choices &rest _) (assq (pop keys) choices))))
       (should (equal (lispm-desktop-assistant-ask lispm-desktop-assistant-questions)
-                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . platinum))))))
+                     '((lispm-desktop-editing-style . vim) (lispm-desktop-theme . win3))))))
   (cl-letf (((symbol-function 'read-multiple-choice) (lambda (&rest _) (signal 'quit nil))))
     (should-not (lispm-desktop-assistant-ask lispm-desktop-assistant-questions))))
 
@@ -538,7 +542,7 @@ icon or a place a function returns, and what Show Me calls is a function."
 (ert-deftest lispm-desktop-test-guide-shows-what-is-here ()
   "Steps whose subject is missing are left out, and keys whose predicate
 says no; the guide's place stays within the steps left.  The password's
-step, which Done opens the Security control panel from, is last."
+step is last."
   (cl-letf (((symbol-function 'lispm-browser-available-p) #'ignore)
             ((symbol-function 'lispm-desktop-strip-edges) #'ignore)
             ((symbol-function 'lispm-desktop-settings--security-p) #'ignore)
@@ -560,9 +564,8 @@ step, which Done opens the Security control panel from, is last."
 
 (ert-deftest lispm-desktop-test-guide-goes-step-by-step ()
   "Next and Back go from step to step, each circling what it speaks of;
-Back does nothing on the first step, Skip puts the guide away without
-opening anything, and Done, on the last step, puts the guide away and
-opens what that step finishes with, the Security control panel."
+Back does nothing on the first step, and Skip and Done put the guide
+away without leaving the Security control panel open."
   (let ((lispm-desktop-guide--index 0)
         (lispm-desktop-guide--playing nil)
         (lispm-desktop-guide--undo nil)
@@ -591,7 +594,7 @@ opens what that step finishes with, the Security control panel."
       (lispm-desktop-guide-next)
       (should closed)
       (should (= lispm-desktop-guide--index 0))
-      (should (equal opened '(settings-security)))
+      (should-not opened)
       ;; Skip leaves it without opening anything.
       (setq closed nil
             opened nil
@@ -5784,7 +5787,7 @@ positions, the keys, the browser's pages."
             ((symbol-function 'lispm-auth-app-requires-password-p) #'ignore)
             ((symbol-function 'lispm-browser-bookmarks) (lambda () nil)))
     (pcase-dolist (`(,panel ,title . ,labels)
-                   '((themes "Appearance" "Dracula" "Platinum")
+                   '((themes "Appearance" "Dracula" "Platinum" "Windows 3.2")
                      (desktop "Appearance" "From the theme" "Fill" "Tile" "Arrange Icons")
                      (keyboard "General" "Vim keys" "Emacs keys" "next start")
                      (browser "Internet" "Home Page" "Clear History" "Edit Bookmarks")
@@ -17451,15 +17454,16 @@ Only a list without a distinct preserving background may replace text colours."
                    "navy"))))
 
 (ert-deftest lispm-desktop-test-looks-defined ()
-  "Mac OS 9, Windows 3.2, OS/2 2.0, phosphor and neon are looks, each with
-its own theme."
-  (dolist (look '(platinum win3 os2 phosphor neon))
+  "Mac OS 9, Windows 3.2, Symbolics Genera, OS/2 2.0, phosphor and neon are
+looks, each with its own theme."
+  (dolist (look '(platinum win3 genera os2 phosphor neon))
     (should (assq look lispm-ui-looks))
     (should (lispm-ui-look-title look))
     (let ((theme (lispm-ui-look-get :theme look)))
       (should (file-readable-p (expand-file-name (format "themes/%s-theme.el" theme)
                                                  lispm-desktop-directory)))))
   (should (equal (lispm-ui-look-title 'win3) "Windows 3.2"))
+  (should (equal (lispm-ui-look-title 'genera) "Symbolics Genera"))
   (should (eq (default-value 'lispm-desktop-look) 'platinum)))
 
 (ert-deftest lispm-desktop-test-look-themes-name-their-colours ()
@@ -17616,7 +17620,7 @@ centred along its bottom, under a caption."
 
 (ert-deftest lispm-desktop-test-look-menus-and-alerts-draw ()
   "Every look draws a menu and an alert at the size laid out for it."
-  (dolist (look '(platinum win3 os2 phosphor neon))
+  (dolist (look '(platinum win3 genera os2 phosphor neon))
     (let* ((lispm-desktop-look look)
            (palette (lispm-desktop-test--theme-palette (lispm-ui-look-get :theme look)))
            (items (list (list :label "Open" :action #'ignore) 'separator (list :label "Quit")))
@@ -17639,6 +17643,7 @@ metrics."
   (should (eq (lispm-ui-look-family 'phosphor) 'glow))
   (should (eq (lispm-ui-look-family 'neon) 'glow))
   (should-not (lispm-ui-look-family 'platinum))
+  (should-not (lispm-ui-look-family 'genera))
   (should (= (lispm-ui-look-metric :box-width 'win3) (1+ lispm-desktop-win3-button-width)))
   (should (= (lispm-ui-look-metric :box-width 'os2) lispm-desktop-os2-button-width))
   (should (eq (lispm-ui-look-metric :title-style 'neon) 'gradient))
@@ -17818,6 +17823,39 @@ user's own, as they placed it, comes first."
           (lispm-desktop-picture (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory)))
       (should (equal (lispm-desktop--picture-in-use)
                      (cons (expand-file-name "pictures/phosphor.jpg" lispm-desktop-directory) 'tile))))))
+
+(ert-deftest lispm-desktop-test-theme-syncs-look ()
+  "Setting a theme switches the system look with it (`win3' for Windows 3.2,
+`genera' for Symbolics Genera, `platinum' for Dracula and Platinum), and the
+Appearance menu and panel list Dracula, Platinum, Windows 3.2 and Genera."
+  (let ((lispm-desktop-look 'platinum)
+        (lispm-desktop-theme 'platinum)
+        (lispm-desktop--set-up t)
+        (saved nil)
+        (hooks 0))
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (variable value) (push (cons variable value) saved) (set variable value)))
+              ((symbol-function 'lispm-desktop-load-theme) #'ignore))
+      (let ((lispm-desktop-look-changed-hook (list (lambda () (cl-incf hooks)))))
+        (lispm-desktop-set-theme 'win3)
+        (should (eq lispm-desktop-look 'win3))
+        (should (eq lispm-desktop-theme 'win3))
+        (should (= hooks 1))
+        (lispm-desktop-set-theme 'genera)
+        (should (eq lispm-desktop-look 'genera))
+        (should (eq lispm-desktop-theme 'genera))
+        (should (= hooks 2))
+        (lispm-desktop-set-theme 'dracula)
+        (should (eq lispm-desktop-look 'platinum))
+        (should (eq lispm-desktop-theme 'dracula))
+        (should (= hooks 3))
+        (lispm-desktop-set-theme 'platinum)
+        (should (eq lispm-desktop-look 'platinum))
+        (should (eq lispm-desktop-theme 'platinum))
+        (should (= hooks 3))))
+    (let ((labels (delq nil (mapcar (lambda (item) (and (listp item) (plist-get item :label)))
+                                    (lispm-desktop-strip--appearance-items)))))
+      (should (equal labels '("Dracula" "Platinum" "Windows 3.2" "Genera" "Open Appearance…"))))))
 
 ;;;; Text terminals
 
@@ -18891,10 +18929,10 @@ next pages, and putting the questions off goes back to the computer's."
                  (lambda (message &rest args)
                    (push lispm-desktop-language languages)
                    (if args (apply #'format message args) message))))
-        (lispm-desktop-test--with-assistant '(?4 ?e ?d)
+        (lispm-desktop-test--with-assistant '(?4 ?e ?m)
           (should (equal (lispm-desktop-assistant--ask-on-page questions)
                          '((lispm-desktop-language . de) (lispm-desktop-editing-style . emacs)
-                           (lispm-desktop-theme . dracula))))
+                           (lispm-desktop-theme . platinum))))
           (should (eq lispm-desktop-language 'de))
           (should (memq 'de languages))))
       (lispm-desktop-test--with-assistant '(?6 escape)
@@ -19085,6 +19123,386 @@ behave natively."
                                  (lambda ()
                                    (setq seen-gui (lispm-ui-gui-action-p))))
       (should seen-gui))))
+
+(ert-deftest lispm-desktop-test-look-titlebar-double-click-paradigms ()
+  "Mac OS 9 (`platinum') rolls a window up on a title-bar double click,
+whereas Windows 3.2 and OS/2 (`pc' family) maximize or restore it, and
+unminimize a minimized window first."
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((other (split-window-below))
+          (calls nil))
+      (cl-letf (((symbol-function 'lispm-desktop-platinum-zoom-window)
+                 (lambda (_) (push 'zoom calls)))
+                ((symbol-function 'lispm-desktop-platinum-collapse-window)
+                 (lambda (_) (push 'collapse calls))))
+        (let ((lispm-desktop-look 'platinum))
+          (lispm-desktop-platinum-shade-or-zoom other)
+          (should (equal calls '(collapse))))
+        (setq calls nil)
+        (dolist (look '(win3 os2))
+          (let ((lispm-desktop-look look))
+            (lispm-desktop-platinum-shade-or-zoom other)
+            (should (equal calls '(zoom)))
+            (setq calls nil)
+            (cl-letf (((symbol-function 'lispm-desktop-pc-window-minimized-p) #'always))
+              (lispm-desktop-platinum-shade-or-zoom other)
+              (should (equal calls '(collapse)))
+              (setq calls nil))))))))
+
+(ert-deftest lispm-desktop-test-pc-system-menu-and-double-click-close ()
+  "On PC looks, the system menu box binds double-click to close the window,
+closes the window on a second click while the system menu is open, tracks
+Restore/Minimize/Maximize state, and draws a distinct restore button glyph."
+  (let* ((lispm-desktop-look 'win3)
+         (palette (lispm-desktop-test--theme-palette 'win3))
+         (lispm-ui-current-palette palette))
+    ;; 1. Double-click binding on the system menu box (`close' target).
+    (let* ((bar (lispm-desktop-platinum-draw-title-bar 300 t nil "Notes" nil '(on on on)))
+           (close-pos (seq-find (lambda (i)
+                                  (eq (get-text-property i 'lispm-desktop-platinum-target bar) 'close))
+                                (number-sequence 0 (1- (length bar)))))
+           (kmap (get-text-property close-pos 'keymap bar)))
+      (should close-pos)
+      (should (commandp (keymap-lookup kmap "<tab-line> <double-mouse-1>"))))
+    ;; 2. Restore glyph differs from Minimize and Maximize in both win3 and os2.
+    (dolist (look '(win3 os2))
+      (let* ((lispm-desktop-look look)
+             (pal (lispm-desktop-test--theme-palette look))
+             (min-svg (format "%S" (lispm-desktop-pc-draw-caption-button pal 'minimize)))
+             (max-svg (format "%S" (lispm-desktop-pc-draw-caption-button pal 'maximize)))
+             (res-svg (format "%S" (lispm-desktop-pc-draw-caption-button pal 'restore))))
+        (should-not (equal min-svg max-svg))
+        (should-not (equal max-svg res-svg))
+        (should-not (equal min-svg res-svg))))
+    ;; 3. System menu items reflect normal vs. zoomed vs. minimized states,
+    ;; and a second click on the system box while the menu is up closes the window.
+    (let ((window (selected-window))
+          (seen-items nil)
+          (closed nil))
+      (cl-letf (((symbol-function 'lispm-desktop-platinum-window-controls)
+                 (lambda (_) '(on on on)))
+                ((symbol-function 'lispm-desktop-platinum-close-window)
+                 (lambda (w) (setq closed w)))
+                ((symbol-function 'lispm-ui-menu)
+                 (lambda (items &rest _)
+                   (setq seen-items items)
+                   nil)))
+        ;; Normal state: Restore disabled, Minimize & Maximize enabled.
+        (let ((last-input-event ?\e))
+          (lispm-desktop-pc-system-menu window)
+          (should-not (plist-get (nth 0 seen-items) :enabled))
+          (should (plist-get (nth 1 seen-items) :enabled))
+          (should (plist-get (nth 2 seen-items) :enabled))
+          (should-not closed))
+        ;; Zoomed state: Restore enabled, Maximize disabled.
+        (cl-letf (((symbol-function 'lispm-desktop-pc-window-zoomed-p) #'always))
+          (let ((last-input-event ?\e))
+            (lispm-desktop-pc-system-menu window)
+            (should (plist-get (nth 0 seen-items) :enabled))
+            (should-not (plist-get (nth 2 seen-items) :enabled))))
+        ;; Second click on `close' target while menu was open closes the window.
+        (cl-letf (((symbol-function 'lispm-ui-modal-mouse-down-p) #'always)
+                  ((symbol-function 'event-start) (lambda (_) 'pos))
+                  ((symbol-function 'posn-window) (lambda (_) window))
+                  ((symbol-function 'lispm-desktop-platinum--press-target) (lambda (_) 'close)))
+          (lispm-desktop-pc-system-menu window)
+          (should (eq closed window)))))))
+
+(ert-deftest lispm-desktop-test-pc-minimize-parks-and-restores ()
+  "Minimizing a floating window on `win3' shrinks it to
+`lispm-desktop-pc-minimized-width' and parks it at the bottom-left while
+remembering its original geometry; rolling it down restores its width and
+position, whereas `platinum' rolls up in place."
+  (save-window-excursion
+    (delete-other-windows)
+    (with-temp-buffer
+      (setq-local tab-line-format "Title" header-line-format nil mode-line-format nil)
+      (let* ((frame (selected-frame))
+             (window (selected-window))
+             (title (window-tab-line-height window))
+             (widths nil)
+             (moves nil))
+        (set-window-buffer window (current-buffer))
+        (unwind-protect
+            (cl-letf (((symbol-function 'set-frame-height) #'ignore)
+                      ((symbol-function 'set-frame-width)
+                       (lambda (_f w &optional _p pixelwise)
+                         (should pixelwise)
+                         (push w widths)))
+                      ((symbol-function 'lispm-desktop-platinum-window-position)
+                       (lambda (_) '(240 . 120)))
+                      ((symbol-function 'frame-text-width) (lambda (_) 520))
+                      ((symbol-function 'lispm-desktop-platinum-window-margins)
+                       (lambda (_) '(6 1 7 7)))
+                      ((symbol-function 'lispm-desktop-platinum-move-window)
+                       (lambda (_f x y) (push (cons x y) moves)))
+                      ((symbol-function 'lispm-desktop-platinum-frame-update) #'ignore)
+                      ((symbol-function 'lispm-desktop-platinum-window-area-function)
+                       (lambda (_) '(0 20 1024 740))))
+              (set-frame-parameter frame 'lispm-desktop-window t)
+              ;; Platinum rolls up in place without shrinking width or moving.
+              (let ((lispm-desktop-look 'platinum))
+                (lispm-desktop-platinum-roll-up frame title)
+                (should-not widths)
+                (should-not moves)
+                (should-not (frame-parameter frame 'lispm-desktop-pc-minimized))
+                (lispm-desktop-platinum-roll-down frame 300))
+              ;; Windows 3.2 shrinks width, parks at bottom-left, and restores on roll-down.
+              (let ((lispm-desktop-look 'win3)
+                    (lispm-desktop-platinum-window-area-function (lambda (_) '(0 20 1024 740))))
+                (lispm-desktop-platinum-roll-up frame title)
+                (should (equal widths (list lispm-desktop-pc-minimized-width)))
+                (should (equal (frame-parameter frame 'lispm-desktop-pc-minimized)
+                               '(240 120 520)))
+                (should (equal (lispm-desktop-apps--geometry frame)
+                               (list 240 120 520 (lispm-desktop-platinum-rolled-up-height frame))))
+                (should (= (caar moves) (+ 8 6)))
+                (lispm-desktop-platinum-roll-down frame 300)
+                (should-not (frame-parameter frame 'lispm-desktop-pc-minimized))
+                (should (equal (car widths) 520))
+                (should (equal (car moves) '(240 . 120)))))
+          (set-frame-parameter frame 'lispm-desktop-window nil)
+          (set-frame-parameter frame 'lispm-desktop-pc-minimized nil))))))
+
+(ert-deftest lispm-desktop-test-look-desktop-icon-side-and-task-menu ()
+  "Mac OS 9 places desktop icons down the right edge (`:right') and does
+nothing on a bare background double click; Windows 3.2 and OS/2 place
+icons down the left edge (`:left') in both graphical and TTY modes and
+open the Task List menu on a bare background double click."
+  (should (eq (let ((lispm-desktop-look 'platinum)) (lispm-desktop-icon-side)) :right))
+  (should (eq (let ((lispm-desktop-look 'win3)) (lispm-desktop-icon-side)) :left))
+  (should (eq (let ((lispm-desktop-look 'os2)) (lispm-desktop-icon-side)) :left))
+  ;; Graphical column placement: right edge on Platinum, left edge on Windows 3.2.
+  (let ((lispm-desktop-look 'platinum))
+    (should (= (car (lispm-desktop--place-xy (lispm-desktop--column-place 0 nil) 800 600))
+               (- 800 lispm-desktop-margin lispm-desktop-column)))
+    (should (= (car (lispm-desktop--place-xy (lispm-desktop--column-place 0 t) 800 600))
+               (- 800 lispm-desktop-margin lispm-desktop-column))))
+  (let ((lispm-desktop-look 'win3))
+    (should (= (car (lispm-desktop--place-xy (lispm-desktop--column-place 0 nil) 800 600))
+               lispm-desktop-margin))
+    (should (= (car (lispm-desktop--place-xy (lispm-desktop--column-place 0 t) 800 600))
+               lispm-desktop-margin)))
+  ;; Background double-click: nil on Platinum, Task List menu on Windows 3.2.
+  (let ((task-menu nil))
+    (cl-letf (((symbol-function 'lispm-desktop-popup-frame-xy) (lambda (_) '(120 . 180)))
+              ((symbol-function 'lispm-desktop-pc-task-menu)
+               (lambda (x y) (setq task-menu (cons x y)))))
+      (let ((lispm-desktop-look 'platinum))
+        (lispm-desktop-background-double-click 'event)
+        (should-not task-menu))
+      (let ((lispm-desktop-look 'win3))
+        (lispm-desktop-background-double-click 'event)
+        (should (equal task-menu '(120 . 180)))))))
+
+(ert-deftest lispm-desktop-test-look-control-strip-visibility ()
+  "Mac OS 9 uses the bottom-left Control Strip (`lispm-desktop-strip-look-p'
+non-nil), whereas PC looks (`win3', `os2') hide it so it does not cover
+left-edge desktop icons and bottom-left minimized windows."
+  (should (let ((lispm-desktop-look 'platinum)) (lispm-desktop-strip-look-p)))
+  (should-not (let ((lispm-desktop-look 'win3)) (lispm-desktop-strip-look-p)))
+  (should-not (let ((lispm-desktop-look 'os2)) (lispm-desktop-strip-look-p)))
+  (let ((lispm-desktop-strip-shown t)
+        (actions nil))
+    (cl-letf (((symbol-function 'lispm-desktop-strip-show) (lambda () (push 'show actions)))
+              ((symbol-function 'lispm-desktop-strip-hide) (lambda () (push 'hide actions))))
+      (let ((lispm-desktop-look 'win3))
+        (lispm-desktop-strip-sync)
+        (should (equal actions '(hide))))
+      (setq actions nil)
+      (let ((lispm-desktop-look 'platinum))
+        (lispm-desktop-strip-sync)
+        (should (equal actions '(show)))))))
+
+(ert-deftest lispm-desktop-test-look-menubar-placement ()
+  "Mac OS 9 shows a global top menu bar (`lispm-desktop-platinum-menu-bar-look-p'
+non-nil, `tab-bar-lines' 1), whereas Windows 3.2 and OS/2 hide the global top
+bar (`tab-bar-lines' 0 in frame parameters, `default-frame-alist' and
+`initial-frame-alist')."
+  (should (let ((lispm-desktop-look 'platinum)) (lispm-desktop-platinum-menu-bar-look-p)))
+  (should-not (let ((lispm-desktop-look 'win3)) (lispm-desktop-platinum-menu-bar-look-p)))
+  (should-not (let ((lispm-desktop-look 'os2)) (lispm-desktop-platinum-menu-bar-look-p)))
+  (let ((frame (selected-frame)))
+    (unwind-protect
+        (progn
+          (let ((lispm-desktop-look 'win3))
+            (lispm-desktop-platinum-sync-menu-bar)
+            (should-not tab-bar-show)
+            (should (equal (frame-parameter frame 'tab-bar-lines) 0))
+            (should (equal (alist-get 'tab-bar-lines default-frame-alist) 0))
+            (should (equal (alist-get 'tab-bar-lines initial-frame-alist) 0)))
+          (let ((lispm-desktop-look 'platinum))
+            (lispm-desktop-platinum-sync-menu-bar)
+            (should tab-bar-show)
+            (should (equal (frame-parameter frame 'tab-bar-lines) 1))
+            (should (equal (alist-get 'tab-bar-lines default-frame-alist) 1))
+            (should (equal (alist-get 'tab-bar-lines initial-frame-alist) 1))))
+      (set-frame-parameter frame 'tab-bar-lines 1))))
+
+(ert-deftest lispm-desktop-test-genera-chrome-and-who-line ()
+  "Symbolics Open Genera (`genera') is a standalone look independent of `pc'
+that hides the global top menu bar, Control Strip and desktop icons, draws
+1-bit monochrome Dynamic Windows double-rule frames and paper-white
+bold-italic label bars, shows the LispM-adapted `Dynamic Lisp Listener 1'
+screen and Who-Line, and places a Select placard on pane bottom edges."
+  (should-not (lispm-ui-look-family 'genera))
+  (should-not (let ((lispm-desktop-look 'genera)) (lispm-desktop-platinum-menu-bar-look-p)))
+  (should-not (let ((lispm-desktop-look 'genera)) (lispm-desktop-strip-look-p)))
+  (should-not (let ((lispm-desktop-look 'genera)) (lispm-desktop-icon-side)))
+  (should-not (let ((lispm-desktop-look 'genera)) (lispm-desktop--layout 800 600)))
+  (let* ((palette (lispm-desktop-test--theme-palette 'genera))
+         (lispm-desktop-look 'genera)
+         (frame (lispm-desktop-platinum-draw-window-frame palette 120 80 :active t))
+         (caption (lispm-desktop-genera-draw-caption palette 200 t "Zmacs" 24))
+         (inactive (lispm-desktop-genera-draw-caption palette 200 nil "Listener" 24))
+         (scroll (lispm-ui-draw-scroll-bar palette 120 '(20 . 40) t))
+         (bg (lispm-desktop--background 1024 768)))
+    (should (equal (plist-get palette :title) "#FFFFFF"))
+    (should (equal (plist-get palette :title-text) "#000000"))
+    (should (equal (plist-get palette :content) "#FFFFFF"))
+    (should (equal (lispm-desktop-test--pixel frame 0 40) "#000000"))
+    (should (equal (lispm-desktop-test--pixel frame 1 40) "#000000"))
+    (should (equal (lispm-desktop-test--pixel frame 2 40) "#000000"))
+    (should (equal (lispm-desktop-test--pixel frame 3 40) "#FFFFFF"))
+    (should (equal (lispm-desktop-test--pixel caption 100 10) "#FFFFFF"))
+    (should (equal (lispm-desktop-test--pixel caption 100 (1- lispm-ui-title-bar-height)) "#000000"))
+    (should (equal (lispm-desktop-test--pixel inactive 100 10) "#FFFFFF"))
+    (should (dom-by-tag scroll 'line))
+    (should (string-search "Dynamic Lisp Listener 1" bg))
+    (should (string-search "LispM Desktop™" bg))
+    (should (string-search "LispM System Menu" bg))
+    (should (string-search "url(#genera-hatch)" bg)))
+  (with-current-buffer (get-buffer-create lispm-desktop-buffer-name)
+    (unwind-protect
+        (progn
+          (let ((lispm-desktop-look 'genera))
+            (lispm-desktop-genera-sync-who-line)
+            (should (equal mode-line-format lispm-desktop-genera-who-line-format))
+            (should (string-search "LispM Desktop" (lispm-desktop-genera-who-line)))
+            (should (string-search "[Select]" (lispm-desktop-genera-who-line))))
+          (let ((lispm-desktop-look 'platinum))
+            (lispm-desktop-genera-sync-who-line)
+            (should-not mode-line-format)))
+      (kill-buffer lispm-desktop-buffer-name))))
+
+(ert-deftest lispm-desktop-test-genera-declarative-menus-and-window-creation ()
+  "Genera's right-click System Menu, Pane Command Menu, `Select' and `Create'
+submenus, and Command Processor derive dynamically from LispM's declarative UI
+registries (`lispm-desktop-apps', `lispm-desktop-items',
+`lispm-desktop-lambda-items') and apply swept window geometry."
+  (should-not (let ((lispm-desktop-look 'platinum)) (lispm-desktop-apps-floating-look-p)))
+  (should (let ((lispm-desktop-look 'genera)) (lispm-desktop-apps-floating-look-p)))
+  (should-not (let ((lispm-desktop-look 'platinum))
+                (lispm-desktop-platinum-look-placards t)))
+  (should (let ((lispm-desktop-look 'genera))
+            (lispm-desktop-platinum-look-placards t)))
+  ;; Dynamically registered apps appear in Select and Command Processor
+  ;; without any hardcoding in `lispm-desktop-genera.el'.
+  (let ((activated nil))
+    (unwind-protect
+        (progn
+          (lispm-desktop-define-app
+           'test-genera-app
+           :name "Test Genera Tool"
+           :activate (lambda () (setq activated t)))
+          (let* ((select-items (lispm-desktop-genera-select-items))
+                 (labels (mapcar (lambda (it) (and (consp it) (plist-get it :label)))
+                                 select-items)))
+            (should (member "Test Genera Tool" labels))
+            (should (member (lispm-desktop-tr "Home") labels))
+            (should (member (lispm-desktop-tr "Control Panels") labels)))
+          (lispm-desktop-genera-command "Select Test Genera Tool")
+          (should activated))
+      (lispm-desktop-remove-app 'test-genera-app)))
+  ;; Create items wrap declarative entrypoints and apply swept geometry.
+  (let ((opened nil)
+        (applied nil))
+    (cl-letf (((symbol-function 'lispm-desktop-apps-apply-window-geometry)
+               (lambda (_frame place) (setq applied place)))
+              ((symbol-function 'lispm-desktop-apps-windows-in-order)
+               (lambda (_screen) (list (selected-frame)))))
+      (lispm-desktop-genera-create-window
+       (lambda () (setq opened t))
+       '(120 80 640 420))
+      (should opened)
+      (should (equal applied '(120 80 640 420)))))
+  ;; Right-click context menu in Genera includes local items and System Menu,
+  ;; and filters out disabled (`:enabled nil') and desktop-icon-only items.
+  (let ((map (make-sparse-keymap))
+        (lispm-desktop-look 'genera))
+    (define-key map [copy] '(menu-item "Copy" kill-ring-save))
+    (define-key map [disabled-op] '(menu-item "Disabled Op" ignore :enable nil))
+    (let* ((items (lispm-desktop-popup-context-items map))
+           (labels (delq nil (mapcar (lambda (it) (and (consp it) (plist-get it :label)))
+                                     items))))
+      (should (member "Copy" labels))
+      (should-not (member "Disabled Op" labels))
+      (should (member "Select" labels))
+      (should (member "Create" labels))
+      (should (member "Window Operations" labels))
+      (should-not (seq-some (lambda (it)
+                              (and (consp it)
+                                   (plist-member it :enabled)
+                                   (not (plist-get it :enabled))))
+                            items))))
+  ;; Genera pane headers have NO PC/Mac control boxes (no [≡], [_], [□]);
+  ;; instead they wear `lispm-desktop-genera-title-map' with Mouse-R menu.
+  (let* ((lispm-desktop-look 'genera)
+         (lispm-ui-current-palette (lispm-desktop-test--theme-palette 'genera))
+         (layout (lispm-ui-title-layout 300 100 '(on on on) '(0 . 0)))
+         (bar (lispm-desktop-platinum-draw-title-bar 300 t nil "Zmacs" nil '(on on on)))
+         (targets (delq nil (mapcar (lambda (i)
+                                      (get-text-property i 'lispm-desktop-platinum-target bar))
+                                    (number-sequence 0 (1- (length bar)))))))
+    (should (= (plist-get layout :start) 0))
+    (should (= (plist-get layout :end) 300))
+    (should-not targets)
+    (should (eq (get-text-property 0 'keymap bar) lispm-desktop-genera-title-map))
+    (should (eq (keymap-lookup lispm-desktop-genera-title-map "<tab-line> <down-mouse-3>")
+                #'lispm-desktop-genera-mouse-window-menu)))
+  ;; Window Operations include only currently enabled operations for the window.
+  (let ((frame (selected-frame)))
+    (unwind-protect
+        (progn
+          (set-frame-parameter frame 'lispm-desktop-window t)
+          (cl-letf (((symbol-function 'lispm-desktop-platinum-window-controls)
+                     (lambda (&optional _window) '(on on on))))
+            (let* ((ops (lispm-desktop-genera-window-operation-items (selected-window)))
+                   (labels (delq nil (mapcar (lambda (it) (and (consp it) (plist-get it :label)))
+                                             ops))))
+              (should (equal labels '("Bury" "Expand" "Move" "Reshape" "Kill" "Refresh"))))))
+      (set-frame-parameter frame 'lispm-desktop-window nil)))
+  ;; Genera bottom placards provide concise one-click [Select], [Bury] and [Kill],
+  ;; including in Finder windows (`lispm-desktop-finder-mode').
+  (let* ((lispm-desktop-look 'genera)
+         (placards (mapcar #'lispm-desktop-platinum-placard-label
+                           (lispm-desktop-platinum-look-placards t))))
+    (should (equal placards '("[Select] ▾" "[Bury]" "[Kill]"))))
+  (with-temp-buffer
+    (lispm-desktop-finder-mode)
+    (should (equal mode-line-format lispm-desktop-platinum-mode-line-format))
+    (let* ((lispm-desktop-look 'genera)
+           (left (lispm-desktop-platinum-mode-line-left)))
+      (should (string-search "[Select]" left))
+      (should (string-search "[Bury]" left))
+      (should (string-search "[Kill]" left)))
+    (let ((lispm-desktop-look 'platinum))
+      (should (equal (string-trim (lispm-desktop-platinum-mode-line-left)) ""))))
+  ;; `lispm-desktop-genera-kill-window' closes the floating Emacs editor frame
+  ;; even when invoked from inside its `*GNU Emacs*' main pane.
+  (let ((editor-closed nil)
+        (lispm-desktop-editor--frame (selected-frame)))
+    (cl-letf (((symbol-function 'lispm-desktop-editor-close)
+               (lambda () (setq editor-closed t)))
+              ((symbol-function 'lispm-desktop-platinum-main-windows)
+               (lambda (&optional _frame) (list (selected-window))))
+              ((symbol-function 'lispm-desktop-platinum-confirm-close)
+               (lambda (_buf) t)))
+      (with-current-buffer (get-buffer-create "*GNU Emacs*")
+        (set-window-buffer (selected-window) (current-buffer))
+        (lispm-desktop-genera-kill-window (selected-window))
+        (should editor-closed)))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

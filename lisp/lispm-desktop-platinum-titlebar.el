@@ -193,10 +193,10 @@ That is the text property `lispm-desktop-platinum-target'."
   "Return non-nil while TARGET is held down in the window being drawn."
   (equal (window-parameter (selected-window) 'lispm-ui-pressed) target))
 
-(defun lispm-desktop-platinum-box-button (string kind command help)
+(defun lispm-desktop-platinum-box-button (string kind command help &optional double-command)
   "Return STRING as title bar box KIND, which runs COMMAND with its window.
-HELP describes it.  It is pressed rather than clicked, see
-`lispm-desktop-platinum-press'."
+HELP describes it; DOUBLE-COMMAND, when given, runs on a double click.
+It is pressed rather than clicked, see `lispm-desktop-platinum-press'."
   (propertize string
               'help-echo help
               'lispm-desktop-platinum-target kind
@@ -204,11 +204,17 @@ HELP describes it.  It is pressed rather than clicked, see
                         (keymap-set map "<tab-line> <down-mouse-1>"
                                     (lambda (event)
                                       (interactive "e")
-                                      (let ((start (event-start event)))
-                                        (lispm-desktop-platinum-press
-                                         start (lispm-desktop-platinum-same-target-p start)
-                                         (lambda () (funcall command (posn-window start)))))))
+                                      (let* ((start (event-start event))
+                                             (y (cdr (posn-object-x-y start))))
+                                        (when (< (or y 0) lispm-ui-title-bar-height)
+                                          (lispm-desktop-platinum-press
+                                           start (lispm-desktop-platinum-same-target-p start)
+                                           (lambda () (funcall command (posn-window start))))))))
                         (keymap-set map "<tab-line> <mouse-1>" #'ignore)
+                        (when double-command
+                          (keymap-set map "<tab-line> <double-down-mouse-1>" #'ignore)
+                          (keymap-set map "<tab-line> <double-mouse-1>"
+                                      (lispm-desktop-platinum--window-command double-command)))
                         map)))
 
 (defun lispm-desktop-platinum--title-press (event)
@@ -389,9 +395,14 @@ collapses; a window collapses only when another shares its column."
          (edges (cons (not (and framed (window-at-side-p window 'left)))
                       (not (and framed (window-at-side-p window 'right)))))
          (margins (lispm-desktop-platinum-window-box-margins window))
-         (tty (lispm-desktop-tty-p (window-frame window)))
+         (frame (window-frame window))
+         (tty (lispm-desktop-tty-p frame))
+         (zoomed (and (or (frame-parameter frame 'lispm-desktop-platinum-zoom)
+                          (frame-parameter frame 'lispm-desktop-finder-unzoom))
+                      t))
+         (rolled (lispm-desktop-platinum-rolled-up-height frame))
          (key (list lispm-ui-palette-generation width active icon title modified controls
-                    pressed status edges margins tty))
+                    pressed status edges margins tty zoomed rolled))
          (cached (window-parameter window 'lispm-desktop-platinum-title-bar)))
     (if (equal (car cached) key)
         (cdr cached)
@@ -776,7 +787,7 @@ Hidden buffers and the sidebar's lists are left out."
                   (tabspaces--buffer-list (window-frame window))
                 (buffer-list (window-frame window)))))
 
-(defun lispm-desktop-platinum-shade-or-zoom (window)
+(cl-defgeneric lispm-desktop-platinum-shade-or-zoom (window)
   "Roll WINDOW up or down, or zoom it when it cannot roll up.
 A double click on a title bar does this, as on Mac OS 9; a window alone
 in its column cannot roll up, so it zooms instead.  A side window or

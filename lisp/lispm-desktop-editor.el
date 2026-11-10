@@ -388,8 +388,11 @@ the workspace it showed last."
   (interactive)
   (lispm-desktop-apps-set-frontmost 'editor)
   (setq lispm-desktop-editor--closed nil)
-  ;; With the desktop hidden, the editor floats out on the computer's screen.
-  (when (and (lispm-desktop-apps-hidden-p) (not (lispm-desktop-editor-floating-p)))
+  ;; With the desktop hidden, or in looks where applications float over the
+  ;; root screen, the editor floats in its own window.
+  (when (and (or (lispm-desktop-apps-hidden-p)
+                 (lispm-desktop-apps-floating-look-p))
+             (not (lispm-desktop-editor-floating-p)))
     (lispm-desktop-editor-float))
   (let ((screen (lispm-desktop-apps-screen)))
     (if (lispm-desktop-editor-floating-p)
@@ -789,6 +792,7 @@ This is the editor's `lispm-desktop-empty-function'."
         initial-buffer-choice #'lispm-desktop-editor-splash-buffer
         tab-bar-new-tab-choice #'lispm-desktop-editor--new-workspace-buffer)
   (add-hook 'lispm-desktop-sidebar-change-hook #'lispm-desktop-editor--render-strip)
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-editor--render-strip)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-editor--render-strip)
   (add-hook 'post-command-hook #'lispm-desktop-editor--keep-chrome)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-editor--remember-workspace)

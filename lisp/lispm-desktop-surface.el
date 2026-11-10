@@ -69,6 +69,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-tty-images)
+(require 'lispm-exec)
 
 (declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
 (declare-function lispm-desktop-settings-open-folder "lispm-desktop-settings" ())
@@ -218,7 +219,8 @@ changed, as Mac OS 9's Trash bulged once something was thrown away."
 (defun lispm-desktop--trash-tick ()
   "Look at the Trash while the desktop is shown: hidden, as in Focus Mode
 or with an application out on its own, its icon is nowhere to be seen."
-  (when (get-buffer-window lispm-desktop-buffer-name 'visible)
+  (when (and (lispm-desktop-icon-side)
+             (get-buffer-window lispm-desktop-buffer-name 'visible))
     (lispm-desktop-check-trash)))
 
 ;;;; Settings
@@ -447,6 +449,17 @@ aliases after its own, the Trash last."
       (funcall function)
     (plist-get spec :icon)))
 
+(defun lispm-desktop-entry-items (&optional include-trash)
+  "Return menu items for the desktop's visible entrypoints, `lispm-desktop-items'
+and `lispm-desktop-aliases'; omit bottom items such as Trash unless
+INCLUDE-TRASH is non-nil."
+  (seq-keep (lambda (item)
+              (when (or include-trash (not (plist-get (cdr item) :bottom)))
+                (list :label (lispm-desktop--item-label (cdr item))
+                      :action (plist-get (cdr item) :command)
+                      :key-id (car item))))
+            (lispm-desktop--items)))
+
 (defun lispm-desktop--escape (text)
   "Return TEXT escaped for SVG."
   (replace-regexp-in-string
@@ -484,7 +497,7 @@ aliases after its own, the Trash last."
   "The picture's copy scaled to the desktop: (FILE TIME WIDTH HEIGHT COPY).")
 
 (defvar lispm-desktop--scaling nil
-  "The process scaling the picture, while it runs.")
+  "Non-nil while the picture is being scaled in the background.")
 
 (defun lispm-desktop--scale-command (file copy width height)
   "Return the command scaling picture FILE to WIDTH by HEIGHT pixels into
@@ -504,24 +517,21 @@ in the background; the desktop is drawn again from the copy once made."
                                          (md5 (format "%s %S %d %d" file time width height)))
                                  directory))
          (command (lispm-desktop--scale-command file copy width height)))
-    (when (and command (not (process-live-p lispm-desktop--scaling)))
+    (when (and command (not lispm-desktop--scaling))
       (make-directory directory t)
-      (setq lispm-desktop--scaling
-            (make-process
-             :name "lispm-desktop-picture" :command command :noquery t
-             :buffer nil :connection-type 'pipe
-             :sentinel
-             (lambda (process _event)
-               (when (and (eq (process-status process) 'exit)
-                          (= (process-exit-status process) 0)
-                          (file-readable-p copy))
-                 ;; Only the copy now drawn is kept.
-                 (dolist (old (directory-files directory t "\`picture-.*\.jpg\'"))
-                   (unless (equal old copy)
-                     (ignore-errors (delete-file old))))
-                 (setq lispm-desktop--scaled (list file time width height copy))
-                 (when (get-buffer lispm-desktop-buffer-name)
-                   (lispm-desktop--render)))))))))
+      (setq lispm-desktop--scaling t)
+      (lispm-exec
+       (car command) (cdr command)
+       (lambda (exit _output _errors)
+         (setq lispm-desktop--scaling nil)
+         (when (and (eql exit 0) (file-readable-p copy))
+           ;; Only the copy now drawn is kept.
+           (dolist (old (directory-files directory t "\\`picture-.*\\.jpg\\'"))
+             (unless (equal old copy)
+               (ignore-errors (delete-file old))))
+           (setq lispm-desktop--scaled (list file time width height copy))
+           (when (get-buffer lispm-desktop-buffer-name)
+             (lispm-desktop--render))))))))
 
 (defvar lispm-desktop--picture-position nil
   "How the picture being drawn covers the desktop, while it is not placed
@@ -627,14 +637,21 @@ between its margins: at least one."
     (max 1 (/ (+ (- height (* 2 lispm-desktop-margin)) lispm-desktop-gap)
               (+ cell-height lispm-desktop-gap)))))
 
+(cl-defgeneric lispm-desktop-icon-side ()
+  "Return the horizontal edge unplaced desktop icons line up along:
+`:right' on Mac OS 9, `:left' on PC, or nil when the look has no desktop
+icons (as on Symbolics Open Genera)."
+  :right)
+
 (defun lispm-desktop--column-place (index bottom &optional rows)
   "Return the place of the INDEXth cell of the column, counted up from the
 bottom corner when BOTTOM, else down from the top.  Past ROWS cells, as
 many as the desktop's height holds, see `lispm-desktop--rows', the cells
-go on in the next column to the left."
+go on in the next column inward from `lispm-desktop-icon-side'."
   (pcase-let ((`(,_ . ,cell-height) (lispm-desktop--cell-size))
               (rows (or rows most-positive-fixnum)))
-    (list :right (+ lispm-desktop-margin (* (/ index rows) lispm-desktop-column))
+    (list (lispm-desktop-icon-side)
+          (+ lispm-desktop-margin (* (/ index rows) lispm-desktop-column))
           (if bottom :bottom :top)
           (+ lispm-desktop-margin (* (% index rows) (+ cell-height lispm-desktop-gap))))))
 
@@ -654,35 +671,37 @@ one above or below it."
 somewhere stands there, see `lispm-desktop-icon-places'; the others take the
 first cells of the column no icon covers or crowds, those of the bottom
 corner first, so that a column running down to them goes on to the
-left rather than closer to them than the column's own gap."
-  (let* ((items (lispm-desktop--items))
-         (placed (seq-keep (lambda (item)
-                             (when-let* ((place (alist-get (car item) lispm-desktop-icon-places)))
-                               (let ((xy (lispm-desktop--place-xy place width height)))
-                                 (list item (car xy) (cdr xy)))))
-                           items))
-         (taken (mapcar #'cdr placed))
-         (rows (lispm-desktop--rows height))
-         (indices (list 0 0))
-         (top (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items))
-         ;; The bottom corner fills from the last icon up.
-         (bottom (reverse (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items)))
-         (spots nil))
-    (cl-flet ((free-p (xy) (lispm-desktop--cell-free-p xy taken lispm-desktop-gap)))
-      (dolist (item (append bottom top))
-        (unless (assq item placed)
-          (let* ((at-bottom (plist-get (cdr item) :bottom))
-                 (slot (if at-bottom 1 0))
-                 (xy nil))
-            (while (progn
-                     (setq xy (lispm-desktop--place-xy
-                               (lispm-desktop--column-place (nth slot indices) at-bottom rows)
-                               width height))
-                     (cl-incf (nth slot indices))
-                     (and (not (free-p xy)) (< (nth slot indices) 64))))
-            (push (list (car xy) (cdr xy)) taken)
-            (push (list item (car xy) (cdr xy)) spots))))
-      (append placed (seq-keep (lambda (item) (assq item spots)) (append top bottom))))))
+left rather than closer to them than the column's own gap.
+When `lispm-desktop-icon-side' is nil (as on Open Genera), return nil."
+  (when (lispm-desktop-icon-side)
+    (let* ((items (lispm-desktop--items))
+           (placed (seq-keep (lambda (item)
+                               (when-let* ((place (alist-get (car item) lispm-desktop-icon-places)))
+                                 (let ((xy (lispm-desktop--place-xy place width height)))
+                                   (list item (car xy) (cdr xy)))))
+                             items))
+           (taken (mapcar #'cdr placed))
+           (rows (lispm-desktop--rows height))
+           (indices (list 0 0))
+           (top (seq-remove (lambda (item) (plist-get (cdr item) :bottom)) items))
+           ;; The bottom corner fills from the last icon up.
+           (bottom (reverse (seq-filter (lambda (item) (plist-get (cdr item) :bottom)) items)))
+           (spots nil))
+      (cl-flet ((free-p (xy) (lispm-desktop--cell-free-p xy taken lispm-desktop-gap)))
+        (dolist (item (append bottom top))
+          (unless (assq item placed)
+            (let* ((at-bottom (plist-get (cdr item) :bottom))
+                   (slot (if at-bottom 1 0))
+                   (xy nil))
+              (while (progn
+                       (setq xy (lispm-desktop--place-xy
+                                 (lispm-desktop--column-place (nth slot indices) at-bottom rows)
+                                 width height))
+                       (cl-incf (nth slot indices))
+                       (and (not (free-p xy)) (< (nth slot indices) 64))))
+              (push (list (car xy) (cdr xy)) taken)
+              (push (list item (car xy) (cdr xy)) spots))))
+        (append placed (seq-keep (lambda (item) (assq item spots)) (append top bottom)))))))
 
 (defun lispm-desktop--label-center (spec x)
   "Return where the name of the icon SPEC, its cell's left at X, is
@@ -792,7 +811,7 @@ default 0, 0."
      (lispm-desktop--coach-mark width height (or origin '(0 . 0)))
      "</svg>")))
 
-(defun lispm-desktop--background (width height &optional picture)
+(cl-defgeneric lispm-desktop--background (width height &optional picture)
   "Return SVG of the desktop's colour, PICTURE over it, WIDTH by HEIGHT."
   (concat (format "<rect width=\"%d\" height=\"%d\" fill=\"%s\"/>" width height (lispm-desktop--color))
           (or (lispm-desktop--picture width height picture) "")))
@@ -842,10 +861,10 @@ IMAGE, where given, is called with each icon drawn at that size, as
 the terminal shows the icon NAME as an image COLUMNS by ROWS cells from
 LINE, COLUMN, see `lispm-desktop-tty-images-show', and its cells are
 left blank, for the image to lie on."
-  (let* ((items (lispm-desktop--items))
+  (let* ((items (and (lispm-desktop-icon-side) (lispm-desktop--items)))
          (labels (mapcar (lambda (item) (concat " " (lispm-desktop--item-label (cdr item)) " ")) items))
          (picture-size (lispm-ui-text-size lispm-desktop-text-icon-size))
-         (column (+ 2 (apply #'max (car picture-size) (mapcar #'string-width labels))))
+         (column (+ 2 (apply #'max (car picture-size) (or (mapcar #'string-width labels) '(0)))))
          (size (let ((rows (/ (1- height) (+ (cdr picture-size) 2))))
                  (and (> rows 0)
                       (<= (* column (ceiling (max 1 (length items)) (float rows))) (- width 2))
@@ -857,7 +876,9 @@ left blank, for the image to lie on."
          (bottom-top (- height 1 (* per (length bottoms))))
          (pieces nil))
     (cl-flet ((place (item label row slot)
-                (let* ((left (- width 2 (* (1+ slot) column)))
+                (let* ((left (if (eq (lispm-desktop-icon-side) :left)
+                                 (+ 1 (* slot column))
+                               (- width 2 (* (1+ slot) column))))
                        (selected (eq (car item) lispm-desktop--selected))
                        (icon (lispm-desktop--item-icon (cdr item)))
                        (picture (cond
@@ -1355,14 +1376,20 @@ Icons and the desktop picture, as Mac OS 9's desktop offered them."
                :enabled ,(and lispm-desktop-picture t)))
      x y align)))
 
+(cl-defgeneric lispm-desktop-background-context-menu (x y &optional align)
+  "Pop up the background context menu at X, Y on the bare desktop."
+  (lispm-desktop--menu x y align))
+
 (defun lispm-desktop-context-menu (event)
   "Pop up the desktop's menu where EVENT right-clicked, of the icon there.
 The press selects the icon but never drags it: only the left button
 drags, and the drag would wait for that button to rise."
   (interactive "e")
-  (lispm-desktop--press-select event)
-  (let ((xy (lispm-desktop-popup-frame-xy event)))
-    (lispm-desktop--menu (car xy) (cdr xy))))
+  (let ((hit (lispm-desktop--press-select event))
+        (xy (lispm-desktop-popup-frame-xy event)))
+    (if hit
+        (lispm-desktop--menu (car xy) (cdr xy))
+      (lispm-desktop-background-context-menu (car xy) (cdr xy)))))
 
 (defun lispm-desktop--keyboard-menu ()
   "Pop up the desktop's menu from the keyboard, under the icon selected,
@@ -1373,18 +1400,28 @@ desktop has the menu end at its right, so it stays on the desktop."
          (body (window-body-pixel-edges window))
          (hit (assq (buffer-local-value 'lispm-desktop--selected buffer)
                     (buffer-local-value 'lispm-desktop--hits buffer))))
-    (pcase-let ((`(,_ ,left ,_ ,right ,bottom) (or hit (list nil 40 40 40 40))))
-      (if (> left (/ (window-body-width window t) 2))
-          (lispm-desktop--menu (+ (car body) right) (+ (cadr body) bottom) 'right)
-        (lispm-desktop--menu (+ (car body) left) (+ (cadr body) bottom))))))
+    (if (null hit)
+        (lispm-desktop-background-context-menu (+ (car body) 40) (+ (cadr body) 40))
+      (pcase-let ((`(,_ ,left ,_ ,right ,bottom) hit))
+        (if (> left (/ (window-body-width window t) 2))
+            (lispm-desktop--menu (+ (car body) right) (+ (cadr body) bottom) 'right)
+          (lispm-desktop--menu (+ (car body) left) (+ (cadr body) bottom)))))))
+
+(cl-defgeneric lispm-desktop-background-double-click (_event)
+  "Act on a double click on the desktop's bare background.
+Mac OS 9 does nothing; PC looks open the Task List."
+  nil)
 
 (defun lispm-desktop-mouse-open (event)
-  "Open the desktop icon double-clicked by EVENT.
+  "Open the desktop icon double-clicked by EVENT, or act on a double click
+on the bare desktop, see `lispm-desktop-background-double-click'.
 EVENT is the second click's release: the button is up, so nothing drags."
   (interactive "e")
-  (when (lispm-desktop--press-select event)
-    (setq lispm-desktop--last-click nil)
-    (lispm-desktop-open)))
+  (if (lispm-desktop--press-select event)
+      (progn
+        (setq lispm-desktop--last-click nil)
+        (lispm-desktop-open))
+    (lispm-desktop-background-double-click event)))
 
 (defun lispm-desktop-deselect ()
   "Select no desktop icon: a click on the desktop itself, which brings the
@@ -1394,20 +1431,28 @@ desktop in front."
   (lispm-desktop-apps-set-frontmost 'desktop)
   (lispm-desktop--select nil))
 
+(cl-defgeneric lispm-desktop-background-open ()
+  "Act on pressing Open (Return) on the bare desktop with no icon selected."
+  nil)
+
 (defun lispm-desktop-open ()
-  "Open the selected desktop icon."
+  "Open the selected desktop icon, or act on the bare desktop via
+`lispm-desktop-background-open'."
   (interactive)
-  (when-let* ((key (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer)))
-              (command (plist-get (lispm-desktop--item key) :command)))
-    (lispm-desktop--select nil)
-    (call-interactively command)))
+  (if-let* ((key (buffer-local-value 'lispm-desktop--selected (lispm-desktop-buffer)))
+            (command (plist-get (lispm-desktop--item key) :command)))
+      (progn
+        (lispm-desktop--select nil)
+        (call-interactively command))
+    (lispm-desktop-background-open)))
 
 (defun lispm-desktop--step (direction)
   "Select the icon DIRECTION (1 or -1) from the selected one, wrapping around."
-  (let* ((keys (mapcar #'car (lispm-desktop--items)))
-         (index (seq-position keys lispm-desktop--selected)))
-    (when keys
-      (lispm-desktop--select (nth (lispm-ui-modal-cycle index direction (length keys)) keys)))))
+  (when (lispm-desktop-icon-side)
+    (let* ((keys (mapcar #'car (lispm-desktop--items)))
+           (index (seq-position keys lispm-desktop--selected)))
+      (when keys
+        (lispm-desktop--select (nth (lispm-ui-modal-cycle index direction (length keys)) keys))))))
 
 (defun lispm-desktop-select-next ()
   "Select the next desktop icon down."
@@ -1514,13 +1559,17 @@ stay where they are."
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
 
+(cl-defgeneric lispm-desktop-mode-line-format ()
+  "Return the `mode-line-format' of the root desktop buffer, or nil."
+  nil)
+
 (defun lispm-desktop--bare ()
   "Strip the current buffer's windows to the desktop: no title bar, no
 bottom edge, no cursor, fringes or line numbers, and its one line never
 wrapped, which would hold a column for the wrapping mark.  Visual line
 mode is turned off first: turned off, it restores the lines it found."
   (visual-line-mode -1)
-  (setq-local mode-line-format nil
+  (setq-local mode-line-format (lispm-desktop-mode-line-format)
               header-line-format nil
               tab-line-format nil
               cursor-type nil
@@ -1762,8 +1811,10 @@ the Trash is looked at every few seconds."
         lispm-desktop-platinum-last-window-function #'lispm-desktop-show)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--scroll-bar)
   (add-hook 'enable-theme-functions (lambda (&rest _) (lispm-desktop--paint)) 90)
-  ;; The icons' names are drawn in the language LispM speaks.
+  ;; The icons' names are drawn in the language LispM speaks, and their
+  ;; layout follows the look.
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop--paint)
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop--paint)
   (add-hook 'lispm-desktop-platinum-coach-mark-functions (lambda (_) (lispm-desktop--render)))
   (add-hook 'window-setup-hook #'lispm-desktop-activate 95))
 

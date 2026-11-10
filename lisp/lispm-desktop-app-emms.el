@@ -63,6 +63,7 @@
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-i18n)
+(require 'lispm-exec)
 
 ;; EMMS's own variables and functions, read once it runs.
 (defvar emms-player-list)
@@ -379,7 +380,6 @@ built in."
   "Build LispM Music Library.app from its sources, signed for this computer
 alone, then call THEN; say why when it cannot be built."
   (let* ((app (lispm-desktop-app-emms--reader))
-         (log (generate-new-buffer " *lispm-music-library build*"))
          (hash (lispm-desktop-app-emms--reader-sources-hash)))
     (when (file-directory-p app)
       (delete-directory app t))
@@ -387,48 +387,42 @@ alone, then call THEN; say why when it cannot be built."
     (copy-file (expand-file-name "Info.plist" lispm-desktop-app-emms--reader-sources)
                (expand-file-name "Contents/Info.plist" app) t)
     (message (lispm-desktop-tr "Building the reader of the Music library…"))
-    (make-process
-     :name "lispm-music-library-build" :buffer log :noquery t
-     :command (list "sh" "-c" "swiftc -O -framework iTunesLibrary -o \"$1\" \"$2\" && codesign --force --sign - \"$3\""
-                    "sh" (expand-file-name "Contents/MacOS/lispm-music-library" app)
-                    (expand-file-name "main.swift" lispm-desktop-app-emms--reader-sources) app)
-     :sentinel
-     (lambda (process _event)
-       (unless (process-live-p process)
-         (message nil)
-         (if (= (process-exit-status process) 0)
-             (progn (with-temp-file (lispm-desktop-app-emms--reader-stamp) (insert hash))
-                    (kill-buffer log)
-                    (funcall then))
-           (let ((why (with-current-buffer log (string-trim (buffer-string)))))
-             (kill-buffer log)
-             (when (eq (lispm-ui-alert
-                        'stop (lispm-desktop-tr "The reader of the Music library could not be built.")
-                        `((,(lispm-desktop-tr "Copy Command") copy) (,(lispm-desktop-tr "OK") ok default))
-                        (concat (lispm-desktop-tr "It needs Xcode's command line tools; install them with: %s"
-                                                  "xcode-select --install")
-                                (unless (string-empty-p why) (concat "\n" (truncate-string-to-width why 300)))))
-                       'copy)
-               (kill-new "xcode-select --install")))))))))
+    (lispm-exec
+     "sh"
+     (list "-c" "swiftc -O -framework iTunesLibrary -o \"$1\" \"$2\" && codesign --force --sign - \"$3\""
+           "sh" (expand-file-name "Contents/MacOS/lispm-music-library" app)
+           (expand-file-name "main.swift" lispm-desktop-app-emms--reader-sources) app)
+     (lambda (exit output errors)
+       (message nil)
+       (if (eql exit 0)
+           (progn (with-temp-file (lispm-desktop-app-emms--reader-stamp) (insert hash))
+                  (funcall then))
+         (let ((why (string-trim (concat errors (if (string-empty-p errors) output "")))))
+           (when (eq (lispm-ui-alert
+                      'stop (lispm-desktop-tr "The reader of the Music library could not be built.")
+                      `((,(lispm-desktop-tr "Copy Command") copy) (,(lispm-desktop-tr "OK") ok default))
+                      (concat (lispm-desktop-tr "It needs Xcode's command line tools; install them with: %s"
+                                                "xcode-select --install")
+                              (unless (string-empty-p why) (concat "\n" (truncate-string-to-width why 300)))))
+                     'copy)
+             (kill-new "xcode-select --install"))))))))
 
 (defun lispm-desktop-app-emms--read-library (then)
   "Read the Music library with LispM Music Library.app, opened by
 LaunchServices, out of sight; call THEN with what it read, as JSON
 parsed into plists."
   (let ((output (make-temp-file "lispm-music-library" nil ".json")))
-    (make-process
-     :name "lispm-music-library" :noquery t
-     :command (list "open" "-W" "-g" "-n" (lispm-desktop-app-emms--reader) "--args" output)
-     :sentinel
-     (lambda (process _event)
-       (unless (process-live-p process)
-         (let ((data (ignore-errors
-                       (with-temp-buffer
-                         (insert-file-contents output)
-                         (json-parse-buffer :object-type 'plist :array-type 'list
-                                            :null-object nil :false-object nil)))))
-           (delete-file output)
-           (funcall then data)))))))
+    (lispm-exec
+     "open"
+     (list "-W" "-g" "-n" (lispm-desktop-app-emms--reader) "--args" output)
+     (lambda (_exit _output _errors)
+       (let ((data (ignore-errors
+                     (with-temp-buffer
+                       (insert-file-contents output)
+                       (json-parse-buffer :object-type 'plist :array-type 'list
+                                          :null-object nil :false-object nil)))))
+         (delete-file output)
+         (funcall then data))))))
 
 (defun lispm-desktop-app-emms--not-read (data)
   "Say the Music library could not be read, with why, from DATA, what

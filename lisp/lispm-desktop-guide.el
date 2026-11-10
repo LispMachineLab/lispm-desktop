@@ -54,16 +54,13 @@
 ;; again a moment later, unless something is typed or clicked in it.
 ;; N, Return, Space, C-f or C-n go to the next step, P, DEL, C-b or C-p
 ;; back, S shows, Q or Escape puts the guide away, to come back on the
-;; same step, Skip leaves it, to start over, and Tab rings its buttons in
-;; turn.  Done, on the last step, puts the guide away and opens what that
-;; step finishes with: the Security control panel, where LispM's password
-;; is set, so that the settings the guide speaks of are at hand when it
-;; has gone.  The guide floats over the other windows but takes the
-;; keyboard only when it is clicked or called, and C-c ? gives it the
-;; keyboard back.  It shows over the desktop, hiding from the full-screen
-;; editor and browser as the other windows do; C-c ? brings the desktop
-;; back in front with it, and so does a step whose coach mark lies on the
-;; desktop.
+;; same step, Skip leaves it, to start over, Done on the last step puts
+;; the guide away, and Tab rings its buttons in turn.  The guide floats
+;; over the other windows but takes the keyboard only when it is clicked
+;; or called, and C-c ? gives it the keyboard back.  It shows over the
+;; desktop, hiding from the full-screen editor and browser as the other
+;; windows do; C-c ? brings the desktop back in front with it, and so
+;; does a step whose coach mark lies on the desktop.
 
 ;;; Code:
 
@@ -198,9 +195,8 @@ whenever asked."
      :title ,(lispm-desktop-tr-noop "Your password")
      :icon "security-32"
      :when lispm-desktop-guide--security-p
-     :text ,(lispm-desktop-tr-noop "LispM keeps the keys its agents use encrypted under one password, and asks for it when it starts.  The Security control panel changes that password, locks the keys for now, and says which applications ask for it.  Done opens it.")
-     :show lispm-desktop-guide--show-security
-     :finish lispm-desktop-guide--finish-security))
+     :text ,(lispm-desktop-tr-noop "LispM keeps the keys its agents use encrypted under one password, and asks for it when it starts.  The Security control panel changes that password, locks the keys for now, and says which applications ask for it.")
+     :show lispm-desktop-guide--show-security))
   "The guide's steps, in order: (KEY . PROPERTIES).
 :title names a step, :text says what it shows, and :icon is its large
 icon, as `lispm-ui-icon-file' takes it.  :mark is what the
@@ -630,11 +626,6 @@ was open already."
     (lispm-desktop-settings-show-category 'settings-security)
     (unless open
       (lambda () (lispm-desktop-app-window-close 'settings-security)))))
-
-(defun lispm-desktop-guide--finish-security ()
-  "Open the Security control panel, where the password the guide ends on
-is set, that it be at hand once the guide is away."
-  (lispm-desktop-settings-show-category 'settings-security))
 
 (defun lispm-desktop-guide--show-editor ()
   "Open Emacs floating over the desktop, not filling the screen, which

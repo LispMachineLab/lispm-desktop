@@ -78,6 +78,9 @@
 (require 'lispm-desktop-look)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-popup)
+(require 'lispm-desktop-apps)
+(require 'lispm-desktop-surface)
+(require 'lispm-desktop-strip)
 (require 'lispm-desktop-i18n)
 
 ;;;; Colours and bevels
@@ -147,28 +150,83 @@ look's :box-width; the title is centred between them, narrowed to fit."
     (list :start start :end end :title title :label-x label-x :margins (cons lead trail)
           :ridges nil)))
 
+(defun lispm-desktop-pc-window-zoomed-p (window)
+  "Return non-nil when WINDOW is maximized."
+  (when (window-live-p window)
+    (let ((frame (window-frame window)))
+      (and (or (frame-parameter frame 'lispm-desktop-platinum-zoom)
+               (frame-parameter frame 'lispm-desktop-finder-unzoom)
+               (let ((saved (frame-parameter frame 'lispm-desktop-platinum-unzoom)))
+                 (and saved (eq (car saved) window))))
+           t))))
+
+(defun lispm-desktop-pc-window-minimized-p (window)
+  "Return non-nil when WINDOW is minimized."
+  (when (window-live-p window)
+    (let ((frame (window-frame window)))
+      (and (or (lispm-desktop-platinum-rolled-up-height frame)
+               (window-parameter window 'lispm-desktop-platinum-shade))
+           t))))
+
+(defun lispm-desktop-pc--screen-xy (window x y)
+  "Return X, Y in WINDOW's frame as (SCREEN-X . SCREEN-Y) in its root screen frame."
+  (let* ((frame (and (window-live-p window) (window-frame window)))
+         (parent (and frame (frame-parent frame)))
+         (border (if parent (or (frame-parameter frame 'child-frame-border-width) 0) 0))
+         (pos (if parent (frame-position frame) '(0 . 0))))
+    (cons (+ (car pos) border x) (+ (cdr pos) border y))))
+
 (defun lispm-desktop-pc-system-menu (window)
   "Drop WINDOW's system menu from its system menu box, as Windows and OS/2
 did: Restore, Minimize, Maximize and Close, those WINDOW cannot do
-disabled, in the look's own words, its :system-menu."
+disabled, in the look's own words, its :system-menu, followed by Switch To
+items for the desktop's applications.  A second click on the system menu
+box while the menu is up closes WINDOW, as double-clicking Windows 3.2's
+Control-Menu box did."
   (pcase-let* ((`(,_ ,zoom ,collapse) (lispm-desktop-platinum-window-controls window))
+               (zoomed (lispm-desktop-pc-window-zoomed-p window))
+               (minimized (lispm-desktop-pc-window-minimized-p window))
                (`(,left ,top ,_ ,_) (window-pixel-edges window))
                (margins (lispm-desktop-platinum-window-box-margins window))
                (`(,restore ,minimize ,maximize ,close)
-                (mapcar #'lispm-desktop-tr (lispm-ui-look-get :system-menu))))
-    (lispm-ui-menu
-     (list (list :label restore
-                 :enabled (and zoom (frame-parameter nil 'lispm-desktop-platinum-unzoom) t)
-                 :action (lambda () (lispm-desktop-platinum-zoom-window window)))
-           (list :label minimize :enabled (and collapse t)
-                 :action (lambda () (lispm-desktop-platinum-collapse-window window)))
-           (list :label maximize :enabled (and zoom t)
-                 :action (lambda () (lispm-desktop-platinum-zoom-window window)))
-           'separator
-           (list :label close
-                 :action (lambda () (lispm-desktop-platinum-close-window window))))
-     (+ left (lispm-desktop-look-box-margin (car margins)))
-     (+ top (window-tab-line-height window)))))
+                (mapcar #'lispm-desktop-tr (lispm-ui-look-get :system-menu)))
+               (apps (and (not noninteractive)
+                          (fboundp 'lispm-desktop-apps-application-items)
+                          (lispm-desktop-apps-application-items)))
+               (`(,sx . ,sy)
+                (lispm-desktop-pc--screen-xy
+                 window
+                 (+ left (lispm-desktop-look-box-margin (car margins)))
+                 (+ top (window-tab-line-height window))))
+               (frame (window-frame window))
+               (opened (float-time))
+               (chosen
+                (let ((lispm-ui-menu-parent (or (frame-parent frame) frame)))
+                  (lispm-ui-menu
+                   (append
+                    (list (list :label restore
+                                :enabled (and (or (and zoom zoomed) (and collapse minimized)) t)
+                                :action (lambda ()
+                                          (if minimized
+                                              (lispm-desktop-platinum-collapse-window window)
+                                            (lispm-desktop-platinum-zoom-window window))))
+                          (list :label minimize :enabled (and collapse (not minimized) t)
+                                :action (lambda () (lispm-desktop-platinum-collapse-window window)))
+                          (list :label maximize :enabled (and zoom (not zoomed) t)
+                                :action (lambda () (lispm-desktop-platinum-zoom-window window)))
+                          'separator
+                          (list :label close
+                                :action (lambda () (lispm-desktop-platinum-close-window window))))
+                    (when apps (cons 'separator apps)))
+                   sx sy))))
+    (when (and (null chosen)
+               (lispm-ui-modal-mouse-down-p last-input-event)
+               (< (- (float-time) opened) (/ (or double-click-time 500) 1000.0))
+               (let ((pos (event-start last-input-event)))
+                 (and (eq (posn-window pos) window)
+                      (eq (lispm-desktop-platinum--press-target pos) 'close))))
+      (lispm-desktop-platinum-close-window window))
+    chosen))
 
 (cl-defmethod lispm-desktop-platinum-draw-title-bar (width active icon title modified controls
                                                            &context (lispm-desktop-look (lispm-ui-look-family pc))
@@ -192,20 +250,23 @@ a star; STATUS follows it."
                (title-help (lispm-desktop-platinum-title-help))
                (palette lispm-ui-current-palette)
                (icon (and (lispm-ui-look-metric :system-icon) icon))
+               (zoomed (lispm-desktop-pc-window-zoomed-p (selected-window)))
                (`(,system-help ,minimize-help ,maximize-help)
                 (mapcar #'lispm-desktop-tr (lispm-ui-look-get :box-help))))
     (cl-flet ((caption (from to &optional text)
-                (propertize " " 'display
-                            (lispm-ui-look-image
-                             (list 'caption (- to from) active
-                                   (and text (lispm-ui-content-key text))
-                                   (- (plist-get layout :label-x) from))
-                             (lambda ()
-                               (lispm-desktop-pc-draw-caption palette (- to from) active text
-                                                              (- (plist-get layout :label-x) from))))
-                            'keymap lispm-desktop-platinum-title-map
-                            'help-echo title-help))
-              (button (kind box command help)
+                (let ((w (- to from)))
+                  (propertize " " 'display
+                              (lispm-ui-look-image
+                               (list 'caption w active
+                                     (and text (lispm-ui-content-key text))
+                                     (- (plist-get layout :label-x) from))
+                               (lambda ()
+                                 (lispm-desktop-pc-draw-caption
+                                  palette w active text
+                                  (- (plist-get layout :label-x) from))))
+                              'keymap lispm-desktop-platinum-title-map
+                              'help-echo title-help)))
+              (button (kind box command help &optional double-command)
                 (lispm-desktop-platinum-box-button
                  (propertize " " 'display
                              (lispm-ui-look-image
@@ -215,17 +276,95 @@ a star; STATUS follows it."
                                 (if (eq kind 'system)
                                     (lispm-desktop-pc-draw-system-box palette (eq pressed box) icon)
                                   (lispm-desktop-pc-draw-caption-button palette kind (eq pressed box))))))
-                 box command help)))
+                 box command help double-command)))
       (concat
        (when (> lead 0) (caption 0 lead))
        (when close
-         (button 'system 'close #'lispm-desktop-pc-system-menu system-help))
+         (button 'system 'close #'lispm-desktop-pc-system-menu system-help
+                 #'lispm-desktop-platinum-close-window))
        (caption start end label)
        (when collapse
          (button 'minimize 'collapse #'lispm-desktop-platinum-collapse-window minimize-help))
        (when zoom
-         (button 'maximize 'zoom #'lispm-desktop-platinum-zoom-window maximize-help))
+         (button (if zoomed 'restore 'maximize)
+                 'zoom #'lispm-desktop-platinum-zoom-window maximize-help))
        (when (> trail 0) (caption 0 trail))))))
+
+(cl-defmethod lispm-desktop-platinum-shade-or-zoom (window &context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "Maximize or restore WINDOW on a double click of a PC title bar.
+When WINDOW is minimized to its caption, restore it first."
+  (cond
+   ((lispm-desktop-pc-window-minimized-p window)
+    (lispm-desktop-platinum-collapse-window window))
+   ((or (lispm-desktop-platinum--box-function window :zoom)
+        (not (lispm-desktop-platinum--fixed-p window)))
+    (lispm-desktop-platinum-zoom-window window))))
+
+(defconst lispm-desktop-pc-minimized-width 160
+  "Width in pixels of a PC floating window minimized to the desktop's bottom.")
+
+(defun lispm-desktop-pc--minimized-spot (frame width height)
+  "Return (LEFT . TOP) at the bottom-left of FRAME's desktop for a
+minimized window of outer size WIDTH by HEIGHT pixels."
+  (let* ((area (and lispm-desktop-platinum-window-area-function
+                    (funcall lispm-desktop-platinum-window-area-function frame)))
+         (left0 (if area (+ (nth 0 area) 8) 8))
+         (top0 (if area (nth 1 area) 28))
+         (right (if area (+ (nth 0 area) (nth 2 area) -8) 800))
+         (bottom (if area (+ (nth 1 area) (nth 3 area) -8) 600))
+         (step-x (+ width 8))
+         (step-y (+ height 6))
+         (x left0)
+         (y (max top0 (- bottom height)))
+         (others (seq-filter (lambda (f)
+                               (and (not (eq f frame))
+                                    (frame-live-p f)
+                                    (frame-visible-p f)
+                                    (frame-parameter f 'lispm-desktop-pc-minimized)))
+                             (frame-list))))
+    (while (and (> y top0)
+                (seq-some (lambda (other)
+                            (pcase-let ((`(,ox . ,oy) (lispm-desktop-platinum-window-position other)))
+                              (and (< (abs (- ox x)) (/ step-x 2))
+                                   (< (abs (- oy y)) (/ step-y 2)))))
+                          others))
+      (setq x (+ x step-x))
+      (when (> (+ x width) right)
+        (setq x left0
+              y (max top0 (- y step-y)))))
+    (cons x y)))
+
+(cl-defmethod lispm-desktop-platinum-roll-up (frame height
+                                                    &context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "Minimize FRAME on a PC desktop: roll it to its caption bar, shrink a floating
+window to `lispm-desktop-pc-minimized-width' and park it at the bottom-left."
+  (let ((floating (and (framep frame) (frame-parameter frame 'lispm-desktop-window)))
+        (pos (and (framep frame) (lispm-desktop-platinum-window-position frame)))
+        (width (and (framep frame) (frame-text-width frame))))
+    (cl-call-next-method frame (if floating (min height lispm-ui-title-bar-height) height))
+    (when floating
+      (set-frame-parameter frame 'lispm-desktop-pc-minimized
+                           (list (car pos) (cdr pos) width))
+      (set-frame-width frame lispm-desktop-pc-minimized-width nil t)
+      (pcase-let* ((`(,ml ,mt ,mr ,mb) (lispm-desktop-platinum-window-margins frame))
+                   (outer-w (+ (frame-pixel-width frame) ml mr))
+                   (outer-h (+ (frame-pixel-height frame) mt mb))
+                   (`(,x . ,y) (lispm-desktop-pc--minimized-spot frame outer-w outer-h)))
+        (lispm-desktop-platinum-move-window frame (+ x ml) (+ y mt))
+        (lispm-desktop-platinum-frame-update frame)))))
+
+(cl-defmethod lispm-desktop-platinum-roll-down (frame height
+                                                      &context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "Restore minimized FRAME on a PC desktop to its original place, width and HEIGHT."
+  (let ((saved (and (framep frame) (frame-parameter frame 'lispm-desktop-pc-minimized))))
+    (when saved
+      (set-frame-parameter frame 'lispm-desktop-pc-minimized nil))
+    (cl-call-next-method frame height)
+    (when saved
+      (pcase-let ((`(,left ,top ,width) saved))
+        (set-frame-width frame width nil t)
+        (lispm-desktop-platinum-move-window frame left top)
+        (lispm-desktop-platinum-frame-update frame)))))
 
 ;;;; Menus
 
@@ -554,7 +693,42 @@ end, the track between."
   (let ((b lispm-desktop-pc-scroll-button))
     (list :track b :track-length (max 0 (- height b b)) :up 0 :down (- height b) :arrow b)))
 
-;;;; The Control Strip
+;;;; The desktop and the Control Strip
+
+(cl-defmethod lispm-desktop-platinum-menu-bar-look-p (&context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "PC looks have no global top menu bar; each application window has its own."
+  nil)
+
+(cl-defmethod lispm-desktop-strip-look-p (&context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "PC looks have no Mac OS 9 Control Strip in the bottom-left corner."
+  nil)
+
+(cl-defmethod lispm-desktop-icon-side (&context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "PC looks stand desktop icons down the left edge, as Windows and OS/2 did."
+  :left)
+
+(defun lispm-desktop-pc-task-menu (&optional x y)
+  "Pop up the PC Task List menu at X, Y: the open applications and windows,
+Program Manager actions, and Arrange Icons, as double-clicking Windows 3.2's
+desktop did."
+  (interactive)
+  (let ((apps (cond ((fboundp 'lispm-desktop-apps-menu-items)
+                     (lispm-desktop-apps-menu-items))
+                    ((fboundp 'lispm-desktop-apps-application-items)
+                     (lispm-desktop-apps-application-items))))
+        (lambda-items (and lispm-desktop-platinum-lambda-items-function
+                           (lispm-desktop-platinum-lambda-items)))
+        (arrange (lispm-desktop--arrange-items)))
+    (lispm-ui-menu
+     (append (when apps (append apps '(separator)))
+             (when lambda-items (append lambda-items '(separator)))
+             arrange)
+     x y)))
+
+(cl-defmethod lispm-desktop-background-double-click (event &context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "Open the PC Task List menu when double-clicking the bare desktop at EVENT."
+  (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
+    (lispm-desktop-pc-task-menu x y)))
 
 (cl-defmethod lispm-desktop-platinum-draw-strip-segment (palette kind
                                                                  &context (lispm-desktop-look (lispm-ui-look-family pc))

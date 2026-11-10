@@ -539,6 +539,10 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
                 mode-line-format lispm-desktop-platinum-mode-line-format)
   (setq mode-line-right-align-edge 'window)
   (setq tab-bar-format '(lispm-desktop-platinum-menu-bar-line))
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-platinum-sync-menu-bar)
+  (add-hook 'after-make-frame-functions #'lispm-desktop-platinum-sync-menu-bar)
+  (add-hook 'window-setup-hook #'lispm-desktop-platinum-sync-menu-bar 99)
+  (lispm-desktop-platinum-sync-menu-bar)
   (lispm-desktop-platinum--start-status)
   ;; Frames take sizes in pixels: a scroll bar is exactly as tall as its
   ;; window, and a maximized frame fills the screen.

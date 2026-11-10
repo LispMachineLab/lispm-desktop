@@ -68,6 +68,7 @@
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-coherence)
 (require 'lispm-desktop-i18n)
+(require 'lispm-exec)
 
 (declare-function lispm-desktop-display-module-export "lispm-desktop-display-module" (address))
 (declare-function lispm-desktop-display-module-unexport "lispm-desktop-display-module" (number))
@@ -143,7 +144,7 @@ the clang commands building them; or nil where they cannot be built."
        (file-executable-p (plist-get plan :executable))))
 
 (defvar lispm-desktop-display--building nil
-  "The process building the display, or nil.")
+  "Non-nil while the display is being built.")
 
 (defvar lispm-desktop-display--when-built nil
   "Functions to call once the display is built.")
@@ -157,34 +158,30 @@ they cannot be built."
     (if (lispm-desktop-display--built-p plan)
         (when then (funcall then))
       (when then (add-to-list 'lispm-desktop-display--when-built then t))
-      (unless (process-live-p lispm-desktop-display--building)
+      (unless lispm-desktop-display--building
         (let ((directory (plist-get plan :directory)))
           (make-directory directory t)
           (dolist (old (directory-files lispm-desktop-display-directory t "\\`[0-9a-f]\\{16\\}\\'"))
             (unless (equal (file-name-as-directory old) directory)
               (delete-directory old t)))
-          (setq lispm-desktop-display--building
-                (make-process
-                 :name "lispm-display-build" :buffer (generate-new-buffer " *lispm-desktop-display-build*")
-                 :noquery t
-                 :command (list "/bin/sh" "-c"
-                                (mapconcat (lambda (command) (mapconcat #'shell-quote-argument command " "))
-                                           (plist-get plan :commands) " && "))
-                 :sentinel
-                 (lambda (process _event)
-                   (unless (process-live-p process)
-                     (let ((output (with-current-buffer (process-buffer process)
-                                     (string-trim (buffer-string))))
-                           (then lispm-desktop-display--when-built))
-                       (kill-buffer (process-buffer process))
-                       (setq lispm-desktop-display--when-built nil)
-                       (if (and (zerop (process-exit-status process)) (lispm-desktop-display--built-p plan))
-                           (mapc #'funcall then)
-                         (ignore-errors (delete-directory directory t))
-                         (lispm-desktop-console-error
-                          "LispM"
-                          (lispm-desktop-tr "LispM could not build %s: %s"
-                                            "native/lispm-desktop-display" output))))))))))
+          (setq lispm-desktop-display--building t)
+          (lispm-exec
+           "/bin/sh"
+           (list "-c"
+                 (mapconcat (lambda (command) (mapconcat #'shell-quote-argument command " "))
+                            (plist-get plan :commands) " && "))
+           (lambda (exit output errors)
+             (setq lispm-desktop-display--building nil)
+             (let ((output (string-trim (concat errors (if (string-empty-p errors) output ""))))
+                   (then lispm-desktop-display--when-built))
+               (setq lispm-desktop-display--when-built nil)
+               (if (and (eql exit 0) (lispm-desktop-display--built-p plan))
+                   (mapc #'funcall then)
+                 (ignore-errors (delete-directory directory t))
+                 (lispm-desktop-console-error
+                  "LispM"
+                  (lispm-desktop-tr "LispM could not build %s: %s"
+                                    "native/lispm-desktop-display" output))))))))
       t)))
 
 (defun lispm-desktop-display-load ()

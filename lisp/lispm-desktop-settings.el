@@ -506,25 +506,8 @@ indent of a row of settings."
 
 ;;;; Panels
 
-(defun lispm-desktop-settings--other-theme ()
-  "Ask for any theme installed, and switch to it now and for later starts."
-  (let ((theme (completing-read (lispm-desktop-tr "Theme: ") (mapcar #'symbol-name (custom-available-themes))
-                                nil t)))
-    (unless (string-empty-p theme)
-      (lispm-desktop-set-theme (intern theme)))))
-
 (defun lispm-desktop-settings--themes ()
-  "Insert the Themes panel: the look, and the colour theme."
-  (lispm-desktop-settings--heading (lispm-desktop-tr "Look"))
-  (pcase-dolist (`(,look . ,properties) lispm-ui-looks)
-    (lispm-desktop-settings--radio (lispm-ui-look-title look) (eq lispm-desktop-look look)
-                                   (lambda () (lispm-desktop-set-look look))
-                                   (when-let* ((description (plist-get properties :description)))
-                                     (lispm-desktop-tr description))))
-  (insert "\n")
-  (lispm-desktop-settings--paragraph
-   (lispm-desktop-tr "Choosing a look takes its own colours with it, unless you chose a theme of your own."))
-  (insert "\n")
+  "Insert the Themes panel: the appearance and colour theme."
   (lispm-desktop-settings--heading (lispm-desktop-tr "Theme"))
   (lispm-desktop-settings--radio "Dracula" (eq lispm-desktop-theme 'dracula)
                                  (lambda () (lispm-desktop-set-theme 'dracula))
@@ -535,21 +518,10 @@ indent of a row of settings."
   (lispm-desktop-settings--radio "Windows 3.2" (eq lispm-desktop-theme 'win3)
                                  (lambda () (lispm-desktop-set-theme 'win3))
                                  (lispm-desktop-tr "navy and VGA grey"))
-  (lispm-desktop-settings--radio "OS/2 2.0" (eq lispm-desktop-theme 'os2)
-                                 (lambda () (lispm-desktop-set-theme 'os2))
-                                 (lispm-desktop-tr "teal, pale yellow, pale grey"))
-  (lispm-desktop-settings--radio "Phosphor" (eq lispm-desktop-theme 'phosphor)
-                                 (lambda () (lispm-desktop-set-theme 'phosphor))
-                                 (lispm-desktop-tr "green phosphor on black glass"))
-  (lispm-desktop-settings--radio "Neon" (eq lispm-desktop-theme 'neon)
-                                 (lambda () (lispm-desktop-set-theme 'neon))
-                                 (lispm-desktop-tr "cyan, magenta and violet on night purple"))
-  (when (and lispm-desktop-theme (not (memq lispm-desktop-theme '(dracula platinum win3 os2 phosphor neon))))
-    (lispm-desktop-settings--radio (capitalize (symbol-name lispm-desktop-theme)) t #'ignore))
-  (insert (lispm-desktop-settings--indent))
-  (lispm-desktop-settings--button (lispm-desktop-tr "Other Theme…") #'lispm-desktop-settings--other-theme
-                                  (lispm-desktop-tr "Choose any other theme installed"))
-  (insert "\n\n")
+  (lispm-desktop-settings--radio "Genera" (eq lispm-desktop-theme 'genera)
+                                 (lambda () (lispm-desktop-set-theme 'genera))
+                                 (lispm-desktop-tr "Symbolics Lisp Machine, monochrome"))
+  (insert "\n")
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "The menu bar, the title bars and the lists take their colours from the theme.")))
 

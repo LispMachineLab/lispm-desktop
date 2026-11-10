@@ -129,19 +129,15 @@ Dragging its tab sets it, for the next start too."
         :action (lambda () (lispm-desktop-settings-show panel))))
 
 (defun lispm-desktop-strip--appearance-items ()
-  "Return the Appearance module's menu: the looks, the themes, and the panel."
-  `(,@(mapcar (lambda (look)
-                (list :label (lispm-ui-look-title (car look))
-                      :checked (eq lispm-desktop-look (car look))
-                      :action (lambda () (lispm-desktop-set-look (car look)))))
-              lispm-ui-looks)
-    separator
-    ,@(mapcar (lambda (theme)
-                (list :label (capitalize (symbol-name theme))
-                      :checked (eq lispm-desktop-theme theme)
-                      :action (lambda () (lispm-desktop-set-theme theme))))
-              (delete-dups (delq nil (list 'dracula 'platinum 'win3 'os2 'phosphor 'neon lispm-desktop-theme))))
-    (:label ,(lispm-desktop-tr "Other Theme…") :action lispm-desktop-settings--other-theme)
+  "Return the Appearance module's menu: the themes and the panel."
+  `((:label "Dracula" :checked ,(eq lispm-desktop-theme 'dracula)
+            :action ,(lambda () (lispm-desktop-set-theme 'dracula)))
+    (:label "Platinum" :checked ,(eq lispm-desktop-theme 'platinum)
+            :action ,(lambda () (lispm-desktop-set-theme 'platinum)))
+    (:label "Windows 3.2" :checked ,(eq lispm-desktop-theme 'win3)
+            :action ,(lambda () (lispm-desktop-set-theme 'win3)))
+    (:label "Genera" :checked ,(eq lispm-desktop-theme 'genera)
+            :action ,(lambda () (lispm-desktop-set-theme 'genera)))
     separator
     ,(lispm-desktop-strip--panel-item 'themes)))
 
@@ -526,10 +522,14 @@ This is a `window-size-change-functions' function."
   (when (and (lispm-desktop-strip--live-p) (eq frame (frame-parent lispm-desktop-strip--frame)))
     (lispm-desktop-strip--place)))
 
+(cl-defgeneric lispm-desktop-strip-look-p ()
+  "Return non-nil when the current look uses Mac OS 9's Control Strip."
+  t)
+
 (defun lispm-desktop-strip-show ()
   "Show the Control Strip in the desktop's bottom-left corner."
   (interactive)
-  (when (display-graphic-p)
+  (when (and (display-graphic-p) (lispm-desktop-strip-look-p))
     (unless (lispm-desktop-strip--live-p)
       (setq lispm-desktop-strip--frame (lispm-desktop-strip--make-frame (lispm-desktop-apps-screen))))
     (lispm-desktop-strip--render)
@@ -542,6 +542,13 @@ This is a `window-size-change-functions' function."
   (when (lispm-desktop-strip--live-p)
     (delete-frame lispm-desktop-strip--frame))
   (setq lispm-desktop-strip--frame nil))
+
+(defun lispm-desktop-strip-sync (&rest _)
+  "Show or hide the Control Strip according to whether the look uses it."
+  (if (not (lispm-desktop-strip-look-p))
+      (lispm-desktop-strip-hide)
+    (when lispm-desktop-strip-shown
+      (lispm-desktop-strip-show))))
 
 (defun lispm-desktop-strip-toggle ()
   "Hide the Control Strip, or show it again, for the next start too, as
@@ -806,6 +813,7 @@ C-c keys, which terminals leave to Emacs too."
     (advice-add function :after #'lispm-desktop-strip--follow))
   (add-hook 'window-selection-change-functions #'lispm-desktop-strip--selected)
   (add-hook 'window-size-change-functions #'lispm-desktop-strip--screen-changed)
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-strip-sync)
   (add-hook 'enable-theme-functions #'lispm-desktop-strip-refresh 95)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-strip-refresh)
   (add-hook 'display-time-hook #'lispm-desktop-strip-refresh 90)

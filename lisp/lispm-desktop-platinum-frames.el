@@ -91,7 +91,7 @@ of its text in sight, Emacs scrolls it at every redisplay, so no
 `window-scroll-functions' run on it: the scroll bars' would have Emacs
 redisplay again at once, and again.")
 
-(defun lispm-desktop-platinum-roll-up (frame height)
+(cl-defgeneric lispm-desktop-platinum-roll-up (frame height)
   "Roll floating window FRAME up to HEIGHT pixels, as Mac OS 9's
 WindowShade rolled a window up into its title bar.  FRAME's one window
 may be as short as its title bar, its tab line: its buffer holds the
@@ -111,7 +111,7 @@ line of its font, as Emacs drops the tab line of a window no taller."
 nil when FRAME is not rolled up."
   (cdr (frame-parameter frame 'lispm-desktop-platinum-rolled-up)))
 
-(defun lispm-desktop-platinum-roll-down (frame height)
+(cl-defgeneric lispm-desktop-platinum-roll-down (frame height)
   "Roll floating window FRAME, rolled up by `lispm-desktop-platinum-roll-up',
 down again to HEIGHT pixels."
   (when-let* ((buffer (car (frame-parameter frame 'lispm-desktop-platinum-rolled-up)))
@@ -217,10 +217,13 @@ tells whether the document is saved.  A list window shows its
          (strut (if (lispm-desktop-tty-p) 1 8))
          (placards
           (if lispm-desktop-platinum-info
-              (mapcar (lambda (text) (lispm-desktop-platinum-placard text :active active))
-                      (ensure-list (if (functionp lispm-desktop-platinum-info)
-                                       (funcall lispm-desktop-platinum-info)
-                                     lispm-desktop-platinum-info)))
+              (append
+               (lispm-desktop-platinum-look-placards active)
+               (mapcar (lambda (text) (lispm-desktop-platinum-placard text :active active))
+                       (seq-remove (lambda (s) (or (not (stringp s)) (string-empty-p s)))
+                                   (ensure-list (if (functionp lispm-desktop-platinum-info)
+                                                    (funcall lispm-desktop-platinum-info)
+                                                  lispm-desktop-platinum-info)))))
             (append
              (when (and (bound-and-true-p evil-local-mode) (stringp evil-mode-line-tag))
                (list (lispm-desktop-platinum-placard
@@ -933,7 +936,8 @@ theme's background across the window dragged."
     (set-frame-parameter frame 'lispm-desktop-platinum-thin-font (frame-parameter frame 'font))
     (lispm-desktop-platinum-set-background frame (lispm-desktop-platinum-desktop-color))
     ;; Sized under the other font, it is sized again.
-    (set-frame-parameter frame 'lispm-desktop-platinum-line nil)))
+    (set-frame-parameter frame 'lispm-desktop-platinum-line nil)
+    (set-frame-parameter frame 'lispm-desktop-platinum-dims nil)))
 
 (defun lispm-desktop-platinum--make-line-frame (parent)
   "Return a new frame to draw a line of an outline in, over PARENT, or on
@@ -988,15 +992,18 @@ A line with a colour after its five values is drawn solid in it."
   (pcase-let* ((`(,x ,y ,length ,thickness ,vertical ,color) line)
                (width (max 1 (if vertical thickness length)))
                (height (max 1 (if vertical length thickness)))
-               (parity (mod (+ x y (car origin) (cdr origin)) 2))
+               (parity (if color 0 (mod (+ x y (car origin) (cdr origin)) 2)))
+               (dims (cons width height))
                (size (list width height parity color lispm-ui-palette-generation)))
     (lispm-desktop-platinum--keep-thin frame)
     (unless (equal size (frame-parameter frame 'lispm-desktop-platinum-line))
       (set-frame-parameter frame 'lispm-desktop-platinum-line size)
-      (let ((window-min-width 1) (window-safe-min-width 1)
-            (window-min-height 1) (window-safe-min-height 1)
-            (frame-resize-pixelwise t))
-        (set-frame-size frame width height t))
+      (unless (equal dims (frame-parameter frame 'lispm-desktop-platinum-dims))
+        (set-frame-parameter frame 'lispm-desktop-platinum-dims dims)
+        (let ((window-min-width 1) (window-safe-min-width 1)
+              (window-min-height 1) (window-safe-min-height 1)
+              (frame-resize-pixelwise t))
+          (set-frame-size frame width height t)))
       (with-current-buffer (window-buffer (frame-root-window frame))
         (let ((inhibit-read-only t))
           (erase-buffer)
@@ -1212,6 +1219,65 @@ up.  Return non-nil when the window moved or grew."
                  (push event unread-command-events)
                (select-frame-set-input-focus frame)))
            nil))))
+
+(defun lispm-desktop-platinum-sweep-outline (&optional parent)
+  "Sweep a rubber-band outline on PARENT with the mouse and return its geometry.
+Return (LEFT TOP WIDTH HEIGHT) when dragged, (LEFT TOP nil nil) on a click,
+`default' on Return/Space or non-graphical displays, or `cancel' on quit."
+  (if (or noninteractive (lispm-desktop-tty-p parent) (not (display-graphic-p parent)))
+      'default
+    (let ((origin (lispm-desktop-platinum-origin parent))
+          (min-size (lispm-desktop-platinum--window-min-size parent))
+          (done nil))
+      (message "Sweep a rectangle with the mouse to place the window (click for default size, RET for default, C-g to cancel)")
+      (while (not done)
+        (let ((ev (lispm-ui-modal-read)))
+          (cond ((lispm-ui-modal-cancel-p ev)
+                 (setq done 'cancel))
+                ((or (lispm-ui-modal-confirm-p ev) (eq (lispm-ui-modal-role ev) 'press))
+                 (setq done 'default))
+                ((and (eventp ev)
+                      (memq (event-basic-type ev) '(mouse-1 mouse-2 mouse-3))
+                      (memq 'down (event-modifiers ev)))
+                 (setq done 'mouse))
+                ((and (eventp ev)
+                      (memq (event-basic-type ev) '(mouse-1 mouse-2 mouse-3))
+                      (memq 'click (event-modifiers ev)))
+                 (let ((abs-pos (or (mouse-absolute-pixel-position) '(0 . 0))))
+                   (setq done (list (- (car abs-pos) (car origin))
+                                    (- (cdr abs-pos) (cdr origin))
+                                    nil nil)))))))
+      (message nil)
+      (if (not (eq done 'mouse))
+          done
+        (let* ((start (or (mouse-absolute-pixel-position) '(0 . 0)))
+               (sx (- (car start) (car origin)))
+               (sy (- (cdr start) (cdr origin)))
+               (rect (lambda (delta)
+                       (let ((dx (car delta))
+                             (dy (cdr delta)))
+                         (list (+ sx (min 0 dx))
+                               (+ sy (min 0 dy))
+                               (max (car min-size) (abs dx))
+                               (max (cdr min-size) (abs dy))))))
+               (result
+                (unwind-protect
+                    (lispm-desktop-platinum-track
+                     (lambda (delta)
+                       (lispm-desktop-platinum-show-outline
+                        parent
+                        (apply #'lispm-desktop-platinum-outline-lines 'grow
+                               (append (funcall rect delta) (list lispm-ui-title-bar-height)))
+                        origin))
+                     nil start)
+                  (lispm-desktop-platinum-hide-outline)))
+               (event (car result))
+               (delta (cdr result)))
+          (cond ((null event) 'cancel)
+                ((lispm-desktop-platinum--moved-p delta)
+                 (funcall rect delta))
+                (t
+                 (list sx sy nil nil))))))))
 
 (provide 'lispm-desktop-platinum-frames)
 ;;; lispm-desktop-platinum-frames.el ends here

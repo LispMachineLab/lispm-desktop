@@ -65,6 +65,7 @@
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
+(declare-function lispm-desktop-popup-augment-items "lispm-desktop-popup" (items &optional window))
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 (defconst lispm-desktop-finder-buffer-name " *Finder*"
@@ -764,19 +765,21 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
          (real (lispm-desktop-finder-real-p))
          (file (and selected real t)))
     (lispm-ui-menu
-     `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-finder-open :enabled ,(and selected t))
-       separator
-       (:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder :enabled ,real)
-       (:label ,(lispm-desktop-tr "Rename…") :action lispm-desktop-finder-rename :enabled ,file)
-       (:label ,(lispm-desktop-tr "Make Alias on Desktop") :action lispm-desktop-finder-make-alias :key "M-m"
-               :enabled ,(lispm-desktop-finder-alias-p))
-       (:label ,(lispm-desktop-finder-trash-label) :action lispm-desktop-finder-move-to-trash :key "M-DEL"
-               :enabled ,(lispm-desktop-finder-trash-p))
-       (:label ,(lispm-desktop-tr "Copy Path") :enabled ,file
-               :action ,(lambda ()
-                          (lispm-desktop-finder--in
-                            (kill-new (expand-file-name lispm-desktop-finder--selected
-                                                        lispm-desktop-finder--directory))))))
+     (lispm-desktop-popup-augment-items
+      `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-finder-open :enabled ,(and selected t))
+        separator
+        (:label ,(lispm-desktop-tr "New Folder…") :action lispm-desktop-finder-new-folder :enabled ,real)
+        (:label ,(lispm-desktop-tr "Rename…") :action lispm-desktop-finder-rename :enabled ,file)
+        (:label ,(lispm-desktop-tr "Make Alias on Desktop") :action lispm-desktop-finder-make-alias :key "M-m"
+                :enabled ,(lispm-desktop-finder-alias-p))
+        (:label ,(lispm-desktop-finder-trash-label) :action lispm-desktop-finder-move-to-trash :key "M-DEL"
+                :enabled ,(lispm-desktop-finder-trash-p))
+        (:label ,(lispm-desktop-tr "Copy Path") :enabled ,file
+                :action ,(lambda ()
+                           (lispm-desktop-finder--in
+                             (kill-new (expand-file-name lispm-desktop-finder--selected
+                                                         lispm-desktop-finder--directory))))))
+      (selected-window))
      (car xy) (cdr xy))))
 
 (defvar-keymap lispm-desktop-finder-mode-map
@@ -821,8 +824,8 @@ from the keyboard, see `lispm-desktop-context-menu-function'."
   "Major mode of the Finder window: a folder's items as large icons.
 \\{lispm-desktop-finder-mode-map}"
   (setq-local header-line-format '(:eval (lispm-desktop-finder--header))
-              mode-line-format '("" mode-line-format-right-align
-                                 (:eval (lispm-desktop-platinum-mode-line-right)))
+              lispm-desktop-platinum-info ""
+              mode-line-format lispm-desktop-platinum-mode-line-format
               lispm-desktop-platinum-title-menu-function #'lispm-desktop-finder--path-items
               lispm-desktop-context-menu-function #'lispm-desktop-finder--keyboard-menu
               lispm-desktop-platinum-box-functions (list :close #'lispm-desktop-app-window-close-box
