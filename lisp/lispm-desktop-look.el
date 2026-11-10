@@ -129,6 +129,15 @@ personal.el: once Emacs is set up, a new value is drawn at once."
 (defvar lispm-desktop-look-changed-hook nil
   "Hook run once the chrome is drawn in another look.")
 
+(defun lispm-desktop-look-property (property &optional default look)
+  "Return PROPERTY of LOOK (by default `lispm-desktop-look'), or DEFAULT if unset.
+Unlike `lispm-ui-look-get', an explicit nil value in LOOK's definition
+or `:metrics' plist is returned rather than falling back to DEFAULT."
+  (let* ((spec (alist-get (or look lispm-desktop-look) lispm-ui-looks))
+         (cell (or (plist-member spec property)
+                   (plist-member (plist-get spec :metrics) property))))
+    (if cell (cadr cell) default)))
+
 (defun lispm-desktop-look-theme-to-follow (from to)
   "Return the colour theme a switch from look FROM to look TO switches to,
 or nil to keep the theme in use: TO's own theme, while the theme in use
@@ -186,7 +195,7 @@ LOOK is a name of `lispm-ui-looks'; interactively, it is asked for."
 (defun lispm-desktop-setup-look ()
   "Follow `lispm-desktop-look' as it is set, once Emacs is set up, and
 draw the chrome again in a new language as it is chosen."
-  (when (memq lispm-desktop-theme '(dracula platinum win3 genera))
+  (when (assq lispm-desktop-theme lispm-desktop-themes)
     (let ((look (lispm-desktop-theme-look lispm-desktop-theme))
           (lispm-desktop--set-up nil))
       (unless (eq lispm-desktop-look look)

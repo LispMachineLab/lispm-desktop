@@ -99,7 +99,12 @@
  'platinum
  :title "Mac OS 9"
  :description (lispm-desktop-tr-noop "Mac OS 9's Platinum appearance: bevelled greys, pinstriped title bars")
- :theme 'platinum)
+ :theme 'platinum
+ :menu-bar t
+ :control-strip t
+ :icon-side :right
+ :floating-apps nil
+ :title-double-click 'collapse)
 
 (defcustom lispm-desktop-platinum-system-families
   '("Charcoal" "Charcoal CY" "ChicagoFLF" "Chicago" "Geneva" "Lucida Grande")

@@ -19504,5 +19504,77 @@ registries (`lispm-desktop-apps', `lispm-desktop-items',
         (lispm-desktop-genera-kill-window (selected-window))
         (should editor-closed)))))
 
+(ert-deftest lispm-desktop-test-declarative-system-theme-and-look-config ()
+  "Each system theme (`lispm-desktop-define-theme') and look
+\(`lispm-ui-look-define') is equivalent to a declarative configuration plist:
+registering a new theme and look automatically drives theme-to-look resolution,
+Control Panels, the Control Strip, the First-Start Assistant, and all look
+behavioral policies without writing any `cl-defmethod' or modifying consumers."
+  (let ((lispm-desktop-themes (copy-sequence lispm-desktop-themes))
+        (lispm-ui-looks (copy-sequence lispm-ui-looks))
+        (bg-menu-called nil)
+        (bg-dbl-called nil)
+        (bg-open-called nil))
+    (lispm-ui-look-define
+     'custom-workstation
+     :title "Custom Workstation"
+     :description "Declarative test workstation look"
+     :theme 'custom-workstation
+     :menu-bar nil
+     :control-strip nil
+     :icon-side :left
+     :floating-apps t
+     :title-double-click 'zoom
+     :placards (lambda (_active) '(" [Custom] "))
+     :mode-line '(" Custom Who-Line ")
+     :background-menu (lambda (x y) (setq bg-menu-called (cons x y)))
+     :background-double-click (lambda (ev) (setq bg-dbl-called ev))
+     :background-open (lambda () (setq bg-open-called t)))
+    (lispm-desktop-define-theme 'custom-workstation
+      :label "Custom OS"
+      :look 'custom-workstation
+      :note "custom workstation note"
+      :assistant '(:order 0 :key ?c :label "Custom OS" :text "Declarative workstation.")
+      :preview '(:colors ("#000000" "#FFFFFF" "#888888" "#FFFFFF")
+                 :code ("#FFFFFF" "#FFFFFF" "#888888" "#888888" "#FFFFFF")))
+    ;; 1. Theme -> Look mapping & metadata come from `lispm-desktop-themes'.
+    (should (eq (lispm-desktop-theme-look 'custom-workstation) 'custom-workstation))
+    (should (equal (lispm-desktop-theme-get :label 'custom-workstation) "Custom OS"))
+    ;; 2. Control Strip Appearance menu includes the configured theme automatically.
+    (let* ((lispm-desktop-theme 'custom-workstation)
+           (strip-items (lispm-desktop-strip--appearance-items))
+           (entry (seq-find (lambda (it)
+                              (and (consp it) (equal (plist-get it :label) "Custom OS")))
+                            strip-items)))
+      (should entry)
+      (should (plist-get entry :checked)))
+    ;; 3. Control Panels Appearance -> Theme radio buttons include the configured theme.
+    (with-temp-buffer
+      (let ((lispm-desktop-theme 'custom-workstation))
+        (lispm-desktop-settings--themes)
+        (should (string-search "Custom OS" (buffer-string)))
+        (should (string-search "custom workstation note" (buffer-string)))))
+    ;; 4. First-Start Assistant choices and previews include the configured theme in `:order'.
+    (let* ((theme-q (assq 'lispm-desktop-theme lispm-desktop-assistant-questions))
+           (choices (lispm-desktop-assistant--choices theme-q)))
+      (should (eq (caar choices) 'custom-workstation))
+      (should (equal (plist-get (cdar choices) :label) "Custom OS"))
+      (should (equal (plist-get (cdar choices) :key) ?c)))
+    ;; 5. Look behavioral policies come directly from `lispm-ui-look-define' properties.
+    (let ((lispm-desktop-look 'custom-workstation))
+      (should-not (lispm-desktop-platinum-menu-bar-look-p))
+      (should-not (lispm-desktop-strip-look-p))
+      (should (eq (lispm-desktop-icon-side) :left))
+      (should (lispm-desktop-apps-floating-look-p))
+      (should (equal (lispm-desktop-platinum-look-placards t) '(" [Custom] ")))
+      (should (equal (lispm-desktop-mode-line-format) '(" Custom Who-Line ")))
+      (lispm-desktop-background-context-menu 10 20)
+      (should (equal bg-menu-called '(10 . 20)))
+      (lispm-desktop-background-double-click 'dbl-ev)
+      (should (eq bg-dbl-called 'dbl-ev))
+      (lispm-desktop-background-open)
+      (should bg-open-called))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
+

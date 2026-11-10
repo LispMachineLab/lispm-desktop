@@ -104,8 +104,9 @@ with the desktop and hides from the full-screen editor.")
 (defvar lispm-desktop-browser-floating)
 
 (cl-defgeneric lispm-desktop-apps-floating-look-p ()
-  "Return non-nil when workspace applications open in floating windows."
-  nil)
+  "Return non-nil when workspace applications open in floating windows.
+Configured by `:floating-apps' in `lispm-ui-look-define' (by default nil)."
+  (lispm-desktop-look-property :floating-apps nil))
 
 (defun lispm-desktop-apps-full-screen-p (app)
   "Return non-nil when APP, in front, fills the screen and covers the

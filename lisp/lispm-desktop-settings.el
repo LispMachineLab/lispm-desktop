@@ -507,20 +507,16 @@ indent of a row of settings."
 ;;;; Panels
 
 (defun lispm-desktop-settings--themes ()
-  "Insert the Themes panel: the appearance and colour theme."
+  "Insert the Themes panel: the appearance and colour theme, from
+`lispm-desktop-themes'."
   (lispm-desktop-settings--heading (lispm-desktop-tr "Theme"))
-  (lispm-desktop-settings--radio "Dracula" (eq lispm-desktop-theme 'dracula)
-                                 (lambda () (lispm-desktop-set-theme 'dracula))
-                                 (lispm-desktop-tr "dark, Dracula's colours"))
-  (lispm-desktop-settings--radio "Platinum" (eq lispm-desktop-theme 'platinum)
-                                 (lambda () (lispm-desktop-set-theme 'platinum))
-                                 (lispm-desktop-tr "Mac OS 9's greys"))
-  (lispm-desktop-settings--radio "Windows 3.2" (eq lispm-desktop-theme 'win3)
-                                 (lambda () (lispm-desktop-set-theme 'win3))
-                                 (lispm-desktop-tr "navy and VGA grey"))
-  (lispm-desktop-settings--radio "Genera" (eq lispm-desktop-theme 'genera)
-                                 (lambda () (lispm-desktop-set-theme 'genera))
-                                 (lispm-desktop-tr "Symbolics Lisp Machine, monochrome"))
+  (pcase-dolist (`(,theme . ,props) lispm-desktop-themes)
+    (let ((label (or (plist-get props :label) (symbol-name theme)))
+          (note (plist-get props :note)))
+      (lispm-desktop-settings--radio
+       label (eq lispm-desktop-theme theme)
+       (lambda () (lispm-desktop-set-theme theme))
+       (and note (lispm-desktop-tr note)))))
   (insert "\n")
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "The menu bar, the title bars and the lists take their colours from the theme.")))

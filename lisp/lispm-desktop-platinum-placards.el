@@ -405,9 +405,13 @@ as finding keys takes long."
                     (substitute-command-keys (format "\\[%s]" command)))))
         (format (funcall help) keys)))))
 
-(cl-defgeneric lispm-desktop-platinum-look-placards (_active)
-  "Return look-specific placards at the left of a window's bottom edge."
-  nil)
+(cl-defgeneric lispm-desktop-platinum-look-placards (active)
+  "Return look-specific placards at the left of a window's bottom edge,
+configured by `:placards' in `lispm-ui-look-define'."
+  (let ((placards (lispm-desktop-look-property :placards)))
+    (if (functionp placards)
+        (funcall placards active)
+      placards)))
 
 (defun lispm-desktop-platinum-document-placards (active)
   "Return the placards the left of a window's bottom edge shows of its

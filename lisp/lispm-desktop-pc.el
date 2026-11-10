@@ -293,12 +293,9 @@ a star; STATUS follows it."
 (cl-defmethod lispm-desktop-platinum-shade-or-zoom (window &context (lispm-desktop-look (lispm-ui-look-family pc)))
   "Maximize or restore WINDOW on a double click of a PC title bar.
 When WINDOW is minimized to its caption, restore it first."
-  (cond
-   ((lispm-desktop-pc-window-minimized-p window)
-    (lispm-desktop-platinum-collapse-window window))
-   ((or (lispm-desktop-platinum--box-function window :zoom)
-        (not (lispm-desktop-platinum--fixed-p window)))
-    (lispm-desktop-platinum-zoom-window window))))
+  (if (lispm-desktop-pc-window-minimized-p window)
+      (lispm-desktop-platinum-collapse-window window)
+    (cl-call-next-method)))
 
 (defconst lispm-desktop-pc-minimized-width 160
   "Width in pixels of a PC floating window minimized to the desktop's bottom.")
@@ -695,18 +692,6 @@ end, the track between."
 
 ;;;; The desktop and the Control Strip
 
-(cl-defmethod lispm-desktop-platinum-menu-bar-look-p (&context (lispm-desktop-look (lispm-ui-look-family pc)))
-  "PC looks have no global top menu bar; each application window has its own."
-  nil)
-
-(cl-defmethod lispm-desktop-strip-look-p (&context (lispm-desktop-look (lispm-ui-look-family pc)))
-  "PC looks have no Mac OS 9 Control Strip in the bottom-left corner."
-  nil)
-
-(cl-defmethod lispm-desktop-icon-side (&context (lispm-desktop-look (lispm-ui-look-family pc)))
-  "PC looks stand desktop icons down the left edge, as Windows and OS/2 did."
-  :left)
-
 (defun lispm-desktop-pc-task-menu (&optional x y)
   "Pop up the PC Task List menu at X, Y: the open applications and windows,
 Program Manager actions, and Arrange Icons, as double-clicking Windows 3.2's
@@ -725,7 +710,7 @@ desktop did."
              arrange)
      x y)))
 
-(cl-defmethod lispm-desktop-background-double-click (event &context (lispm-desktop-look (lispm-ui-look-family pc)))
+(defun lispm-desktop-pc-mouse-task-menu (event)
   "Open the PC Task List menu when double-clicking the bare desktop at EVENT."
   (pcase-let ((`(,x . ,y) (lispm-desktop-popup-frame-xy event)))
     (lispm-desktop-pc-task-menu x y)))

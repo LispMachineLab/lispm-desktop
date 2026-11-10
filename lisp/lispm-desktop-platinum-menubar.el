@@ -45,8 +45,9 @@
 ;;;; Menu bar
 
 (cl-defgeneric lispm-desktop-platinum-menu-bar-look-p ()
-  "Return non-nil when the look shows a global menu bar across the screen's top."
-  t)
+  "Return non-nil when the look shows a global menu bar across the screen's top.
+Configured by `:menu-bar' in `lispm-ui-look-define' (by default t)."
+  (lispm-desktop-look-property :menu-bar t))
 
 (defun lispm-desktop-platinum-sync-menu-bar (&rest _)
   "Show or hide the screen's top menu bar as the active look requires."

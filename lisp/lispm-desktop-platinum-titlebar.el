@@ -788,16 +788,21 @@ Hidden buffers and the sidebar's lists are left out."
                 (buffer-list (window-frame window)))))
 
 (cl-defgeneric lispm-desktop-platinum-shade-or-zoom (window)
-  "Roll WINDOW up or down, or zoom it when it cannot roll up.
+  "Roll WINDOW up or down, or zoom it when it cannot roll up or the look's
+`:title-double-click' in `lispm-ui-look-define' is `zoom'.
 A double click on a title bar does this, as on Mac OS 9; a window alone
 in its column cannot roll up, so it zooms instead.  A side window or
 chrome does neither."
-  (cond ((lispm-desktop-platinum--box-function window :collapse)
-         (funcall (lispm-desktop-platinum--box-function window :collapse) window))
-        ((lispm-desktop-platinum--fixed-p window))
-        ((or (window-parameter window 'lispm-desktop-platinum-shade) (window-combined-p window))
-         (lispm-desktop-platinum-collapse-window window))
-        (t (lispm-desktop-platinum-zoom-window window))))
+  (if (eq (lispm-desktop-look-property :title-double-click 'collapse) 'zoom)
+      (when (or (lispm-desktop-platinum--box-function window :zoom)
+                (not (lispm-desktop-platinum--fixed-p window)))
+        (lispm-desktop-platinum-zoom-window window))
+    (cond ((lispm-desktop-platinum--box-function window :collapse)
+           (funcall (lispm-desktop-platinum--box-function window :collapse) window))
+          ((lispm-desktop-platinum--fixed-p window))
+          ((or (window-parameter window 'lispm-desktop-platinum-shade) (window-combined-p window))
+           (lispm-desktop-platinum-collapse-window window))
+          (t (lispm-desktop-platinum-zoom-window window)))))
 
 (defvar-local lispm-desktop-platinum-title-menu-function nil
   "Function returning the menu a Command click on this buffer's title pops

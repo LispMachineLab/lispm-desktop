@@ -73,33 +73,27 @@
   '("JetBrains Mono" "SF Mono" "Menlo" "Monaco" "DejaVu Sans Mono" "Courier")
   "Font families of Genera's label bars, Command Menus and Who-Line.")
 
+(defconst lispm-desktop-genera-who-line-format
+  '((:eval (lispm-desktop-genera-who-line)))
+  "LispM's Who-Line on the root screen in the `genera' look.")
+
 (lispm-ui-look-define
  'genera
  :title "Symbolics Genera"
  :description (lispm-desktop-tr-noop "Symbolics Genera's monochrome Dynamic Windows: inverse-video labels, Who-Line and Command Menus")
  :theme 'genera
  :system-families lispm-desktop-genera-families
- :list-families lispm-desktop-genera-families)
-
-;;;; Global Chrome Predicates (No Menu Bar, No Control Strip, No Desktop Icons)
-
-(cl-defmethod lispm-desktop-platinum-menu-bar-look-p (&context (lispm-desktop-look (eql genera)))
-  "Genera has no global top menu bar; commands live on the System Menu."
-  nil)
-
-(cl-defmethod lispm-desktop-strip-look-p (&context (lispm-desktop-look (eql genera)))
-  "Genera has no bottom-left Control Strip; status lives in the Who-Line."
-  nil)
-
-(cl-defmethod lispm-desktop-icon-side (&context (lispm-desktop-look (eql genera)))
-  "Genera has no desktop and no desktop icons; the root screen is
-`Dynamic Lisp Listener 1'."
-  nil)
-
-(cl-defmethod lispm-desktop-apps-floating-look-p (&context (lispm-desktop-look (eql genera)))
-  "In Genera, applications open in floating Dynamic Windows panes over
-`Dynamic Lisp Listener 1'."
-  t)
+ :list-families lispm-desktop-genera-families
+ :menu-bar nil
+ :control-strip nil
+ :icon-side nil
+ :floating-apps t
+ :title-double-click 'zoom
+ :placards #'lispm-desktop-genera-placards
+ :mode-line lispm-desktop-genera-who-line-format
+ :background-menu #'lispm-desktop-genera-system-menu
+ :background-double-click #'lispm-desktop-genera-mouse-system-menu
+ :background-open #'lispm-desktop-genera-command)
 
 ;;;; Paper-white bold-italic pane headers and Pane Command Menu
 
@@ -170,11 +164,6 @@ a pure paper-white label bar with bold-italic text and no control buttons."
                (label-x (+ start 6)))
     (list :start start :end end :title title :label-x label-x :margins (cons lead trail)
           :ridges nil)))
-
-(cl-defmethod lispm-desktop-platinum-shade-or-zoom (window &context (lispm-desktop-look (eql genera)))
-  "In Genera, double-clicking a pane label expands or restores the pane."
-  (unless (lispm-desktop-platinum--fixed-p window)
-    (lispm-desktop-platinum-zoom-window window)))
 
 (defvar lispm-desktop-editor--frame)
 (declare-function lispm-desktop-editor-close "lispm-desktop-editor" ())
@@ -1250,18 +1239,6 @@ from the declarative `Select', `Create', application and special menus."
           (or (lispm-desktop-platinum-window-parent frame) frame)))
     (lispm-ui-menu (lispm-desktop-genera-system-items window) x y)))
 
-(cl-defmethod lispm-desktop-background-context-menu (x y &context (lispm-desktop-look (eql genera)) &optional _align)
-  "Pop up LispM's System Menu when right-clicking on `Dynamic Lisp Listener 1'."
-  (lispm-desktop-genera-system-menu x y))
-
-(cl-defmethod lispm-desktop-background-open (&context (lispm-desktop-look (eql genera)))
-  "Prompt for a Command Processor command on Return in `Dynamic Lisp Listener 1'."
-  (call-interactively #'lispm-desktop-genera-command))
-
-(cl-defmethod lispm-desktop-background-double-click (event &context (lispm-desktop-look (eql genera)))
-  "Pop up LispM's System Menu where EVENT double-clicked the bare screen."
-  (lispm-desktop-genera-mouse-system-menu event))
-
 (cl-defmethod lispm-desktop-popup-augment-items (items &context (lispm-desktop-look (eql genera)) &optional window)
   "Include LispM's Genera System Menu items in right-click menus of any pane."
   (let* ((window (if (window-live-p window) window (selected-window)))
@@ -1321,7 +1298,7 @@ from the declarative `Select', `Create', application and special menus."
   "<mode-line> <down-mouse-3>" #'lispm-desktop-genera-mouse-window-menu
   "<mode-line> <mouse-3>" #'ignore)
 
-(cl-defmethod lispm-desktop-platinum-look-placards (active &context (lispm-desktop-look (eql genera)))
+(defun lispm-desktop-genera-placards (active)
   "Return Genera's `[Select]', `[Bury]' and `[Kill]' placards at the left
 of a window's bottom edge."
   (list (lispm-desktop-platinum-placard
@@ -1358,14 +1335,6 @@ of a window's bottom edge."
      'face 'lispm-desktop-genera-who-line
      'keymap lispm-desktop-genera-who-line-map
      'help-echo "Click for LispM System Menu (Select Activity)")))
-
-(defconst lispm-desktop-genera-who-line-format
-  '((:eval (lispm-desktop-genera-who-line)))
-  "LispM's Who-Line on the root screen in the `genera' look.")
-
-(cl-defmethod lispm-desktop-mode-line-format (&context (lispm-desktop-look (eql genera)))
-  "Show Genera's Who-Line on the root screen."
-  lispm-desktop-genera-who-line-format)
 
 (defun lispm-desktop-genera-sync-who-line ()
   "Sync the root screen's `mode-line-format' with `lispm-desktop-mode-line-format'."

@@ -83,6 +83,12 @@
             :strip-lines (:outline) :strip-ink :outline :tree-box :shadow :group-side (:text :content)
             :radio-dot 2.5 :child-frame-border :outline :dividers (:border :outline :outline)
             :menu-inset 0 :menu-separator (1 :menu-text))
+ :menu-bar nil
+ :control-strip nil
+ :icon-side :left
+ :floating-apps nil
+ :title-double-click 'zoom
+ :background-double-click #'lispm-desktop-pc-mouse-task-menu
  :box-help (list (lispm-desktop-tr-noop "Control menu: restore, minimize, maximize, close")
                  (lispm-desktop-tr-noop "Minimize: roll up to the caption")
                  (lispm-desktop-tr-noop "Maximize, or restore" "Windows 3.2"))

@@ -130,14 +130,11 @@ Dragging its tab sets it, for the next start too."
 
 (defun lispm-desktop-strip--appearance-items ()
   "Return the Appearance module's menu: the themes and the panel."
-  `((:label "Dracula" :checked ,(eq lispm-desktop-theme 'dracula)
-            :action ,(lambda () (lispm-desktop-set-theme 'dracula)))
-    (:label "Platinum" :checked ,(eq lispm-desktop-theme 'platinum)
-            :action ,(lambda () (lispm-desktop-set-theme 'platinum)))
-    (:label "Windows 3.2" :checked ,(eq lispm-desktop-theme 'win3)
-            :action ,(lambda () (lispm-desktop-set-theme 'win3)))
-    (:label "Genera" :checked ,(eq lispm-desktop-theme 'genera)
-            :action ,(lambda () (lispm-desktop-set-theme 'genera)))
+  `(,@(mapcar (pcase-lambda (`(,theme . ,props))
+                (list :label (or (plist-get props :label) (symbol-name theme))
+                      :checked (eq lispm-desktop-theme theme)
+                      :action (lambda () (lispm-desktop-set-theme theme))))
+              lispm-desktop-themes)
     separator
     ,(lispm-desktop-strip--panel-item 'themes)))
 
@@ -523,8 +520,9 @@ This is a `window-size-change-functions' function."
     (lispm-desktop-strip--place)))
 
 (cl-defgeneric lispm-desktop-strip-look-p ()
-  "Return non-nil when the current look uses Mac OS 9's Control Strip."
-  t)
+  "Return non-nil when the current look uses Mac OS 9's Control Strip.
+Configured by `:control-strip' in `lispm-ui-look-define' (by default t)."
+  (lispm-desktop-look-property :control-strip t))
 
 (defun lispm-desktop-strip-show ()
   "Show the Control Strip in the desktop's bottom-left corner."

@@ -57,6 +57,26 @@
 (require 'lispm-ui-modal)
 (require 'lispm-desktop-i18n)
 
+(defun lispm-desktop-assistant--theme-choices ()
+  "Return the choices of the `lispm-desktop-theme' question from
+`lispm-desktop-themes': those with an `:assistant' specification, sorted by
+`:order', with their words in the language LispM speaks."
+  (mapcar (pcase-lambda (`(,theme . ,assistant))
+            (let ((label (plist-get assistant :label))
+                  (text (plist-get assistant :text)))
+              (list theme
+                    :key (plist-get assistant :key)
+                    :label (and label (lispm-desktop-tr label))
+                    :text (and text (lispm-desktop-tr text))
+                    :preview (or (plist-get assistant :preview) theme))))
+          (sort (seq-keep (pcase-lambda (`(,theme . ,props))
+                            (when-let* ((assistant (plist-get props :assistant)))
+                              (cons theme assistant)))
+                          lispm-desktop-themes)
+                (lambda (a b)
+                  (< (or (plist-get (cdr a) :order) 99)
+                     (or (plist-get (cdr b) :order) 99))))))
+
 (defconst lispm-desktop-assistant-questions
   `((lispm-desktop-editing-style
      :title ,(lispm-desktop-tr-noop "How do you edit text?")
@@ -70,12 +90,7 @@
      :title ,(lispm-desktop-tr-noop "Which system do you know?")
      :detail ,(lispm-desktop-tr-noop "Control Panels, on the desktop, changes this later too.")
      :icon "appearance-32"
-     :choices ((genera :key ?g :label "Open Genera" :text ,(lispm-desktop-tr-noop "Monochrome Lisp Machine, Zmacs and Listener.")
-                       :preview genera)
-               (platinum :key ?m :label "Mac OS 9" :text ,(lispm-desktop-tr-noop "Mac OS 9's greys, black on white.")
-                         :preview platinum)
-               (win3 :key ?w :label "Windows 3.1" :text ,(lispm-desktop-tr-noop "Navy captions and VGA grey.")
-                     :preview win3))))
+     :choices lispm-desktop-assistant--theme-choices))
   "The first start's questions, in the order asked: (VARIABLE . PROPERTIES).
 :title is the question, :detail a line or two under it, :icon the name
 of its large icon in icons/os9.  :choices are (VALUE . PROPERTIES), the
@@ -111,17 +126,13 @@ itself, chosen by the digits 1 to 8."
                                            (unless (equal translated name) translated)))))
                          lispm-desktop-languages)))
 
-(defconst lispm-desktop-assistant--previews
-  '((dracula :colors ("#282A36" "#F8F8F2" "#6272A4" "#BD93F9")
-             :code ("#FF79C6" "#50FA7B" "#F1FA8C" "#6272A4" "#F8F8F2"))
-    (platinum :code ("#3163FF" "#427B7B" "#316331" "#CE3131" "#000000"))
-    (win3 :colors ("#FFFFFF" "#000000" "#808080" "#000080")
-          :palette (:win3 t :desktop "#008080" :chrome "#C0C0C0" :title "#000080")
-          :code ("#000080" "#008080" "#008000" "#800000" "#000000"))
-    (genera :colors ("#FFFFFF" "#000000" "#555555" "#000000")
-            :palette (:genera t :desktop "#FFFFFF" :chrome "#FFFFFF" :title "#FFFFFF")
-            :code ("#000000" "#000000" "#555555" "#555555" "#000000")))
-  "What the appearances' pictures are drawn in, by appearance.
+(defvar lispm-desktop-assistant--previews
+  (seq-keep (pcase-lambda (`(,theme . ,props))
+              (when-let* ((preview (plist-get props :preview)))
+                (cons theme preview)))
+            lispm-desktop-themes)
+  "What the appearances' pictures are drawn in, by appearance, initialized
+from `lispm-desktop-themes'.
 :colors are the theme's background, text, dimmed text and accent, which
 the chrome's palette is derived from, see
 `lispm-ui-derive-palette': written out, since at the first
@@ -372,7 +383,9 @@ PROPERTIES as a choice has them, as one block in the middle: the
 picture of its appearance, if any, drawn in PALETTE when the appearance
 names no colours, its label and the lines of its text, centred."
   (pcase-let* ((`(,x ,y ,w ,h) rect)
-               (preview (alist-get (plist-get properties :preview) lispm-desktop-assistant--previews))
+               (preview-key (plist-get properties :preview))
+               (preview (or (lispm-desktop-theme-get :preview preview-key)
+                            (alist-get preview-key lispm-desktop-assistant--previews)))
                (lines (lispm-ui-alert--wrap (or (plist-get properties :text) "") (- w 32)
                                             'lispm-ui-list))
                (label (propertize (plist-get properties :label) 'face '(:height 1.25)))

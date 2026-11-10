@@ -640,8 +640,9 @@ between its margins: at least one."
 (cl-defgeneric lispm-desktop-icon-side ()
   "Return the horizontal edge unplaced desktop icons line up along:
 `:right' on Mac OS 9, `:left' on PC, or nil when the look has no desktop
-icons (as on Symbolics Open Genera)."
-  :right)
+icons (as on Symbolics Open Genera).
+Configured by `:icon-side' in `lispm-ui-look-define' (by default `:right')."
+  (lispm-desktop-look-property :icon-side :right))
 
 (defun lispm-desktop--column-place (index bottom &optional rows)
   "Return the place of the INDEXth cell of the column, counted up from the
@@ -1377,8 +1378,11 @@ Icons and the desktop picture, as Mac OS 9's desktop offered them."
      x y align)))
 
 (cl-defgeneric lispm-desktop-background-context-menu (x y &optional align)
-  "Pop up the background context menu at X, Y on the bare desktop."
-  (lispm-desktop--menu x y align))
+  "Pop up the background context menu at X, Y on the bare desktop,
+configured by `:background-menu' in `lispm-ui-look-define'."
+  (if-let* ((menu (lispm-desktop-look-property :background-menu)))
+      (funcall menu x y)
+    (lispm-desktop--menu x y align)))
 
 (defun lispm-desktop-context-menu (event)
   "Pop up the desktop's menu where EVENT right-clicked, of the icon there.
@@ -1407,10 +1411,13 @@ desktop has the menu end at its right, so it stays on the desktop."
             (lispm-desktop--menu (+ (car body) right) (+ (cadr body) bottom) 'right)
           (lispm-desktop--menu (+ (car body) left) (+ (cadr body) bottom)))))))
 
-(cl-defgeneric lispm-desktop-background-double-click (_event)
-  "Act on a double click on the desktop's bare background.
-Mac OS 9 does nothing; PC looks open the Task List."
-  nil)
+(cl-defgeneric lispm-desktop-background-double-click (event)
+  "Act on a double click on the desktop's bare background, configured by
+`:background-double-click' in `lispm-ui-look-define'.
+Mac OS 9 does nothing; PC looks open the Task List; Genera opens the
+System Menu."
+  (when-let* ((action (lispm-desktop-look-property :background-double-click)))
+    (funcall action event)))
 
 (defun lispm-desktop-mouse-open (event)
   "Open the desktop icon double-clicked by EVENT, or act on a double click
@@ -1432,8 +1439,12 @@ desktop in front."
   (lispm-desktop--select nil))
 
 (cl-defgeneric lispm-desktop-background-open ()
-  "Act on pressing Open (Return) on the bare desktop with no icon selected."
-  nil)
+  "Act on pressing Open (Return) on the bare desktop with no icon selected,
+configured by `:background-open' in `lispm-ui-look-define'."
+  (when-let* ((action (lispm-desktop-look-property :background-open)))
+    (if (commandp action)
+        (call-interactively action)
+      (funcall action))))
 
 (defun lispm-desktop-open ()
   "Open the selected desktop icon, or act on the bare desktop via
@@ -1553,15 +1564,19 @@ stay where they are."
       (dolist (name (list lispm-desktop-buffer-name lispm-desktop-empty-buffer-name))
         (when-let* ((buffer (get-buffer name)))
           (lispm-desktop--paint-buffer buffer)))
-      (when (get-buffer lispm-desktop-buffer-name)
+      (when-let* ((buffer (get-buffer lispm-desktop-buffer-name)))
+        (with-current-buffer buffer
+          (setq-local mode-line-format (lispm-desktop-mode-line-format))
+          (force-mode-line-update t))
         (lispm-desktop--render)))))
 
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
 
 (cl-defgeneric lispm-desktop-mode-line-format ()
-  "Return the `mode-line-format' of the root desktop buffer, or nil."
-  nil)
+  "Return the `mode-line-format' of the root desktop buffer, or nil,
+configured by `:mode-line' in `lispm-ui-look-define'."
+  (lispm-desktop-look-property :mode-line))
 
 (defun lispm-desktop--bare ()
   "Strip the current buffer's windows to the desktop: no title bar, no

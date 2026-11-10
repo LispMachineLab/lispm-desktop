@@ -220,8 +220,8 @@ holds the function, approved as any call is: ~lispm-desktop-arrange-icons~,
 (declare-function lispm-auth-app-requires-password-p "lispm-auth" (app))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 
-(defconst lispm-desktop-skill-themes '(dracula platinum win3 genera)
-  "The colour themes LispM Desktop brings.")
+(defvar lispm-desktop-skill-themes (mapcar #'car lispm-desktop-themes)
+  "The colour themes LispM Desktop brings, from `lispm-desktop-themes'.")
 
 (defconst lispm-desktop-skill-strictness '(none low middle high)
   "The sandbox levels from the loosest to the strictest; custom is the user's own.")
@@ -713,10 +713,10 @@ does not change."
          (lispm-desktop-set-look
           (lispm-desktop-skill-choice value (mapcar #'car lispm-ui-looks)))))
      ("theme" themes ,(lambda () lispm-desktop-theme)
-      ,(mapconcat #'symbol-name lispm-desktop-skill-themes ", ")
+      ,(mapconcat (lambda (theme) (symbol-name (car theme))) lispm-desktop-themes ", ")
       ,(lambda (value _ _)
          (lispm-desktop-set-theme
-          (lispm-desktop-skill-choice value lispm-desktop-skill-themes))))
+          (lispm-desktop-skill-choice value (mapcar #'car lispm-desktop-themes)))))
      ("language" language ,(lambda () (or lispm-desktop-language "computer"))
       ,(concat "computer, "
                (mapconcat (lambda (language) (symbol-name (car language)))

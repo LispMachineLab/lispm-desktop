@@ -81,6 +81,12 @@
             :strip-lines (:shadow :light) :strip-ink :text :tree-box :text :group-side (:shadow :light)
             :radio-sunk t :radio-dot 2 :child-frame-border :shadow :dividers (:border-inactive :shadow :light)
             :menu-inset 2 :menu-separator (3 :shadow :light) :submenu-button t)
+ :menu-bar nil
+ :control-strip nil
+ :icon-side :left
+ :floating-apps nil
+ :title-double-click 'zoom
+ :background-double-click #'lispm-desktop-pc-mouse-task-menu
  :box-help (list (lispm-desktop-tr-noop "System menu: restore, minimize, maximize, close")
                  (lispm-desktop-tr-noop "Minimize: roll up to the title bar")
                  (lispm-desktop-tr-noop "Maximize, or restore" "OS/2 2.0"))
