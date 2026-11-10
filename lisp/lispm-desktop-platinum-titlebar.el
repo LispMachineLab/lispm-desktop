@@ -398,7 +398,7 @@ collapses; a window collapses only when another shares its column."
          (frame (window-frame window))
          (tty (lispm-desktop-tty-p frame))
          (zoomed (and (or (frame-parameter frame 'lispm-desktop-platinum-zoom)
-                          (frame-parameter frame 'lispm-desktop-finder-unzoom))
+                          (frame-parameter frame 'lispm-desktop-platinum-unzoom))
                       t))
          (rolled (lispm-desktop-platinum-rolled-up-height frame))
          (key (list lispm-ui-palette-generation width active icon title modified controls

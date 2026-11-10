@@ -890,11 +890,13 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
       (if zoomed
           (pcase-let ((`(,left ,top ,width ,height) zoomed))
             (set-frame-parameter frame 'lispm-desktop-finder-unzoom nil)
+            (set-frame-parameter frame 'lispm-desktop-platinum-zoom nil)
             (lispm-desktop-platinum-move-window frame left top)
             (set-frame-size frame width height t))
         (pcase-let ((`(,left . ,top) (lispm-desktop-platinum-window-position frame)))
           (set-frame-parameter frame 'lispm-desktop-finder-unzoom
-                               (list left top (frame-text-width frame) (frame-text-height frame))))
+                               (list left top (frame-text-width frame) (frame-text-height frame)))
+          (set-frame-parameter frame 'lispm-desktop-platinum-zoom t))
         (if (lispm-desktop-apps-out-p frame)
             ;; Out on the computer's screen, it grows over the room there.
             (pcase-let ((`(,x ,y ,w ,h) (lispm-desktop-apps--workarea frame)))
