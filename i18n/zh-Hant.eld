@@ -1575,5 +1575,8 @@ Rust 的套件管理器 Cargo 會在安裝程式中
   ("Memory Model" . "記憶模型")
   ("The model that consolidates long-term memory; leave empty to use each agent's own model." . "用於整理長期記憶的模型；留空則使用各智慧體自身的模型。")
   ("Monochrome Lisp Machine, Zmacs and Listener." . "黑白單色 Lisp Machine、Zmacs 與 Listener。")
+  ("Classic Lisp Machine" . "經典 Lisp Machine")
+  ("Classic Mac OS" . "經典 Mac OS")
+  ("Classic Win32" . "經典 Win32")
   ("Symbolics Genera's monochrome Dynamic Windows: inverse-video labels, Who-Line and Command Menus" . "Symbolics Genera 的單色 Dynamic Windows：反白標題列、Who-Line 狀態列與指令選單")
   ("Symbolics Lisp Machine, monochrome" . "Symbolics Lisp Machine，黑白單色")))

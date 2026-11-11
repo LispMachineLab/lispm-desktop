@@ -61,6 +61,7 @@
 
 (declare-function lispm-desktop-show-desktop "lispm-desktop-coherence" (&optional screen))
 (declare-function lispm-desktop-coherence-bring-in "lispm-desktop-coherence" (frame))
+(declare-function lispm-desktop-sidebar--call "lispm-desktop-sidebar" (view what))
 (declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
 (declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
@@ -69,6 +70,7 @@
 (declare-function lispm-ui-menu-keyboard-p "lispm-ui-menu" (keys))
 (declare-function tabspaces--current-tab-name "tabspaces" ())
 (declare-function tabspaces-local-buffer-list "tabspaces" (&optional frame tabnum))
+(declare-function tabspaces-reset-buffer-list "tabspaces" ())
 (declare-function tabspaces--set-buffer-predicate "tabspaces" (frame))
 (defvar lispm-desktop-sidebar-views)
 (defvar lispm-desktop-browser-workspace-name)
@@ -482,6 +484,8 @@ sending documents to the editor."
          (not (active-minibuffer-window))
          (not (lispm-desktop-editor--frame-p (selected-frame)))
          (not (frame-parameter (selected-frame) 'lispm-desktop-app-window))
+         (not (frame-parameter (selected-frame) 'lispm-desktop-own-frame))
+         (not (bound-and-true-p lispm-terminal-mode))
          (lispm-desktop-editor--document-p buffer))))
 
 (defun lispm-desktop-editor-display (buffer alist)
@@ -595,7 +599,11 @@ Text terminals can do so when Emacs supports terminal child frames."
         (let ((names (mapcar (lambda (tab) (alist-get 'name tab))
                              (cdr (funcall tab-bar-tabs-function frame)))))
           (if (not names)
-              (tab-bar-rename-tab (or (bound-and-true-p tabspaces-default-tab) "Home"))
+              (progn
+                (tab-bar-rename-tab (or (bound-and-true-p tabspaces-default-tab) "Home"))
+                (when (fboundp 'tabspaces-reset-buffer-list)
+                  (tabspaces-reset-buffer-list))
+                (lispm-desktop-editor--show-splash (frame-first-window frame)))
             (tab-bar-select-tab (+ 2 (or (seq-position names workspace) 0)))
             (tab-bar-tabs-set (cdr (funcall tab-bar-tabs-function frame)) frame))))
       (lispm-desktop-apps-show-window frame)
@@ -748,31 +756,396 @@ listed an application's windows."
 
 ;;;; Setup
 
+(declare-function lispm-desktop-genera-welcome-svg "lispm-desktop-genera"
+                  (width height &optional standalone focused))
+(declare-function lispm-desktop-genera-welcome-text "lispm-desktop-genera"
+                  (width height &optional focused))
+(declare-function lispm-desktop-genera-welcome-actions "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera--welcome-colors "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-command "lispm-desktop-genera" (input))
+(declare-function lispm-desktop-genera-listener-self-insert "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-backspace "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-kill-input "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-abort "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-yank "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-complete "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-ret "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-history-previous "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-history-next "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-mouse-system-menu "lispm-desktop-genera" (event))
+(declare-function lispm-desktop-agent-lispm-new "lispm-desktop-lispm" (&optional role))
+(declare-function lispm-desktop-shell-toggle "lispm-desktop-shells" ())
+(declare-function lispm-desktop-guide "lispm-desktop-guide" ())
+(declare-function lispm-terminal-quit "lispm-terminal" ())
+(defvar lispm-desktop-genera--welcome-hits)
+(defvar lispm-desktop-genera--listener-input)
+(defvar lispm-desktop-genera--listener-output)
+(defvar evil-emacs-state-cursor)
+(defvar evil-normal-state-cursor)
+
 (defconst lispm-desktop-editor-splash-buffer-name "*GNU Emacs*"
-  "Name of the buffer of Emacs's own startup screen.")
+  "Name of the buffer of the unified LispM × GNU Emacs welcome screen.")
+
+(defvar-local lispm-desktop-editor--splash-image nil
+  "Last SVG image drawn in the welcome screen buffer.")
+
+(defvar-local lispm-desktop-editor--splash-focused nil
+  "Key of the focused quick-action button on the welcome screen, or nil.")
+
+(defvar-local lispm-desktop-editor--splash-background nil
+  "Face remapping cookies coloring the welcome screen buffer.")
+
+(defvar-local lispm-desktop-editor--splash-state nil
+  "Last rendered state (WIDTH HEIGHT FOCUSED LOOK THEME GRAPHIC-P) of splash.")
+
+(defvar lispm-ui-in-gui-action)
+(defvar lispm-ui--command-from-mouse)
+
+(defun lispm-desktop-editor--splash-run-action (key)
+  "Run the welcome page quick-action command associated with KEY."
+  (when-let* ((spec (assq key (lispm-desktop-genera-welcome-actions)))
+              (command (nth 2 spec)))
+    ;; Run `New File…' (`find-file') and `Open Project…' via the minibuffer
+    ;; prompt so the user can type a new file name or path cleanly.
+    (let ((lispm-ui-in-gui-action nil)
+          (lispm-ui--command-from-mouse nil))
+      (if (commandp command)
+          (call-interactively command)
+        (funcall command)))))
+
+(defun lispm-desktop-editor-splash-click (event)
+  "Activate the welcome screen quick-action button clicked by mouse EVENT."
+  (interactive "e")
+  (let* ((pos (event-start event))
+         (win (posn-window pos))
+         (buf (and (windowp win) (window-buffer win))))
+    (when (windowp win)
+      (select-window win))
+    (let ((key (or (when-let* ((pt (posn-point pos))
+                               ((bufferp buf)))
+                     (get-text-property pt 'lispm-desktop-welcome-action buf))
+                   (when-let* ((xy (posn-object-x-y pos))
+                               ((bufferp buf)))
+                     (lispm-ui-modal-hit
+                      (buffer-local-value 'lispm-desktop-genera--welcome-hits buf)
+                      (car xy) (cdr xy))))))
+      (cond
+       ((eq key 'command)
+        (when (bufferp buf)
+          (with-current-buffer buf
+            (setq lispm-desktop-editor--splash-focused nil)
+            (lispm-desktop-editor--render-splash win t))))
+       (key
+        (when (bufferp buf)
+          (with-current-buffer buf
+            (setq lispm-desktop-editor--splash-focused key)
+            (lispm-desktop-editor--render-splash win t)))
+        (run-at-time 0 nil #'lispm-desktop-editor--splash-run-action key))
+       (t
+        (when (bufferp buf)
+          (with-current-buffer buf
+            (when lispm-desktop-editor--splash-focused
+              (setq lispm-desktop-editor--splash-focused nil)
+              (lispm-desktop-editor--render-splash win t)))))))))
+
+(defun lispm-desktop-editor--splash-step (delta)
+  "Move welcome screen button focus by DELTA (1 or -1)."
+  (let* ((keys (mapcar #'car (lispm-desktop-genera-welcome-actions)))
+         (idx (seq-position keys lispm-desktop-editor--splash-focused)))
+    (when keys
+      (setq lispm-desktop-editor--splash-focused
+            (nth (lispm-ui-modal-cycle idx delta (length keys)) keys))
+      (lispm-desktop-editor--render-splash nil t))))
+
+(defun lispm-desktop-editor-splash-next ()
+  "Focus the next quick-action button on the welcome screen."
+  (interactive)
+  (lispm-desktop-editor--splash-step 1))
+
+(defun lispm-desktop-editor-splash-previous ()
+  "Focus the previous quick-action button on the welcome screen."
+  (interactive)
+  (lispm-desktop-editor--splash-step -1))
+
+(defun lispm-desktop-editor-splash-tab ()
+  "Complete Listener input when non-empty, else focus the next button."
+  (interactive)
+  (if (and (boundp 'lispm-desktop-genera--listener-input)
+           (not (string-empty-p lispm-desktop-genera--listener-input))
+           (fboundp 'lispm-desktop-genera-listener-complete))
+      (call-interactively #'lispm-desktop-genera-listener-complete)
+    (lispm-desktop-editor-splash-next)))
+
+(defun lispm-desktop-editor-splash-self-insert ()
+  "Type the pressed character into `Command: █' on the welcome screen."
+  (interactive)
+  (setq lispm-desktop-editor--splash-focused nil)
+  (when (fboundp 'lispm-desktop-genera-listener-self-insert)
+    (call-interactively #'lispm-desktop-genera-listener-self-insert)))
+
+(defun lispm-desktop-editor-splash-spc ()
+  "Insert a space into `Command: █', or activate the focused button."
+  (interactive)
+  (if (and lispm-desktop-editor--splash-focused
+           (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) "")))
+      (lispm-desktop-editor--splash-run-action lispm-desktop-editor--splash-focused)
+    (lispm-desktop-editor-splash-self-insert)))
+
+(defun lispm-desktop-editor-splash-ret ()
+  "Execute the live `Command: █' input, or activate the focused button."
+  (interactive)
+  (cond
+   ((and (boundp 'lispm-desktop-genera--listener-input)
+         (not (string-empty-p (string-trim lispm-desktop-genera--listener-input)))
+         (fboundp 'lispm-desktop-genera-listener-ret))
+    (call-interactively #'lispm-desktop-genera-listener-ret))
+   (lispm-desktop-editor--splash-focused
+    (lispm-desktop-editor--splash-run-action lispm-desktop-editor--splash-focused))
+   ((fboundp 'lispm-desktop-genera-listener-ret)
+    (call-interactively #'lispm-desktop-genera-listener-ret))
+   (t
+    (call-interactively #'lispm-desktop-genera-command))))
+
+(defun lispm-desktop-editor-splash-abort ()
+  "Clear button focus and abort any live input at `Command: █'."
+  (interactive)
+  (setq lispm-desktop-editor--splash-focused nil)
+  (if (fboundp 'lispm-desktop-genera-listener-abort)
+      (call-interactively #'lispm-desktop-genera-listener-abort)
+    (lispm-desktop-editor--render-splash nil t)))
+
+(defun lispm-desktop-editor-splash-focus-mode ()
+  "Toggle Focus Mode from the unified welcome screen."
+  (interactive)
+  (if (bound-and-true-p lispm-terminal-mode)
+      (when (fboundp 'lispm-terminal-quit)
+        (call-interactively #'lispm-terminal-quit))
+    (call-interactively #'lispm-desktop-apps-focus-mode)))
+
+(defvar lispm-desktop-editor-splash-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)
+    (keymap-set map "<remap> <self-insert-command>" #'lispm-desktop-editor-splash-self-insert)
+    (cl-loop for ch from 33 to 126 do
+             (define-key map (vector ch) #'lispm-desktop-editor-splash-self-insert))
+    (keymap-set map "SPC" #'lispm-desktop-editor-splash-spc)
+    (keymap-set map "DEL" #'lispm-desktop-genera-listener-backspace)
+    (keymap-set map "<backspace>" #'lispm-desktop-genera-listener-backspace)
+    (keymap-set map "C-u" #'lispm-desktop-genera-listener-kill-input)
+    (keymap-set map "C-k" #'lispm-desktop-genera-listener-kill-input)
+    (keymap-set map "C-y" #'lispm-desktop-genera-listener-yank)
+    (keymap-set map "s-v" #'lispm-desktop-genera-listener-yank)
+    (keymap-set map "M-p" #'lispm-desktop-genera-listener-history-previous)
+    (keymap-set map "M-n" #'lispm-desktop-genera-listener-history-next)
+    (keymap-set map "C-g" #'lispm-desktop-editor-splash-abort)
+    (keymap-set map "<escape>" #'lispm-desktop-editor-splash-abort)
+    (keymap-set map "<down-mouse-1>" #'ignore)
+    (keymap-set map "<mouse-1>" #'lispm-desktop-editor-splash-click)
+    (keymap-set map "<down-mouse-3>" #'lispm-desktop-genera-mouse-system-menu)
+    (keymap-set map "<mouse-3>" #'ignore)
+    (keymap-set map "TAB" #'lispm-desktop-editor-splash-tab)
+    (keymap-set map "<tab>" #'lispm-desktop-editor-splash-tab)
+    (keymap-set map "<right>" #'lispm-desktop-editor-splash-next)
+    (keymap-set map "<down>" #'lispm-desktop-editor-splash-next)
+    (keymap-set map "C-f" #'lispm-desktop-editor-splash-next)
+    (keymap-set map "C-n" #'lispm-desktop-editor-splash-next)
+    (keymap-set map "<backtab>" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "S-TAB" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "<left>" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "<up>" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "C-b" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "C-p" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "RET" #'lispm-desktop-editor-splash-ret)
+    (keymap-set map "<return>" #'lispm-desktop-editor-splash-ret)
+    map)
+  "Keymap of the unified LispM Desktop welcome screen.")
+
+(defun lispm-desktop-editor--paint-splash (buffer)
+  "Color BUFFER and its fringes with the welcome screen's background."
+  (when (and (buffer-live-p buffer)
+             (fboundp 'lispm-desktop-genera--welcome-colors))
+    (with-current-buffer buffer
+      (let ((bg (car (lispm-desktop-genera--welcome-colors))))
+        (mapc #'face-remap-remove-relative lispm-desktop-editor--splash-background)
+        (setq lispm-desktop-editor--splash-background
+              (list (face-remap-add-relative 'default :background bg)
+                    (face-remap-add-relative 'fringe :background bg)))))))
+
+(defun lispm-desktop-editor--render-splash (&optional window force)
+  "Render the unified LispM × GNU Emacs welcome page in `*GNU Emacs*'."
+  (when-let* ((buffer (get-buffer lispm-desktop-editor-splash-buffer-name))
+              ((fboundp 'lispm-desktop-genera-welcome-svg)))
+    (let* ((win (or (and (window-live-p window)
+                         (eq (window-buffer window) buffer)
+                         window)
+                    (get-buffer-window buffer t)
+                    (selected-window)))
+           (graphic (and (display-images-p (and (window-live-p win) (window-frame win)))
+                         (image-type-available-p 'svg)))
+           (width (if graphic
+                      (max 320 (if (window-live-p win) (window-body-width win t) 800))
+                    (max 40 (if (window-live-p win) (window-body-width win) 80))))
+           (height (if graphic
+                       (max 220 (if (window-live-p win) (1- (window-body-height win t)) 600))
+                     (max 14 (if (window-live-p win) (window-body-height win) 24)))))
+      (with-current-buffer buffer
+        (let ((state (list width height lispm-desktop-editor--splash-focused
+                           lispm-desktop-look lispm-desktop-theme graphic
+                           (bound-and-true-p lispm-terminal-mode)
+                           (bound-and-true-p lispm-desktop-genera--listener-input)
+                           (bound-and-true-p lispm-desktop-genera--listener-output))))
+          (when (or force (not (equal state lispm-desktop-editor--splash-state)))
+            (setq lispm-desktop-editor--splash-state state)
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+              (if graphic
+                  (let* ((svg (lispm-desktop-genera-welcome-svg
+                               width height t lispm-desktop-editor--splash-focused))
+                         (image (create-image svg 'svg t :scale 1 :ascent 100)))
+                    (insert (propertize " " 'display image 'pointer 'arrow))
+                    (when (and lispm-desktop-editor--splash-image (window-live-p win))
+                      (image-flush lispm-desktop-editor--splash-image (window-frame win)))
+                    (setq lispm-desktop-editor--splash-image image))
+                (insert (lispm-desktop-genera-welcome-text
+                         width height lispm-desktop-editor--splash-focused)))
+              (goto-char (point-min))
+              (when (and (window-live-p win) (eq (window-buffer win) buffer))
+                (set-window-start win (point-min) t)
+                (set-window-point win (point-min))))))))))
+
+(defun lispm-desktop-editor--refresh-splash (&rest _)
+  "Re-render the welcome screen when the look, theme or language changes."
+  (when-let* ((buffer (get-buffer lispm-desktop-editor-splash-buffer-name)))
+    (lispm-desktop-editor--paint-splash buffer)
+    (lispm-desktop-editor--render-splash nil t)))
+
+(defun lispm-desktop-editor--splash-scroll-bar (buffer)
+  "Disable scroll bars on the welcome screen BUFFER."
+  (and (eq (buffer-local-value 'major-mode buffer)
+           'lispm-desktop-editor-splash-mode)
+       'no))
+
+(define-derived-mode lispm-desktop-editor-splash-mode special-mode "LispM"
+  "Major mode of the unified LispM × GNU Emacs welcome screen.
+\\{lispm-desktop-editor-splash-mode-map}"
+  (visual-line-mode -1)
+  (setq-local header-line-format nil
+              cursor-type nil
+              truncate-lines t
+              left-fringe-width 1
+              right-fringe-width 1
+              show-trailing-whitespace nil
+              evil-emacs-state-cursor '(nil)
+              evil-normal-state-cursor '(nil)
+              revert-buffer-function (lambda (&rest _) (lispm-desktop-editor--refresh-splash)))
+  (when (fboundp 'display-line-numbers-mode)
+    (display-line-numbers-mode -1))
+  (lispm-desktop-editor--paint-splash (current-buffer))
+  (add-hook 'window-size-change-functions #'lispm-desktop-editor--render-splash nil t)
+  (add-hook 'window-buffer-change-functions #'lispm-desktop-editor--render-splash nil t))
 
 (defun lispm-desktop-editor-splash-buffer ()
-  "Return the buffer of Emacs's own startup screen, its big logo over the
-links to start with, made when missing without being shown."
-  (or (get-buffer lispm-desktop-editor-splash-buffer-name)
-      (save-window-excursion
-        (display-startup-screen)
-        (get-buffer lispm-desktop-editor-splash-buffer-name))))
+  "Return the buffer of the unified LispM × GNU Emacs welcome screen,
+made when missing without being shown."
+  (let ((buffer (get-buffer-create lispm-desktop-editor-splash-buffer-name)))
+    (with-current-buffer buffer
+      (unless (derived-mode-p 'lispm-desktop-editor-splash-mode)
+        (lispm-desktop-editor-splash-mode)
+        (lispm-desktop-editor--render-splash)))
+    buffer))
 
 (defun lispm-desktop-editor--new-workspace-buffer ()
-  "Show Emacs's startup screen in a new workspace's window; return nil.
+  "Show the unified welcome screen in a new workspace's window; return nil.
 This is the editor's `tab-bar-new-tab-choice'; the screen is put in the
 window itself, see `lispm-desktop-show-in-new-tab'."
   (lispm-desktop-show-in-new-tab (lispm-desktop-editor-splash-buffer)))
 
 (defun lispm-desktop-editor--show-splash (window)
-  "Show Emacs's startup screen in WINDOW when it is in an editor workspace
+  "Show the unified welcome screen in WINDOW when it is in an editor workspace
 holding nothing else, and return non-nil; else return nil.
 This is the editor's `lispm-desktop-empty-function'."
   (when (lispm-desktop-editor--in-workspace-p (window-frame window))
-    (set-window-buffer window (lispm-desktop-editor-splash-buffer))
-    (set-window-start window 1)
-    t))
+    (let ((buffer (lispm-desktop-editor-splash-buffer)))
+      (set-window-buffer window buffer)
+      (lispm-desktop-editor--render-splash window)
+      (set-window-start window 1)
+      t)))
+
+(defun lispm-desktop-editor-kill ()
+  "Kill the floating editor and reset its workspace, sidebar and geometry state.
+Unlike `lispm-desktop-editor-close', which buries the editor frame while
+preserving its buffers, sidebar view, workspace and geometry, this destroys
+the floating frame and leaves no residual editor state behind."
+  (interactive)
+  (let* ((frame (and (lispm-desktop-editor-floating-p) lispm-desktop-editor--frame))
+         (screen (lispm-desktop-apps-screen))
+         (splash lispm-desktop-editor-splash-buffer-name)
+         (keep (list lispm-desktop-buffer-name
+                     lispm-desktop-empty-buffer-name
+                     splash
+                     "*scratch*"
+                     "*Messages*"))
+         (buffers
+          (seq-uniq
+           (seq-filter
+            (lambda (buf)
+              (and (buffer-live-p buf)
+                   (not (member (buffer-name buf) keep))
+                   (lispm-desktop-editor--document-p buf)))
+            (append
+             (when (frame-live-p frame)
+               (append (mapcar #'window-buffer (window-list frame 'no-mini))
+                       (frame-parameter frame 'buffer-list)
+                       (frame-parameter frame 'buried-buffer-list)))
+             (when (and (frame-live-p screen)
+                        (lispm-desktop-editor--in-workspace-p screen))
+               (mapcar #'window-buffer (window-list screen 'no-mini))))))))
+    (when (cl-every #'lispm-desktop-platinum-confirm-close buffers)
+      (when (frame-live-p frame)
+        (lispm-desktop-editor--unshade)
+        (with-selected-frame frame
+          (dolist (entry lispm-desktop-sidebar-views)
+            (when (and (fboundp 'lispm-desktop-sidebar--call)
+                       (lispm-desktop-sidebar--call (car entry) :visible))
+              (lispm-desktop-sidebar--call (car entry) :hide)))
+          (lispm-desktop-editor--delete-side-windows)
+          (when (fboundp 'treemacs-get-local-buffer)
+            (when-let* ((tree (treemacs-get-local-buffer)))
+              (kill-buffer tree)))))
+      (setq lispm-desktop-editor--closed t
+            lispm-desktop-editor--views nil
+            lispm-desktop-editor--last-workspace nil)
+      (when (frame-live-p screen)
+        (with-selected-frame screen
+          (lispm-desktop--select-tab screen)
+          (let ((tabs (funcall tab-bar-tabs-function screen)))
+            (tab-bar-tabs-set
+             (seq-remove #'lispm-desktop-editor--workspace-tab-p tabs)
+             screen))))
+      (let ((next (and (frame-live-p frame)
+                       (lispm-desktop-apps-focus-after frame))))
+        (when (frame-live-p frame)
+          (lispm-desktop-app-window-release frame)
+          (setq lispm-desktop-editor--frame nil)
+          (delete-frame frame))
+        (setq lispm-desktop-app-window--geometry
+              (assq-delete-all 'editor lispm-desktop-app-window--geometry))
+        (let ((kill-buffer-query-functions nil))
+          (dolist (buf buffers)
+            (when (buffer-live-p buf)
+              (kill-buffer buf)))
+          (dolist (entry lispm-desktop-sidebar-views)
+            (when-let* ((name (plist-get (cdr entry) :buffer))
+                        (sbuf (get-buffer name)))
+              (kill-buffer sbuf)))
+          (when-let* ((strip (get-buffer lispm-desktop-editor-strip-buffer-name)))
+            (kill-buffer strip)))
+        (when-let* ((sbuf (get-buffer splash)))
+          (with-current-buffer sbuf
+            (setq lispm-desktop-editor--splash-focused nil
+                  lispm-desktop-editor--splash-state nil)))
+        (unless (or next (lispm-desktop-apps-hidden-p))
+          (lispm-desktop-activate))))))
 
 (defun lispm-desktop-editor--prepare-view ()
   "Bring the editor in front before a sidebar view is shown outside it."
@@ -787,13 +1160,17 @@ This is the editor's `lispm-desktop-empty-function'."
   "Make Emacs the editor an application on the desktop."
   (setq lispm-desktop-sidebar-prepare-function #'lispm-desktop-editor--prepare-view
         lispm-desktop-empty-function #'lispm-desktop-editor--show-splash
-        ;; The editor opens on Emacs's own startup screen: Emacs starts in
-        ;; its first workspace, and a new workspace starts there too.
+        ;; The editor opens on the unified LispM × GNU Emacs welcome screen:
+        ;; Emacs starts in its first workspace, and a new workspace starts there too.
         initial-buffer-choice #'lispm-desktop-editor-splash-buffer
         tab-bar-new-tab-choice #'lispm-desktop-editor--new-workspace-buffer)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-editor--splash-scroll-bar)
   (add-hook 'lispm-desktop-sidebar-change-hook #'lispm-desktop-editor--render-strip)
   (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-editor--render-strip)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-editor--render-strip)
+  (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-editor--refresh-splash)
+  (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-editor--refresh-splash)
+  (add-hook 'enable-theme-functions #'lispm-desktop-editor--refresh-splash 90)
   (add-hook 'post-command-hook #'lispm-desktop-editor--keep-chrome)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-editor--remember-workspace)
   (add-hook 'tab-bar-tab-post-select-functions

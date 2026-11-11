@@ -1575,5 +1575,8 @@ Rust のパッケージマネージャ Cargo が
   ("Memory Model" . "記憶モデル")
   ("The model that consolidates long-term memory; leave empty to use each agent's own model." . "長期記憶を整理するモデル。空欄のままにすると各エージェント自身のモデルを使用します。")
   ("Monochrome Lisp Machine, Zmacs and Listener." . "モノクロのLispマシン、ZmacsとListener。")
+  ("Classic Lisp Machine" . "クラシック Lisp Machine")
+  ("Classic Mac OS" . "クラシック Mac OS")
+  ("Classic Win32" . "クラシック Win32")
   ("Symbolics Genera's monochrome Dynamic Windows: inverse-video labels, Who-Line and Command Menus" . "Symbolics GeneraのモノクロDynamic Windows：反転ラベル、Who-Line、コマンドメニュー")
   ("Symbolics Lisp Machine, monochrome" . "Symbolics Lispマシン、モノクロ")))

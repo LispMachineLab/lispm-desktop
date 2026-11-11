@@ -97,7 +97,7 @@ See `lispm-desktop-themes' for the supported properties.  Return NAME."
   :label "Platinum"
   :look 'platinum
   :note (lispm-desktop-tr-noop "Mac OS 9's greys")
-  :assistant (list :order 2 :key ?m :label "Mac OS 9"
+  :assistant (list :order 2 :key ?m :label (lispm-desktop-tr-noop "Classic Mac OS")
                    :text (lispm-desktop-tr-noop "Mac OS 9's greys, black on white."))
   :preview '(:code ("#3163FF" "#427B7B" "#316331" "#CE3131" "#000000")))
 
@@ -105,7 +105,7 @@ See `lispm-desktop-themes' for the supported properties.  Return NAME."
   :label "Windows 3.2"
   :look 'win3
   :note (lispm-desktop-tr-noop "navy and VGA grey")
-  :assistant (list :order 3 :key ?w :label "Windows 3.1"
+  :assistant (list :order 3 :key ?w :label (lispm-desktop-tr-noop "Classic Win32")
                    :text (lispm-desktop-tr-noop "Navy captions and VGA grey."))
   :preview '(:colors ("#FFFFFF" "#000000" "#808080" "#000080")
              :palette (:win3 t :desktop "#008080" :chrome "#C0C0C0" :title "#000080")
@@ -115,7 +115,7 @@ See `lispm-desktop-themes' for the supported properties.  Return NAME."
   :label "Genera"
   :look 'genera
   :note (lispm-desktop-tr-noop "Symbolics Lisp Machine, monochrome")
-  :assistant (list :order 1 :key ?g :label "Open Genera"
+  :assistant (list :order 1 :key ?g :label (lispm-desktop-tr-noop "Classic Lisp Machine")
                    :text (lispm-desktop-tr-noop "Monochrome Lisp Machine, Zmacs and Listener."))
   :preview '(:colors ("#FFFFFF" "#000000" "#555555" "#000000")
              :palette (:genera t :desktop "#FFFFFF" :chrome "#FFFFFF" :title "#FFFFFF")
