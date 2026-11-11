@@ -545,24 +545,25 @@ window does, is closed by that function.  Otherwise WINDOW's buffer is
 killed, once an alert has asked about unsaved changes or a running
 process, and WINDOW goes too when other windows remain in the main area;
 the last one shows the desktop."
-  (cond
-   ((lispm-desktop-platinum--box-function window :close)
-    (funcall (lispm-desktop-platinum--box-function window :close) window))
-   ((frame-parameter (window-frame window) 'lispm-desktop-close-function)
-    (funcall (frame-parameter (window-frame window) 'lispm-desktop-close-function) window))
-   ((window-parameter window 'window-side)
-    (funcall lispm-desktop-platinum-side-window-close-function window))
-   (t
-    (let ((buffer (window-buffer window)))
-      (when (lispm-desktop-platinum-confirm-close buffer)
-        (let ((kill-buffer-query-functions nil))
-          (kill-buffer buffer))
-        ;; The main area's last window uncovers the desktop, as closing
-        ;; Mac OS 9's last window did; any other window goes.
-        (when (window-live-p window)
-          (if (cdr (lispm-desktop-platinum-main-windows))
-              (delete-window window)
-            (funcall lispm-desktop-platinum-last-window-function window))))))))
+  (let ((frame (window-frame window)))
+    (cond
+     ((lispm-desktop-platinum--box-function window :close)
+      (funcall (lispm-desktop-platinum--box-function window :close) window))
+     ((frame-parameter frame 'lispm-desktop-close-function)
+      (funcall (frame-parameter frame 'lispm-desktop-close-function) window))
+     ((window-parameter window 'window-side)
+      (funcall lispm-desktop-platinum-side-window-close-function window))
+     (t
+      (let ((buffer (window-buffer window)))
+        (when (lispm-desktop-platinum-confirm-close buffer)
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer buffer))
+          ;; The main area's last window uncovers the desktop, as closing
+          ;; Mac OS 9's last window did; any other window goes.
+          (when (window-live-p window)
+            (if (cdr (lispm-desktop-platinum-main-windows frame))
+                (delete-window window)
+              (funcall lispm-desktop-platinum-last-window-function window)))))))))
 
 (defun lispm-desktop-platinum-confirm-close (buffer)
   "Ask, as Mac OS 9 asked, whether BUFFER may close; return non-nil if so.

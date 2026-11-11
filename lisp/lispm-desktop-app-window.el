@@ -422,11 +422,94 @@ only when ID's application was."
     (lispm-desktop-app-window--retire frame)
     (delete-frame frame)))
 
+(defvar lispm-desktop-app-ui--app)
+(defvar lispm-desktop-app-ui--buffers)
+(defvar lispm-desktop-app-ui--panes)
+(defvar lispm-desktop-guide--index)
+(defvar lispm-desktop-settings--last-panel)
+(defvar lispm-desktop-settings-categories)
+(declare-function lispm-browser-quit "lispm-browser" ())
+
+(defun lispm-desktop-app-window-kill (id-or-frame)
+  "Kill the floating window of ID-OR-FRAME and clear all of its saved state.
+Unlike `lispm-desktop-app-window-close', which remembers the window's geometry
+and keeps its buffers alive for the next open, this destroys the frame, clears
+its saved geometry, and kills its buffers so reopening starts fresh."
+  (let* ((frame (if (framep id-or-frame)
+                    id-or-frame
+                  (lispm-desktop-app-window-frame id-or-frame)))
+         (id (if (framep id-or-frame)
+                 (lispm-desktop-app-window-id id-or-frame)
+               id-or-frame))
+         (app (and id (lispm-desktop-app-window--app id)))
+         (keep (list (bound-and-true-p lispm-desktop-buffer-name)
+                     (bound-and-true-p lispm-desktop-empty-buffer-name)
+                     " *lispm-desktop-app-window*"
+                     "*scratch*"
+                     "*Messages*")))
+    (cond
+     ((eq id 'browser)
+      (when (fboundp 'lispm-browser-quit)
+        (lispm-browser-quit))
+      (when (and (frame-live-p frame) (lispm-desktop-app-window-frame 'browser))
+        (lispm-desktop-app-window-close 'browser))
+      (setq lispm-desktop-app-window--geometry
+            (assq-delete-all 'browser lispm-desktop-app-window--geometry)))
+     (t
+      (let ((buffers
+             (seq-uniq
+              (seq-filter
+               (lambda (buf)
+                 (and (buffer-live-p buf)
+                      (not (member (buffer-name buf) keep))))
+               (append
+                (when (frame-live-p frame)
+                  (mapcar #'window-buffer (window-list frame 'never)))
+                (when-let* ((buf-fn (and id (lispm-desktop-app-window--get id :buffer)))
+                            (kbuf (and (functionp buf-fn) (ignore-errors (funcall buf-fn)))))
+                  (list kbuf))
+                (when (and app (boundp 'lispm-desktop-app-ui--buffers))
+                  (list (alist-get app lispm-desktop-app-ui--buffers)))
+                (when app
+                  (seq-filter
+                   (lambda (b)
+                     (eq (buffer-local-value 'lispm-desktop-app-ui--app b) app))
+                   (buffer-list))))))))
+        (when (cl-every #'lispm-desktop-platinum-confirm-close buffers)
+          (if id
+              (lispm-desktop-app-window-close id)
+            (when (frame-live-p frame)
+              (delete-frame frame)))
+          (when id
+            (setq lispm-desktop-app-window--geometry
+                  (assq-delete-all id lispm-desktop-app-window--geometry)))
+          (when (and app (boundp 'lispm-desktop-app-ui--buffers))
+            (setq lispm-desktop-app-ui--buffers
+                  (assq-delete-all app lispm-desktop-app-ui--buffers)))
+          (when (and app (boundp 'lispm-desktop-app-ui--panes))
+            (setq lispm-desktop-app-ui--panes
+                  (delq app lispm-desktop-app-ui--panes)))
+          (when (and (eq id 'guide) (boundp 'lispm-desktop-guide--index))
+            (setq lispm-desktop-guide--index 0))
+          (when (and id
+                     (boundp 'lispm-desktop-settings-categories)
+                     (assq id lispm-desktop-settings-categories)
+                     (boundp 'lispm-desktop-settings--last-panel))
+            (setq lispm-desktop-settings--last-panel nil))
+          (let ((kill-buffer-query-functions nil))
+            (dolist (buf buffers)
+              (when (buffer-live-p buf)
+                (kill-buffer buf))))))))))
+
 (defun lispm-desktop-app-window-close-box (window)
-  "Close WINDOW's floating window from its close box.
+  "Close WINDOW from its close box: when the application's window shows a
+non-default buffer, return it to its default buffer; else close the
+floating window.
 This is the frame parameter `lispm-desktop-close-function' of the windows."
   (let ((frame (window-frame window)))
-    (lispm-desktop-app-window-close (lispm-desktop-app-window-id frame))))
+    (unless (and (fboundp 'lispm-desktop-app-ui-close-window)
+                 (lispm-desktop-app-ui-close-window window))
+      (lispm-desktop-app-window-close (lispm-desktop-app-window-id frame)))))
 
 (defun lispm-desktop-app-window--forget (frame)
   "Forget FRAME once deleted otherwise than by its close box, as with

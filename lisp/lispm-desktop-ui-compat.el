@@ -207,5 +207,37 @@ their quoted lists of file names; never evaluate the history file."
 
 (defalias 'lispm-desktop-choose-file #'lispm-ui-choose-file)
 
+(defun lispm-desktop-ui-compat--file-dialog-key (orig-fn dialog event)
+  "Ignore non-key area and frame events in `lispm-ui-file-dialog--key'.
+When `track-mouse' is active, moving the pointer across a child-frame border
+or window chrome emits area symbols from `lispm-ui-modal-areas' before
+`mouse-movement'; returning nil for those symbols caused
+`lispm-ui-file-dialog--loop' to redraw and `redisplay' on every mouse sample."
+  (if (or (memq event lispm-ui-modal-areas)
+          (memq (car-safe event)
+                '(switch-frame select-window focus-in focus-out
+                  make-frame-visible iconify-frame delete-frame)))
+      'ignore
+    (funcall orig-fn dialog event)))
+
+(unless (advice-member-p #'lispm-desktop-ui-compat--file-dialog-key
+                         'lispm-ui-file-dialog--key)
+  (advice-add 'lispm-ui-file-dialog--key :around
+              #'lispm-desktop-ui-compat--file-dialog-key))
+
+(defvar lispm-desktop-ui-compat--cjk-family-cache :unset
+  "Cached value of `lispm-ui-text-cjk-family' during SVG dialog drawing.")
+
+(defun lispm-desktop-ui-compat--cjk-family (orig-fn)
+  "Return cached CJK font family without querying `font-family-list' per label."
+  (if (eq lispm-desktop-ui-compat--cjk-family-cache :unset)
+      (setq lispm-desktop-ui-compat--cjk-family-cache (funcall orig-fn))
+    lispm-desktop-ui-compat--cjk-family-cache))
+
+(unless (advice-member-p #'lispm-desktop-ui-compat--cjk-family
+                         'lispm-ui-text-cjk-family)
+  (advice-add 'lispm-ui-text-cjk-family :around
+              #'lispm-desktop-ui-compat--cjk-family))
+
 (provide 'lispm-desktop-ui-compat)
 ;;; lispm-desktop-ui-compat.el ends here

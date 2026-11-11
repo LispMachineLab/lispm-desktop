@@ -1150,6 +1150,104 @@ unless MISSING; once they are installed, call its skin's :installed."
 
 ;;;; Opening an application
 
+(declare-function lispm-comfyui-new "lispm-comfyui" ())
+(declare-function lispm-comfyui-graph-nodes "lispm-comfyui" (graph))
+(defvar lispm-comfyui--name)
+(defvar lispm-comfyui--root)
+(defvar lispm-comfyui--modified)
+
+(defun lispm-desktop-app-ui--default-buffer-p (app buffer)
+  "Return non-nil when BUFFER is in the default state of application APP."
+  (with-current-buffer buffer
+    (pcase app
+      ('comfyui
+       (or (derived-mode-p 'lispm-comfyui-workflows-mode)
+           (and (derived-mode-p 'lispm-comfyui-mode)
+                (null (bound-and-true-p lispm-comfyui--name))
+                (null (and (bound-and-true-p lispm-comfyui--root)
+                           (fboundp 'lispm-comfyui-graph-nodes)
+                           (lispm-comfyui-graph-nodes lispm-comfyui--root))))))
+      ('calculator
+       (derived-mode-p 'calc-mode 'lispm-desktop-app-skins-calc-keypad-mode))
+      ('mail
+       (derived-mode-p 'lispm-mail-mode 'lispm-mail-mailboxes-mode 'lispm-mail-message-mode))
+      ('shrdlu
+       (derived-mode-p 'lispm-shrdlu-mode 'lispm-shrdlu-world-mode))
+      ('lispm
+       (derived-mode-p 'lispm-chat-mode))
+      (_
+       (let ((mode (lispm-desktop-app-ui--app-property app :mode)))
+         (or (null mode) (derived-mode-p mode)))))))
+
+(defun lispm-desktop-app-ui-close-window (window)
+  "When WINDOW in an application's frame shows a non-default buffer, close
+that buffer and return WINDOW to the application's default buffer,
+returning non-nil; return nil when WINDOW is already on the default
+buffer so the application's frame can close."
+  (when-let* ((_ (window-live-p window))
+              (app (lispm-desktop-app-ui-app window))
+              (window (if (and (eq app 'comfyui)
+                               (with-current-buffer (window-buffer window)
+                                 (derived-mode-p 'lispm-comfyui-workflows-mode)))
+                          (or (seq-find (lambda (w)
+                                          (with-current-buffer (window-buffer w)
+                                            (derived-mode-p 'lispm-comfyui-mode)))
+                                        (window-list (window-frame window) 'never))
+                              window)
+                        window))
+              (buffer (window-buffer window))
+              ((not (lispm-desktop-app-ui--default-buffer-p app buffer))))
+    (cond
+     ((eq app 'comfyui)
+      (with-current-buffer buffer
+        (when (or (not (bound-and-true-p lispm-comfyui--modified))
+                  (yes-or-no-p (format "The workflow %s has changes not saved; let them go? "
+                                       (or (bound-and-true-p lispm-comfyui--name) "Untitled"))))
+          (with-selected-window window
+            (let ((old (current-buffer)))
+              (dolist (buf (buffer-list))
+                (when (and (buffer-live-p buf)
+                           (eq (buffer-local-value 'major-mode buf) 'lispm-comfyui-mode)
+                           (or (eq buf old)
+                               (not (buffer-local-value 'lispm-comfyui--modified buf))))
+                  (with-current-buffer buf
+                    (setq lispm-comfyui--modified nil))
+                  (unless (eq buf old)
+                    (kill-buffer buf))))
+              (setq lispm-comfyui--modified nil
+                    lispm-comfyui--name nil)
+              (when (fboundp 'lispm-comfyui-new)
+                (lispm-comfyui-new))
+              (when (and (buffer-live-p old) (not (eq old (current-buffer))))
+                (kill-buffer old))
+              (lispm-desktop-app-ui-dress window)))))
+      t)
+     (t
+      (when (lispm-desktop-platinum-confirm-close buffer)
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer buffer))
+        (when (window-live-p window)
+          (let ((skin (lispm-desktop-app-ui--app-skin app))
+                (default-buf (seq-find (lambda (buf)
+                                         (and (buffer-live-p buf)
+                                              (eq (buffer-local-value 'lispm-desktop-app-ui--app buf) app)
+                                              (lispm-desktop-app-ui--default-buffer-p app buf)))
+                                       (buffer-list)))
+                (command (lispm-desktop-app-ui--app-property app :command)))
+            (with-selected-window window
+              (set-window-dedicated-p window nil)
+              (cond ((plist-get skin :restore)
+                     (funcall (plist-get skin :restore)))
+                    (default-buf
+                     (switch-to-buffer default-buf))
+                    ((plist-get skin :run)
+                     (funcall (plist-get skin :run)))
+                    ((commandp command)
+                     (call-interactively command))))
+            (when (window-live-p window)
+              (lispm-desktop-app-ui-dress window)))))
+      t))))
+
 (defun lispm-desktop-app-ui-run (app command)
   "Open application APP in its window, selected: on the buffer it showed
 when its window was closed, if still there, as a Mac OS 9 application
@@ -1161,6 +1259,12 @@ panes come back.  What it needs and lacks is offered first."
   (lispm-desktop-needs-refresh (lispm-desktop-app-ui-needs app))
   (unless noninteractive
     (lispm-desktop-app-ui--offer-missing app))
+  (when (eq app 'comfyui)
+    (dolist (buf (buffer-list))
+      (when (and (buffer-live-p buf)
+                 (eq (buffer-local-value 'major-mode buf) 'lispm-comfyui-workflows-mode)
+                 (not (get-buffer-window buf t)))
+        (kill-buffer buf))))
   (let ((buffer (alist-get app lispm-desktop-app-ui--buffers))
         (skin (lispm-desktop-app-ui--app-skin app)))
     (cond ((and (buffer-live-p buffer) (plist-get skin :restore))

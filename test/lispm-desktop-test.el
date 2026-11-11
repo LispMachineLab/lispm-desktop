@@ -350,7 +350,7 @@ page, while LispM is set up, says so and what was chosen."
          (page (lispm-desktop-assistant--page (nth 1 questions) 1 2))
          (svg (lispm-desktop-assistant-draw palette 1000 600 page 0 nil))
          (texts (mapcar #'dom-text (dom-by-tag svg 'text))))
-    (dolist (text '("Welcome to LispM" "Which system do you know?" "Open Genera" "Mac OS 9" "Windows 3.1"
+    (dolist (text '("Welcome to LispM" "Which system do you know?" "Classic Lisp Machine" "Classic Mac OS" "Classic Win32"
                     "G" "M" "W" "Step 2 of 2" "Go Back"))
       (should (member text texts)))
     (should (seq-find (lambda (text) (string-prefix-p "Press G or M or W" text)) texts))
@@ -366,8 +366,8 @@ page, while LispM is set up, says so and what was chosen."
       ;; svg.el writes characters past ASCII as references: … is &#8230;.
       (should (seq-find (lambda (text) (string-prefix-p "Setting LispM up" text)) texts))
       (should (seq-find (lambda (text) (string-prefix-p "Installing" text)) texts))
-      (should (seq-find (lambda (text) (string-search "Vim keys, Windows 3.1." text)) texts)))
-    (should (string-search "Emacs keys, Open Genera for now"
+      (should (seq-find (lambda (text) (string-search "Vim keys, Classic Win32." text)) texts)))
+    (should (string-search "Emacs keys, Classic Lisp Machine for now"
                            (plist-get (lispm-desktop-assistant--done-page questions nil) :detail)))))
 
 (ert-deftest lispm-desktop-test-assistant-package-message-cleanup ()
@@ -9931,19 +9931,40 @@ point after a line of its grid."
     (should-not auto-hscroll-mode)))
 
 (ert-deftest lispm-desktop-test-app-window-close-box ()
-  "The close box of an application's window closes the application's
-floating window even when several panes share its frame."
+  "The close box of an application's window returns a non-default buffer
+to the application's default buffer, and closes the floating window when
+already on the default buffer."
   (let ((closed nil))
-    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (id) (setq closed id))))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (id) (setq closed id)))
+              ((symbol-function 'lispm-desktop-platinum-confirm-close) (lambda (_buf) t)))
       (save-window-excursion
         (delete-other-windows)
-        (let ((frame (selected-frame)))
+        (let ((frame (selected-frame))
+              (lispm-desktop-apps '((elfeed :mode elfeed-search-mode)))
+              (default-buf (get-buffer-create " *test-elfeed-default*"))
+              (sub-buf (get-buffer-create " *test-elfeed-entry*")))
           (set-frame-parameter frame 'lispm-desktop-window-kind 'elfeed)
+          (set-frame-parameter frame 'lispm-desktop-app-window 'elfeed)
           (unwind-protect
-              (let ((other (split-window)))
-                (lispm-desktop-app-window-close-box other)
+              (progn
+                (with-current-buffer default-buf
+                  (setq major-mode 'elfeed-search-mode
+                        lispm-desktop-app-ui--app 'elfeed))
+                (with-current-buffer sub-buf
+                  (setq major-mode 'elfeed-show-mode
+                        lispm-desktop-app-ui--app 'elfeed))
+                (set-window-buffer (selected-window) sub-buf)
+                ;; First close on non-default buffer returns to default buffer without closing frame.
+                (lispm-desktop-app-window-close-box (selected-window))
+                (should-not closed)
+                (should (eq (window-buffer (selected-window)) default-buf))
+                ;; Second close when already on default buffer closes the application frame.
+                (lispm-desktop-app-window-close-box (selected-window))
                 (should (eq closed 'elfeed)))
-            (set-frame-parameter frame 'lispm-desktop-window-kind nil)))))))
+            (set-frame-parameter frame 'lispm-desktop-window-kind nil)
+            (set-frame-parameter frame 'lispm-desktop-app-window nil)
+            (when (buffer-live-p default-buf) (kill-buffer default-buf))
+            (when (buffer-live-p sub-buf) (kill-buffer sub-buf))))))))
 
 (defmacro lispm-desktop-test--with-window-kinds (frames &rest body)
   "Run BODY among the fake FRAMES, as `lispm-desktop-test--with-frames' does,
@@ -19506,20 +19527,32 @@ registries (`lispm-desktop-apps', `lispm-desktop-items',
       (should (string-search "[Kill]" left)))
     (let ((lispm-desktop-look 'platinum))
       (should (equal (string-trim (lispm-desktop-platinum-mode-line-left)) ""))))
-  ;; `lispm-desktop-genera-kill-window' closes the floating Emacs editor frame
-  ;; even when invoked from inside its `*GNU Emacs*' main pane.
-  (let ((editor-closed nil)
+  ;; `lispm-desktop-genera-bury-window' preserves state via `lispm-desktop-editor-close',
+  ;; whereas `lispm-desktop-genera-kill-window' destroys state via `lispm-desktop-editor-kill'
+  ;; and `lispm-desktop-app-window-kill'.
+  (let ((editor-buried nil)
+        (editor-killed nil)
         (lispm-desktop-editor--frame (selected-frame)))
     (cl-letf (((symbol-function 'lispm-desktop-editor-close)
-               (lambda () (setq editor-closed t)))
+               (lambda () (setq editor-buried t)))
+              ((symbol-function 'lispm-desktop-editor-kill)
+               (lambda () (setq editor-killed t)))
               ((symbol-function 'lispm-desktop-platinum-main-windows)
-               (lambda (&optional _frame) (list (selected-window))))
-              ((symbol-function 'lispm-desktop-platinum-confirm-close)
-               (lambda (_buf) t)))
-      (with-current-buffer (get-buffer-create "*GNU Emacs*")
-        (set-window-buffer (selected-window) (current-buffer))
-        (lispm-desktop-genera-kill-window (selected-window))
-        (should editor-closed)))))
+               (lambda (&optional _frame) (list (selected-window)))))
+      (lispm-desktop-genera-bury-window (selected-window))
+      (should editor-buried)
+      (should-not editor-killed)
+      (lispm-desktop-genera-kill-window (selected-window))
+      (should editor-killed)))
+  (let ((lispm-desktop-app-window--geometry '((guide 100 100 400 300)))
+        (lispm-desktop-app-ui--buffers (list (cons 'guide (get-buffer-create " *test-guide-buf*"))))
+        (lispm-desktop-guide--index 4))
+    (cl-letf (((symbol-function 'lispm-desktop-app-window-close) #'ignore))
+      (lispm-desktop-app-window-kill 'guide)
+      (should-not (assq 'guide lispm-desktop-app-window--geometry))
+      (should-not (assq 'guide lispm-desktop-app-ui--buffers))
+      (should (= lispm-desktop-guide--index 0))
+      (should-not (get-buffer " *test-guide-buf*")))))
 
 (ert-deftest lispm-desktop-test-declarative-system-theme-and-look-config ()
   "Each system theme (`lispm-desktop-define-theme') and look
@@ -19598,6 +19631,79 @@ behavioral policies without writing any `cl-defmethod' or modifying consumers."
       (should (eq bg-dbl-called 'dbl-ev))
       (lispm-desktop-background-open)
       (should bg-open-called))))
+
+(ert-deftest lispm-desktop-test-unified-welcome-page-svg-tui-and-focus-mode ()
+  "The unified LispM Desktop welcome page renders LispM's rainbow lambda logo
+and `LispM Desktop™' header across GUI (SVG), TUI, and Focus Mode
+\(`lispm-terminal-mode'), and `lispm-desktop-editor-splash-buffer' uses
+`lispm-desktop-editor-splash-mode'."
+  ;; 1. SVG unified welcome page includes LispM lambda PNG URI and `LispM Desktop™',
+  ;;    plus interactive hit rectangles on both full screens and narrow split panes.
+  (let* ((lispm-desktop-genera--welcome-hits nil)
+         (svg (lispm-desktop-genera-welcome-svg 960 640 t 'file)))
+    (should (string-search "LispM Desktop™" svg))
+    (should-not (string-search "LispM Desktop™  ·  GNU Emacs" svg))
+    (should (string-search "Dynamic Lisp Listener 1" svg))
+    (should (or (string-search "data:image/png;base64," svg)
+                (string-search "λ" svg)))
+    (should (>= (length lispm-desktop-genera--welcome-hits) 5))
+    (should (eq (caar lispm-desktop-genera--welcome-hits) 'file)))
+  (let* ((lispm-desktop-genera--welcome-hits nil)
+         (narrow-svg (lispm-desktop-genera-welcome-svg 440 360 t 'file)))
+    (should (string-search "LispM Desktop™" narrow-svg))
+    (should (>= (length lispm-desktop-genera--welcome-hits) 5))
+    (should (assq 'guide lispm-desktop-genera--welcome-hits)))
+  ;; 2. `lispm-ui-file-dialog--key' ignores non-key area symbols from `lispm-ui-modal-areas'.
+  (dolist (area lispm-ui-modal-areas)
+    (should (eq (lispm-ui-file-dialog--key nil area) 'ignore)))
+  ;; 3. TUI unified welcome page and Genera text-desktop render the LispM logo and action buttons.
+  (let ((tui (lispm-desktop-genera-welcome-text 100 32 'file))
+        (genera-tui (let ((lispm-desktop-look 'genera))
+                      (lispm-desktop--text-desktop 100 32))))
+    (should (string-search "LispM Desktop™" tui))
+    (should-not (string-search "LispM Desktop™  ·  GNU Emacs" tui))
+    (should (string-search "New File…" tui))
+    (should (string-search "LispM Desktop™" genera-tui)))
+  ;; 3. Focus Mode toggles the action button between Focus Mode (C-c T) and Leave Focus Mode (C-c C-q),
+  ;;    and `lispm-desktop-editor--astray-p' never hijacks Focus Mode (`lispm-terminal-mode').
+  (cl-letf (((symbol-function 'lispm-desktop-lispm-terminal-available-p) #'always))
+    (let ((lispm-terminal-mode nil))
+      (should (equal (cdr (assq 'focus (lispm-desktop-genera-welcome-actions)))
+                     '("Focus Mode" lispm-desktop-apps-focus-mode "C-c T"))))
+    (let ((lispm-terminal-mode t))
+      (should (equal (cdr (assq 'focus (lispm-desktop-genera-welcome-actions)))
+                     '("Leave Focus Mode" lispm-terminal-quit "C-c C-q")))
+      (should-not (lispm-desktop-editor--astray-p "*scratch*" nil))))
+  ;; 4. `*GNU Emacs*' splash buffer uses `lispm-desktop-editor-splash-mode' and renders the unified page.
+  (when (get-buffer "*GNU Emacs*")
+    (kill-buffer "*GNU Emacs*"))
+  (let ((buf (lispm-desktop-editor-splash-buffer)))
+    (with-current-buffer buf
+      (should (eq major-mode 'lispm-desktop-editor-splash-mode))
+      (should (> (buffer-size) 0))))
+  ;; 5. Interactive `Command: █' typing, backspace, completion, and evaluation on `Dynamic Lisp Listener 1'.
+  (let ((lispm-desktop-genera--listener-input "")
+        (lispm-desktop-genera--listener-output "Ready.")
+        (lispm-desktop-genera--listener-history nil)
+        (lispm-desktop-genera--listener-history-index nil))
+    (dolist (ch (string-to-list "(+ 20 22)"))
+      (let ((last-command-event ch))
+        (lispm-desktop-genera-listener-self-insert)))
+    (should (equal lispm-desktop-genera--listener-input "(+ 20 22)"))
+    (let ((svg (lispm-desktop-genera-welcome-svg 800 600 nil)))
+      (should (string-search "Command: (+ 20 22)█" svg)))
+    (lispm-desktop-genera-listener-ret)
+    (should (equal lispm-desktop-genera--listener-input ""))
+    (should (equal lispm-desktop-genera--listener-output "(+ 20 22) => 42"))
+    (let ((svg (lispm-desktop-genera-welcome-svg 800 600 nil)))
+      (should (string-search "(+ 20 22) =&gt; 42" svg)))
+    (setq lispm-desktop-genera--listener-input "Help Com")
+    (lispm-desktop-genera-listener-complete)
+    (should (equal lispm-desktop-genera--listener-input "Help Commands"))
+    (lispm-desktop-genera-listener-backspace)
+    (should (equal lispm-desktop-genera--listener-input "Help Command"))
+    (lispm-desktop-genera-listener-ret)
+    (should (string-prefix-p "Commands:" lispm-desktop-genera--listener-output))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

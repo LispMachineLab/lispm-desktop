@@ -305,39 +305,99 @@ this, see `lispm-desktop-make-alias'."
   "Face of a selected desktop icon's name: inverted, as Mac OS 9's was."
   :group 'lispm-desktop-platinum)
 
-(defvar-keymap lispm-desktop-mode-map
-  :doc "Keymap of the desktop."
-  "<down-mouse-1>" #'lispm-desktop-mouse-select
-  "<mouse-1>" #'ignore
-  "<double-down-mouse-1>" #'ignore
-  "<double-mouse-1>" #'lispm-desktop-mouse-open
-  "<drag-mouse-1>" #'ignore
-  "<down-mouse-3>" #'lispm-desktop-context-menu
-  "<mouse-3>" #'ignore
-  "<down>" #'lispm-desktop-select-next
-  "<right>" #'lispm-desktop-select-next
-  "C-n" #'lispm-desktop-select-next
-  "C-f" #'lispm-desktop-select-next
-  "TAB" #'lispm-desktop-select-next
-  "<up>" #'lispm-desktop-select-previous
-  "<left>" #'lispm-desktop-select-previous
-  "C-p" #'lispm-desktop-select-previous
-  "C-b" #'lispm-desktop-select-previous
-  "<backtab>" #'lispm-desktop-select-previous
-  "RET" #'lispm-desktop-open
-  "M-o" #'lispm-desktop-open
-  "M-<down>" #'lispm-desktop-open
-  "<escape>" #'lispm-desktop-deselect
-  "C-g" #'lispm-desktop-deselect
-  "M-DEL" #'lispm-desktop-remove-from-desktop
-  "M-<backspace>" #'lispm-desktop-remove-from-desktop
-  ;; The icon selected moves with Meta added to the keys moving the
-  ;; selection, as dragging it would.
-  "C-M-f" #'lispm-desktop-move-icon-right
-  "C-M-b" #'lispm-desktop-move-icon-left
-  "C-M-n" #'lispm-desktop-move-icon-down
-  "C-M-p" #'lispm-desktop-move-icon-up
-  "q" #'ignore)
+(declare-function lispm-desktop-genera-listener-self-insert "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-backspace "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-kill-input "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-abort "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-yank "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-complete "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-history-previous "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-history-next "lispm-desktop-genera" ())
+
+(defun lispm-desktop-self-insert ()
+  "Type into `Dynamic Lisp Listener 1' when the desktop has no icons."
+  (interactive)
+  (when (and (null (lispm-desktop-icon-side))
+             (fboundp 'lispm-desktop-genera-listener-self-insert))
+    (call-interactively #'lispm-desktop-genera-listener-self-insert)))
+
+(defun lispm-desktop-backspace ()
+  "Delete a character in `Dynamic Lisp Listener 1' when the desktop has no icons."
+  (interactive)
+  (when (and (null (lispm-desktop-icon-side))
+             (fboundp 'lispm-desktop-genera-listener-backspace))
+    (call-interactively #'lispm-desktop-genera-listener-backspace)))
+
+(defun lispm-desktop-kill-input ()
+  "Clear the input line in `Dynamic Lisp Listener 1' when the desktop has no icons."
+  (interactive)
+  (when (and (null (lispm-desktop-icon-side))
+             (fboundp 'lispm-desktop-genera-listener-kill-input))
+    (call-interactively #'lispm-desktop-genera-listener-kill-input)))
+
+(defun lispm-desktop-yank ()
+  "Yank text into `Dynamic Lisp Listener 1' when the desktop has no icons."
+  (interactive)
+  (when (and (null (lispm-desktop-icon-side))
+             (fboundp 'lispm-desktop-genera-listener-yank))
+    (call-interactively #'lispm-desktop-genera-listener-yank)))
+
+(defun lispm-desktop-tab ()
+  "Select the next desktop icon, or complete in `Dynamic Lisp Listener 1'."
+  (interactive)
+  (if (lispm-desktop-icon-side)
+      (lispm-desktop-select-next)
+    (when (fboundp 'lispm-desktop-genera-listener-complete)
+      (call-interactively #'lispm-desktop-genera-listener-complete))))
+
+(defvar lispm-desktop-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)
+    (keymap-set map "<remap> <self-insert-command>" #'lispm-desktop-self-insert)
+    (cl-loop for ch from 32 to 126 do
+             (define-key map (vector ch) #'lispm-desktop-self-insert))
+    (keymap-set map "DEL" #'lispm-desktop-backspace)
+    (keymap-set map "<backspace>" #'lispm-desktop-backspace)
+    (keymap-set map "C-u" #'lispm-desktop-kill-input)
+    (keymap-set map "C-k" #'lispm-desktop-kill-input)
+    (keymap-set map "C-y" #'lispm-desktop-yank)
+    (keymap-set map "s-v" #'lispm-desktop-yank)
+    (keymap-set map "M-p" #'lispm-desktop-select-previous)
+    (keymap-set map "M-n" #'lispm-desktop-select-next)
+    (keymap-set map "<down-mouse-1>" #'lispm-desktop-mouse-select)
+    (keymap-set map "<mouse-1>" #'ignore)
+    (keymap-set map "<double-down-mouse-1>" #'ignore)
+    (keymap-set map "<double-mouse-1>" #'lispm-desktop-mouse-open)
+    (keymap-set map "<drag-mouse-1>" #'ignore)
+    (keymap-set map "<down-mouse-3>" #'lispm-desktop-context-menu)
+    (keymap-set map "<mouse-3>" #'ignore)
+    (keymap-set map "<down>" #'lispm-desktop-select-next)
+    (keymap-set map "<right>" #'lispm-desktop-select-next)
+    (keymap-set map "C-n" #'lispm-desktop-select-next)
+    (keymap-set map "C-f" #'lispm-desktop-select-next)
+    (keymap-set map "TAB" #'lispm-desktop-tab)
+    (keymap-set map "<tab>" #'lispm-desktop-tab)
+    (keymap-set map "<up>" #'lispm-desktop-select-previous)
+    (keymap-set map "<left>" #'lispm-desktop-select-previous)
+    (keymap-set map "C-p" #'lispm-desktop-select-previous)
+    (keymap-set map "C-b" #'lispm-desktop-select-previous)
+    (keymap-set map "<backtab>" #'lispm-desktop-select-previous)
+    (keymap-set map "RET" #'lispm-desktop-open)
+    (keymap-set map "<return>" #'lispm-desktop-open)
+    (keymap-set map "M-o" #'lispm-desktop-open)
+    (keymap-set map "M-<down>" #'lispm-desktop-open)
+    (keymap-set map "<escape>" #'lispm-desktop-deselect)
+    (keymap-set map "C-g" #'lispm-desktop-deselect)
+    (keymap-set map "M-DEL" #'lispm-desktop-remove-from-desktop)
+    (keymap-set map "M-<backspace>" #'lispm-desktop-remove-from-desktop)
+    ;; The icon selected moves with Meta added to the keys moving the
+    ;; selection, as dragging it would.
+    (keymap-set map "C-M-f" #'lispm-desktop-move-icon-right)
+    (keymap-set map "C-M-b" #'lispm-desktop-move-icon-left)
+    (keymap-set map "C-M-n" #'lispm-desktop-move-icon-down)
+    (keymap-set map "C-M-p" #'lispm-desktop-move-icon-up)
+    map)
+  "Keymap of the desktop.")
 
 (defun lispm-desktop--hex-color (color)
   "Return COLOR, any colour Emacs takes, written #RRGGBB, or nil if it is none.
@@ -380,35 +440,39 @@ another.")
 The value is (ATTRIBUTES . CONTENT): what its root element declares that
 its content needs (its view box, namespaces, rendering) and the content."
   (let ((file (lispm-ui-icon-file name)))
-    (or (gethash (cons file selected) lispm-desktop--svg-icons)
-        (puthash
-         (cons file selected)
-         (let* ((text (with-temp-buffer
-                        (insert-file-contents file)
-                        (buffer-string)))
-                (text (if selected (lispm-desktop--darken text) text))
-                (start (string-match "<svg\\b[^>]*>" text))
-                (root (match-string 0 text))
-                (end (string-match "</svg>[[:space:]]*\\'" text))
-                (box (if (string-match "viewBox=\"\\([^\"]*\\)\"" root)
-                         (match-string 1 root)
-                       (format "0 0 %s %s"
-                               (if (string-match "width=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)
-                               (if (string-match "height=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)))))
-           (cons (concat (format "viewBox=\"%s\"" box)
-                         (let ((pos 0) (kept ""))
-                           (while (string-match "\\(xmlns:[A-Za-z]+\\|shape-rendering\\)=\"[^\"]*\"" root pos)
-                             (setq kept (concat kept " " (match-string 0 root))
-                                   pos (match-end 0)))
-                           kept))
-                 (substring text (+ start (length root)) end)))
-         lispm-desktop--svg-icons))))
+    (if (not (and (stringp file) (file-readable-p file)))
+        (cons "viewBox=\"0 0 32 32\"" "")
+      (or (gethash (cons file selected) lispm-desktop--svg-icons)
+          (puthash
+           (cons file selected)
+           (let* ((text (with-temp-buffer
+                          (insert-file-contents file)
+                          (buffer-string)))
+                  (text (if selected (lispm-desktop--darken text) text))
+                  (start (string-match "<svg\\b[^>]*>" text))
+                  (root (match-string 0 text))
+                  (end (string-match "</svg>[[:space:]]*\\'" text))
+                  (box (if (string-match "viewBox=\"\\([^\"]*\\)\"" root)
+                           (match-string 1 root)
+                         (format "0 0 %s %s"
+                                 (if (string-match "width=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)
+                                 (if (string-match "height=\"\\([0-9.]+\\)" root) (match-string 1 root) 32)))))
+             (cons (concat (format "viewBox=\"%s\"" box)
+                           (let ((pos 0) (kept ""))
+                             (while (string-match "\\(xmlns:[A-Za-z]+\\|shape-rendering\\)=\"[^\"]*\"" root pos)
+                               (setq kept (concat kept " " (match-string 0 root))
+                                     pos (match-end 0)))
+                             kept))
+                   (substring text (+ start (length root)) end)))
+           lispm-desktop--svg-icons)))))
 
-(defun lispm-desktop--nest (name selected x y)
-  "Return icon NAME, darkened when SELECTED, as SVG standing at X, Y."
-  (pcase-let ((`(,attributes . ,content) (lispm-desktop--icon-parts name selected)))
-    (format "<svg x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" %s>%s</svg>"
-            x y lispm-desktop-icon-size lispm-desktop-icon-size attributes content)))
+(defun lispm-desktop--nest (name selected x y &optional size)
+  "Return icon NAME, darkened when SELECTED, as SVG standing at X, Y.
+SIZE defaults to `lispm-desktop-icon-size'."
+  (let ((s (or size lispm-desktop-icon-size)))
+    (pcase-let ((`(,attributes . ,content) (lispm-desktop--icon-parts name selected)))
+      (format "<svg x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" %s>%s</svg>"
+              x y s s attributes content))))
 
 (defvar-local lispm-desktop--selected nil
   "Key of the selected desktop icon, or nil.")
@@ -855,7 +919,7 @@ the desktop between them."
 of the icons' own sizes, so that none smears; smaller, they could no
 longer be told apart.")
 
-(defun lispm-desktop--text-desktop (width height &optional image)
+(cl-defgeneric lispm-desktop--text-desktop (width height &optional image)
   "Return the desktop as text WIDTH cells by HEIGHT lines, where images
 cannot be shown, as on a text terminal.  Its icons are drawn in block
 characters, see `lispm-ui-icon-picture', each over
@@ -1446,7 +1510,10 @@ desktop in front."
   (interactive)
   (setq lispm-desktop-finder--had-focus nil)
   (lispm-desktop-apps-set-frontmost 'desktop)
-  (lispm-desktop--select nil))
+  (lispm-desktop--select nil)
+  (when (and (null (lispm-desktop-icon-side))
+             (fboundp 'lispm-desktop-genera-listener-abort))
+    (call-interactively #'lispm-desktop-genera-listener-abort)))
 
 (cl-defgeneric lispm-desktop-background-open ()
   "Act on pressing Open (Return) on the bare desktop with no icon selected,
@@ -1469,11 +1536,16 @@ configured by `:background-open' in `lispm-ui-look-define'."
 
 (defun lispm-desktop--step (direction)
   "Select the icon DIRECTION (1 or -1) from the selected one, wrapping around."
-  (when (lispm-desktop-icon-side)
-    (let* ((keys (mapcar #'car (lispm-desktop--items)))
-           (index (seq-position keys lispm-desktop--selected)))
-      (when keys
-        (lispm-desktop--select (nth (lispm-ui-modal-cycle index direction (length keys)) keys))))))
+  (if (lispm-desktop-icon-side)
+      (let* ((keys (mapcar #'car (lispm-desktop--items)))
+             (index (seq-position keys lispm-desktop--selected)))
+        (when keys
+          (lispm-desktop--select (nth (lispm-ui-modal-cycle index direction (length keys)) keys))))
+    (if (> direction 0)
+        (when (fboundp 'lispm-desktop-genera-listener-history-next)
+          (call-interactively #'lispm-desktop-genera-listener-history-next))
+      (when (fboundp 'lispm-desktop-genera-listener-history-previous)
+        (call-interactively #'lispm-desktop-genera-listener-history-previous)))))
 
 (defun lispm-desktop-select-next ()
   "Select the next desktop icon down."
