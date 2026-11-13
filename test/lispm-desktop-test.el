@@ -19705,6 +19705,86 @@ and `LispM Desktop™' header across GUI (SVG), TUI, and Focus Mode
     (lispm-desktop-genera-listener-ret)
     (should (string-prefix-p "Commands:" lispm-desktop-genera--listener-output))))
 
+(ert-deftest lispm-desktop-test-genera-and-looks-preserve-nerd-icon-font-in-controls ()
+  "Claude and Codex Nerd Font icons (`nf-cod-claude', `nf-cod-openai') keep
+their `Symbols Nerd Font Mono' `:family' across `genera' and all other looks
+in SVG bevel buttons, menus, and tabs, while `genera' renders them in 1-bit
+monochrome ink (`#000000' normally, `#FFFFFF' inverted when pressed/front)."
+  (require 'lispm-agents-claude)
+  (require 'lispm-agents-codex)
+  (pcase-let ((`(,claude-btn . ,codex-btn)
+               (let ((had (featurep 'nerd-icons))
+                     (lispm-agents-defined (copy-tree lispm-agents-defined))
+                     (lispm-agents-key-maps nil))
+                 (lispm-agents-setup-claude)
+                 (lispm-agents-setup-codex)
+                 (provide 'nerd-icons)
+                 (unwind-protect
+                     (cl-letf (((symbol-function 'display-graphic-p) #'always)
+                               ((symbol-function 'nerd-icons-codicon)
+                                (lambda (name)
+                                  (propertize (if (equal name "nf-cod-claude")
+                                                  (string #xec82)
+                                                (string #xec81))
+                                              'face '(:family "Symbols Nerd Font Mono" :height 1.0)))))
+                       (cons (concat (lispm-agents-icon 'claude) "+")
+                             (concat (lispm-agents-icon 'codex) "+")))
+                   (unless had
+                     (setq features (delq 'nerd-icons features))))))
+              (claude-ref "&#60546;")
+              (codex-ref "&#60545;"))
+    (cl-flet ((icon-text-node (svg ref)
+                (seq-find (lambda (node) (equal (dom-text node) ref))
+                          (dom-by-tag svg 'text))))
+      ;; 1. Every look and state preserves `Symbols Nerd Font Mono' on `[claude+]' and `[codex+]'.
+      (dolist (look '(platinum win3 genera os2 phosphor neon))
+        (let* ((lispm-desktop-look look)
+               (palette (lispm-desktop-test--theme-palette (lispm-ui-look-get :theme look))))
+          (dolist (state '(nil pressed disabled))
+            (dolist (pair (list (cons claude-btn claude-ref)
+                                (cons codex-btn codex-ref)))
+              (let ((svg (svg-create 40 20)))
+                (lispm-ui-svg-bevel-button svg 0 0 palette 40 20
+                                           :state state :label (car pair))
+                (let ((node (icon-text-node svg (cdr pair))))
+                  (should node)
+                  (should (string-search "Symbols Nerd Font Mono"
+                                         (or (dom-attr node 'font-family) "")))))))))
+      ;; 2. `genera' renders Claude and Codex icons in 1-bit monochrome (#000000 / #FFFFFF)
+      ;;    in bevel buttons, menus, and tabs, without losing `Symbols Nerd Font Mono'.
+      (let* ((lispm-desktop-look 'genera)
+             (palette (lispm-desktop-test--theme-palette 'genera)))
+        (dolist (pair (list (cons claude-btn claude-ref)
+                            (cons codex-btn codex-ref)))
+          (let ((unpressed (svg-create 40 20))
+                (pressed (svg-create 40 20)))
+            (lispm-ui-svg-bevel-button unpressed 0 0 palette 40 20 :label (car pair))
+            (lispm-ui-svg-bevel-button pressed 0 0 palette 40 20
+                                       :state 'pressed :label (car pair))
+            (should (equal (dom-attr (icon-text-node unpressed (cdr pair)) 'fill) "#000000"))
+            (should (equal (dom-attr (icon-text-node pressed (cdr pair)) 'fill) "#FFFFFF")))
+          (let* ((menu (lispm-ui-draw-menu palette (list (list :label (car pair) :action #'ignore))
+                                           120 nil))
+                 (menu-lit (lispm-ui-draw-menu palette (list (list :label (car pair) :action #'ignore))
+                                               120 0))
+                 (tab-back (lispm-desktop-platinum-draw-tab palette (car pair) 60))
+                 (tab-front (lispm-desktop-platinum-draw-tab palette (car pair) 60 :front t)))
+            (dolist (entry (list (cons menu "#000000")
+                                 (cons menu-lit "#FFFFFF")
+                                 (cons tab-back "#000000")
+                                 (cons tab-front "#FFFFFF")))
+              (let ((node (icon-text-node (car entry) (cdr pair))))
+                (should node)
+                (should (string-search "Symbols Nerd Font Mono"
+                                       (or (dom-attr node 'font-family) "")))
+                (should (equal (dom-attr node 'fill) (cdr entry)))))))
+        ;; 3. Tab truncation (`lispm-desktop-platinum--fit-tabs') preserves Nerd Font faces.
+        (let* ((long (concat claude-btn " " (make-string 80 ?a)))
+               (fitted (car (lispm-desktop-platinum--fit-tabs (list long) 64 'lispm-ui-title))))
+          (should (string-suffix-p "…" fitted))
+          (should (string-search "Symbols Nerd Font Mono"
+                                 (format "%S" (get-text-property 0 'face fitted)))))))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

@@ -113,6 +113,12 @@
 
 ;;;; Paper-white bold-italic pane headers and Pane Command Menu
 
+(defun lispm-desktop-genera--ink-label (label ink)
+  "Return LABEL coloured in INK, keeping its own faces under it."
+  (let ((copy (copy-sequence label)))
+    (add-face-text-property 0 (length copy) `(:foreground ,ink) nil copy)
+    copy))
+
 (defun lispm-desktop-genera-draw-caption (palette width &optional active label label-x)
   "Return an SVG of a Genera Dynamic Windows pane header WIDTH pixels wide.
 Panes wear a crisp paper-white header with bold-italic black text when
@@ -488,7 +494,7 @@ the highlighted row inverted in solid black."
                              (t muted)))
                   (face (lispm-ui-menu--face (or lit enabled)))
                   (key (and (not (plist-get item :submenu)) (lispm-ui-menu--key item)))
-                  (label (propertize (plist-get item :label) 'face `(:foreground ,ink))))
+                  (label (lispm-desktop-genera--ink-label (plist-get item :label) ink)))
              (when lit
                (lispm-ui-svg-paint svg inset top (- width inset inset) h outline))
              (when (plist-get item :checked)
@@ -631,7 +637,7 @@ inverted in solid black when STATE is `pressed'."
       (lispm-ui-svg-paint svg (+ x width -1) (1+ y) 1 (1- height) outline))
     (when label
       (lispm-ui-svg-content
-       svg (propertize label 'face `(:foreground ,fg))
+       svg (lispm-desktop-genera--ink-label label fg)
        (+ x (/ (- width (lispm-ui-text-width label face)) 2)) y height
        fg face))))
 
@@ -754,7 +760,7 @@ black when in FRONT, paper white outlined in black when behind."
     (lispm-ui-svg-paint svg 1 1 (- w 2) h bg)
     (lispm-ui-svg-outline svg 1 1 (- w 2) (1+ h) outline)
     (lispm-ui-svg-content
-     svg (propertize label 'face `(:foreground ,fg))
+     svg (lispm-desktop-genera--ink-label label fg)
      (/ (- w (lispm-ui-text-width label face)) 2) 1 h fg face)
     svg))
 

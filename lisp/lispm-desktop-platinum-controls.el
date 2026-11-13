@@ -616,7 +616,9 @@ fits, or where no tab could be narrower than 48 pixels."
       (seq-mapn (lambda (label w)
                   (if (<= w cap)
                       label
-                    (lispm-desktop-platinum-fit (propertize label 'face face) (- cap padding))))
+                    (let ((copy (copy-sequence label)))
+                      (add-face-text-property 0 (length copy) face t copy)
+                      (lispm-desktop-platinum-fit copy (- cap padding)))))
                 labels widths))))
 
 (defconst lispm-desktop-platinum--tab-close-gap 4
