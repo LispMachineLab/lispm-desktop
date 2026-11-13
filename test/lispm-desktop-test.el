@@ -20103,22 +20103,20 @@ empty Return behavior at `Command: █', and AI scenario introspection."
       (should (equal lispm-desktop-genera--listener-working-text "n"))
       (should-not ns-working-overlay)
       ;; 2. Keystroke 2 (`ni'): `setMarkedText:' sets `ns-working-text' to "ni"
-      ;;    and queues `[ns-unput-working-text]' then `[ns-put-working-text]'.
-      ;;    `ns-unput-working-text' must preserve `ns-working-text' ("ni")!
+      ;;    and queues `[ns-put-working-text]', updating inline preedit text.
       (setq ns-working-text "ni")
-      (lispm-desktop-genera--ns-unput-working-text
-       (lambda () (setq ns-working-text nil)))
-      (should (equal ns-working-text "ni"))
       (lispm-desktop-genera--ns-put-working-text #'ignore)
       (should (equal lispm-desktop-genera--listener-working-text "ni"))
       (should-not ns-working-overlay)
       (let ((svg (lispm-desktop-genera-welcome-svg 800 600 nil)))
         (should (string-search "<tspan text-decoration=\"underline\">ni</tspan>█" svg)))
-      ;; 3. Commit Chinese characters `你好': `[ns-unput-working-text]' with
-      ;;    `ns-working-text' = nil clears working text, and `self-insert' appends.
-      (setq ns-working-text nil)
+      ;; 3. Deleting last preedit char (`setMarkedText:""' -> `deleteWorkingText')
+      ;;    or committing Chinese characters `你好': `[ns-unput-working-text]' runs
+      ;;    even though C `deleteWorkingText' left `ns-working-text' as "ni", and
+      ;;    must clear `lispm-desktop-genera--listener-working-text' immediately.
       (lispm-desktop-genera--ns-unput-working-text #'ignore)
       (should-not lispm-desktop-genera--listener-working-text)
+      (should-not ns-working-text)
       (let ((last-command-event ?你))
         (lispm-desktop-genera-listener-self-insert))
       (let ((last-command-event ?好))

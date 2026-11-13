@@ -2000,29 +2000,19 @@ falling back to ORIG-FN with ARGS on regular text buffers."
 
 (defun lispm-desktop-genera--ns-unput-working-text (orig-fn &rest args)
   "Clean up macOS IME preedit text on `Dynamic Lisp Listener 1'.
-Preserve replacement `ns-working-text' queued by `setMarkedText:',
+Clear `lispm-desktop-genera--listener-working-text' and `ns-working-overlay',
 or call ORIG-FN with ARGS on regular text buffers."
-  (let ((next-text (and (boundp 'ns-working-text)
-                        (stringp ns-working-text)
-                        (not (string-empty-p ns-working-text))
-                        ns-working-text)))
-    (if (or (lispm-desktop-genera--listener-surface-p)
-            lispm-desktop-genera--listener-working-text)
-        (progn
-          (lispm-desktop-genera--clear-ns-working-overlay)
-          (if next-text
-              ;; `setMarkedText:' queued `[ns-unput-working-text]' followed
-              ;; immediately by `[ns-put-working-text]' with `next-text'.
-              (setq ns-working-text next-text)
-            (setq ns-working-text nil)
-            (when lispm-desktop-genera--listener-working-text
-              (setq lispm-desktop-genera--listener-working-text nil)
-              (if (input-pending-p)
-                  (run-at-time 0 nil #'lispm-desktop-genera--refresh-listener)
-                (lispm-desktop-genera--refresh-listener)))))
-      (apply orig-fn args)
-      (when next-text
-        (setq ns-working-text next-text)))))
+  (if (or (lispm-desktop-genera--listener-surface-p)
+          lispm-desktop-genera--listener-working-text)
+      (progn
+        (lispm-desktop-genera--clear-ns-working-overlay)
+        (setq ns-working-text nil)
+        (when lispm-desktop-genera--listener-working-text
+          (setq lispm-desktop-genera--listener-working-text nil)
+          (if (input-pending-p)
+              (run-at-time 0 nil #'lispm-desktop-genera--refresh-listener)
+            (lispm-desktop-genera--refresh-listener))))
+    (apply orig-fn args)))
 
 (when (fboundp 'ns-put-working-text)
   (advice-add 'ns-put-working-text :around #'lispm-desktop-genera--ns-put-working-text))
