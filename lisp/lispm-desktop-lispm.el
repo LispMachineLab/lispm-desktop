@@ -477,7 +477,9 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
          (rolled (and (lispm-desktop-app-window-rolled-p frame) ", rolled up"))
          (finder-detail
           (when (eq id 'finder)
-            (when-let* ((buf (get-buffer " *LispM Finder*"))
+            (when-let* ((buf (or (and (frame-live-p frame)
+                                      (window-buffer (frame-selected-window frame)))
+                                 (get-buffer " *LispM Finder*")))
                         (dir (buffer-local-value 'lispm-desktop-finder--directory buf)))
               (cond
                ((stringp dir)
