@@ -191,6 +191,7 @@ a pure paper-white label bar with bold-italic text and no control buttons."
 (declare-function lispm-desktop-editor-activate "lispm-desktop-editor" ())
 (declare-function lispm-desktop-editor-close "lispm-desktop-editor" ())
 (declare-function lispm-desktop-editor-kill "lispm-desktop-editor" ())
+(declare-function lispm-desktop-browser-workspace-p "lispm-desktop-browser" ())
 (declare-function lispm-desktop-app-window-id "lispm-desktop-app-window" (frame))
 (declare-function lispm-desktop-app-window-kill "lispm-desktop-app-window" (id-or-frame))
 
@@ -208,11 +209,16 @@ its buffers, or bury the buffer of a split pane."
       (lispm-desktop-editor-close))
      ((and (frame-live-p frame)
            (frame-parameter frame 'lispm-desktop-window))
+      (set-frame-parameter frame 'lispm-desktop-buried t)
       (let ((next (lispm-desktop-apps-focus-after frame)))
         (lispm-desktop-platinum-hide-window frame)
         (unless (or next (lispm-desktop-apps-hidden-p))
           (when (fboundp 'lispm-desktop-activate)
             (lispm-desktop-activate)))))
+     ((and (fboundp 'lispm-desktop-browser-workspace-p)
+           (lispm-desktop-browser-workspace-p))
+      (when (fboundp 'lispm-desktop-activate)
+        (lispm-desktop-activate)))
      ((window-combined-p window)
       (with-selected-window window
         (bury-buffer))))))
@@ -246,6 +252,10 @@ residual state, or close a split pane."
                (not (lispm-desktop-app-window-id frame)))
           (lispm-desktop-platinum-close-window window)
         (lispm-desktop-app-window-kill (or (lispm-desktop-app-window-id frame) frame))))
+     ((and (fboundp 'lispm-desktop-browser-workspace-p)
+           (lispm-desktop-browser-workspace-p)
+           (fboundp 'lispm-desktop-app-window-kill))
+      (lispm-desktop-app-window-kill 'browser))
      (t
       (lispm-desktop-platinum-close-window window)))))
 

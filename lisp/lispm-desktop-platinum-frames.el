@@ -203,9 +203,17 @@ side by side on a window's bottom edge."
                                      " "
                                    (lispm-desktop-platinum-space (lispm-desktop-platinum--between-placards)))))
 
+(defvar lispm-desktop-platinum-active-function)
+
 (defvar lispm-desktop-platinum--left-width nil
   "The window whose bottom edge was drawn last and the width of its left,
 which its right, drawn next, fits beside.")
+
+(defun lispm-desktop-platinum--bottom-active-p ()
+  "Return non-nil when the window whose bottom edge is drawn is active."
+  (or (mode-line-window-selected-p)
+      (when-let* ((active lispm-desktop-platinum-active-function))
+        (funcall active (selected-window)))))
 
 (defun lispm-desktop-platinum-mode-line-left ()
   "The left of a window's bottom edge: the editing state, the document's
@@ -213,12 +221,14 @@ name where no title bar names it, and its placards, see
 `lispm-desktop-platinum-document-placards'.  The title bar's close box
 tells whether the document is saved.  A list window shows its
 `lispm-desktop-platinum-info' instead."
-  (let* ((active (mode-line-window-selected-p))
+  (let* ((active (lispm-desktop-platinum--bottom-active-p))
+         (chrome (window-parameter (selected-window) 'lispm-desktop-chrome))
          (strut (if (lispm-desktop-tty-p) 1 8))
          (placards
           (if lispm-desktop-platinum-info
               (append
-               (lispm-desktop-platinum-look-placards active)
+               (unless chrome
+                 (lispm-desktop-platinum-look-placards active))
                (mapcar (lambda (text) (lispm-desktop-platinum-placard text :active active))
                        (seq-remove (lambda (s) (or (not (stringp s)) (string-empty-p s)))
                                    (ensure-list (if (functionp lispm-desktop-platinum-info)
@@ -247,7 +257,7 @@ tells whether the document is saved.  A list window shows its
 see `lispm-desktop-platinum-fit-placards', and the grow box.  Only the
 active window shows the grow box, and only where the window can be
 resized; a side window cannot."
-  (let* ((active (mode-line-window-selected-p))
+  (let* ((active (lispm-desktop-platinum--bottom-active-p))
          (gap (lispm-desktop-platinum--between-placards))
          (left (if (eq (car lispm-desktop-platinum--left-width) (selected-window))
                    (cdr lispm-desktop-platinum--left-width)
@@ -260,7 +270,9 @@ resized; a side window cannot."
                    (- (window-pixel-width) left corner) gap))))
     (concat (lispm-desktop-platinum--placards parts)
             (propertize " " 'display `(space :width (,(lispm-desktop-px 6))))
-            (if (and active (not (window-parameter (selected-window) 'window-side)))
+            (if (and active
+                     (not (window-parameter (selected-window) 'window-side))
+                     (not (window-parameter (selected-window) 'lispm-desktop-chrome)))
                 (lispm-desktop-platinum--grow-box)
               (lispm-desktop-platinum-space (if (lispm-desktop-tty-p) 1 16)))
             (lispm-desktop-platinum-space (lispm-desktop-px 3)))))
@@ -404,6 +416,7 @@ Raised alone, a framed window would come up only within its frame."
 (defun lispm-desktop-platinum-show-window (frame)
   "Show floating window FRAME in its frame, framing it first when it is to
 be framed, see `lispm-desktop-platinum-frame-window'."
+  (set-frame-parameter frame 'lispm-desktop-buried nil)
   (lispm-desktop-platinum-frame-window frame)
   (let ((outer (lispm-desktop-platinum-window-outer frame)))
     (unless (eq outer frame)

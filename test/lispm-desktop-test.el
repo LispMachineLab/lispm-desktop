@@ -19785,6 +19785,131 @@ monochrome ink (`#000000' normally, `#FFFFFF' inverted when pressed/front)."
           (should (string-search "Symbols Nerd Font Mono"
                                  (format "%S" (get-text-property 0 'face fitted)))))))))
 
+(ert-deftest lispm-desktop-test-genera-browser-ui-bury-kill-and-xwidget-fit ()
+  "In the `genera' look, Browser fits its WebKit view inside the page window so
+the bottom `[Select]', `[Bury]' and `[Kill]' placards stay uncovered and lit
+with the Browser window, while `[Bury]', `[Kill]' and `Expand' preserve Genera
+Dynamic Windows semantics."
+  ;; 1. `lispm-desktop-browser--fit-window-xwidget' resizes `xwidget-webkit-mode'
+  ;;    views strictly to `window-inside-pixel-edges' and skips redundant resizes.
+  (with-temp-buffer
+    (save-window-excursion
+      (setq major-mode 'xwidget-webkit-mode)
+      (set-window-buffer (selected-window) (current-buffer))
+      (let ((resized nil)
+            (current-size '(917 . 528)))
+        (cl-letf (((symbol-function 'xwidget-at) (lambda (_pos) 'fake-xw))
+                  ((symbol-function 'xwidget-info)
+                   (lambda (_xw)
+                     (vector 'webkit "Test" (car current-size) (cdr current-size))))
+                  ((symbol-function 'window-inside-pixel-edges)
+                   (lambda (_win) '(8 154 911 538)))
+                  ((symbol-function 'xwidget-resize)
+                   (lambda (_xw w h)
+                     (setq current-size (cons w h))
+                     (push (cons w h) resized))))
+          (lispm-desktop-browser--fit-window-xwidget (selected-window))
+          (should (equal resized '((903 . 384))))
+          ;; Calling again with identical dimensions must be a no-op.
+          (lispm-desktop-browser--fit-window-xwidget (selected-window))
+          (should (equal resized '((903 . 384))))))))
+  ;; 2. Browser page window bottom edge renders `[Select]', `[Bury]', `[Kill]'
+  ;;    placards in `genera' look and stays active when ` *Browser Address*' is
+  ;;    focused, whereas narrow `lispm-desktop-chrome' panes omit look placards.
+  (with-temp-buffer
+    (setq major-mode 'xwidget-webkit-mode)
+    (lispm-desktop-browser--setup)
+    (let* ((lispm-desktop-look 'genera)
+           (lispm-ui-current-palette (lispm-desktop-test--theme-palette 'genera))
+           (lispm-desktop-browser--frame (selected-frame)))
+      (cl-letf (((symbol-function 'mode-line-window-selected-p) #'ignore)
+                ((symbol-function 'old-selected-window) #'selected-window)
+                ((symbol-function 'lispm-desktop-browser--status) (lambda () "Document: Done")))
+        (should (lispm-desktop-platinum--bottom-active-p))
+        (let ((text (lispm-desktop-test--bottom-text (lispm-desktop-platinum-mode-line-left))))
+          (should (string-search "[Select]" text))
+          (should (string-search "[Bury]" text))
+          (should (string-search "[Kill]" text))
+          (should (string-search "Document: Done" text)))
+        ;; Chrome sub-panes (such as ` *Browser Places*') do not duplicate look placards.
+        (unwind-protect
+            (progn
+              (set-window-parameter (selected-window) 'lispm-desktop-chrome t)
+              (let ((text (lispm-desktop-test--bottom-text (lispm-desktop-platinum-mode-line-left))))
+                (should-not (string-search "[Bury]" text))
+                (should-not (string-search "[Kill]" text))
+                (should (string-search "Document: Done" text))))
+          (set-window-parameter (selected-window) 'lispm-desktop-chrome nil)))))
+  ;; 3. Burying a floating Browser frame marks `lispm-desktop-buried' so
+  ;;    `lispm-desktop-app-window--follow-frontmost' keeps it buried until reopened;
+  ;;    killing Browser quits tabs, kills Places, and clears saved geometry.
+  (let* ((frame (selected-frame))
+         (hidden nil)
+         (shown-count 0)
+         (quit-called nil)
+         (lispm-desktop-app-window--frames (list (cons 'browser frame)))
+         (lispm-desktop-app-window--geometry '((browser 80 40 900 560))))
+    (unwind-protect
+        (progn
+          (set-frame-parameter frame 'lispm-desktop-window t)
+          (set-frame-parameter frame 'lispm-desktop-window-kind 'browser)
+          (get-buffer-create " *Browser Places*")
+          (cl-letf (((symbol-function 'lispm-desktop-apps-focus-after) (lambda (_f) nil))
+                    ((symbol-function 'lispm-desktop-apps-hidden-p) #'ignore)
+                    ((symbol-function 'lispm-desktop-platinum-hide-window)
+                     (lambda (_f) (setq hidden t)))
+                    ((symbol-function 'lispm-desktop-platinum-show-window)
+                     (lambda (f)
+                       (set-frame-parameter f 'lispm-desktop-buried nil)
+                       (cl-incf shown-count)))
+                    ((symbol-function 'frame-visible-p) (lambda (_f) (not hidden)))
+                    ((symbol-function 'lispm-desktop-activate)
+                     (lambda () (lispm-desktop-app-window--follow-frontmost 'desktop))))
+            (lispm-desktop-genera-bury-window (selected-window))
+            (should hidden)
+            (should (frame-parameter frame 'lispm-desktop-buried))
+            ;; Activating `desktop' must NOT un-bury the buried Browser frame!
+            (should (= shown-count 0))
+            ;; Explicit show clears `lispm-desktop-buried'.
+            (funcall #'lispm-desktop-platinum-show-window frame)
+            (should-not (frame-parameter frame 'lispm-desktop-buried))
+            (should (= shown-count 1)))
+          (cl-letf (((symbol-function 'lispm-browser-quit)
+                     (lambda () (setq quit-called t)))
+                    ((symbol-function 'lispm-desktop-app-window-close) #'ignore))
+            (lispm-desktop-genera-kill-window (selected-window))
+            (should quit-called)
+            (should-not (assq 'browser lispm-desktop-app-window--geometry))
+            (should-not (get-buffer " *Browser Places*"))))
+      (set-frame-parameter frame 'lispm-desktop-window nil)
+      (set-frame-parameter frame 'lispm-desktop-window-kind nil)
+      (set-frame-parameter frame 'lispm-desktop-buried nil)))
+  ;; 4. In floating-apps looks (`genera'), `lispm-desktop-browser--zoom-box' zooms
+  ;;    the floating pane in place; pressed 1-bit toolbar buttons invert ink to white.
+  (let ((zoomed-frame nil)
+        (toggled nil)
+        (lispm-desktop-browser--frame (selected-frame)))
+    (cl-letf (((symbol-function 'lispm-desktop-browser-floating-p) #'always)
+              ((symbol-function 'lispm-desktop-browser--unshade) #'ignore)
+              ((symbol-function 'lispm-desktop-platinum-zoom-frame)
+               (lambda (f) (setq zoomed-frame f)))
+              ((symbol-function 'lispm-desktop-browser-toggle-floating)
+               (lambda () (setq toggled t))))
+      (let ((lispm-desktop-look 'genera))
+        (lispm-desktop-browser--zoom-box (selected-window))
+        (should (eq zoomed-frame (selected-frame)))
+        (should-not toggled))
+      (setq zoomed-frame nil)
+      (let ((lispm-desktop-look 'platinum))
+        (lispm-desktop-browser--zoom-box (selected-window))
+        (should toggled)
+        (should-not zoomed-frame))))
+  (when (image-type-available-p 'svg)
+    (let* ((lispm-desktop-look 'genera)
+           (lispm-ui-current-palette (lispm-desktop-test--theme-palette 'genera))
+           (svg (lispm-desktop-browser--draw-tool 'back "Back" t t 54)))
+      (should (string-search "fill='#FFFFFF'>Back</text>" svg)))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 
