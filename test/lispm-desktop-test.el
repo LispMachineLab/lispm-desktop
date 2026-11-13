@@ -20073,6 +20073,81 @@ application items."
     (lispm-bar--set-text "")
     (should (string-search "=> 42" (substring-no-properties (lispm-bar--text))))))
 
+(ert-deftest lispm-desktop-test-genera-ime-working-text-and-ai-introspection ()
+  "Verify Chinese IME preedit composition on `Dynamic Lisp Listener 1',
+empty Return behavior at `Command: █', and AI scenario introspection."
+  (require 'lispm-bar)
+  (require 'lispm-desktop-lispm)
+  (let ((lispm-desktop-look 'genera)
+        (lispm-desktop-theme 'genera)
+        (lispm-desktop-genera--listener-input "")
+        (lispm-desktop-genera--listener-working-text nil)
+        (lispm-desktop-genera--listener-output "Ready.")
+        (lispm-desktop-genera--listener-history '("Home" "hi"))
+        (lispm-desktop-genera--listener-history-index nil)
+        (lispm-desktop-genera--listener-ai-active t)
+        (ns-working-text nil)
+        (ns-working-overlay nil))
+    (with-temp-buffer
+      (lispm-desktop-mode)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (propertize " " 'display '(image :type svg :data "<svg/>"))))
+      (goto-char (point-min))
+      (should (lispm-desktop-genera--listener-surface-p))
+      (should (lispm-desktop-genera--image-at-point-p))
+      ;; 1. Keystroke 1 (`n'): `ns-put-working-text' updates inline working text
+      ;;    without creating `ns-working-overlay' at point 1.
+      (setq ns-working-text "n")
+      (lispm-desktop-genera--ns-put-working-text #'ignore)
+      (should (equal lispm-desktop-genera--listener-working-text "n"))
+      (should-not ns-working-overlay)
+      ;; 2. Keystroke 2 (`ni'): `setMarkedText:' sets `ns-working-text' to "ni"
+      ;;    and queues `[ns-unput-working-text]' then `[ns-put-working-text]'.
+      ;;    `ns-unput-working-text' must preserve `ns-working-text' ("ni")!
+      (setq ns-working-text "ni")
+      (lispm-desktop-genera--ns-unput-working-text
+       (lambda () (setq ns-working-text nil)))
+      (should (equal ns-working-text "ni"))
+      (lispm-desktop-genera--ns-put-working-text #'ignore)
+      (should (equal lispm-desktop-genera--listener-working-text "ni"))
+      (should-not ns-working-overlay)
+      (let ((svg (lispm-desktop-genera-welcome-svg 800 600 nil)))
+        (should (string-search "<tspan text-decoration=\"underline\">ni</tspan>█" svg)))
+      ;; 3. Commit Chinese characters `你好': `[ns-unput-working-text]' with
+      ;;    `ns-working-text' = nil clears working text, and `self-insert' appends.
+      (setq ns-working-text nil)
+      (lispm-desktop-genera--ns-unput-working-text #'ignore)
+      (should-not lispm-desktop-genera--listener-working-text)
+      (let ((last-command-event ?你))
+        (lispm-desktop-genera-listener-self-insert))
+      (let ((last-command-event ?好))
+        (lispm-desktop-genera-listener-self-insert))
+      (should (equal lispm-desktop-genera--listener-input "你好"))
+      (let ((svg (lispm-desktop-genera-welcome-svg 800 600 nil)))
+        (should (string-search "Command: 你好█" svg)))
+      ;; 4. Pressing Return on empty `Command: █' must NOT invoke `completing-read'
+      ;;    or accidentally execute "Home".
+      (setq lispm-desktop-genera--listener-input ""
+            lispm-desktop-genera--listener-working-text nil)
+      (let ((prompted nil))
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _) (setq prompted t) "Home")))
+          (lispm-desktop-genera-listener-ret)
+          (should-not prompted)))
+      ;; 5. AI scenario introspection accurately reports `Dynamic Lisp Listener 1',
+      ;;    `genera' look, and recent Listener Command history.
+      (let ((lispm-bar--asked '("why home" . "entry-42"))
+            (lispm-bar-entrypoint 'genera-listener))
+        (cl-letf (((symbol-function 'lispm-system-agent-p) #'always)
+                  ((symbol-function 'lispm-agent-entry)
+                   (lambda (_a) '(:id "entry-42"))))
+          (let ((ctx (lispm-desktop-lispm--request-context 'fake-system-agent)))
+            (should (string-search "Active surface: Dynamic Lisp Listener 1" ctx))
+            (should (string-search "NO top LispM bar in the genera look" ctx))
+            (should (string-search "Desktop look: genera" ctx))
+            (should (string-search "(\"Home\" \"hi\")" ctx))))))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

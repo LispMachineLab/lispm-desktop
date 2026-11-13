@@ -1,8 +1,13 @@
 #+title: Use the desktop
 #+description: See and open LispM's applications, folders in the Finder window and the windows floating over the desktop; hide the desktop in the Dock or bring it back; move files to the Trash.
 
-LispM Desktop draws a classic-style desktop in Emacs: a menu bar along the top, the desktop's
-icons down its right side, and the windows of applications floating over it.  The applications
+LispM Desktop draws a classic workstation desktop in Emacs (~lispm-desktop-look~: ~genera~ for
+Symbolics Open Genera 2.0, ~platinum~ for Mac OS 9 Platinum, ~win3~ for Windows 3.1, and ~os2~
+for OS/2 Warp), with the windows of applications floating over it.  In ~platinum~, ~win3~ and
+~os2~, the desktop has a menu bar or control bars and desktop icons; in ~genera~, there is no top
+menu bar or desktop icon column, and the root screen (~ *Desktop*~) and editor splash screen
+(~*GNU Emacs*~) are ~Dynamic Lisp Listener 1~ with an interactive ~Command: █~ prompt at the
+bottom, an inverse-video Mouse Documentation Line, and a white Who-Line.  The applications
 are the desktop itself, with its Finder window, the editor, the browser, Control Panels, the App
 Store, LispM Guide, the Installer, the games built in, and those the App Store installed.  This
 skill gives you tools over them, and names the functions behind them for ~eval_elisp~.
