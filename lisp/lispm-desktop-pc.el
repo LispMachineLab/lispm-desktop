@@ -569,7 +569,11 @@ LABEL is shown as Emacs would show it in FACE."
     (when label
       (let ((ink (if (eq state 'disabled) (lispm-desktop-pc-shadow palette) (plist-get palette :text))))
         (lispm-ui-svg-content
-         svg (if (eq state 'disabled) (propertize label 'face `(:foreground ,ink)) label)
+         svg (if (eq state 'disabled)
+                 (let ((copy (copy-sequence label)))
+                   (add-face-text-property 0 (length copy) `(:foreground ,ink) nil copy)
+                   copy)
+               label)
          (+ x shift (/ (- width (lispm-ui-text-width label face)) 2)) (+ y shift) height
          ink face)))))
 

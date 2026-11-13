@@ -423,6 +423,12 @@ along the cut."
 
 ;;;; The menu bar and menus
 
+(defun lispm-desktop-glow--ink-label (label ink)
+  "Return LABEL coloured in INK, keeping its own faces under it."
+  (let ((copy (copy-sequence label)))
+    (add-face-text-property 0 (length copy) `(:foreground ,ink) nil copy)
+    copy))
+
 (cl-defmethod lispm-desktop-platinum-draw-menu-title (palette width
                                                               &context (lispm-desktop-look (lispm-ui-look-family glow))
                                                               &key label highlighted corner marked)
@@ -443,7 +449,7 @@ drawn."
                    (lispm-desktop-glow-color palette :bar-text))))
         (lispm-ui-svg-content
          (if highlighted svg (lispm-desktop-glow--glowing svg))
-         (propertize label 'face `(:foreground ,ink))
+         (lispm-desktop-glow--ink-label label ink)
          (/ (- width (lispm-ui-text-width label 'lispm-desktop-platinum-menu-title)) 2)
          0 (- h 2) ink 'lispm-desktop-platinum-menu-title)))
     svg))
@@ -476,7 +482,7 @@ disabled items dim.  The menu's frame draws the line round it."
                              (t (plist-get palette :border-inactive))))
                   (face (lispm-ui-menu--face (or lit enabled)))
                   (key (and (not (plist-get item :submenu)) (lispm-ui-menu--key item)))
-                  (label (propertize (plist-get item :label) 'face `(:foreground ,ink))))
+                  (label (lispm-desktop-glow--ink-label (plist-get item :label) ink)))
              (when lit
                (lispm-desktop-glow--path svg (lispm-desktop-glow-chamfer 5 top (- width 10) h 4 '(tl br))
                                          :fill (plist-get palette :highlight)))
@@ -633,7 +639,7 @@ show it in FACE."
                               :stroke (if pressed glow (plist-get palette :border-inactive)))
     (when label
       (lispm-ui-svg-content
-       svg (propertize label 'face `(:foreground ,ink))
+       svg (lispm-desktop-glow--ink-label label ink)
        (+ x (/ (- width (lispm-ui-text-width label face)) 2)) y height ink face))))
 
 (cl-defmethod lispm-desktop-platinum--draw-header-ground (svg width palette
