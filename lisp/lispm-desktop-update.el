@@ -173,6 +173,9 @@ that what was worked out before is not kept after.")
 (defvar lispm-desktop-update--working-out nil
   "Non-nil while what the checkouts hold is worked out in the background.")
 
+(defvar lispm-desktop-update--boot-commits nil
+  "Commit each checkout held when LispM started: ((DIRECTORY . COMMIT) ...).")
+
 (defvar lispm-desktop-update--timer nil
   "The timer of the checks Software Update makes by itself.")
 
@@ -527,6 +530,37 @@ Such a checkout is fetched down to the release before its own, see
   (seq-filter (lambda (result) (eq (plist-get result :state) 'update))
               lispm-desktop-update--results))
 
+(defun lispm-desktop-update--record-boot-commits ()
+  "Record in the background the commit each checkout held at startup."
+  (unless lispm-desktop-update--boot-commits
+    (lispm-desktop-update-checkouts
+     (lambda (checkouts)
+       (let ((left (length checkouts))
+             (commits nil))
+         (dolist (checkout checkouts)
+           (let ((directory (cdr checkout)))
+             (lispm-desktop-update--git-async
+              directory '("rev-parse" "HEAD")
+              (lambda (commit _errors)
+                (when (and commit (not (string-empty-p commit)))
+                  (push (cons directory commit) commits))
+                (when (and (zerop (setq left (1- left)))
+                           (null lispm-desktop-update--boot-commits))
+                  (setq lispm-desktop-update--boot-commits
+                        (nreverse commits))))))))))))
+
+(defun lispm-desktop-update-restarts ()
+  "Return checkouts whose commit on disk moved since LispM started."
+  (seq-filter
+   (lambda (result)
+     (and (not (memq (plist-get result :state) '(update failed)))
+          (when-let* ((from (plist-get result :from))
+                      (boot (alist-get (plist-get result :directory)
+                                       lispm-desktop-update--boot-commits
+                                       nil nil #'equal)))
+            (not (equal from boot)))))
+   lispm-desktop-update--results))
+
 (defun lispm-desktop-update-checking-p ()
   "Return non-nil while Software Update checks."
   lispm-desktop-update--checking)
@@ -611,8 +645,10 @@ what was found.  This runs from `lispm-desktop-update--timer'."
 LispM speaks."
   (mapconcat (lambda (update)
                (let ((count (length (plist-get update :changes))))
-                 (lispm-desktop-tr-n "%s, %d change" "%s, %d changes" count
-                                     (lispm-desktop-update-title update) count)))
+                 (if (zerop count)
+                     (lispm-desktop-update-title update)
+                   (lispm-desktop-tr-n "%s, %d change" "%s, %d changes" count
+                                       (lispm-desktop-update-title update) count))))
              updates "; "))
 
 (defun lispm-desktop-update--announce (updates)
@@ -796,22 +832,25 @@ Emacs never does.  This runs from `kill-emacs-hook'."
   "Restart LispM into the updates found, installing them as it quits.
 An update to LispM.app quits LispM; install.sh opens it again when done."
   (interactive)
-  (unless (lispm-desktop-update-updates)
-    (user-error (lispm-desktop-tr "No update is ready; check first")))
-  (setq lispm-desktop-update--requested t)
-  (if (lispm-desktop-update-needs-installer-p)
-      (progn (setq lispm-desktop-update--reopen t)
-             (save-buffers-kill-emacs))
-    (restart-emacs))
-  ;; Still here: quitting was called off; the updates wait for the next.
-  (setq lispm-desktop-update--reopen nil))
+  (let ((updates (lispm-desktop-update-updates)))
+    (unless (or updates (lispm-desktop-update-restarts))
+      (user-error (lispm-desktop-tr "No update is ready; check first")))
+    (when updates
+      (setq lispm-desktop-update--requested t))
+    (if (and updates (lispm-desktop-update-needs-installer-p updates))
+        (progn (setq lispm-desktop-update--reopen t)
+               (save-buffers-kill-emacs))
+      (restart-emacs))
+    ;; Still here: quitting was called off; the updates wait for the next.
+    (setq lispm-desktop-update--reopen nil)))
 
 (defun lispm-desktop-update--offer (asked)
   "Ask whether to restart into the updates found, ASKED for or not.
 Restarting is the default only when asked for: a check of Software
 Update's own may come up while you type.  This runs from a timer, where
 C-g is let quit the alert."
-  (when-let* ((updates (lispm-desktop-update-updates)))
+  (when-let* ((updates (append (lispm-desktop-update-updates)
+                               (and asked (lispm-desktop-update-restarts)))))
     (with-local-quit
       (cond
        ((and (fboundp 'lispm-desktop-assistant--focus-mode-p)
@@ -859,7 +898,7 @@ C-g is let quit the alert."
   (interactive)
   (lispm-desktop-update-check
    (lambda (updates)
-     (if updates
+     (if (or updates (lispm-desktop-update-restarts))
          ;; Out of the process sentinel calling this, which reads no input.
          (run-at-time 0 nil #'lispm-desktop-update--offer t)
        (message (if (seq-find (lambda (result) (eq (plist-get result :state) 'failed))
@@ -936,6 +975,7 @@ Update installed, the latest first."
 A batch Emacs, as install.sh runs, does neither."
   (unless noninteractive
     (lispm-desktop-update--load)
+    (lispm-desktop-update--record-boot-commits)
     ;; Late, so that what runs after loads none of the files changed.
     (add-hook 'kill-emacs-hook #'lispm-desktop-update--quit 90)
     (when (timerp lispm-desktop-update--timer)
