@@ -1825,18 +1825,21 @@ while it checks."
 (defun lispm-desktop-settings--update-status ()
   "Insert what Software Update is doing, or found last: a line telling it,
 or a line an update, Restart to Update after them."
-  (let ((updates (lispm-desktop-update-updates))
-        (failed (seq-filter (lambda (result) (eq (plist-get result :state) 'failed))
-                            (lispm-desktop-update-results)))
-        (checked (lispm-desktop-update-last-check)))
+  (let* ((updates (lispm-desktop-update-updates))
+         (pending (append updates (lispm-desktop-update-restarts)))
+         (failed (seq-filter (lambda (result) (eq (plist-get result :state) 'failed))
+                             (lispm-desktop-update-results)))
+         (checked (lispm-desktop-update-last-check)))
     (cond
      ((lispm-desktop-update-checking-p)
       (lispm-desktop-settings--note (lispm-desktop-tr "Checking for updates…")))
-     (updates
-      (dolist (update updates)
+     (pending
+      (dolist (update pending)
         (let* ((changes (plist-get update :changes))
-               (head (lispm-desktop-tr-n "%s, %d change" "%s, %d changes" (length changes)
-                                         (lispm-desktop-update-title update) (length changes))))
+               (head (if changes
+                         (lispm-desktop-tr-n "%s, %d change" "%s, %d changes" (length changes)
+                                             (lispm-desktop-update-title update) (length changes))
+                       (lispm-desktop-update-title update))))
           (insert (lispm-desktop-settings--indent) (propertize head 'face 'bold))
           (when changes
             (insert (propertize (concat ": " (lispm-desktop-settings--truncate
