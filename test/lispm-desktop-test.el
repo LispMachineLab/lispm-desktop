@@ -19920,6 +19920,103 @@ Dynamic Windows semantics."
            (svg (lispm-desktop-browser--draw-tool 'back "Back" t t 54)))
       (should (string-search "fill='#FFFFFF'>Back</text>" svg)))))
 
+(ert-deftest lispm-desktop-test-genera-command-ai-and-bar-eval-fallback ()
+  "On `Dynamic Lisp Listener 1' (`Command: █'), unconfigured Agent state keeps
+default command + Emacs Lisp evaluation, while configured Agent state keeps
+built-in commands and `(...)' S-expressions local and streams natural-language
+queries through LispM's system agent inline; on OS 9 (`lispm-bar'), unconfigured
+Agent state falls back to inline Emacs Lisp evaluation while preserving Desktop
+application items."
+  (require 'lispm-bar)
+  (require 'lispm-desktop-bar)
+  (let ((lispm-desktop-genera--listener-input "")
+        (lispm-desktop-genera--listener-output "Ready.")
+        (lispm-desktop-genera--listener-history nil)
+        (lispm-desktop-genera--listener-history-index nil)
+        (lispm-desktop-genera--listener-ai-active nil)
+        (asked-inputs nil)
+        (fake-reply nil))
+    ;; 1. Without an Agent configured: default Listener behavior (commands + Lisp eval).
+    (cl-letf (((symbol-function 'lispm-bar-ready-p) (lambda () nil)))
+      (should-not (lispm-desktop-genera-agent-ready-p))
+      (lispm-desktop-genera-command "(+ 19 23)")
+      (should (equal lispm-desktop-genera--listener-output "(+ 19 23) => 42"))
+      (lispm-desktop-genera-command "emacs-version")
+      (should (equal lispm-desktop-genera--listener-output
+                     (format "emacs-version => %S" emacs-version)))
+      (lispm-desktop-genera-command "not-a-bound-symbol-xyz")
+      (should (string-prefix-p "Command Processor error:"
+                               lispm-desktop-genera--listener-output)))
+    ;; 2. With an Agent configured: built-in commands & `(...)' forms stay local,
+    ;;    while natural language routes to LispM AI and renders multi-line replies
+    ;;    in both SVG and TUI welcome views.
+    (cl-letf (((symbol-function 'lispm-bar-ready-p) (lambda () t))
+              ((symbol-function 'lispm-system-agent) (lambda () 'fake-system-agent))
+              ((symbol-function 'lispm-system-agent-p)
+               (lambda (a) (eq a 'fake-system-agent)))
+              ((symbol-function 'lispm-bar--asked-state)
+               (lambda (_a) (if fake-reply 'done 'working)))
+              ((symbol-function 'lispm-bar--reply-text)
+               (lambda (_a) fake-reply))
+              ((symbol-function 'lispm-bar--question) (lambda (_a) nil))
+              ((symbol-function 'lispm-bar--activity)
+               (lambda (_a) (unless fake-reply "✢ Thinking…\n")))
+              ((symbol-function 'lispm-bar-ask)
+               (lambda (req &optional text)
+                 (push (cons req text) asked-inputs)
+                 (setq lispm-bar--asked (cons (or text req) "turn-1")))))
+      (should (lispm-desktop-genera-agent-ready-p))
+      ;; S-expression still evaluates locally without calling AI.
+      (lispm-desktop-genera-command "(* 6 7)")
+      (should (equal lispm-desktop-genera--listener-output "(* 6 7) => 42"))
+      (should-not asked-inputs)
+      ;; Built-in command still executes locally without calling AI.
+      (lispm-desktop-genera-command "Show System")
+      (should (string-search "GNU Emacs" lispm-desktop-genera--listener-output))
+      (should-not asked-inputs)
+      ;; Short conversational word "hi" is NOT hijacked by "Hide Others" — it asks AI!
+      (setq fake-reply nil)
+      (lispm-desktop-genera-command "hi LispM")
+      (should (equal asked-inputs '(("hi LispM" . "hi LispM"))))
+      (should lispm-desktop-genera--listener-ai-active)
+      (should (string-search "λ hi LispM" lispm-desktop-genera--listener-output))
+      (should (string-search "Thinking…" lispm-desktop-genera--listener-output))
+      ;; Streaming / final multi-line reply updates Listener SVG & TUI cleanly.
+      (setq fake-reply "Hello from LispM.\nSecond line of answer.")
+      (lispm-desktop-genera--on-agent-state 'fake-system-agent)
+      (should (string-search "⏺ Hello from LispM." lispm-desktop-genera--listener-output))
+      (should (string-search "Second line of answer." lispm-desktop-genera--listener-output))
+      (let ((svg (lispm-desktop-genera-welcome-svg 800 600 nil))
+            (tui (lispm-desktop-genera-welcome-text 100 32)))
+        (should (string-search "Hello from LispM." svg))
+        (should (string-search "Second line of answer." svg))
+        (should (string-search "Hello from LispM." tui))
+        (should (string-search "Second line of answer." tui)))))
+  ;; 3. OS 9 `lispm-bar' without a model configured evaluates Lisp inline while
+  ;;    keeping Desktop applications selectable right below line 0.
+  (let ((lispm-bar-ready-function (lambda (_agent) nil))
+        (lispm-bar-source-functions
+         (list #'lispm-desktop-bar-applications #'lispm-bar-skills #'lispm-bar-tools))
+        (lispm-bar--open t)
+        (lispm-bar--things nil)
+        (lispm-bar--text "")
+        (lispm-bar--found nil)
+        (lispm-bar--choice 0)
+        (lispm-bar--evaluated nil)
+        (lispm-bar--asked nil)
+        (lispm-bar--reply nil))
+    (lispm-bar-ready-p)
+    (lispm-bar--gather)
+    (lispm-bar--set-text "Browser")
+    (should (= lispm-bar--choice 0))
+    (let ((rendered (substring-no-properties (lispm-bar--text))))
+      (should (string-match-p "\\`❯ Evaluate Lisp “Browser”" rendered))
+      (should (string-search "Browser" rendered))
+      (should (string-search "Set up a model…" rendered)))
+    (should (equal (lispm-bar-eval "(+ 40 2)") "=> 42"))
+    (lispm-bar--set-text "")
+    (should (string-search "=> 42" (substring-no-properties (lispm-bar--text))))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

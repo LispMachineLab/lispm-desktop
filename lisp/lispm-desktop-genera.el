@@ -880,15 +880,145 @@ label inverted in solid black when SELECTED."
 
 (declare-function lispm-desktop-editor--render-splash "lispm-desktop-editor"
                   (&optional window force))
+(declare-function lispm-bar-ready-p "lispm-bar" ())
+(declare-function lispm-bar-ask "lispm-bar" (request &optional text))
+(declare-function lispm-bar--reply-text "lispm-bar" (agent))
+(declare-function lispm-bar--question "lispm-bar" (agent))
+(declare-function lispm-bar--activity "lispm-bar" (agent))
+(declare-function lispm-bar--asked-state "lispm-bar" (agent))
+(declare-function lispm-system-agent "lispm-bar" ())
+(declare-function lispm-system-agent-p "lispm-bar" (agent))
+(declare-function lispm-awaiting "lispm-runtime" (agent))
+(declare-function lispm-approve-for "lispm-runtime" (agent))
+(declare-function lispm-deny-for "lispm-runtime" (agent &optional reason))
+(declare-function lispm-agent-busy-p "lispm-core" (agent))
+(declare-function lispm-agent-working-p "lispm-core" (agent))
+(declare-function lispm-abort "lispm-runtime" (agent))
+(defvar lispm-bar--asked)
+(defvar lispm-state-change-functions)
+(defvar lispm-response-delta-functions)
+
+(defvar lispm-desktop-genera--listener-ai-active nil
+  "Non-nil while `Dynamic Lisp Listener 1' displays an active LispM AI reply.")
+
+(defvar lispm-desktop-genera--listener-timer nil
+  "Debounce timer refreshing `Dynamic Lisp Listener 1' during AI streaming.")
+
+(defun lispm-desktop-genera-agent-ready-p ()
+  "Return non-nil when LispM's system agent has a configured model backend."
+  (and (or (featurep 'lispm-bar) (require 'lispm-bar nil t))
+       (fboundp 'lispm-bar-ready-p)
+       (ignore-errors (lispm-bar-ready-p))))
 
 (defun lispm-desktop-genera--refresh-listener ()
   "Re-render `Dynamic Lisp Listener 1' (`*Desktop*' and `*GNU Emacs*') immediately."
-  (when-let* ((buf (get-buffer lispm-desktop-buffer-name))
-              ((get-buffer-window buf t)))
+  (when-let* ((buf (get-buffer lispm-desktop-buffer-name)))
     (with-current-buffer buf
-      (lispm-desktop--render)))
+      (force-mode-line-update)
+      (when (get-buffer-window buf t)
+        (lispm-desktop--render))))
   (when (fboundp 'lispm-desktop-editor--render-splash)
     (lispm-desktop-editor--render-splash nil t)))
+
+(defun lispm-desktop-genera--format-ai-output ()
+  "Format the active `lispm-system-agent' turn for `Dynamic Lisp Listener 1'."
+  (when (and lispm-desktop-genera--listener-ai-active
+             (bound-and-true-p lispm-bar--asked)
+             (fboundp 'lispm-system-agent))
+    (let* ((agent (lispm-system-agent))
+           (asked lispm-bar--asked)
+           (state (and (fboundp 'lispm-bar--asked-state)
+                       (lispm-bar--asked-state agent)))
+           (reply (and (fboundp 'lispm-bar--reply-text)
+                       (lispm-bar--reply-text agent)))
+           (question (and (fboundp 'lispm-bar--question)
+                          (lispm-bar--question agent)))
+           (activity (and (fboundp 'lispm-bar--activity)
+                          (lispm-bar--activity agent))))
+      (string-trim-right
+       (concat "λ " (car asked) "\n"
+               (when (eq state 'queued)
+                 "  ⎿  queued; sent when the agent is free\n")
+               (when (and (stringp reply) (not (string-blank-p reply)))
+                 (let ((lines (split-string
+                               (substring-no-properties (string-trim reply))
+                               "\n")))
+                   (concat "⏺ " (car lines)
+                           (if (cdr lines)
+                               (concat "\n"
+                                       (mapconcat (lambda (l) (concat "  " l))
+                                                  (cdr lines) "\n"))
+                             "")
+                           "\n")))
+               (when (and (stringp question) (not (string-blank-p question)))
+                 (concat (string-trim-right (substring-no-properties question)) "\n"))
+               (when (and (stringp activity) (not (string-blank-p activity)))
+                 (concat (string-trim-right (substring-no-properties activity)) "\n")))))))
+
+(defun lispm-desktop-genera--sync-ai-output ()
+  "Sync `lispm-desktop-genera--listener-output' from the system agent and redraw."
+  (setq lispm-desktop-genera--listener-timer nil)
+  (when-let* ((formatted (lispm-desktop-genera--format-ai-output)))
+    (unless (equal formatted lispm-desktop-genera--listener-output)
+      (setq lispm-desktop-genera--listener-output formatted)
+      (lispm-desktop-genera--refresh-listener))))
+
+(defun lispm-desktop-genera--on-agent-state (agent)
+  "Update `Dynamic Lisp Listener 1' immediately when LispM's state changes."
+  (when (and lispm-desktop-genera--listener-ai-active
+             (fboundp 'lispm-system-agent-p)
+             (lispm-system-agent-p agent))
+    (when (timerp lispm-desktop-genera--listener-timer)
+      (cancel-timer lispm-desktop-genera--listener-timer)
+      (setq lispm-desktop-genera--listener-timer nil))
+    (lispm-desktop-genera--sync-ai-output)))
+
+(defun lispm-desktop-genera--on-agent-delta (agent &rest _)
+  "Schedule a throttled redraw of `Dynamic Lisp Listener 1' on streaming deltas."
+  (when (and lispm-desktop-genera--listener-ai-active
+             (fboundp 'lispm-system-agent-p)
+             (lispm-system-agent-p agent))
+    (if noninteractive
+        (lispm-desktop-genera--sync-ai-output)
+      (unless (timerp lispm-desktop-genera--listener-timer)
+        (setq lispm-desktop-genera--listener-timer
+              (run-at-time 0.04 nil #'lispm-desktop-genera--sync-ai-output))))))
+
+(defun lispm-desktop-genera--ensure-agent-hooks ()
+  "Attach Listener streaming hooks to LispM Agent when available."
+  (when (boundp 'lispm-state-change-functions)
+    (add-hook 'lispm-state-change-functions #'lispm-desktop-genera--on-agent-state))
+  (when (boundp 'lispm-response-delta-functions)
+    (add-hook 'lispm-response-delta-functions #'lispm-desktop-genera--on-agent-delta)))
+
+(with-eval-after-load 'lispm-bar
+  (lispm-desktop-genera--ensure-agent-hooks))
+
+(defun lispm-desktop-genera--wrap-lines (text max-cols)
+  "Wrap TEXT into visual lines each at most MAX-COLS display columns wide."
+  (let ((max-cols (max 16 max-cols))
+        (result nil))
+    (dolist (raw-line (split-string (or text "") "\n"))
+      (if (<= (string-width raw-line) max-cols)
+          (push raw-line result)
+        (let ((rem raw-line))
+          (while (> (string-width rem) max-cols)
+            (let* ((chunk (truncate-string-to-width rem max-cols))
+                   (len (max 1 (length chunk)))
+                   (space-pos (let ((half (/ len 2))
+                                    (pos nil)
+                                    (i (1- len)))
+                                (while (and (>= i half) (null pos))
+                                  (when (memq (aref chunk i) '(?\s ?\t))
+                                    (setq pos i))
+                                  (setq i (1- i)))
+                                pos))
+                   (cut (if space-pos (1+ space-pos) len)))
+              (push (string-trim-right (substring rem 0 cut)) result)
+              (setq rem (string-trim-left (substring rem cut)))))
+          (when (> (length rem) 0)
+            (push rem result)))))
+    (or (nreverse result) '(""))))
 
 (defun lispm-desktop-genera--lambda-uri ()
   "Return the `data:image/png;base64,...' URI of LispM's rainbow lambda logo."
@@ -1099,43 +1229,85 @@ elements including the bottom 2-line Mouse Documentation Line."
                        col-x (+ rule-y 126) col-r (+ rule-y 126) fg))
               cur-y (+ cur-y 142))))
     ;; 4. LispM configuration tip & status block (shown when height permits).
-    (when (and (>= col-w 460) (<= (+ cur-y 62) max-y))
-      (let ((notice-y cur-y))
-        (setq notice-svg
-              (concat
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Use Control Panels or Configure to customize your workstation:</text>"
-                       col-x notice-y fg)
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Appearance, Language, Security, AI Providers &amp; Sandboxed Tools.</text>"
-                       col-x (+ notice-y 13) fg)
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Right-click or double-click anywhere for the LispM System Menu,</text>"
-                       col-x (+ notice-y 26) fg)
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">or press Return to evaluate a command or Lisp form.</text>"
-                       col-x (+ notice-y 39) fg)
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" fill=\"%s\">Status: All LispM Desktop subsystems are initialized and ready (AGPL-3.0-or-later).</text>"
-                       col-x (+ notice-y 55) dim))
-              cur-y (+ cur-y 70))))
-    ;; 5. Listener prompt (`Ready.' / `Command: █'), guaranteed not to overlap.
-    (when (and (>= col-w 300) (<= (+ cur-y 18) (+ max-y 24)))
-      (let* ((prompt-y (+ cur-y 16))
-             (max-chars (max 24 (/ (- col-w 12) 6)))
-             (out-raw (or lispm-desktop-genera--listener-output "Ready."))
-             (out-str (if (> (length out-raw) max-chars)
-                          (concat (substring out-raw 0 (1- max-chars)) "…")
-                        out-raw))
-             (in-raw (or lispm-desktop-genera--listener-input ""))
-             (in-max (max 12 (- max-chars 10)))
-             (in-str (if (> (length in-raw) in-max)
-                         (concat "…" (substring in-raw (- (length in-raw) (1- in-max))))
-                       in-raw)))
-        (setq lispm-desktop-genera--welcome-hits
-              (append lispm-desktop-genera--welcome-hits
-                      (list (list 'command col-x (- prompt-y 26) col-w 32))))
-        (setq prompt-svg
-              (concat
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">%s</text>"
-                       col-x (- prompt-y 14) fg (lispm-desktop-genera--xml-escape out-str))
-               (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">Command: %s█</text>"
-                       col-x prompt-y fg (lispm-desktop-genera--xml-escape in-str))))))
+    (let* ((max-chars (max 24 (/ (- col-w 12) 6)))
+           (out-raw (or lispm-desktop-genera--listener-output "Ready."))
+           (wrapped-out (if (string-search "\n" out-raw)
+                            (lispm-desktop-genera--wrap-lines out-raw max-chars)
+                          (if (and lispm-desktop-genera--listener-ai-active
+                                   (> (string-width out-raw) max-chars))
+                              (lispm-desktop-genera--wrap-lines out-raw max-chars)
+                            (list (if (> (string-width out-raw) max-chars)
+                                      (concat (truncate-string-to-width out-raw (1- max-chars)) "…")
+                                    out-raw)))))
+           (extra-h (* 13 (min 6 (max 0 (1- (length wrapped-out)))))))
+      (when (and (>= col-w 460) (<= (+ cur-y 62 extra-h) max-y))
+        (let ((notice-y cur-y))
+          (setq notice-svg
+                (concat
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Use Control Panels or Configure to customize your workstation:</text>"
+                         col-x notice-y fg)
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Appearance, Language, Security, AI Providers &amp; Sandboxed Tools.</text>"
+                         col-x (+ notice-y 13) fg)
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">Right-click or double-click anywhere for the LispM System Menu,</text>"
+                         col-x (+ notice-y 26) fg)
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" font-weight=\"bold\" fill=\"%s\">%s</text>"
+                         col-x (+ notice-y 39) fg
+                         (if (lispm-desktop-genera-agent-ready-p)
+                             "or press Return to ask LispM, run a command, or evaluate a Lisp form."
+                           "or press Return to evaluate a command or Lisp form."))
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"9.5\" fill=\"%s\">Status: All LispM Desktop subsystems are initialized and ready (AGPL-3.0-or-later).</text>"
+                         col-x (+ notice-y 55) dim))
+                cur-y (+ cur-y 70))))
+      ;; 5. Listener prompt (`Ready.' / AI reply / `Command: █'), guaranteed not to overlap.
+      (when (and (>= col-w 300) (<= (+ cur-y 18) (+ max-y 24)))
+        (let* ((line-h 13)
+               (avail (max 1 (min 12 (/ (max 13 (- (+ max-y 20) cur-y 16)) line-h))))
+               (streaming (and lispm-desktop-genera--listener-ai-active
+                               (fboundp 'lispm-system-agent)
+                               (fboundp 'lispm-agent-working-p)
+                               (ignore-errors (lispm-agent-working-p (lispm-system-agent)))))
+               (vis-lines
+                (cond
+                 ((<= (length wrapped-out) avail) wrapped-out)
+                 ((= avail 1)
+                  (list (concat (truncate-string-to-width (car wrapped-out) (1- max-chars)) "…")))
+                 (streaming
+                  (cons "…" (last wrapped-out (1- avail))))
+                 (t
+                  (append (seq-take wrapped-out (1- avail))
+                          (list (concat (truncate-string-to-width
+                                         (nth (1- avail) wrapped-out)
+                                         (max 8 (- max-chars 2)))
+                                        "…"))))))
+               (n-lines (max 1 (length vis-lines)))
+               (prompt-y (+ cur-y 3 (* n-lines line-h)))
+               (in-raw (or lispm-desktop-genera--listener-input ""))
+               (in-max (max 12 (- max-chars 10)))
+               (in-str (if (> (string-width in-raw) in-max)
+                           (let ((rev (reverse (string-to-list in-raw)))
+                                 (acc nil)
+                                 (w 0))
+                             (while (and rev (<= (+ w (char-width (car rev))) (1- in-max)))
+                               (setq w (+ w (char-width (car rev))))
+                               (push (pop rev) acc))
+                             (concat "…" (concat acc)))
+                         in-raw))
+               (idx 0)
+               (out-svgs nil))
+          (dolist (ol vis-lines)
+            (push (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">%s</text>"
+                          col-x (+ cur-y 2 (* idx line-h)) fg
+                          (lispm-desktop-genera--xml-escape ol))
+                  out-svgs)
+            (setq idx (1+ idx)))
+          (setq lispm-desktop-genera--welcome-hits
+                (append lispm-desktop-genera--welcome-hits
+                        (list (list 'command col-x (- cur-y 10) col-w (+ (* n-lines line-h) 20)))))
+          (setq prompt-svg
+                (concat
+                 (apply #'concat (nreverse out-svgs))
+                 (format "<text x=\"%d\" y=\"%d\" font-family=\"Menlo, Monaco, monospace\" font-size=\"10\" fill=\"%s\">Command: %s█</text>"
+                         col-x prompt-y fg (lispm-desktop-genera--xml-escape in-str)))))))
     (let ((body
            (concat
             "<defs><pattern id=\"genera-hatch\" width=\"4\" height=\"4\" patternUnits=\"userSpaceOnUse\">"
@@ -1341,14 +1513,23 @@ and Focus Mode windows of WIDTH columns by HEIGHT lines."
       (push rule lines))
     (when (>= height 24)
       (push "" lines)
-      (let ((out-str (or lispm-desktop-genera--listener-output "Ready."))
-            (in-str (or lispm-desktop-genera--listener-input "")))
-        (push (funcall center
-                       (if (string-empty-p in-str)
-                           (format "%s  Command: █  (Type a command or Lisp form, RET to run)" out-str)
-                         (format "%s  Command: %s█" out-str in-str))
-                       title-face)
-              lines)))
+      (let* ((out-raw (or lispm-desktop-genera--listener-output "Ready."))
+             (in-str (or lispm-desktop-genera--listener-input ""))
+             (out-lines (lispm-desktop-genera--wrap-lines out-raw (min 76 (- width 6)))))
+        (if (and (= (length out-lines) 1) (not (string-search "\n" out-raw)))
+            (push (funcall center
+                           (if (string-empty-p in-str)
+                               (format "%s  Command: █  (%s)"
+                                       (car out-lines)
+                                       (if (lispm-desktop-genera-agent-ready-p)
+                                           "Type a command, Lisp form, or ask LispM"
+                                         "Type a command or Lisp form, RET to run"))
+                             (format "%s  Command: %s█" (car out-lines) in-str))
+                           title-face)
+                  lines)
+          (dolist (ol (seq-take out-lines 8))
+            (push (funcall center ol body-face) lines))
+          (push (funcall center (format "Command: %s█" in-str) title-face) lines))))
     (setq lines (nreverse lines))
     (let ((pad-top (max 1 (/ (- height (length lines)) 2))))
       (concat (make-string pad-top ?\n)
@@ -1589,15 +1770,19 @@ from the declarative `Select', `Create', application and special menus."
     (append
      (list (cons "Help Commands"
                  (lambda ()
-                   (let ((msg (format "Commands: %s, or any Lisp form."
+                   (let ((msg (format "Commands: %s, %s."
                                       (string-join
                                        (cons "Show System"
                                              (cons "Refresh Screen"
                                                    (mapcar #'car (lispm-desktop-genera--flatten-menu-items
                                                                   (lispm-desktop-genera-select-items)
                                                                   "Select "))))
-                                       ", "))))
-                     (setq lispm-desktop-genera--listener-output msg)
+                                       ", ")
+                                      (if (lispm-desktop-genera-agent-ready-p)
+                                          "any Lisp form (...), or ask LispM"
+                                        "or any Lisp form"))))
+                     (setq lispm-desktop-genera--listener-ai-active nil
+                           lispm-desktop-genera--listener-output msg)
                      (lispm-desktop-genera--refresh-listener)
                      (message "%s" msg))))
            (cons "Show System"
@@ -1605,23 +1790,28 @@ from the declarative `Select', `Create', application and special menus."
                    (let ((msg (format "LispM Desktop on %s — GNU Emacs %s (%s)."
                                       (or (system-name) "LISPM-HOST")
                                       emacs-version system-configuration)))
-                     (setq lispm-desktop-genera--listener-output msg)
+                     (setq lispm-desktop-genera--listener-ai-active nil
+                           lispm-desktop-genera--listener-output msg)
                      (lispm-desktop-genera--refresh-listener)
                      (message "%s" msg))))
            (cons "Refresh Screen"
                  (lambda ()
-                   (setq lispm-desktop-genera--listener-output "Ready.")
+                   (setq lispm-desktop-genera--listener-ai-active nil
+                         lispm-desktop-genera--listener-output "Ready.")
                    (lispm-desktop-genera--refresh-listener)
                    (redraw-display)))
            (cons "Clear"
                  (lambda ()
-                   (setq lispm-desktop-genera--listener-input ""
+                   (setq lispm-desktop-genera--listener-ai-active nil
+                         lispm-desktop-genera--listener-input ""
                          lispm-desktop-genera--listener-output "Ready.")
                    (lispm-desktop-genera--refresh-listener))))
      select create special direct)))
 
-(defun lispm-desktop-genera--match-command (cmd entries)
-  "Find an entry in ENTRIES matching CMD by exact or unique prefix match."
+(defun lispm-desktop-genera--match-command (cmd entries &optional ai-ready)
+  "Find an entry in ENTRIES matching CMD by exact or unique prefix match.
+When AI-READY is non-nil, only exact matches or >= 5-char prefixes of explicit
+Listener commands match so conversational prompts route to LispM."
   (let* ((unquoted (if (and (>= (length cmd) 2)
                             (string-prefix-p "\"" cmd)
                             (string-suffix-p "\"" cmd))
@@ -1633,27 +1823,70 @@ from the declarative `Select', `Create', application and special menus."
                           entries)))
     (or exact
         (when (and (not (string-prefix-p "(" cmd))
-                   (not (string-empty-p unquoted)))
+                   (not (string-empty-p unquoted))
+                   (or (not ai-ready) (>= (length unquoted) 5)))
           (let ((prefixes (seq-filter
                            (lambda (entry)
-                             (string-prefix-p (downcase unquoted)
-                                              (downcase (car entry))))
+                             (and (or (not ai-ready)
+                                      (string-prefix-p "Help " (car entry))
+                                      (string-prefix-p "Show " (car entry))
+                                      (string-prefix-p "Refresh " (car entry))
+                                      (string-prefix-p "Select " (car entry))
+                                      (string-prefix-p "Create " (car entry)))
+                                  (string-prefix-p (downcase unquoted)
+                                                   (downcase (car entry)))))
                            entries)))
             (when (= (length prefixes) 1)
               (car prefixes)))))))
 
+(defun lispm-desktop-genera--eval-lisp (cmd)
+  "Evaluate Emacs Lisp form CMD and display its result on the Listener."
+  (setq lispm-desktop-genera--listener-ai-active nil)
+  (condition-case err
+      (let* ((val (eval (car (read-from-string cmd)) t))
+             (out (format "%s => %S" cmd val)))
+        (setq lispm-desktop-genera--listener-output out)
+        (lispm-desktop-genera--refresh-listener)
+        (message "=> %S" val))
+    (error
+     (let ((msg (format "Command Processor error: %s"
+                        (error-message-string err))))
+       (setq lispm-desktop-genera--listener-output msg)
+       (lispm-desktop-genera--refresh-listener)
+       (message "%s" msg)))))
+
+(defun lispm-desktop-genera--ask-agent (cmd)
+  "Send CMD to LispM's system agent and stream its reply on the Listener."
+  (lispm-desktop-genera--ensure-agent-hooks)
+  (setq lispm-desktop-genera--listener-ai-active t)
+  (lispm-bar-ask cmd cmd)
+  (setq lispm-desktop-genera--listener-output
+        (or (lispm-desktop-genera--format-ai-output)
+            (format "λ %s\n· Thinking…" cmd)))
+  (lispm-desktop-genera--refresh-listener))
+
 (defun lispm-desktop-genera-command (input)
-  "Execute a LispM Command Processor INPUT from `Dynamic Lisp Listener 1'."
+  "Execute a LispM Command Processor INPUT from `Dynamic Lisp Listener 1'.
+Built-in Genera commands match first; explicit `(...)' S-expressions evaluate
+locally as Emacs Lisp; when LispM's system agent is configured, remaining
+inputs are answered by AI inline on the Listener, falling back to Emacs Lisp
+evaluation when no agent is configured."
   (interactive
    (if (not (string-empty-p (string-trim lispm-desktop-genera--listener-input)))
        (prog1 (list lispm-desktop-genera--listener-input)
          (setq lispm-desktop-genera--listener-input ""
                lispm-desktop-genera--listener-history-index nil))
      (let ((entries (lispm-desktop-genera--command-entries)))
-       (list (completing-read "Command: " (mapcar #'car entries) nil nil)))))
+       (list (completing-read
+              (if (lispm-desktop-genera-agent-ready-p)
+                  "Command (or ask LispM): "
+                "Command: ")
+              (mapcar #'car entries) nil nil nil
+              'lispm-desktop-genera--listener-history)))))
   (let* ((cmd (string-trim (or input "")))
+         (ai-ready (lispm-desktop-genera-agent-ready-p))
          (entries (lispm-desktop-genera--command-entries))
-         (match (lispm-desktop-genera--match-command cmd entries)))
+         (match (lispm-desktop-genera--match-command cmd entries ai-ready)))
     (setq lispm-desktop-genera--listener-input ""
           lispm-desktop-genera--listener-history-index nil)
     (unless (string-empty-p cmd)
@@ -1664,35 +1897,49 @@ from the declarative `Select', `Create', application and special menus."
       (funcall (cdr (assoc "Help Commands" entries))))
      (match
       (let ((action (cdr match)))
-        (setq lispm-desktop-genera--listener-output
+        (setq lispm-desktop-genera--listener-ai-active nil
+              lispm-desktop-genera--listener-output
               (format "%s — Done." (car match)))
         (lispm-desktop-genera--refresh-listener)
         (if (commandp action)
             (call-interactively action)
           (funcall action))))
+     ((string-prefix-p "(" cmd)
+      (lispm-desktop-genera--eval-lisp cmd))
+     (ai-ready
+      (lispm-desktop-genera--ask-agent cmd))
      (t
-      (condition-case err
-          (let* ((val (eval (car (read-from-string cmd)) t))
-                 (out (format "%s => %S" cmd val)))
-            (setq lispm-desktop-genera--listener-output out)
-            (lispm-desktop-genera--refresh-listener)
-            (message "=> %S" val))
-        (error
-         (let ((msg (format "Command Processor error: %s"
-                            (error-message-string err))))
-           (setq lispm-desktop-genera--listener-output msg)
-           (lispm-desktop-genera--refresh-listener)
-           (message "%s" msg))))))))
+      (lispm-desktop-genera--eval-lisp cmd)))))
+
+(defun lispm-desktop-genera--listener-answer-approval (yes)
+  "Answer an inline Listener approval prompt with YES; return non-nil if handled."
+  (when (and lispm-desktop-genera--listener-ai-active
+             (string-empty-p (or lispm-desktop-genera--listener-input ""))
+             (fboundp 'lispm-system-agent)
+             (fboundp 'lispm-awaiting)
+             (let ((agent (lispm-system-agent)))
+               (when (lispm-awaiting agent)
+                 (if yes
+                     (lispm-approve-for agent)
+                   (lispm-deny-for agent nil))
+                 t)))
+    (lispm-desktop-genera--sync-ai-output)
+    t))
 
 (defun lispm-desktop-genera-listener-self-insert ()
-  "Append the typed character to `Command: █' on `Dynamic Lisp Listener 1'."
+  "Append the typed character to `Command: █' on `Dynamic Lisp Listener 1',
+or answer an inline AI approval prompt with `y' or `n' when input is empty."
   (interactive)
   (when (characterp last-command-event)
-    (setq lispm-desktop-genera--listener-input
-          (concat lispm-desktop-genera--listener-input
-                  (char-to-string last-command-event))
-          lispm-desktop-genera--listener-history-index nil)
-    (lispm-desktop-genera--refresh-listener)))
+    (unless (cond ((eq last-command-event ?y)
+                   (lispm-desktop-genera--listener-answer-approval t))
+                  ((eq last-command-event ?n)
+                   (lispm-desktop-genera--listener-answer-approval nil)))
+      (setq lispm-desktop-genera--listener-input
+            (concat lispm-desktop-genera--listener-input
+                    (char-to-string last-command-event))
+            lispm-desktop-genera--listener-history-index nil)
+      (lispm-desktop-genera--refresh-listener))))
 
 (defun lispm-desktop-genera-listener-backspace ()
   "Delete the last character from `Command: █' on `Dynamic Lisp Listener 1'."
@@ -1710,13 +1957,26 @@ from the declarative `Select', `Create', application and special menus."
   (lispm-desktop-genera--refresh-listener))
 
 (defun lispm-desktop-genera-listener-abort ()
-  "Abort current input at `Command: █' on `Dynamic Lisp Listener 1'."
+  "Abort input or a running AI turn at `Command: █' on the Listener."
   (interactive)
-  (if (not (string-empty-p lispm-desktop-genera--listener-input))
-      (setq lispm-desktop-genera--listener-input ""
-            lispm-desktop-genera--listener-history-index nil
-            lispm-desktop-genera--listener-output "Aborted.")
-    (setq lispm-desktop-genera--listener-output "Ready."))
+  (cond
+   ((not (string-empty-p lispm-desktop-genera--listener-input))
+    (setq lispm-desktop-genera--listener-input ""
+          lispm-desktop-genera--listener-history-index nil
+          lispm-desktop-genera--listener-output "Aborted."))
+   ((and lispm-desktop-genera--listener-ai-active
+         (fboundp 'lispm-system-agent)
+         (fboundp 'lispm-agent-busy-p)
+         (let ((agent (lispm-system-agent)))
+           (when (lispm-agent-busy-p agent)
+             (when (fboundp 'lispm-abort)
+               (lispm-abort agent))
+             t)))
+    (setq lispm-desktop-genera--listener-ai-active nil
+          lispm-desktop-genera--listener-output "Interrupted."))
+   (t
+    (setq lispm-desktop-genera--listener-ai-active nil
+          lispm-desktop-genera--listener-output "Ready.")))
   (lispm-desktop-genera--refresh-listener))
 
 (defun lispm-desktop-genera-listener-yank ()
@@ -1898,8 +2158,14 @@ of a window's bottom edge."
   "Return LispM's bottom Who-Line in the `genera' look."
   (let* ((user (or (and (fboundp 'user-login-name) (user-login-name)) "USER"))
          (host (or (and (fboundp 'system-name) (system-name)) "LISPM-HOST"))
-         (left (format " [%s]          %s:        User Input              [Select]"
-                       (format-time-string "%a %e %b %H:%M:%S") user))
+         (state (if (and lispm-desktop-genera--listener-ai-active
+                         (fboundp 'lispm-system-agent)
+                         (fboundp 'lispm-agent-working-p)
+                         (ignore-errors (lispm-agent-working-p (lispm-system-agent))))
+                    "Agent Run "
+                  "User Input"))
+         (left (format " [%s]          %s:        %s              [Select]"
+                       (format-time-string "%a %e %b %H:%M:%S") user state))
          (right (format "%s is ready (LispM Desktop)  " host)))
     (propertize
      (concat left
