@@ -1314,12 +1314,24 @@ no session of the workspace left comes along."
     (lispm-desktop-browser--ensure-layout)))
 
 (defun lispm-desktop-browser--default-geometry (screen)
-  "Return where the browser floats first: most of SCREEN, under its menu bar."
-  (let* ((width (frame-inner-width screen))
-         (height (frame-inner-height screen))
-         (top (+ (lispm-desktop-app-window-menu-bar-height screen) 30))
-         (left (round (* width 0.1))))
-    (list left top (- width (* 2 left)) (- height top 50))))
+  "Return where the browser floats first: nearly all of SCREEN under its menu
+bar, or most of the monitor's work area when SCREEN is hidden."
+  (if-let* (((frame-live-p screen))
+            ((lispm-desktop-apps-hidden-p screen))
+            (workarea (frame-monitor-workarea screen)))
+      (pcase-let* ((`(,wx ,wy ,ww ,wh) workarea)
+                   (`(,ox . ,oy) (lispm-desktop-apps--screen-origin screen))
+                   (margin-x (round (* ww 0.04)))
+                   (margin-y (round (* wh 0.04))))
+        (list (- (+ wx margin-x) ox)
+              (- (+ wy margin-y) oy)
+              (- ww (* 2 margin-x))
+              (- wh (* 2 margin-y))))
+    (let* ((width (frame-inner-width screen))
+           (height (frame-inner-height screen))
+           (top (+ (lispm-desktop-app-window-menu-bar-height screen) 8))
+           (left (round (* width 0.015))))
+      (list left top (- width (* 2 left)) (- height top 24)))))
 
 (defun lispm-desktop-browser--roll (_frame)
   "Leave the floating browser, selected, its address window alone, and

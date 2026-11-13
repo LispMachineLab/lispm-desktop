@@ -10292,7 +10292,17 @@ cascade of an application's window."
           (should (equal (place 'finder) '(40 30)))
           (should (equal (place 'settings-appearance) '(340 50)))
           (should (equal (place 'editor) '(72 20)))
-          (should (equal (place 'browser) '(120 30)))
+          (should (equal (place 'browser) '(18 8)))
+          (should (equal (alist-get 'width made) '(text-pixels . 1164)))
+          (should (equal (alist-get 'height made) '(text-pixels . 768)))
+          ;; When the desktop is hidden, Browser sizes itself against the
+          ;; monitor's workarea rather than the unseen desktop frame.
+          (cl-letf (((symbol-function 'frame-live-p) (lambda (f) (eq f 'screen)))
+                    ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (f) (eq f 'screen)))
+                    ((symbol-function 'frame-monitor-workarea) (lambda (_f) '(0 33 1728 1084)))
+                    ((symbol-function 'lispm-desktop-apps--screen-origin) (lambda (_f) '(100 . 50))))
+            (should (equal (lispm-desktop-browser--default-geometry 'screen)
+                           '(-31 26 1590 998))))
           ;; The App Store, the only window open that cascades, is not counted
           ;; for itself; an application's window cascades from it.
           (setq lispm-desktop-app-window--frames
