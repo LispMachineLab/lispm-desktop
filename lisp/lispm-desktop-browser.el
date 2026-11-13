@@ -82,6 +82,8 @@
 
 (declare-function lispm-desktop-show-desktop "lispm-desktop-coherence" (&optional screen))
 (declare-function xwidget-at "xwidget" (pos))
+(declare-function xwidget-info "xwidget.c" (xwidget))
+(declare-function xwidget-resize "xwidget.c" (xwidget new-width new-height))
 (declare-function lispm-browser-set-proxy "lispm-browser-proxy" (url &optional exceptions))
 (declare-function xwidget-webkit-uri "xwidget" (xwidget))
 (declare-function xwidget-webkit-goto-uri "xwidget" (xwidget uri))
@@ -92,9 +94,11 @@
 (defvar xwidget-webkit-mode-map)
 (defvar xwidget-webkit--loading-p)
 (declare-function lispm-ui-icon "lispm-ui-icons" (name))
+(declare-function lispm-desktop-browser--places-window "lispm-desktop-browser-places" ())
 (defvar lispm-desktop-platinum-window-title)
 (defvar lispm-desktop-platinum-window-icon)
 (defvar lispm-desktop-platinum-box-functions)
+(defvar lispm-desktop-platinum-active-function)
 
 (defconst lispm-desktop-browser-workspace-name "Browser"
   "Name of the workspace holding the embedded browser.")
@@ -283,17 +287,29 @@ a size under the list font's, as Netscape's labels were small."
   (pcase-let ((`(,family ,size) (lispm-desktop-browser--font)))
     (string-pixel-width (propertize label 'face `(:family ,family :height ,(* 10 size))))))
 
-(defun lispm-desktop-browser--ink (enabled)
+(defun lispm-desktop-browser--inverted-bevel-p (pressed)
+  "Return non-nil when PRESSED draws a solid-outline inverse-video button."
+  (and pressed
+       (equal (lispm-ui-color :highlight) (lispm-ui-color :outline))
+       (not (equal (lispm-ui-color :content) (lispm-ui-color :outline)))))
+
+(defun lispm-desktop-browser--ink (enabled &optional pressed)
   "Return the icons' colours as an alist for `format-spec': outline (i),
 fill (f), face (c), the stop sign's red (r) and white (w); greyed unless
-ENABLED."
+ENABLED, inverted on 1-bit buttons when PRESSED."
   (let ((red (or (ignore-errors (face-foreground 'error nil t)) "#CC3333")))
-    (if enabled
-        `((?i . ,(lispm-ui-color :text)) (?f . ,(lispm-ui-color :accent))
-          (?c . ,(lispm-ui-color :content)) (?r . ,red) (?w . "#FFFFFF"))
+    (cond
+     ((and enabled (lispm-desktop-browser--inverted-bevel-p pressed))
+      (let ((fg (lispm-ui-color :content))
+            (bg (lispm-ui-color :outline)))
+        `((?i . ,fg) (?f . ,fg) (?c . ,bg) (?r . ,fg) (?w . ,bg))))
+     (enabled
+      `((?i . ,(lispm-ui-color :text)) (?f . ,(lispm-ui-color :accent))
+        (?c . ,(lispm-ui-color :content)) (?r . ,red) (?w . "#FFFFFF")))
+     (t
       `((?i . ,(lispm-ui-color :shade)) (?f . ,(lispm-ui-color :muted))
         (?c . ,(lispm-ui-color :chrome)) (?r . ,(lispm-ui-color :muted))
-        (?w . ,(lispm-ui-color :chrome))))))
+        (?w . ,(lispm-ui-color :chrome)))))))
 
 (defconst lispm-desktop-browser--icons
   '((back . "<path d='M2.5 12 L11.5 3.5 L11.5 8 L21.5 8 L21.5 16 L11.5 16 L11.5 20.5 Z' \
@@ -356,7 +372,11 @@ than Platinum's bevel buttons, pushed in when PRESSED."
   "Return SVG of the toolbar button ICON named LABEL, WIDTH pixels wide:
 greyed unless ENABLED, pushed in when PRESSED."
   (pcase-let ((`(,family ,size) (lispm-desktop-browser--font))
-              (ink (lispm-desktop-browser--ink enabled))
+              (ink (lispm-desktop-browser--ink enabled pressed))
+              (text-ink (cond ((not enabled) (lispm-ui-color :shade))
+                              ((lispm-desktop-browser--inverted-bevel-p pressed)
+                               (lispm-ui-color :content))
+                              (t (lispm-ui-color :text))))
               (height lispm-desktop-browser-tool-height))
     (lispm-desktop-browser--svg
      width height
@@ -365,7 +385,7 @@ greyed unless ENABLED, pushed in when PRESSED."
              (format-spec (alist-get icon lispm-desktop-browser--icons) ink))
      (format "<text x='%d' y='%d' font-family='%s' font-size='%d' text-anchor='middle' fill='%s'>%s</text>"
              (/ width 2) (- height 6 (if pressed -1 0)) (lispm-desktop-browser--escape family) size
-             (if enabled (lispm-ui-color :text) (lispm-ui-color :shade))
+             text-ink
              (lispm-desktop-browser--escape label)))))
 
 (defconst lispm-desktop-browser--logo
@@ -845,11 +865,13 @@ typed at its end."
     (when lispm-desktop-browser--address-start
       (move-overlay lispm-desktop-browser--field lispm-desktop-browser--address-start (point-max)))))
 
-(defun lispm-desktop-browser--field-focus (_window)
+(defun lispm-desktop-browser--field-focus (window)
   "Ring the address field while its window has the keyboard, and not after.
 This is a buffer-local `window-selection-change-functions' function."
   (with-current-buffer (lispm-desktop-browser--address-buffer)
-    (lispm-desktop-browser--draw-field)))
+    (lispm-desktop-browser--draw-field))
+  (when (window-live-p window)
+    (lispm-desktop-platinum-redraw-title-bars (window-frame window))))
 
 (defun lispm-desktop-browser--edited-address ()
   "Return the address typed in the address buffer, or nil before its first render."
@@ -947,8 +969,14 @@ presses an extension's button, see `lispm-browser-extensions-press'.")
   (lispm-browser-close-shown-tab))
 
 (defun lispm-desktop-browser--zoom-box (_window)
-  "Move the browser between full screen and floating, from its zoom box."
-  (lispm-desktop-browser-toggle-floating))
+  "Zoom the floating browser over the screen in floating-window looks, or
+move the browser between full screen and floating."
+  (if (and (lispm-desktop-apps-floating-look-p)
+           (lispm-desktop-browser-floating-p))
+      (progn
+        (lispm-desktop-browser--unshade)
+        (lispm-desktop-platinum-zoom-frame lispm-desktop-browser--frame))
+    (lispm-desktop-browser-toggle-floating)))
 
 (defun lispm-desktop-browser--collapse-box (_window)
   "Roll the floating browser up to its toolbar, or down again."
@@ -959,6 +987,18 @@ presses an extension's button, see `lispm-browser-extensions-press'.")
 `lispm-desktop-platinum-box-functions': only a floating window rolls up."
   `(:close lispm-desktop-browser--close-window :zoom lispm-desktop-browser--zoom-box
     ,@(when (lispm-desktop-browser-floating-p) '(:collapse lispm-desktop-browser--collapse-box))))
+
+(defun lispm-desktop-browser--active-p (window)
+  "Return non-nil when browser chrome or page WINDOW belongs to the active browser."
+  (let* ((frame (window-frame window))
+         (sel (or (old-selected-window) (selected-window))))
+    (and (window-live-p sel)
+         (eq (window-frame sel) frame)
+         (or (eq frame lispm-desktop-browser--frame)
+             (eq sel (lispm-desktop-browser--window))
+             (eq sel (lispm-desktop-browser--address-window))
+             (and (fboundp 'lispm-desktop-browser--places-window)
+                  (eq sel (lispm-desktop-browser--places-window)))))))
 
 (define-derived-mode lispm-desktop-browser-address-mode fundamental-mode "Address"
   "Major mode of the browser's address window.
@@ -972,7 +1012,8 @@ toolbar.
               cursor-type 'bar
               lispm-desktop-platinum-window-title #'lispm-desktop-browser--no-page-title
               lispm-desktop-platinum-window-icon (lispm-ui-icon "netscape")
-              lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes))
+              lispm-desktop-platinum-box-functions (lispm-desktop-browser--boxes)
+              lispm-desktop-platinum-active-function #'lispm-desktop-browser--active-p)
   ;; Its height is the toolbars': a frame growing, as on a tall screen,
   ;; gives its height to the page, the toolbars fitted again at once.
   (add-hook 'window-size-change-functions #'lispm-desktop-browser--refit-address nil t)
@@ -1135,10 +1176,52 @@ shows the page's address.  The timer stops once no address window is left."
                     (and moved (not (eq address (selected-window)))))
             (lispm-desktop-browser--render-address (car state)))
           (with-current-buffer (window-buffer address)
-            (force-mode-line-update))))
+            (force-mode-line-update))
+          (when-let* ((page (lispm-desktop-browser--window)))
+            (lispm-desktop-browser--fit-window-xwidget page))))
     (when lispm-desktop-browser--sync-timer
       (cancel-timer lispm-desktop-browser--sync-timer)
       (setq lispm-desktop-browser--sync-timer nil))))
+
+(defvar lispm-desktop-browser--resizing-xwidget nil
+  "Non-nil while `lispm-desktop-browser--fit-window-xwidget' resizes a view.")
+
+(defun lispm-desktop-browser--fit-window-xwidget (window)
+  "Size the WebKit view in WINDOW to WINDOW's inside pixel edges.
+Emacs's `xwidget.el' registers `xwidget-webkit-adjust-size-in-frame' under
+`(eval-after-load \\='xwidget-webkit-mode ...)', a feature never provided, and
+on macOS SDK 14+ AppKit no longer clips `XwWebView' to `XvWindow': a view kept
+at the unsplit frame height overflows over the bottom mode line, hiding the
+status bar, grow box, and Genera's `[Select]', `[Bury]' and `[Kill]' placards."
+  (when (and (not lispm-desktop-browser--resizing-xwidget)
+             (window-live-p window)
+             (fboundp 'xwidget-at)
+             (fboundp 'xwidget-resize)
+             (fboundp 'xwidget-info)
+             (eq (buffer-local-value 'major-mode (window-buffer window))
+                 'xwidget-webkit-mode))
+    (with-current-buffer (window-buffer window)
+      (when-let* ((xwidget (xwidget-at (point-min)))
+                  (info (xwidget-info xwidget))
+                  (edges (window-inside-pixel-edges window))
+                  (width (- (nth 2 edges) (nth 0 edges)))
+                  (height (- (nth 3 edges) (nth 1 edges))))
+        (when (and (> width 0) (> height 0)
+                   (or (/= (aref info 2) width)
+                       (/= (aref info 3) height)))
+          (let ((lispm-desktop-browser--resizing-xwidget t))
+            (xwidget-resize xwidget width height)))))))
+
+(defun lispm-desktop-browser--fit-xwidgets (&optional frame-or-window)
+  "Fit WebKit views in FRAME-OR-WINDOW (or the selected frame) to their windows."
+  (cond
+   ((windowp frame-or-window)
+    (lispm-desktop-browser--fit-window-xwidget frame-or-window))
+   (t
+    (let ((frame (if (framep frame-or-window) frame-or-window (selected-frame))))
+      (when (frame-live-p frame)
+        (dolist (window (window-list frame 'no-mini))
+          (lispm-desktop-browser--fit-window-xwidget window)))))))
 
 (defun lispm-desktop-browser--fit-address ()
   "Fit the address window to its title bar, toolbar and address line.
@@ -1147,7 +1230,9 @@ kept so: a frame growing, as on a tall screen, gives its height to the
 page, never to the toolbars."
   (when-let* ((address (lispm-desktop-browser--address-window)))
     (let ((window-resize-pixelwise t))
-      (fit-window-to-buffer address nil nil nil nil t))))
+      (fit-window-to-buffer address nil nil nil nil t))
+    (when-let* ((page (lispm-desktop-browser--window)))
+      (lispm-desktop-browser--fit-window-xwidget page))))
 
 (defun lispm-desktop-browser--refit-address (window)
   "Fit the address WINDOW to its toolbars again once its size changed, as
@@ -1156,7 +1241,9 @@ as in a rolled-up browser.  This is a buffer-local
 `window-size-change-functions' function."
   (unless (frame-root-window-p window)
     (let ((window-resize-pixelwise t))
-      (fit-window-to-buffer window nil nil nil nil t))))
+      (fit-window-to-buffer window nil nil nil nil t))
+    (when-let* ((page (lispm-desktop-browser--window)))
+      (lispm-desktop-browser--fit-window-xwidget page))))
 
 (defun lispm-desktop-browser--ensure-layout ()
   "Put the address window above the browser window, once, and keep it synced.
@@ -1368,7 +1455,8 @@ its own nor WebKit's title line.  This is on `lispm-browser-tab-hook'."
   (setq-local tab-line-format '(:eval (lispm-desktop-browser--tab-line))
               header-line-format nil
               ;; The bottom edge is Netscape's status bar.
-              lispm-desktop-platinum-info #'lispm-desktop-browser--status)
+              lispm-desktop-platinum-info #'lispm-desktop-browser--status
+              lispm-desktop-platinum-active-function #'lispm-desktop-browser--active-p)
   ;; The title bar above lights and dims with the page.
   (add-hook 'window-selection-change-functions
             (lambda (window)
@@ -1415,7 +1503,9 @@ something is there already."
 (defun lispm-desktop-browser--raise ()
   "Bring the browser in front, unless it is.
 This is `lispm-browser-raise-function' on the desktop."
-  (unless (eq (lispm-desktop-apps-frontmost) 'browser)
+  (unless (and (eq (lispm-desktop-apps-frontmost) 'browser)
+               (or (not (lispm-desktop-browser-floating-p))
+                   (frame-visible-p lispm-desktop-browser--frame)))
     (lispm-desktop-browser-show)))
 
 (defun lispm-desktop-browser--sync-now ()
@@ -1448,6 +1538,8 @@ Its pages take the desktop's keys, and \\`C-c x' prefixes its commands."
         lispm-browser-clipboard-function #'lispm-desktop-clipboard-text)
   (add-hook 'lispm-browser-tab-hook #'lispm-desktop-browser--setup)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-browser--scroll-bar)
+  (add-hook 'window-size-change-functions #'lispm-desktop-browser--fit-xwidgets)
+  (add-hook 'window-buffer-change-functions #'lispm-desktop-browser--fit-xwidgets)
   (add-hook 'lispm-browser-change-hook #'lispm-desktop-browser--sync-now)
   ;; The address line's words, in the language now spoken.
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-browser--sync-now)

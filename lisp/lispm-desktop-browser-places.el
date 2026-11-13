@@ -323,6 +323,11 @@ toolbar."
   (setq-local truncate-lines t)
   (face-remap-add-relative 'default 'lispm-ui-list)
   (hl-line-mode 1)
+  (add-hook 'window-selection-change-functions
+            (lambda (window)
+              (when (window-live-p window)
+                (lispm-desktop-platinum-redraw-title-bars (window-frame window))))
+            nil t)
   (when (fboundp 'display-line-numbers-mode)
     (display-line-numbers-mode -1)))
 

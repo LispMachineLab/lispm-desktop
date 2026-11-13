@@ -453,6 +453,8 @@ its saved geometry, and kills its buffers so reopening starts fresh."
         (lispm-browser-quit))
       (when (and (frame-live-p frame) (lispm-desktop-app-window-frame 'browser))
         (lispm-desktop-app-window-close 'browser))
+      (when-let* ((places (get-buffer " *Browser Places*")))
+        (kill-buffer places))
       (setq lispm-desktop-app-window--geometry
             (assq-delete-all 'browser lispm-desktop-app-window--geometry)))
      (t
@@ -532,7 +534,8 @@ This is one of `lispm-desktop-apps-frontmost-functions'."
       (let ((shown (not (funcall (lispm-desktop-app-window--get id :hidden-by
                                                                 #'lispm-desktop-apps-full-screen-p)
                                  app))))
-        (cond ((and shown (not (frame-visible-p frame)))
+        (cond ((and shown (not (frame-visible-p frame))
+                    (not (frame-parameter frame 'lispm-desktop-buried)))
                (lispm-desktop-platinum-show-window frame))
               ((and (not shown) (frame-visible-p frame))
                (lispm-desktop-platinum-hide-window frame))))))
