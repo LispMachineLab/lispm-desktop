@@ -79,9 +79,21 @@
 (declare-function lispm-language-changed "lispm-i18n" ())
 (declare-function lispm-agent-attended "lispm-core" (agent))
 (declare-function lispm-agent-busy-p "lispm-core" (agent))
+(declare-function lispm-agent-entry "lispm-core" (agent))
 (declare-function lispm-agent-id "lispm-core" (agent))
 (declare-function lispm-agent-name "lispm-core" (agent))
+(declare-function lispm-agent-root "lispm-core" (agent))
 (declare-function lispm-agent-view "lispm-core" (agent))
+(declare-function lispm-system-agent-p "lispm-bar" (agent))
+(declare-function lispm-bar-open-p "lispm-bar" ())
+(declare-function lispm-desktop-genera--look-p "lispm-desktop-genera" (&optional look))
+(defvar lispm-bar--asked)
+(defvar lispm-bar-entrypoint nil)
+(defvar lispm-system-prompt-functions)
+(defvar lispm-request-context-functions nil)
+(defvar lispm-desktop-genera--listener-ai-active)
+(defvar lispm-desktop-genera--listener-history)
+(defvar lispm-desktop-finder--directory)
 (declare-function lispm-agent-status-record "lispm-runtime" (agent))
 (declare-function lispm-read-role "lispm" (prompt))
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
@@ -432,6 +444,138 @@ Application menu, see `lispm-desktop-apps-application-items'."
 Panels and its App Store, `lispm-desktop-skill-directory'."
   (list (list :directory lispm-desktop-skill-directory :origin "LispM Desktop")))
 
+(defun lispm-desktop-lispm--system-prompt (_agent)
+  "Describe LispM Desktop's UI surfaces and self-introspection for new sessions."
+  (concat
+   "# LispM Desktop environment & self-introspection\n"
+   "- You run inside LispM Desktop (`~/.lispm/lispm-desktop/'), which provides"
+   " classic workstation looks (`genera' for Symbolics Open Genera 2.0,"
+   " `platinum' for Mac OS 9 Platinum, `win3' for Windows 3.1, and `os2' for"
+   " OS/2 Warp), floating application windows (`desktop', `finder', `editor',"
+   " `browser', `store', `settings', `lispm'), and Focus Mode (`C-c T').\n"
+   "- In the `genera' look, there is no top menu bar or desktop icon column;"
+   " the root screen (` *Desktop*') and editor welcome screen (`*GNU Emacs*')"
+   " are `Dynamic Lisp Listener 1', with an interactive `Command: █' prompt at"
+   " the bottom, an inverse-video Mouse Documentation Line, and a white"
+   " Who-Line. Typing at `Command: █' and pressing Return first matches"
+   " built-in Genera commands (`Home', `Emacs', `Browser', `Applications',"
+   " `App Store', `Control Panels', `Focus Mode', `Help Commands', `Clear'),"
+   " evaluates `(...)' S-expressions locally as Emacs Lisp, and routes other"
+   " inputs to LispM's system agent, displaying the reply inline above"
+   " `Command: █'.\n"
+   "- Each turn provides a `[Current LispM scenario]' block with your live"
+   " invocation surface, active desktop look, open floating windows, and"
+   " recent Listener command history. Consult it and use the `desktop' and"
+   " `settings' skills (via `search_tools' / `skill') or `eval_elisp' /"
+   " `describe_symbol' to introspect live state rather than guessing."))
+
+(defun lispm-desktop-lispm--describe-window (frame)
+  "Return a concise description of floating desktop window FRAME."
+  (let* ((id (or (lispm-desktop-app-window-id frame) 'unknown))
+         (title (or (frame-parameter frame 'name) (symbol-name id)))
+         (app (or (frame-parameter frame 'lispm-desktop-app) id))
+         (rolled (and (lispm-desktop-app-window-rolled-p frame) ", rolled up"))
+         (finder-detail
+          (when (eq id 'finder)
+            (when-let* ((buf (or (and (frame-live-p frame)
+                                      (window-buffer (frame-selected-window frame)))
+                                 (get-buffer " *LispM Finder*")))
+                        (dir (buffer-local-value 'lispm-desktop-finder--directory buf)))
+              (cond
+               ((stringp dir)
+                (let ((abbr (abbreviate-file-name dir)))
+                  (if (ignore-errors (file-equal-p dir "~"))
+                      (format ", showing %s (Home folder)" abbr)
+                    (format ", showing %s" abbr))))
+               ((symbolp dir)
+                (format ", showing %s folder" dir)))))))
+    (format "%s (%S, app: %s%s%s)"
+            id title app (or finder-detail "") (or rolled ""))))
+
+(defun lispm-desktop-lispm--request-context (agent)
+  "Return live LispM Desktop and Listener scenario introspection for AGENT."
+  (let* ((system-p (and (fboundp 'lispm-system-agent-p)
+                        (lispm-system-agent-p agent)))
+         (entry-id (and (fboundp 'lispm-agent-entry)
+                        (plist-get (ignore-errors (funcall 'lispm-agent-entry agent)) :id)))
+         (from-bar-ask (and system-p
+                            (bound-and-true-p lispm-bar--asked)
+                            entry-id
+                            (equal entry-id (cdr lispm-bar--asked))))
+         (genera-p (and (fboundp 'lispm-desktop-genera--look-p)
+                        (lispm-desktop-genera--look-p)))
+         (in-focus (or (lispm-desktop-lispm-terminal-open-p)
+                       (and (fboundp 'lispm-terminal-p) (lispm-terminal-p))))
+         (surface
+          (cond
+           ((and system-p
+                 from-bar-ask
+                 (or (eq (bound-and-true-p lispm-bar-entrypoint) 'genera-listener)
+                     (and (null (bound-and-true-p lispm-bar-entrypoint))
+                          genera-p
+                          (bound-and-true-p lispm-desktop-genera--listener-ai-active))))
+            (concat
+             "Active surface: Dynamic Lisp Listener 1 (\"Command: █\" prompt at the bottom of the Open Genera 2.0 screen; there is NO top LispM bar in the genera look, and this is NOT a separate chat window).\n"
+             "Listener dispatch rules: Typing at \"Command: █\" and pressing Return first matches built-in Genera commands (e.g. \"Home\", \"Emacs\", \"Browser\", \"Applications\", \"App Store\", \"Control Panels\", \"Focus Mode\", \"Help Commands\", \"Clear\"), evaluates \"(...)\" S-expressions locally as Emacs Lisp, and routes other inputs to you (LispM). Your reply streams inline directly above \"Command: █\"."))
+           ((and system-p
+                 (or (and (fboundp 'lispm-bar-open-p) (lispm-bar-open-p))
+                     from-bar-ask))
+            "Active surface: LispM Bar (one-line popup field with compact reply panel).")
+           (in-focus
+            "Active surface: Focus Mode (LispM full-frame keyboard terminal with *LispM Sessions* on the left, active chat listener on the right, and who-line at the bottom).")
+           (system-p
+            (format "Active surface: LispM Agent chat / session buffer (%s)."
+                    (buffer-name (or (and (fboundp 'lispm-agent-view)
+                                          (ignore-errors (funcall 'lispm-agent-view agent)))
+                                     (current-buffer)))))
+           (t
+            (format "Active surface: Project agent chat / session buffer (%s, root: %s)."
+                    (buffer-name (or (and (fboundp 'lispm-agent-view)
+                                          (ignore-errors (funcall 'lispm-agent-view agent)))
+                                     (current-buffer)))
+                    (abbreviate-file-name (or (and (fboundp 'lispm-agent-root)
+                                                   (ignore-errors (funcall 'lispm-agent-root agent)))
+                                              default-directory))))))
+         (look-desc
+          (pcase lispm-desktop-look
+            ('genera "genera (Symbolics Open Genera 2.0 1-bit monochrome workstation chrome; full screen is Dynamic Lisp Listener 1 with left 1-bit scrollbar, inverse-video Mouse Documentation Line, and bottom Who-Line; no top menu bar)")
+            ('platinum "platinum (Mac OS 9 Platinum desktop with top menu bar and desktop icons on the right)")
+            ('win3 "win3 (Windows 3.1 desktop)")
+            ('os2 "os2 (OS/2 Warp desktop)")
+            (other (format "%s" other))))
+         (front (ignore-errors (lispm-desktop-apps-frontmost)))
+         (screen (ignore-errors (lispm-desktop-apps-screen)))
+         (windows (and screen
+                       (seq-filter #'frame-visible-p
+                                   (ignore-errors (lispm-desktop-apps-windows-in-order screen)))))
+         (win-desc (if windows
+                       (mapconcat #'lispm-desktop-lispm--describe-window windows "; ")
+                     "none (bare desktop / Dynamic Lisp Listener 1 is unobstructed)"))
+         (hist (and (boundp 'lispm-desktop-genera--listener-history)
+                    (seq-take lispm-desktop-genera--listener-history 6)))
+         (sel-buf (window-buffer (selected-window))))
+    (string-join
+     (delq nil
+           (list
+            surface
+            (format "Desktop look: %s, theme: %s%s%s."
+                    look-desc lispm-desktop-theme
+                    (if in-focus ", Focus Mode active" "")
+                    (if (ignore-errors (lispm-desktop-apps-hidden-p))
+                        ", desktop hidden in Dock"
+                      ""))
+            (format "Frontmost desktop application: %s." (or front 'desktop))
+            (format "Open floating desktop windows (front to back): %s." win-desc)
+            (when (or genera-p hist)
+              (format "Recent Dynamic Lisp Listener 1 Command history (newest first): %S."
+                      hist))
+            (when (buffer-live-p sel-buf)
+              (format "Selected Emacs buffer: %S (%s)."
+                      (buffer-name sel-buf)
+                      (buffer-local-value 'major-mode sel-buf)))
+            "Introspection tools: Use the \"desktop\" skill (desktop_apps, desktop_windows, desktop_open, desktop_folder, desktop_window) or \"settings\" skill via search_tools/skill, or inspect live Emacs state directly with eval_elisp and describe_symbol."))
+     "\n")))
+
 (defun lispm-desktop-setup-lispm ()
   "Load LispM and register its agents with the agent tools."
   (lispm-desktop-deps-ensure 'lispm)
@@ -444,6 +588,10 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
   (when (boundp 'lispm-skill-sources)
     (add-hook 'lispm-skill-sources #'lispm-desktop-store-skill-sources)
     (add-hook 'lispm-skill-sources #'lispm-desktop--system-skills 90))
+  (when (boundp 'lispm-system-prompt-functions)
+    (add-hook 'lispm-system-prompt-functions #'lispm-desktop-lispm--system-prompt))
+  (when (boundp 'lispm-request-context-functions)
+    (add-hook 'lispm-request-context-functions #'lispm-desktop-lispm--request-context))
   (lispm-agents-define
    'lispm
    :name "LispM"
