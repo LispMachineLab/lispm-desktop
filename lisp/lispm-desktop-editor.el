@@ -779,6 +779,7 @@ listed an application's windows."
 (declare-function lispm-terminal-quit "lispm-terminal" ())
 (defvar lispm-desktop-genera--welcome-hits)
 (defvar lispm-desktop-genera--listener-input)
+(defvar lispm-desktop-genera--listener-working-text)
 (defvar lispm-desktop-genera--listener-output)
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
@@ -870,8 +871,8 @@ listed an application's windows."
 (defun lispm-desktop-editor-splash-tab ()
   "Complete Listener input when non-empty, else focus the next button."
   (interactive)
-  (if (and (boundp 'lispm-desktop-genera--listener-input)
-           (not (string-empty-p lispm-desktop-genera--listener-input))
+  (if (and (or (not (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) "")))
+               (not (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-working-text) ""))))
            (fboundp 'lispm-desktop-genera-listener-complete))
       (call-interactively #'lispm-desktop-genera-listener-complete)
     (lispm-desktop-editor-splash-next)))
@@ -887,7 +888,8 @@ listed an application's windows."
   "Insert a space into `Command: █', or activate the focused button."
   (interactive)
   (if (and lispm-desktop-editor--splash-focused
-           (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) "")))
+           (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) ""))
+           (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-working-text) "")))
       (lispm-desktop-editor--splash-run-action lispm-desktop-editor--splash-focused)
     (lispm-desktop-editor-splash-self-insert)))
 
@@ -895,8 +897,8 @@ listed an application's windows."
   "Execute the live `Command: █' input, or activate the focused button."
   (interactive)
   (cond
-   ((and (boundp 'lispm-desktop-genera--listener-input)
-         (not (string-empty-p (string-trim lispm-desktop-genera--listener-input)))
+   ((and (or (not (string-empty-p (string-trim (or (bound-and-true-p lispm-desktop-genera--listener-input) ""))))
+             (not (string-empty-p (string-trim (or (bound-and-true-p lispm-desktop-genera--listener-working-text) "")))))
          (fboundp 'lispm-desktop-genera-listener-ret))
     (call-interactively #'lispm-desktop-genera-listener-ret))
    (lispm-desktop-editor--splash-focused
@@ -993,6 +995,7 @@ listed an application's windows."
                            lispm-desktop-look lispm-desktop-theme graphic
                            (bound-and-true-p lispm-terminal-mode)
                            (bound-and-true-p lispm-desktop-genera--listener-input)
+                           (bound-and-true-p lispm-desktop-genera--listener-working-text)
                            (bound-and-true-p lispm-desktop-genera--listener-output))))
           (when (or force (not (equal state lispm-desktop-editor--splash-state)))
             (setq lispm-desktop-editor--splash-state state)
@@ -1011,7 +1014,8 @@ listed an application's windows."
               (goto-char (point-min))
               (when (and (window-live-p win) (eq (window-buffer win) buffer))
                 (set-window-start win (point-min) t)
-                (set-window-point win (point-min))))))))))
+                (set-window-point win (point-min))
+                (set-window-hscroll win 0)))))))))
 
 (defun lispm-desktop-editor--refresh-splash (&rest _)
   "Re-render the welcome screen when the look, theme or language changes."
@@ -1032,6 +1036,7 @@ listed an application's windows."
   (setq-local header-line-format nil
               cursor-type nil
               truncate-lines t
+              auto-hscroll-mode nil
               left-fringe-width 1
               right-fringe-width 1
               show-trailing-whitespace nil

@@ -1955,13 +1955,14 @@ evaluation when no agent is configured."
     (lispm-desktop-genera--sync-ai-output)
     t))
 
+(defvar lispm-desktop-editor--splash-focused)
+
 (defun lispm-desktop-genera--listener-surface-p (&optional buffer)
-  "Return non-nil when BUFFER (default current) is a Genera Listener SVG surface."
+  "Return non-nil when BUFFER (default current) is a Listener SVG surface."
   (with-current-buffer (or buffer (current-buffer))
-    (and (lispm-desktop-genera--look-p)
-         (or (and (derived-mode-p 'lispm-desktop-mode)
-                  (null (lispm-desktop-icon-side)))
-             (derived-mode-p 'lispm-desktop-editor-splash-mode)))))
+    (or (and (derived-mode-p 'lispm-desktop-mode)
+             (null (lispm-desktop-icon-side)))
+        (derived-mode-p 'lispm-desktop-editor-splash-mode))))
 
 (defun lispm-desktop-genera--image-at-point-p (&optional buffer)
   "Return non-nil when character at point in BUFFER displays an image."
@@ -1972,10 +1973,18 @@ evaluation when no agent is configured."
 
 (defun lispm-desktop-genera--clear-ns-working-overlay ()
   "Remove `ns-working-overlay' if present without clobbering `ns-working-text'."
-  (when (and (boundp 'ns-working-overlay)
-             (overlayp ns-working-overlay)
-             (overlay-buffer ns-working-overlay))
-    (delete-overlay ns-working-overlay)
+  (when (boundp 'ns-working-overlay)
+    (cond
+     ((and (overlayp ns-working-overlay)
+           (overlay-buffer ns-working-overlay))
+      (with-current-buffer (overlay-buffer ns-working-overlay)
+        (overlay-put ns-working-overlay 'after-string nil)
+        (delete-overlay ns-working-overlay)))
+     ((and (integerp ns-working-overlay) (> ns-working-overlay 0))
+      (let ((msg (current-message))
+            message-log-max)
+        (when (and (stringp msg) (>= (length msg) ns-working-overlay))
+          (message "%s" (substring msg 0 (- (length msg) ns-working-overlay)))))))
     (setq ns-working-overlay nil)))
 
 (defun lispm-desktop-genera--ns-put-working-text (orig-fn &rest args)
@@ -1990,6 +1999,9 @@ falling back to ORIG-FN with ARGS on regular text buffers."
                (stringp ns-working-text)
                (not (string-empty-p ns-working-text))
                ns-working-text))
+    (when (and lispm-desktop-genera--listener-working-text
+               (derived-mode-p 'lispm-desktop-editor-splash-mode))
+      (setq lispm-desktop-editor--splash-focused nil))
     (lispm-desktop-genera--refresh-listener))
    ((lispm-desktop-genera--image-at-point-p)
     (lispm-desktop-genera--clear-ns-working-overlay)
@@ -2034,7 +2046,9 @@ or answer an inline AI approval prompt with `y' or `n' when input is empty."
             (concat lispm-desktop-genera--listener-input
                     (char-to-string last-command-event))
             lispm-desktop-genera--listener-history-index nil)
-      (lispm-desktop-genera--refresh-listener))))
+      (if (input-pending-p)
+          (run-at-time 0 nil #'lispm-desktop-genera--refresh-listener)
+        (lispm-desktop-genera--refresh-listener)))))
 
 (defun lispm-desktop-genera-listener-backspace ()
   "Delete the last character from `Command: █' on `Dynamic Lisp Listener 1'."

@@ -497,11 +497,11 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
   (let* ((system-p (and (fboundp 'lispm-system-agent-p)
                         (lispm-system-agent-p agent)))
          (entry-id (and (fboundp 'lispm-agent-entry)
-                        (plist-get (ignore-errors (lispm-agent-entry agent)) :id)))
+                        (plist-get (ignore-errors (funcall 'lispm-agent-entry agent)) :id)))
          (from-bar-ask (and system-p
                             (bound-and-true-p lispm-bar--asked)
-                            (or (null entry-id)
-                                (equal entry-id (cdr lispm-bar--asked)))))
+                            entry-id
+                            (equal entry-id (cdr lispm-bar--asked))))
          (genera-p (and (fboundp 'lispm-desktop-genera--look-p)
                         (lispm-desktop-genera--look-p)))
          (in-focus (or (lispm-desktop-lispm-terminal-open-p)
@@ -509,11 +509,11 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
          (surface
           (cond
            ((and system-p
-                 (or (and from-bar-ask
-                          (eq (bound-and-true-p lispm-bar-entrypoint) 'genera-listener))
-                     (and genera-p
-                          (bound-and-true-p lispm-desktop-genera--listener-ai-active)
-                          from-bar-ask)))
+                 from-bar-ask
+                 (or (eq (bound-and-true-p lispm-bar-entrypoint) 'genera-listener)
+                     (and (null (bound-and-true-p lispm-bar-entrypoint))
+                          genera-p
+                          (bound-and-true-p lispm-desktop-genera--listener-ai-active))))
             (concat
              "Active surface: Dynamic Lisp Listener 1 (\"Command: █\" prompt at the bottom of the Open Genera 2.0 screen; there is NO top LispM bar in the genera look, and this is NOT a separate chat window).\n"
              "Listener dispatch rules: Typing at \"Command: █\" and pressing Return first matches built-in Genera commands (e.g. \"Home\", \"Emacs\", \"Browser\", \"Applications\", \"App Store\", \"Control Panels\", \"Focus Mode\", \"Help Commands\", \"Clear\"), evaluates \"(...)\" S-expressions locally as Emacs Lisp, and routes other inputs to you (LispM). Your reply streams inline directly above \"Command: █\"."))
@@ -525,11 +525,17 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
             "Active surface: Focus Mode (LispM full-frame keyboard terminal with *LispM Sessions* on the left, active chat listener on the right, and who-line at the bottom).")
            (system-p
             (format "Active surface: LispM Agent chat / session buffer (%s)."
-                    (buffer-name (or (ignore-errors (lispm-agent-view agent)) (current-buffer)))))
+                    (buffer-name (or (and (fboundp 'lispm-agent-view)
+                                          (ignore-errors (funcall 'lispm-agent-view agent)))
+                                     (current-buffer)))))
            (t
             (format "Active surface: Project agent chat / session buffer (%s, root: %s)."
-                    (buffer-name (or (ignore-errors (lispm-agent-view agent)) (current-buffer)))
-                    (abbreviate-file-name (or (ignore-errors (lispm-agent-root agent)) default-directory))))))
+                    (buffer-name (or (and (fboundp 'lispm-agent-view)
+                                          (ignore-errors (funcall 'lispm-agent-view agent)))
+                                     (current-buffer)))
+                    (abbreviate-file-name (or (and (fboundp 'lispm-agent-root)
+                                                   (ignore-errors (funcall 'lispm-agent-root agent)))
+                                              default-directory))))))
          (look-desc
           (pcase lispm-desktop-look
             ('genera "genera (Symbolics Open Genera 2.0 1-bit monochrome workstation chrome; full screen is Dynamic Lisp Listener 1 with left 1-bit scrollbar, inverse-video Mouse Documentation Line, and bottom Who-Line; no top menu bar)")

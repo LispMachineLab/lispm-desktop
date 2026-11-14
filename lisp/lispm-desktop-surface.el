@@ -1036,7 +1036,8 @@ Where images cannot be shown, it is drawn in text, see
               (lispm-desktop-tty-images-show window icons)))
           (goto-char (point-min))
           (set-window-start window (point-min) t)
-          (set-window-point window (point-min)))))))
+          (set-window-point window (point-min))
+          (set-window-hscroll window 0))))))
 
 ;;;; Selecting and opening
 
@@ -1671,6 +1672,7 @@ mode is turned off first: turned off, it restores the lines it found."
               tab-line-format nil
               cursor-type nil
               truncate-lines t
+              auto-hscroll-mode nil
               ;; Fringes on both sides, however thin, keep Emacs from holding
               ;; the last column of the text area for its truncation mark,
               ;; which a picture as wide as the window would stop short of.

@@ -20144,7 +20144,21 @@ empty Return behavior at `Command: █', and AI scenario introspection."
             (should (string-search "Active surface: Dynamic Lisp Listener 1" ctx))
             (should (string-search "NO top LispM bar in the genera look" ctx))
             (should (string-search "Desktop look: genera" ctx))
-            (should (string-search "(\"Home\" \"hi\")" ctx))))))))
+            (should (string-search "(\"Home\" \"hi\")" ctx)))))
+      ;; 6. Asking from LispM Bar (`lispm-bar-entrypoint' = `bar') or from the
+      ;;    session buffer (different `entry-id') does not misreport Listener.
+      (dlet ((lispm-bar--asked '("from bar" . "entry-43"))
+             (lispm-bar-entrypoint 'bar))
+        (cl-letf (((symbol-function 'lispm-system-agent-p) #'always)
+                  ((symbol-function 'lispm-agent-entry)
+                   (lambda (_a) '(:id "entry-43"))))
+          (let ((ctx (lispm-desktop-lispm--request-context 'fake-system-agent)))
+            (should (string-search "Active surface: LispM Bar" ctx))))
+        (cl-letf (((symbol-function 'lispm-system-agent-p) #'always)
+                  ((symbol-function 'lispm-agent-entry)
+                   (lambda (_a) '(:id "entry-99"))))
+          (let ((ctx (lispm-desktop-lispm--request-context 'fake-system-agent)))
+            (should (string-search "Active surface: LispM Agent chat / session buffer" ctx))))))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
