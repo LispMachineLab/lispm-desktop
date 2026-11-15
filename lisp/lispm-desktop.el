@@ -100,6 +100,8 @@
       ;; LispM UI, which draws the forms and asks what LispM and its
       ;; applications ask; LispM's agent requires it too.
       (lispm-desktop-deps-ensure 'lispm-ui)
+      ;; LispM Finder, the spatial file manager and file/folder chooser.
+      (lispm-desktop-deps-ensure 'lispm-finder)
       ;; The browser is lispm-browser, which the desktop's browser files require.
       (lispm-desktop-deps-ensure 'lispm-browser)
       ;; Auth is installed before LispM Agent, which actively depends on it,

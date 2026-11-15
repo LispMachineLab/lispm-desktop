@@ -9,6 +9,8 @@ LISPM_KIT ?= ../lispm-kit
 # LispM UI, with which the desktop draws forms and asks: a checkout beside
 # this one by default, as lispm-desktop-deps.el looks for it.
 LISPM_UI ?= ../lispm-ui
+# LispM Finder, the spatial file manager and file/folder chooser.
+LISPM_FINDER ?= ../lispm-finder
 # lispm-stickies, whose notes the desktop shows: with a checkout beside this
 # one, the tests of Stickies on the desktop run too.
 LISPM_STICKIES ?= ../lispm-stickies
@@ -27,7 +29,7 @@ TEST_PROFILE = --eval '(setq user-emacs-directory (file-name-as-directory (make-
 test:
 	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) $(STICKIES) -l test/lispm-desktop-test.el \
 	  -l test/lispm-desktop-installer-screen-test.el \
 	  -l test/lispm-desktop-deps-refresh-test.el \
 	  -l test/lispm-desktop-store-defaults-test.el \
@@ -42,15 +44,15 @@ test:
 # no longer gives; the tests fail on either.
 i18n:
 	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
-	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el \
+	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el \
 	  -f lispm-desktop-test-report-catalogs
 
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
+	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
 	  -f batch-byte-compile lisp/*.el; \
-	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
+	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_FINDER)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 
 # lispm-desktop-term's module: terminals emulated off Emacs's thread, in Rust.
 # lispm-desktop downloads it, checked, unless lispm-desktop-term-module-source

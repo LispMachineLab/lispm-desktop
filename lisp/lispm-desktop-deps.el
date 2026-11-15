@@ -90,6 +90,8 @@ while LispM Kit, which translates them, is being installed."
     (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
               ;; Its palette, drawing, icons, alerts, menus and fields.
               :version "0.7.3")
+    (lispm-finder :url "https://github.com/LispMachineLab/lispm-finder" :checkout "lispm-finder"
+                  :version "0.1.0")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.

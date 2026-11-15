@@ -143,8 +143,10 @@ windows and the menu bar are left as they are, which
 
 (defun lispm-desktop-platinum--buffer-icon (buffer)
   "Return the proxy icon of BUFFER's window, as Finder's windows showed one."
-  (or (buffer-local-value 'lispm-desktop-platinum-window-icon buffer)
-      (lispm-desktop-platinum-buffer-icon buffer)))
+  (let ((icon (buffer-local-value 'lispm-desktop-platinum-window-icon buffer)))
+    (cond ((eq icon 'none) nil)
+          (icon)
+          (t (lispm-desktop-platinum-buffer-icon buffer)))))
 
 (defun lispm-desktop-platinum--window-command (command)
   "Return a mouse command calling COMMAND with the window clicked."
