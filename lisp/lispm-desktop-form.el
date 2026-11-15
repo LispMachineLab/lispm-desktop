@@ -310,7 +310,10 @@ narrower than Emacs's own, so its fields widen."
           (lispm-desktop-form--center-modal frame anchor-frame)
           (lispm-desktop-platinum-raise-window frame)
           (select-frame-set-input-focus frame)
-          (select-window (frame-root-window frame)))
+          (select-window (frame-root-window frame))
+          (lispm-desktop-platinum-frame-update frame)
+          (with-current-buffer buffer
+            (force-mode-line-update)))
         (lambda ()
           (setq lispm-desktop-form--modal-stack
                 (delq frame lispm-desktop-form--modal-stack))
@@ -363,7 +366,7 @@ narrower than Emacs's own, so its fields widen."
                    (minibuffer . ,(minibuffer-window screen))
                    (name . ,title)
                    (lispm-desktop-app . ,(lispm-desktop-apps-frontmost))
-                   (lispm-desktop-app-window . finder-choose)
+                   (lispm-desktop-window-kind . finder-choose)
                    (lispm-ui-modal-prompt . ,anchor-frame)
                    (lispm-desktop-close-function . ,close-fn)
                    (lispm-desktop-window . t) (top-visible . ,z-order)
@@ -382,13 +385,21 @@ narrower than Emacs's own, so its fields widen."
         (let ((win (frame-root-window frame)))
           (set-window-buffer win buffer)
           (set-window-dedicated-p win t)
-          (set-window-fringes win 0 0))
+          (set-window-fringes win 0 0)
+          (set-window-parameter win 'mode-line-format nil)
+          (set-window-parameter win 'header-line-format nil))
+        (with-current-buffer buffer
+          (setq-local header-line-format '(:eval (lispm-finder--choose-header))
+                      mode-line-format '(:eval (lispm-finder--choose-footer))))
         (set-frame-size frame width height t)
         (lispm-desktop-apps-show-window frame)
         (lispm-desktop-form--center-modal frame anchor-frame)
         (lispm-desktop-platinum-raise-window frame)
         (select-frame-set-input-focus frame)
         (select-window (frame-root-window frame))
+        (lispm-desktop-platinum-frame-update frame)
+        (with-current-buffer buffer
+          (force-mode-line-update))
         (lambda ()
           (setq lispm-desktop-form--modal-stack
                 (delq frame lispm-desktop-form--modal-stack))

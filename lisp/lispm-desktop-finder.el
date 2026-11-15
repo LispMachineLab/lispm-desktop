@@ -50,26 +50,28 @@
 
 ;;;; Variable & Face Aliases
 
-(defvaralias 'lispm-desktop-finder-buffer-name 'lispm-finder-buffer-name)
-(defvaralias 'lispm-desktop-finder-cell-width 'lispm-finder-cell-width)
-(defvaralias 'lispm-desktop-finder-icon-size 'lispm-finder-icon-size)
-(defvaralias 'lispm-desktop-finder-text-cell-width 'lispm-finder-text-cell-width)
-(defvaralias 'lispm-desktop-finder-text-icon-size 'lispm-finder-text-icon-size)
-(defvaralias 'lispm-desktop-finder--had-focus 'lispm-finder--had-focus)
-(defvaralias 'lispm-desktop-finder--directory 'lispm-finder--directory)
-(defvaralias 'lispm-desktop-finder--back 'lispm-finder--back)
-(defvaralias 'lispm-desktop-finder--forward 'lispm-finder--forward)
-(defvaralias 'lispm-desktop-finder--items 'lispm-finder--items)
-(defvaralias 'lispm-desktop-finder--selected 'lispm-finder--selected)
-(defvaralias 'lispm-desktop-finder--selected-app 'lispm-finder--selected-app)
-(defvaralias 'lispm-desktop-finder--columns 'lispm-finder--columns)
-(defvaralias 'lispm-desktop-finder--typed 'lispm-finder--typed)
-(defvaralias 'lispm-desktop-finder-folders 'lispm-finder-folders)
-(defvaralias 'lispm-desktop-finder--icons 'lispm-finder--icons)
-(defvaralias 'lispm-desktop-finder-item-map 'lispm-finder-item-map)
-(defvaralias 'lispm-desktop-finder--up-target 'lispm-finder--up-target)
-(defvaralias 'lispm-desktop-finder--up-button-map 'lispm-finder--up-button-map)
-(defvaralias 'lispm-desktop-finder-mode-map 'lispm-finder-mode-map)
+(eval-and-compile
+  (dolist (pair '((lispm-desktop-finder-buffer-name . lispm-finder-buffer-name)
+                  (lispm-desktop-finder-cell-width . lispm-finder-cell-width)
+                  (lispm-desktop-finder-icon-size . lispm-finder-icon-size)
+                  (lispm-desktop-finder-text-cell-width . lispm-finder-text-cell-width)
+                  (lispm-desktop-finder-text-icon-size . lispm-finder-text-icon-size)
+                  (lispm-desktop-finder--had-focus . lispm-finder--had-focus)
+                  (lispm-desktop-finder--directory . lispm-finder--directory)
+                  (lispm-desktop-finder--back . lispm-finder--back)
+                  (lispm-desktop-finder--forward . lispm-finder--forward)
+                  (lispm-desktop-finder--items . lispm-finder--items)
+                  (lispm-desktop-finder--selected . lispm-finder--selected)
+                  (lispm-desktop-finder--selected-app . lispm-finder--selected-app)
+                  (lispm-desktop-finder--columns . lispm-finder--columns)
+                  (lispm-desktop-finder--typed . lispm-finder--typed)
+                  (lispm-desktop-finder-folders . lispm-finder-folders)
+                  (lispm-desktop-finder--icons . lispm-finder--icons)
+                  (lispm-desktop-finder-item-map . lispm-finder-item-map)
+                  (lispm-desktop-finder--up-target . lispm-finder--up-target)
+                  (lispm-desktop-finder--up-button-map . lispm-finder--up-button-map)
+                  (lispm-desktop-finder-mode-map . lispm-finder-mode-map)))
+    (ignore-errors (defvaralias (car pair) (cdr pair)))))
 
 (put 'lispm-desktop-finder-label 'face-alias 'lispm-finder-label)
 
@@ -159,8 +161,8 @@
 
 (defun lispm-desktop-finder--buffer ()
   "Return the Finder window's buffer, made when missing."
-  (or (get-buffer lispm-desktop-finder-buffer-name)
-      (with-current-buffer (get-buffer-create lispm-desktop-finder-buffer-name)
+  (or (get-buffer lispm-finder-buffer-name)
+      (with-current-buffer (get-buffer-create lispm-finder-buffer-name)
         (lispm-desktop-finder-mode)
         (current-buffer))))
 
@@ -206,11 +208,11 @@
   (setq lispm-desktop-platinum-window-title
         (if lispm-finder--choosing
             (or lispm-finder--choose-title (lispm-finder--title lispm-finder--directory))
-          (lispm-desktop-finder--title lispm-desktop-finder--directory))
+          (lispm-desktop-finder--title lispm-finder--directory))
         lispm-desktop-platinum-window-icon
-        (if-let* ((folder (lispm-desktop-finder--folder lispm-desktop-finder--directory)))
+        (if-let* ((folder (lispm-desktop-finder--folder lispm-finder--directory)))
             (lispm-ui-icon (plist-get folder :icon))
-          (lispm-desktop-platinum-folder-icon lispm-desktop-finder--directory))
+          (lispm-desktop-platinum-folder-icon lispm-finder--directory))
         lispm-desktop-platinum-info ""))
 
 ;;;; The window
@@ -223,14 +225,14 @@
 
 (defun lispm-desktop-finder--closed ()
   "Forget the Finder window once it closed."
-  (setq lispm-desktop-finder--had-focus nil)
-  (when-let* ((buffer (get-buffer lispm-desktop-finder-buffer-name)))
+  (setq lispm-finder--had-focus nil)
+  (when-let* ((buffer (get-buffer lispm-finder-buffer-name)))
     (kill-buffer buffer)))
 
 (lispm-desktop-app-window-define 'finder
   :app 'desktop :name "Finder" :geometry #'lispm-desktop-finder--default-geometry
   :buffer #'lispm-desktop-finder--buffer :roll 'chrome :on-close #'lispm-desktop-finder--closed
-  :raise nil :refocus-p (lambda () lispm-desktop-finder--had-focus))
+  :raise nil :refocus-p (lambda () lispm-finder--had-focus))
 
 (defun lispm-desktop-finder-frame ()
   "Return the Finder window while it is open."
@@ -246,9 +248,9 @@
 DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
   (interactive (list (read-directory-name (lispm-desktop-tr "Folder: ") nil default-directory 'lambda)))
   (lispm-desktop-app-window-ensure 'finder)
-  (lispm-desktop-finder--go directory (lispm-desktop-finder--in (and lispm-desktop-finder--directory t)))
+  (lispm-desktop-finder--go directory (lispm-desktop-finder--in (and lispm-finder--directory t)))
   (lispm-desktop-app-window-present 'finder)
-  (setq lispm-desktop-finder--had-focus t)
+  (setq lispm-finder--had-focus t)
   (lispm-desktop-finder--render))
 
 (defun lispm-desktop-finder-home ()
@@ -291,7 +293,7 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
   "Note that the Finder window has the keyboard once it is selected."
   (when-let* ((frame (lispm-desktop-finder-frame))
               ((eq (selected-frame) frame)))
-    (setq lispm-desktop-finder--had-focus t)))
+    (setq lispm-finder--had-focus t)))
 
 (defun lispm-desktop-finder-shown-p ()
   "Return non-nil while the Finder window is open."
@@ -301,9 +303,9 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
   "Return the items of the desktop's Go menu, moving the Finder window."
   (let ((open (lispm-desktop-finder-shown-p)))
     `((:label ,(lispm-desktop-tr "Back") :action lispm-desktop-finder-back
-              :enabled ,(and open (lispm-desktop-finder--in lispm-desktop-finder--back) t))
+              :enabled ,(and open (lispm-desktop-finder--in lispm-finder--back) t))
       (:label ,(lispm-desktop-tr "Forward") :action lispm-desktop-finder-forward
-              :enabled ,(and open (lispm-desktop-finder--in lispm-desktop-finder--forward) t))
+              :enabled ,(and open (lispm-desktop-finder--in lispm-finder--forward) t))
       (:label ,(lispm-desktop-tr "Enclosing Folder") :action lispm-desktop-finder-up :enabled ,(and open t))
       separator
       (:label ,(lispm-desktop-tr "Home") :action lispm-desktop-finder-home))))
