@@ -154,7 +154,53 @@ windows and the menu bar are left as they are, which
     (interactive "e")
     (funcall command (posn-window (event-start event)))))
 
+(defvar lispm-ui-target-properties '(lispm-ui-target))
 (cl-pushnew 'lispm-desktop-platinum-target lispm-ui-target-properties)
+
+(unless (fboundp 'lispm-ui-press-target)
+  (defun lispm-ui-press-target (position)
+    "Return the press target at mouse POSITION, or nil."
+    (when-let* ((string (posn-string position))
+                ((stringp (car string)))
+                (index (cdr string))
+                ((and (integerp index) (<= 0 index) (< index (length (car string))))))
+      (seq-some (lambda (prop)
+                  (get-text-property index prop (car string)))
+                lispm-ui-target-properties))))
+
+(unless (fboundp 'lispm-ui-same-target-p)
+  (defun lispm-ui-same-target-p (position)
+    "Return a predicate true of mouse positions on the same target as POSITION."
+    (let ((window (posn-window position))
+          (area (posn-area position))
+          (target (lispm-ui-press-target position)))
+      (lambda (release)
+        (and (eq (posn-window release) window)
+             (eq (posn-area release) area)
+             (equal (lispm-ui-press-target release) target))))))
+
+(unless (fboundp 'lispm-ui-pressed-p)
+  (defun lispm-ui-pressed-p (target &optional window)
+    "Return non-nil while TARGET is held down in WINDOW."
+    (equal (window-parameter (or window (selected-window)) 'lispm-ui-pressed) target)))
+
+(unless (fboundp 'lispm-ui-press)
+  (defun lispm-ui-press (position pressed-p command)
+    "Hold a control at POSITION pressed until the mouse button rises."
+    (let ((window (posn-window position))
+          (target (lispm-ui-press-target position)))
+      (when (window-live-p window)
+        (when (lispm-ui-modal-hold
+               (lambda (event)
+                 (funcall pressed-p (event-end event)))
+               (lambda (in)
+                 (when (window-live-p window)
+                   (set-window-parameter window 'lispm-ui-pressed (and in target))
+                   (with-current-buffer (window-buffer window)
+                     (force-mode-line-update))
+                   (redisplay t))))
+          (let ((lispm-ui-in-gui-action t))
+            (funcall command)))))))
 
 (defun lispm-desktop-platinum-press (position pressed-p command)
   "Hold a button down from the press at POSITION until the mouse button rises.
