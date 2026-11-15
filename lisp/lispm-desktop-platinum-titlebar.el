@@ -185,20 +185,29 @@ windows and the menu bar are left as they are, which
     (equal (window-parameter (or window (selected-window)) 'lispm-ui-pressed) target)))
 
 (unless (fboundp 'lispm-ui-press)
-  (defun lispm-ui-press (position pressed-p command)
+  (defun lispm-ui-press (position pressed-p command &optional target)
     "Hold a control at POSITION pressed until the mouse button rises."
     (let ((window (posn-window position))
-          (target (lispm-ui-press-target position)))
+          (target (or target (lispm-ui-press-target position)))
+          (holding t))
       (when (window-live-p window)
-        (when (lispm-ui-modal-hold
-               (lambda (event)
-                 (funcall pressed-p (event-end event)))
-               (lambda (in)
-                 (when (window-live-p window)
-                   (set-window-parameter window 'lispm-ui-pressed (and in target))
-                   (with-current-buffer (window-buffer window)
-                     (force-mode-line-update))
-                   (redisplay t))))
+        (when (unwind-protect
+                  (lispm-ui-modal-hold
+                   (lambda (event)
+                     (let ((over (funcall pressed-p (event-end event))))
+                       (when (lispm-ui-modal-mouse-up-p event)
+                         (setq holding nil))
+                       over))
+                   (lambda (in)
+                     (when (and holding (window-live-p window))
+                       (set-window-parameter window 'lispm-ui-pressed (and in target))
+                       (with-current-buffer (window-buffer window)
+                         (force-mode-line-update))
+                       (redisplay t))))
+                (when (window-live-p window)
+                  (set-window-parameter window 'lispm-ui-pressed nil)
+                  (with-current-buffer (window-buffer window)
+                    (force-mode-line-update))))
           (let ((lispm-ui-in-gui-action t))
             (funcall command)))))))
 
@@ -211,7 +220,8 @@ release's position: as on Mac OS 9, moving off a button before letting go
 cancels."
   (let ((lispm-ui-target-properties
          (cons 'lispm-desktop-platinum-target lispm-ui-target-properties)))
-    (lispm-ui-press position pressed-p command)))
+    (lispm-ui-press position pressed-p command
+                    (lispm-desktop-platinum--press-target position))))
 
 (defun lispm-desktop-platinum--press-target (position)
   "Return what the press at POSITION is on: the target named there.
