@@ -175,7 +175,8 @@ windows and the menu bar are left as they are, which
           (area (posn-area position))
           (target (lispm-ui-press-target position)))
       (lambda (release)
-        (and (eq (posn-window release) window)
+        (and target
+             (eq (posn-window release) window)
              (eq (posn-area release) area)
              (equal (lispm-ui-press-target release) target))))))
 
@@ -195,7 +196,8 @@ windows and the menu bar are left as they are, which
         (when (unwind-protect
                   (lispm-ui-modal-hold
                    (lambda (event)
-                     (let ((over (funcall pressed-p (event-end event))))
+                     (let ((over (and (window-live-p window)
+                                      (funcall pressed-p (event-end event)))))
                        (when (lispm-ui-modal-mouse-up-p event)
                          (setq holding nil))
                        over))
@@ -209,11 +211,10 @@ windows and the menu bar are left as they are, which
                   (set-window-parameter window 'lispm-ui-pressed nil)
                   (with-current-buffer (window-buffer window)
                     (force-mode-line-update))))
-          (let ((lispm-ui-in-gui-action t))
-            (if (window-live-p window)
-                (with-selected-window window
-                  (funcall command))
-              (funcall command))))))))
+          (when (window-live-p window)
+            (let ((lispm-ui-in-gui-action t))
+              (with-selected-window window
+                (funcall command)))))))))
 
 (defun lispm-desktop-platinum-press (position pressed-p command)
   "Hold a button down from the press at POSITION until the mouse button rises.

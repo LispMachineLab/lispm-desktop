@@ -185,6 +185,8 @@
 
 (defun lispm-desktop-finder--configure-buffer ()
   "Configure a Finder buffer for the desktop's Platinum window chrome."
+  (visual-line-mode -1)
+  (setq-local auto-hscroll-mode nil)
   (unless lispm-finder--choosing
     (setq-local header-line-format '(:eval (lispm-desktop-finder--header))
                 lispm-desktop-platinum-info ""
@@ -200,6 +202,7 @@
   "Major mode of the Finder window on the desktop.
 \\{lispm-desktop-finder-mode-map}"
   (lispm-desktop-finder--configure-buffer)
+  (run-hooks 'lispm-desktop-app-window-mode-hook)
   (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop-finder--render))
 
 (add-hook 'lispm-finder-mode-hook #'lispm-desktop-finder--configure-buffer)
