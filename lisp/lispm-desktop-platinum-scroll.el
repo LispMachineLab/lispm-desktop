@@ -154,9 +154,12 @@ It takes no focus and hooks run for new frames do not see it."
 
 (defun lispm-desktop-platinum--scroll-update (window)
   "Bring WINDOW's scroll bar up to date: place it, size it, draw it."
-  (let ((width lispm-ui-scroll-width))
-    (unless (= (or (cadr (window-fringes window)) 0) width)
-      (set-window-fringes window nil width nil t))
+  (let ((width lispm-ui-scroll-width)
+        (left-fringe (buffer-local-value 'left-fringe-width (window-buffer window))))
+    (unless (and (equal (car (window-fringes window))
+                        (or left-fringe (car (window-fringes window))))
+                 (= (or (cadr (window-fringes window)) 0) width))
+      (set-window-fringes window left-fringe width nil t))
     (let* ((frame (lispm-desktop-platinum--scroll-frame window))
            (inside (window-inside-pixel-edges window))
            (x (- (nth 2 (window-pixel-edges window))

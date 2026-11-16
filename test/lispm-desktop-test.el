@@ -19473,6 +19473,15 @@ screen and Who-Line, and places a Select placard on pane bottom edges."
     (should (equal (lispm-desktop-test--pixel caption 100 (1- lispm-ui-title-bar-height)) "#000000"))
     (should (equal (lispm-desktop-test--pixel inactive 100 10) "#FFFFFF"))
     (should (dom-by-tag scroll 'line))
+    (should (equal (let ((lispm-ui-look 'genera))
+                     (lispm-ui-scroll-thumb 200 1 101 1 1001))
+                   '(16 . 17)))
+    (let ((header (let ((lispm-ui-look 'genera))
+                    (lispm-ui-draw-list-header palette '(("Name" 150 nil 26) ("Modified" 60 t 4)) 26))))
+      (should (equal (lispm-desktop-test--pixel header 10 10) "#FFFFFF"))
+      (should (equal (lispm-desktop-test--pixel header 10 0) "#000000"))
+      (should (equal (lispm-desktop-test--pixel header 10 (1- lispm-ui-list-header-height)) "#000000"))
+      (should (equal (lispm-desktop-test--pixel header 160 (- lispm-ui-list-header-height 2)) "#000000")))
     (should (string-search "Dynamic Lisp Listener 1" bg))
     (should (string-search "LispM Desktop™" bg))
     (should (string-search "LispM System Menu" bg))
@@ -19501,6 +19510,15 @@ registries (`lispm-desktop-apps', `lispm-desktop-items',
                 (lispm-desktop-platinum-look-placards t)))
   (should (let ((lispm-desktop-look 'genera))
             (lispm-desktop-platinum-look-placards t)))
+  (with-temp-buffer
+    (let ((lispm-desktop-look 'genera)
+          (lispm-desktop-platinum-info "12 sessions"))
+      (set-window-parameter (selected-window) 'window-side 'left)
+      (unwind-protect
+          (let ((left (lispm-desktop-platinum-mode-line-left)))
+            (should (string-search "12 sessions" (format "%S" left)))
+            (should-not (string-search "[Select]" (format "%S" left))))
+        (set-window-parameter (selected-window) 'window-side nil))))
   ;; Dynamically registered apps appear in Select and Command Processor
   ;; without any hardcoding in `lispm-desktop-genera.el'.
   (let ((activated nil))
