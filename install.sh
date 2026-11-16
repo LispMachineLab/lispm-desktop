@@ -454,7 +454,7 @@ fetch_projects() {
   say "Fetching LispM into $LISPM_HOME"
   prepare_desktop_update
   pids=
-  for project in lispm-kit lispm-ui lispm-agent lispm-browser; do
+  for project in lispm-kit lispm-ui lispm-finder lispm-agent lispm-browser; do
     fetch_project "$project" &
     pids="$pids $!"
   done

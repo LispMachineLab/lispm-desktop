@@ -143,14 +143,78 @@ windows and the menu bar are left as they are, which
 
 (defun lispm-desktop-platinum--buffer-icon (buffer)
   "Return the proxy icon of BUFFER's window, as Finder's windows showed one."
-  (or (buffer-local-value 'lispm-desktop-platinum-window-icon buffer)
-      (lispm-desktop-platinum-buffer-icon buffer)))
+  (let ((icon (buffer-local-value 'lispm-desktop-platinum-window-icon buffer)))
+    (cond ((eq icon 'none) nil)
+          (icon)
+          (t (lispm-desktop-platinum-buffer-icon buffer)))))
 
 (defun lispm-desktop-platinum--window-command (command)
   "Return a mouse command calling COMMAND with the window clicked."
   (lambda (event)
     (interactive "e")
     (funcall command (posn-window (event-start event)))))
+
+(defvar lispm-ui-target-properties '(lispm-ui-target))
+(cl-pushnew 'lispm-desktop-platinum-target lispm-ui-target-properties)
+
+(unless (fboundp 'lispm-ui-press-target)
+  (defun lispm-ui-press-target (position)
+    "Return the press target at mouse POSITION, or nil."
+    (when-let* ((string (posn-string position))
+                ((stringp (car string)))
+                (index (cdr string))
+                ((and (integerp index) (<= 0 index) (< index (length (car string))))))
+      (seq-some (lambda (prop)
+                  (get-text-property index prop (car string)))
+                lispm-ui-target-properties))))
+
+(unless (fboundp 'lispm-ui-same-target-p)
+  (defun lispm-ui-same-target-p (position)
+    "Return a predicate true of mouse positions on the same target as POSITION."
+    (let ((window (posn-window position))
+          (area (posn-area position))
+          (target (lispm-ui-press-target position)))
+      (lambda (release)
+        (and target
+             (eq (posn-window release) window)
+             (eq (posn-area release) area)
+             (equal (lispm-ui-press-target release) target))))))
+
+(unless (fboundp 'lispm-ui-pressed-p)
+  (defun lispm-ui-pressed-p (target &optional window)
+    "Return non-nil while TARGET is held down in WINDOW."
+    (and target
+         (equal (window-parameter (or window (selected-window)) 'lispm-ui-pressed) target))))
+
+(unless (fboundp 'lispm-ui-press)
+  (defun lispm-ui-press (position pressed-p command &optional target)
+    "Hold a control at POSITION pressed until the mouse button rises."
+    (let ((window (posn-window position))
+          (target (or target (lispm-ui-press-target position)))
+          (holding t))
+      (when (window-live-p window)
+        (when (unwind-protect
+                  (lispm-ui-modal-hold
+                   (lambda (event)
+                     (let ((over (and (window-live-p window)
+                                      (funcall pressed-p (event-end event)))))
+                       (when (lispm-ui-modal-mouse-up-p event)
+                         (setq holding nil))
+                       over))
+                   (lambda (in)
+                     (when (and holding (window-live-p window))
+                       (set-window-parameter window 'lispm-ui-pressed (and in target))
+                       (with-current-buffer (window-buffer window)
+                         (force-mode-line-update))
+                       (redisplay t))))
+                (when (window-live-p window)
+                  (set-window-parameter window 'lispm-ui-pressed nil)
+                  (with-current-buffer (window-buffer window)
+                    (force-mode-line-update))))
+          (when (window-live-p window)
+            (let ((lispm-ui-in-gui-action t))
+              (with-selected-window window
+                (funcall command)))))))))
 
 (defun lispm-desktop-platinum-press (position pressed-p command)
   "Hold a button down from the press at POSITION until the mouse button rises.
@@ -159,39 +223,25 @@ The button is drawn pushed in, through the window parameter
 COMMAND then runs, with no arguments, only when PRESSED-P accepts the
 release's position: as on Mac OS 9, moving off a button before letting go
 cancels."
-  (let ((window (posn-window position))
-        (target (lispm-desktop-platinum--press-target position)))
-    (set-window-parameter window 'lispm-ui-pressed target)
-    (with-current-buffer (window-buffer window) (force-mode-line-update))
-    (redisplay t)
-    (let ((release (let ((echo-keystrokes 0)) (lispm-ui-modal-read-event))))
-      (set-window-parameter window 'lispm-ui-pressed nil)
-      (with-current-buffer (window-buffer window) (force-mode-line-update))
-      (when (and (consp release)
-                 (eq (event-basic-type release) 'mouse-1)
-                 (funcall pressed-p (event-end release)))
-        (let ((lispm-ui-in-gui-action t))
-          (funcall command))))))
+  (let ((lispm-ui-target-properties
+         (cons 'lispm-desktop-platinum-target lispm-ui-target-properties)))
+    (lispm-ui-press position pressed-p command
+                    (lispm-desktop-platinum--press-target position))))
 
 (defun lispm-desktop-platinum--press-target (position)
   "Return what the press at POSITION is on: the target named there.
 That is the text property `lispm-desktop-platinum-target'."
-  (when-let* ((string (posn-string position)))
-    (get-text-property (cdr string) 'lispm-desktop-platinum-target (car string))))
+  (let ((lispm-ui-target-properties
+         (cons 'lispm-desktop-platinum-target lispm-ui-target-properties)))
+    (lispm-ui-press-target position)))
 
 (defun lispm-desktop-platinum-same-target-p (position)
   "Return a predicate true of positions on the same target as POSITION."
-  (let ((window (posn-window position))
-        (area (posn-area position))
-        (target (lispm-desktop-platinum--press-target position)))
-    (lambda (release)
-      (and (eq (posn-window release) window)
-           (eq (posn-area release) area)
-           (equal (lispm-desktop-platinum--press-target release) target)))))
+  (let ((lispm-ui-target-properties
+         (cons 'lispm-desktop-platinum-target lispm-ui-target-properties)))
+    (lispm-ui-same-target-p position)))
 
-(defun lispm-desktop-platinum-pressed-p (target)
-  "Return non-nil while TARGET is held down in the window being drawn."
-  (equal (window-parameter (selected-window) 'lispm-ui-pressed) target))
+(defalias 'lispm-desktop-platinum-pressed-p #'lispm-ui-pressed-p)
 
 (defun lispm-desktop-platinum-box-button (string kind command help &optional double-command)
   "Return STRING as title bar box KIND, which runs COMMAND with its window.
@@ -545,25 +595,24 @@ window does, is closed by that function.  Otherwise WINDOW's buffer is
 killed, once an alert has asked about unsaved changes or a running
 process, and WINDOW goes too when other windows remain in the main area;
 the last one shows the desktop."
-  (let ((frame (window-frame window)))
-    (cond
-     ((lispm-desktop-platinum--box-function window :close)
-      (funcall (lispm-desktop-platinum--box-function window :close) window))
-     ((frame-parameter frame 'lispm-desktop-close-function)
-      (funcall (frame-parameter frame 'lispm-desktop-close-function) window))
-     ((window-parameter window 'window-side)
-      (funcall lispm-desktop-platinum-side-window-close-function window))
-     (t
-      (let ((buffer (window-buffer window)))
-        (when (lispm-desktop-platinum-confirm-close buffer)
-          (let ((kill-buffer-query-functions nil))
-            (kill-buffer buffer))
-          ;; The main area's last window uncovers the desktop, as closing
-          ;; Mac OS 9's last window did; any other window goes.
-          (when (window-live-p window)
-            (if (cdr (lispm-desktop-platinum-main-windows frame))
-                (delete-window window)
-              (funcall lispm-desktop-platinum-last-window-function window)))))))))
+  (cond
+   ((lispm-desktop-platinum--box-function window :close)
+    (funcall (lispm-desktop-platinum--box-function window :close) window))
+   ((frame-parameter (window-frame window) 'lispm-desktop-close-function)
+    (funcall (frame-parameter (window-frame window) 'lispm-desktop-close-function) window))
+   ((window-parameter window 'window-side)
+    (funcall lispm-desktop-platinum-side-window-close-function window))
+   (t
+    (let ((buffer (window-buffer window)))
+      (when (lispm-desktop-platinum-confirm-close buffer)
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer buffer))
+        ;; The main area's last window uncovers the desktop, as closing
+        ;; Mac OS 9's last window did; any other window goes.
+        (when (window-live-p window)
+          (if (cdr (lispm-desktop-platinum-main-windows (window-frame window)))
+              (delete-window window)
+            (funcall lispm-desktop-platinum-last-window-function window))))))))
 
 (defun lispm-desktop-platinum-confirm-close (buffer)
   "Ask, as Mac OS 9 asked, whether BUFFER may close; return non-nil if so.

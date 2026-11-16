@@ -56,7 +56,10 @@
 (declare-function lispm-desktop-terminal-live-p "lispm-desktop-term" (buffer))
 (declare-function lispm-desktop-terminal-paste "lispm-desktop-term" (buffer text))
 (declare-function lispm-desktop-term-waiting-buffers "lispm-desktop-term" ())
-(declare-function lispm-desktop-platinum-main-window "lispm-desktop-platinum-titlebar" ())
+(declare-function lispm-desktop-platinum-main-window "lispm-desktop-platinum-titlebar" (&optional frame))
+(declare-function lispm-desktop-apps-frontmost "lispm-desktop-apps" ())
+(declare-function lispm-desktop-editor-frame "lispm-desktop-editor" ())
+(declare-function lispm-agents--splash-buffer-p "lispm-agents" (&optional buffer))
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
 (declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
 (declare-function lispm-desktop-sidebar--list-buffer "lispm-desktop-sidebar" (view))
@@ -170,7 +173,55 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
 
 (defvar lispm-agents-terminal-send-function)
 (defvar lispm-agents-work-display-function)
+(defvar lispm-agents-default-directory-function nil)
 (defvar lispm-desktop-conversation-modes)
+
+(defun lispm-desktop-agent--splash-buffer-p (&optional buffer)
+  "Return non-nil when BUFFER is a splash, welcome, or sidebar list buffer."
+  (if (fboundp 'lispm-agents--splash-buffer-p)
+      (lispm-agents--splash-buffer-p buffer)
+    (with-current-buffer (or buffer (current-buffer))
+      (and (not buffer-file-name)
+           (or (member (buffer-name) '("*Welcome to LispM*" "*LispM*" " *Desktop*"
+                                       "*Agents*" "*AI History*" "*Tasks*" "*scratch*"))
+               (derived-mode-p 'lispm-welcome-mode 'lispm-desktop-surface-mode
+                               'lispm-agents-roster-mode))))))
+
+(defun lispm-desktop-agent--default-directory ()
+  "Return the default directory for a new session on the desktop."
+  (let* ((selected (selected-window))
+         (main (lispm-desktop-platinum-main-window))
+         (window (if (with-selected-window selected
+                       (or (and (bound-and-true-p lispm-agents-work-directory)
+                                (stringp lispm-agents-work-directory))
+                           (and (bound-and-true-p lispm-finder--directory)
+                                (stringp lispm-finder--directory))))
+                     selected
+                   main)))
+    (with-selected-window window
+      (cond
+       ((and (lispm-desktop-agent--splash-buffer-p)
+             (bound-and-true-p lispm-finder--had-focus)
+             (get-buffer " *Finder*")
+             (with-current-buffer " *Finder*"
+               (and (bound-and-true-p lispm-finder--directory)
+                    (stringp lispm-finder--directory)
+                    (file-directory-p lispm-finder--directory))))
+        (with-current-buffer " *Finder*"
+          (file-name-as-directory (expand-file-name lispm-finder--directory))))
+       ((and (lispm-desktop-agent--splash-buffer-p)
+             (fboundp 'lispm-desktop-apps-frontmost)
+             (eq (lispm-desktop-apps-frontmost) 'editor)
+             (fboundp 'lispm-desktop-editor-frame)
+             (let ((editor-win (lispm-desktop-platinum-main-window (lispm-desktop-editor-frame))))
+               (and (window-live-p editor-win)
+                    (not (eq editor-win window))
+                    (not (lispm-desktop-agent--splash-buffer-p (window-buffer editor-win)))
+                    editor-win)))
+        (with-selected-window (lispm-desktop-platinum-main-window (lispm-desktop-editor-frame))
+          (lispm-agents-project-directory)))
+       (t
+        (lispm-agents-project-directory))))))
 
 ;; On the desktop the agents run in its terminals and show in its windows.
 (setq lispm-agents-terminal-make-function #'lispm-desktop-terminal-make
@@ -180,6 +231,7 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
       lispm-agents-show-function #'lispm-desktop-agent--show
       lispm-agents-work-display-function #'lispm-desktop-agent--show-work
       lispm-agents-main-window-function #'lispm-desktop-platinum-main-window
+      lispm-agents-default-directory-function #'lispm-desktop-agent--default-directory
       lispm-agents-confirm-function #'lispm-desktop-agent--confirm
       lispm-agents-context-display-action '(lispm-desktop-main-area-display-file))
 ;; Work views are session-area content.  This is host layout policy: the
