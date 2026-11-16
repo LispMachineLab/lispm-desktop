@@ -211,6 +211,14 @@
     (derived-mode-add-parents 'lispm-desktop-finder-mode '(lispm-desktop-app-window-mode))
   (put 'lispm-desktop-finder-mode 'derived-mode-extra-parents '(lispm-desktop-app-window-mode)))
 
+(defun lispm-desktop-finder--maybe-configure-buffer ()
+  "Configure the desktop's Finder buffer when initialized in `lispm-finder-mode'."
+  (when (and (eq major-mode 'lispm-finder-mode)
+             (equal (buffer-name) lispm-finder-buffer-name))
+    (lispm-desktop-finder--configure-buffer)))
+
+(add-hook 'lispm-finder-mode-hook #'lispm-desktop-finder--maybe-configure-buffer)
+
 (defun lispm-desktop-finder--on-rendered ()
   "Update Platinum window title and icon when Finder renders."
   (when (local-variable-if-set-p 'lispm-desktop-finder--directory)
