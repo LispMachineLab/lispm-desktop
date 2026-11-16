@@ -52,7 +52,7 @@ i18n:
 compile:
 	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
 	  -f batch-byte-compile lisp/*.el; \
-	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_FINDER)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
+	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 
 # lispm-desktop-term's module: terminals emulated off Emacs's thread, in Rust.
 # lispm-desktop downloads it, checked, unless lispm-desktop-term-module-source

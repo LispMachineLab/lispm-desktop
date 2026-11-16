@@ -71,7 +71,8 @@
                   (lispm-desktop-finder--up-target . lispm-finder--up-target)
                   (lispm-desktop-finder--up-button-map . lispm-finder--up-button-map)
                   (lispm-desktop-finder-mode-map . lispm-finder-mode-map)))
-    (ignore-errors (defvaralias (car pair) (cdr pair)))))
+    (unless (local-variable-if-set-p (car pair))
+      (defvaralias (car pair) (cdr pair)))))
 
 (put 'lispm-desktop-finder-label 'face-alias 'lispm-finder-label)
 
@@ -205,6 +206,16 @@
 
 (defun lispm-desktop-finder--on-rendered ()
   "Update Platinum window title and icon when Finder renders."
+  (when (local-variable-if-set-p 'lispm-desktop-finder--directory)
+    (dolist (pair '((lispm-desktop-finder--directory . lispm-finder--directory)
+                    (lispm-desktop-finder--back . lispm-finder--back)
+                    (lispm-desktop-finder--forward . lispm-finder--forward)
+                    (lispm-desktop-finder--items . lispm-finder--items)
+                    (lispm-desktop-finder--selected . lispm-finder--selected)
+                    (lispm-desktop-finder--selected-app . lispm-finder--selected-app)
+                    (lispm-desktop-finder--columns . lispm-finder--columns)
+                    (lispm-desktop-finder--typed . lispm-finder--typed)))
+      (set (car pair) (symbol-value (cdr pair)))))
   (setq lispm-desktop-platinum-window-title
         (if lispm-finder--choosing
             (or lispm-finder--choose-title (lispm-finder--title lispm-finder--directory))
@@ -261,7 +272,9 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
 (defun lispm-desktop-finder-close ()
   "Close the Finder window."
   (interactive)
-  (lispm-desktop-app-window-close 'finder))
+  (if (lispm-finder--in lispm-finder--choosing)
+      (lispm-finder-choose-cancel)
+    (lispm-desktop-app-window-close 'finder)))
 
 (defun lispm-desktop-finder--zoom-box (_window)
   "Grow the Finder window over the desktop, or back, from its zoom box."

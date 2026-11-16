@@ -182,7 +182,8 @@ windows and the menu bar are left as they are, which
 (unless (fboundp 'lispm-ui-pressed-p)
   (defun lispm-ui-pressed-p (target &optional window)
     "Return non-nil while TARGET is held down in WINDOW."
-    (equal (window-parameter (or window (selected-window)) 'lispm-ui-pressed) target)))
+    (and target
+         (equal (window-parameter (or window (selected-window)) 'lispm-ui-pressed) target))))
 
 (unless (fboundp 'lispm-ui-press)
   (defun lispm-ui-press (position pressed-p command &optional target)
@@ -209,7 +210,10 @@ windows and the menu bar are left as they are, which
                   (with-current-buffer (window-buffer window)
                     (force-mode-line-update))))
           (let ((lispm-ui-in-gui-action t))
-            (funcall command)))))))
+            (if (window-live-p window)
+                (with-selected-window window
+                  (funcall command))
+              (funcall command))))))))
 
 (defun lispm-desktop-platinum-press (position pressed-p command)
   "Hold a button down from the press at POSITION until the mouse button rises.
@@ -605,7 +609,7 @@ the last one shows the desktop."
         ;; The main area's last window uncovers the desktop, as closing
         ;; Mac OS 9's last window did; any other window goes.
         (when (window-live-p window)
-          (if (cdr (lispm-desktop-platinum-main-windows))
+          (if (cdr (lispm-desktop-platinum-main-windows (window-frame window)))
               (delete-window window)
             (funcall lispm-desktop-platinum-last-window-function window))))))))
 
