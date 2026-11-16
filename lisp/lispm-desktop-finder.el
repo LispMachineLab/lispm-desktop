@@ -69,10 +69,13 @@
                   (lispm-desktop-finder--icons . lispm-finder--icons)
                   (lispm-desktop-finder-item-map . lispm-finder-item-map)
                   (lispm-desktop-finder--up-target . lispm-finder--up-target)
-                  (lispm-desktop-finder--up-button-map . lispm-finder--up-button-map)
-                  (lispm-desktop-finder-mode-map . lispm-finder-mode-map)))
+                  (lispm-desktop-finder--up-button-map . lispm-finder--up-button-map)))
     (unless (local-variable-if-set-p (car pair))
       (defvaralias (car pair) (cdr pair)))))
+
+(defvar-keymap lispm-desktop-finder-mode-map
+  :parent lispm-finder-mode-map
+  :doc "Keymap for `lispm-desktop-finder-mode'.")
 
 (put 'lispm-desktop-finder-label 'face-alias 'lispm-finder-label)
 
@@ -174,14 +177,12 @@
 
 ;;;; Mode & Window Setup
 
-(put 'lispm-finder-mode 'derived-mode-parent 'lispm-desktop-app-window-mode)
-
-(keymap-set lispm-finder-mode-map "M-["
+(keymap-set lispm-desktop-finder-mode-map "M-["
             (lispm-desktop-graphic-binding #'lispm-desktop-finder-back))
-(keymap-set lispm-finder-mode-map "M-]"
+(keymap-set lispm-desktop-finder-mode-map "M-]"
             (lispm-desktop-graphic-binding #'lispm-desktop-finder-forward))
-(keymap-set lispm-finder-mode-map "M-m" #'lispm-desktop-finder-make-alias)
-(keymap-set lispm-finder-mode-map "M-w" #'lispm-desktop-finder-close)
+(keymap-set lispm-desktop-finder-mode-map "M-m" #'lispm-desktop-finder-make-alias)
+(keymap-set lispm-desktop-finder-mode-map "M-w" #'lispm-desktop-finder-close)
 
 (defun lispm-desktop-finder--configure-buffer ()
   "Configure a Finder buffer for the desktop's Platinum window chrome."
@@ -206,7 +207,9 @@
   (run-hooks 'lispm-desktop-app-window-mode-hook)
   (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop-finder--render))
 
-(add-hook 'lispm-finder-mode-hook #'lispm-desktop-finder--configure-buffer)
+(if (fboundp 'derived-mode-add-parents)
+    (derived-mode-add-parents 'lispm-desktop-finder-mode '(lispm-desktop-app-window-mode))
+  (put 'lispm-desktop-finder-mode 'derived-mode-extra-parents '(lispm-desktop-app-window-mode)))
 
 (defun lispm-desktop-finder--on-rendered ()
   "Update Platinum window title and icon when Finder renders."

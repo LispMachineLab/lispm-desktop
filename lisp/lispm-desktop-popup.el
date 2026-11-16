@@ -228,7 +228,11 @@ The items of their submenus answer the same way, when they open."
       (if-let* ((inner (copy-sequence item))
                 ((plist-get item :submenu)))
           (plist-put item :submenu
-                     (lambda () (lispm-desktop-popup--answer-paths (lispm-ui-menu--submenu inner))))
+                     (lambda ()
+                       (lispm-desktop-popup--answer-paths
+                        (if (fboundp 'lispm-ui-menu-submenu)
+                            (lispm-ui-menu-submenu inner)
+                          (lispm-ui-menu--submenu inner)))))
         (plist-put item :value (plist-get item :path))))))
 
 (defun lispm-desktop-popup--x-menu-p (menu)
@@ -252,6 +256,19 @@ Keymap items answer with their key path, pane items with their value."
            (nreverse items)))
         (t (lispm-desktop-popup--pane-items menu))))
 
+(defun lispm-desktop-popup--x-frame (position)
+  "Return the frame referenced by POSITION in `x-popup-menu', or nil."
+  (pcase position
+    ('t (car (mouse-pixel-position)))
+    (`((,_ ,_) ,(and window (pred windowp))) (window-frame window))
+    (`((,_ ,_) ,(and frame (pred framep))) frame)
+    (_ (let ((posn (cond ((posnp position) position)
+                         ((integerp position) (posn-at-point position))
+                         ((eventp position) (event-start position)))))
+         (when-let* ((win-or-frame (and posn (posn-window posn))))
+           (cond ((windowp win-or-frame) (window-frame win-or-frame))
+                 ((framep win-or-frame) win-or-frame)))))))
+
 (defun lispm-desktop-popup--x-position (position)
   "Return POSITION, as `x-popup-menu' takes it, as (X . Y) in its frame.
 Offsets from a window are taken from its text area, where `popup-menu'
@@ -273,8 +290,10 @@ the item chosen from a keymap, the value of one chosen from panes, nil
 when cancelled."
   (if (not (and position (lispm-ui-popup-available-p) (lispm-desktop-popup--x-menu-p menu)))
       (funcall x-popup-menu position menu)
-    (pcase-let ((`(,x . ,y) (lispm-desktop-popup--x-position position)))
-      (plist-get (lispm-ui-menu-choose (lispm-desktop-popup--x-items menu) (1+ x) (1+ y)) :value))))
+    (let ((lispm-ui-menu-parent (or (lispm-desktop-popup--x-frame position)
+                                    lispm-ui-menu-parent)))
+      (pcase-let ((`(,x . ,y) (lispm-desktop-popup--x-position position)))
+        (plist-get (lispm-ui-menu-choose (lispm-desktop-popup--x-items menu) (1+ x) (1+ y)) :value)))))
 
 (defun lispm-desktop-popup-enable ()
   "Draw right-click menus, and every menu `x-popup-menu' pops up, as Mac
