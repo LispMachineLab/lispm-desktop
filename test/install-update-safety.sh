@@ -118,7 +118,7 @@ git -C "$desktop_origin" tag v0.2.0
 desktop_new=$(git -C "$desktop_origin" rev-parse HEAD)
 
 # The remaining siblings participate in the real production fetch loop.
-for project in lispm-kit lispm-agent lispm-browser; do
+for project in lispm-kit lispm-finder lispm-agent lispm-browser; do
   fixture_repository "$test_root/remotes/$project.git"
   printf 'fixture\n' >"$test_root/remotes/$project.git/source.txt"
   fixture_commit "$test_root/remotes/$project.git" initial
