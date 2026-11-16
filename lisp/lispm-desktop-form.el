@@ -237,8 +237,7 @@ narrower than Emacs's own, so its fields widen."
   (if (and (display-graphic-p) (not noninteractive))
       (let* ((prev-frame (selected-frame))
              (prev-window (selected-window))
-             (anchor-frame (or (frame-parameter prev-frame 'lispm-ui-modal-prompt)
-                               prev-frame))
+             (anchor-frame prev-frame)
              (screen (lispm-desktop-apps-screen))
              (title (or (lispm-ui-form-title buffer) "Prompt"))
              (z-order (+ 30 (* 5 (length lispm-desktop-form--modal-stack))))
@@ -339,15 +338,16 @@ narrower than Emacs's own, so its fields widen."
                 cleanup)
             (unless ok
               (funcall cleanup)))))
-    (lispm-ui-form--modal-show-default buffer)))
+    (if (fboundp 'lispm-ui-form-modal-show-default)
+        (lispm-ui-form-modal-show-default buffer)
+      (lispm-ui-form--modal-show-default buffer))))
 
 (defun lispm-desktop-form--finder-modal-show (buffer title width height)
   "Show Finder chooser BUFFER in a floating Platinum modal window of WIDTHxHEIGHT."
   (if (and (display-graphic-p) (not noninteractive))
       (let* ((prev-frame (selected-frame))
              (prev-window (selected-window))
-             (anchor-frame (or (frame-parameter prev-frame 'lispm-ui-modal-prompt)
-                               prev-frame))
+             (anchor-frame prev-frame)
              (screen (lispm-desktop-apps-screen))
              (z-order (+ 30 (* 5 (length lispm-desktop-form--modal-stack))))
              (left (/ (- (frame-inner-width screen) width) 2))
@@ -378,9 +378,18 @@ narrower than Emacs's own, so its fields widen."
           (setq-local display-line-numbers nil
                       lispm-desktop-platinum-window-title title
                       lispm-desktop-platinum-window-icon
-                      (lispm-desktop-platinum-folder-icon lispm-finder--directory)
-                      lispm-desktop-platinum-title-menu-function #'lispm-finder--path-items
-                      lispm-desktop-context-menu-function #'lispm-finder--keyboard-menu
+                      (lispm-desktop-platinum-folder-icon
+                       (if (boundp 'lispm-finder-directory)
+                           lispm-finder-directory
+                         lispm-finder--directory))
+                      lispm-desktop-platinum-title-menu-function
+                      (if (fboundp 'lispm-finder-path-items)
+                          #'lispm-finder-path-items
+                        #'lispm-finder--path-items)
+                      lispm-desktop-context-menu-function
+                      (if (fboundp 'lispm-finder-keyboard-menu)
+                          #'lispm-finder-keyboard-menu
+                        #'lispm-finder--keyboard-menu)
                       lispm-desktop-platinum-box-functions (list :close close-fn))
           (when (bound-and-true-p display-line-numbers-mode)
             (display-line-numbers-mode -1)))
@@ -418,8 +427,14 @@ narrower than Emacs's own, so its fields widen."
                   (set-window-parameter win 'mode-line-format nil)
                   (set-window-parameter win 'header-line-format nil))
                 (with-current-buffer buffer
-                  (setq-local header-line-format '(:eval (lispm-finder--choose-header))
-                              mode-line-format '(:eval (lispm-finder--choose-footer))))
+                  (setq-local header-line-format
+                              (if (fboundp 'lispm-finder-choose-header)
+                                  '(:eval (lispm-finder-choose-header))
+                                '(:eval (lispm-finder--choose-header)))
+                              mode-line-format
+                              (if (fboundp 'lispm-finder-choose-footer)
+                                  '(:eval (lispm-finder-choose-footer))
+                                '(:eval (lispm-finder--choose-footer)))))
                 (set-frame-size frame width height t)
                 (lispm-desktop-apps-show-window frame)
                 (lispm-desktop-form--center-modal frame anchor-frame)
@@ -433,7 +448,9 @@ narrower than Emacs's own, so its fields widen."
                 cleanup)
             (unless ok
               (funcall cleanup)))))
-    (lispm-finder--modal-show-default buffer title width height)))
+    (if (fboundp 'lispm-finder-modal-show-default)
+        (lispm-finder-modal-show-default buffer title width height)
+      (lispm-finder--modal-show-default buffer title width height))))
 
 (setq lispm-finder-modal-show-function #'lispm-desktop-form--finder-modal-show)
 
