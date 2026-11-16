@@ -186,7 +186,8 @@
 (defun lispm-desktop-finder--configure-buffer ()
   "Configure a Finder buffer for the desktop's Platinum window chrome."
   (visual-line-mode -1)
-  (setq-local auto-hscroll-mode nil)
+  (setq-local truncate-lines t
+              auto-hscroll-mode nil)
   (unless lispm-finder--choosing
     (setq-local header-line-format '(:eval (lispm-desktop-finder--header))
                 lispm-desktop-platinum-info ""
