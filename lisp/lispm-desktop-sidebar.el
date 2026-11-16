@@ -218,6 +218,7 @@ is highlighted in the selection colour instead, as Finder showed the
 selected item."
   (visual-line-mode -1)
   (setq-local truncate-lines t
+              left-fringe-width 0
               cursor-type nil
               line-spacing 3)
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list-body)
@@ -248,14 +249,17 @@ as long as the frame is wide enough for both; a drag of its edge still
 resizes it, see `lispm-desktop-sidebar--keep-width'."
   (with-current-buffer buffer
     (add-hook 'window-size-change-functions #'lispm-desktop-sidebar--keep-width nil t))
-  (display-buffer-in-side-window
-   buffer `((side . left)
-            (slot . -1)
-            (window-width . ,(lispm-desktop-sidebar-columns))
-            (preserve-size . (t . nil))
-            (dedicated . t)
-            (window-parameters . ((no-delete-other-windows . t)
-                                  (no-other-window . t))))))
+  (let ((window (display-buffer-in-side-window
+                 buffer `((side . left)
+                          (slot . -1)
+                          (window-width . ,(lispm-desktop-sidebar-columns))
+                          (preserve-size . (t . nil))
+                          (dedicated . t)
+                          (window-parameters . ((no-delete-other-windows . t)
+                                                (no-other-window . t)))))))
+    (when (window-live-p window)
+      (set-window-fringes window 0 (cadr (window-fringes window)) nil t))
+    window))
 
 (defun lispm-desktop-sidebar-buffer-view (buffer)
   "Return the sidebar view BUFFER is the list of, or nil.
@@ -408,13 +412,28 @@ a list was sorted by."
             (propertize " " 'display `(space :align-to ,(lispm-desktop-align-right))
                         'face 'lispm-desktop-platinum-sorted))))
 
+(defun lispm-desktop-sidebar--sorted-shaded-p ()
+  "Return non-nil when the sorted column has a distinct background shade."
+  (not (equal (face-attribute 'lispm-desktop-platinum-sorted :background nil t)
+              (face-attribute 'lispm-desktop-platinum-list-body :background nil t))))
+
 (defun lispm-desktop-sidebar--row (lead name meta width)
   "Return a row of a list WIDTH pixels wide: LEAD, NAME, and META at its right.
 LEAD (indentation, a triangle or an icon) keeps its size; META sits in
 the right-hand column, see `lispm-desktop-sidebar--sorted-column'; NAME is
 shortened to fit between them."
-  (let ((room (- width (string-pixel-width (propertize lead 'face 'lispm-ui-list))
-                 (lispm-desktop-sidebar--column-pixels) (lispm-desktop-px 12))))
+  (let* ((lead-width (string-pixel-width (propertize lead 'face 'lispm-ui-list)))
+         (right-width (if (lispm-desktop-sidebar--sorted-shaded-p)
+                          (+ (lispm-desktop-sidebar--column-pixels) (lispm-desktop-px 12))
+                        (+ (string-pixel-width
+                            (lispm-desktop-platinum-fit
+                             (propertize (or meta "") 'face
+                                         (or (get-text-property 0 'face (or meta ""))
+                                             'lispm-ui-list))
+                             (- (lispm-desktop-sidebar--column-pixels)
+                                (lispm-desktop-px 16))))
+                           (lispm-desktop-px 18))))
+         (room (- width lead-width right-width)))
     (concat lead
             (lispm-desktop-platinum-fit (propertize name 'face (or (get-text-property 0 'face name)
                                                                     'lispm-ui-list))

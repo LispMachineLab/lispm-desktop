@@ -203,6 +203,8 @@ its buffers, or bury the buffer of a split pane."
   (let* ((window (if (window-live-p window) window (selected-window)))
          (frame (window-frame window)))
     (cond
+     ((window-parameter window 'window-side)
+      (lispm-desktop-platinum-close-window window))
      ((and (bound-and-true-p lispm-desktop-editor--frame)
            (eq frame lispm-desktop-editor--frame)
            (fboundp 'lispm-desktop-editor-close))
@@ -232,6 +234,8 @@ residual state, or close a split pane."
          (frame (window-frame window))
          (buffer (window-buffer window)))
     (cond
+     ((window-parameter window 'window-side)
+      (lispm-desktop-platinum-close-window window))
      ((equal (buffer-name buffer) lispm-desktop-buffer-name)
       (message "Dynamic Lisp Listener 1 is the root screen."))
      ((and (bound-and-true-p lispm-desktop-editor--frame)
@@ -752,6 +756,36 @@ holding a solid black dot when ON."
       (lispm-ui-svg-paint svg 5 3 1 5 ink))
     svg))
 
+(cl-defmethod lispm-ui-draw-list-header (palette columns
+                                                 &context (lispm-ui-look (lispm-desktop-genera-look genera))
+                                                 &optional label-x)
+  "Return a 1-bit Genera list column header row in PALETTE: paper-white
+cells framed by 1px black rules, the sorted column marked by a 2px black
+bottom rule and a 1-bit sort arrow at the right."
+  (let* ((h lispm-ui-list-header-height)
+         (width (+ 16 (apply #'+ (mapcar #'cadr columns))))
+         (svg (svg-create width h))
+         (outline (plist-get palette :outline))
+         (content (plist-get palette :content))
+         (x 0))
+    (lispm-ui-svg-paint svg 0 0 width h content)
+    (lispm-ui-svg-paint svg 0 0 width 1 outline)
+    (lispm-ui-svg-paint svg 0 (1- h) width 1 outline)
+    (pcase-dolist (`(,label ,w ,sorted ,x-in) (append columns '((nil 16 nil))))
+      (when (> x 0)
+        (lispm-ui-svg-paint svg x 0 1 h outline))
+      (when sorted
+        (lispm-ui-svg-paint svg x (- h 2) w 2 outline))
+      (when label
+        (let ((styled (copy-sequence label)))
+          (when sorted
+            (add-face-text-property 0 (length styled) '(:weight bold) nil styled))
+          (lispm-ui-svg-content svg styled (+ x (or x-in label-x 8)) 0 h
+                                outline 'lispm-ui-list)))
+      (setq x (+ x w)))
+    (lispm-ui-svg-arrow svg (- width 12) 8 4 'down outline)
+    svg))
+
 (cl-defmethod lispm-desktop-platinum-draw-tab (palette label width
                                                        &context (lispm-desktop-look (lispm-desktop-genera-look genera))
                                                        &key front face)
@@ -805,6 +839,22 @@ either end and the track between."
   (let ((b lispm-desktop-genera-scroll-button))
     (list :track b :track-length (max 0 (- height b b)) :up 0 :down (- height b) :arrow b)))
 
+(cl-defmethod lispm-ui-scroll-thumb (height start end min max
+                                            &context (lispm-ui-look (lispm-desktop-genera-look genera)))
+  "Return the thumb of a Genera 1-bit scroll bar HEIGHT pixels tall, as long as
+the part of the buffer from MIN to MAX shown, START to END, is of it,
+sixteen pixels at least; nil when everything shows, or the track is too
+short."
+  (let* ((layout (lispm-ui-scroll-layout height))
+         (track (plist-get layout :track-length))
+         (size (- max min))
+         (shown (- end start)))
+    (when (and (> size 0) (> track 32) (or (> start min) (< end max)))
+      (let* ((length (max 16 (min track (round (* track (/ (float shown) size))))))
+             (fraction (/ (float (- start min)) (max 1 (- size shown)))))
+        (cons (+ (plist-get layout :track) (round (* (- track length) (min 1.0 fraction))))
+              length)))))
+
 (cl-defmethod lispm-ui-draw-scroll-bar (palette height thumb active
                                                 &context (lispm-ui-look (lispm-desktop-genera-look genera)))
   "Return a Genera 1-bit scroll bar HEIGHT pixels tall: a paper-white
@@ -814,16 +864,15 @@ and a 45-degree diagonal-hatched (`////') elevator bar."
          (svg (svg-create w height))
          (layout (lispm-ui-scroll-layout height))
          (outline (plist-get palette :outline))
-         (live (and active thumb))
+         (ink (if (and active thumb) outline (plist-get palette :muted)))
          (btn lispm-desktop-genera-scroll-button))
     (lispm-ui-svg-paint svg 0 0 w height (plist-get palette :content))
     (lispm-ui-svg-outline svg 0 0 w height outline)
     (dolist (y (list (plist-get layout :up) (plist-get layout :down)))
       (lispm-ui-svg-outline svg 0 y w btn outline)
-      (lispm-ui-svg-outline svg 3 (+ y 3) (- w 6) (- btn 6)
-                            (if live outline (plist-get palette :muted))))
-    (when live
-      (lispm-desktop-genera--svg-hatch svg 1 (car thumb) (- w 2) (cdr thumb) outline))
+      (lispm-ui-svg-outline svg 3 (+ y 3) (- w 6) (- btn 6) ink))
+    (when thumb
+      (lispm-desktop-genera--svg-hatch svg 1 (car thumb) (- w 2) (cdr thumb) ink))
     svg))
 
 (cl-defmethod lispm-desktop--draw-icon (spec x y selected label-width family size ascent

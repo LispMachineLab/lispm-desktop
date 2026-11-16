@@ -227,7 +227,7 @@ tells whether the document is saved.  A list window shows its
          (placards
           (if lispm-desktop-platinum-info
               (append
-               (unless chrome
+               (unless (or chrome (window-parameter (selected-window) 'window-side))
                  (lispm-desktop-platinum-look-placards active))
                (mapcar (lambda (text) (lispm-desktop-platinum-placard text :active active))
                        (seq-remove (lambda (s) (or (not (stringp s)) (string-empty-p s)))
