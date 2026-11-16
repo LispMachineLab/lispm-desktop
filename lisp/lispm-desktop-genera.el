@@ -234,7 +234,7 @@ residual state, or close a split pane."
          (frame (window-frame window))
          (buffer (window-buffer window)))
     (cond
-     ((window-parameter window 'window-side)
+     ((eq (window-parameter window 'window-side) 'left)
       (lispm-desktop-platinum-close-window window))
      ((equal (buffer-name buffer) lispm-desktop-buffer-name)
       (message "Dynamic Lisp Listener 1 is the root screen."))
