@@ -104,17 +104,19 @@ boxes, as tall as all of it, as far as the screen allows."
                     (+ (or (plist-get geom :right) 400)
                        (or (plist-get geom :start) (lispm-desktop-px 32)))
                   (max (lispm-desktop-px 500) (+ outer (lispm-desktop-px 40)))))
+         (win (get-buffer-window form t))
          (height (with-current-buffer form
-                   (let ((truncate-lines t))
-                     (cdr (buffer-text-pixel-size form (get-buffer-window form t))))))
-         (min-h (if prompt-p 110 340))
+                   (let ((truncate-lines (if win truncate-lines t)))
+                     (cdr (buffer-text-pixel-size form win)))))
+         (min-h (if prompt-p 126 340))
+         (pad-h (if prompt-p 42 32))
          (screen (lispm-desktop-apps-screen))
          (max-height (if (and (frame-live-p screen) (lispm-desktop-apps-hidden-p screen))
                          (- (nth 3 (lispm-desktop-apps--workarea screen))
                             (lispm-desktop-px 120))
                        (- (frame-pixel-height screen) (lispm-desktop-px 120)))))
     (cons width
-          (min (max (lispm-desktop-px min-h) (+ height (lispm-desktop-px 32)))
+          (min (max (lispm-desktop-px min-h) (+ height (lispm-desktop-px pad-h)))
                max-height))))
 
 (defun lispm-desktop-form-window-closed (kind variable)
@@ -289,7 +291,7 @@ narrower than Emacs's own, so its fields widen."
                            (minibuffer . ,(minibuffer-window screen))
                            (name . ,title)
                            (lispm-desktop-app . ,(lispm-desktop-apps-frontmost))
-                           (lispm-desktop-app-window . prompt)
+                           (lispm-desktop-window-kind . prompt)
                            (lispm-ui-modal-prompt . ,anchor-frame)
                            (lispm-desktop-close-function
                             . ,(lambda (win)
@@ -313,16 +315,16 @@ narrower than Emacs's own, so its fields widen."
                 (let ((win (frame-root-window frame)))
                   (set-window-buffer win buffer)
                   (set-window-dedicated-p win t)
-                  (when (fboundp 'lispm-desktop-app-ui-dress)
-                    (lispm-desktop-app-ui-dress win))
                   (with-current-buffer buffer
                     (setq-local lispm-desktop-platinum-window-icon 'none
+                                mode-line-format nil
+                                header-line-format nil
                                 display-line-numbers nil)
                     (when (bound-and-true-p display-line-numbers-mode)
                       (display-line-numbers-mode -1)))
                   (set-window-fringes win 0 0)
                   (set-window-parameter win 'mode-line-format 'none)
-                  (set-window-parameter win 'header-line-format nil))
+                  (set-window-parameter win 'header-line-format 'none))
                 (pcase-let ((`(,w . ,h) (lispm-desktop-form-window-size buffer)))
                   (set-frame-size frame w h t))
                 (lispm-desktop-apps-show-window frame)

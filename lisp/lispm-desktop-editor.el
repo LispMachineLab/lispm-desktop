@@ -806,10 +806,12 @@ listed an application's windows."
   "Run the welcome page quick-action command associated with KEY."
   (when-let* ((spec (assq key (lispm-desktop-genera-welcome-actions)))
               (command (nth 2 spec)))
-    ;; Run `New File…' (`find-file') and `Open Project…' via the minibuffer
-    ;; prompt so the user can type a new file name or path cleanly.
-    (let ((lispm-ui-in-gui-action nil)
-          (lispm-ui--command-from-mouse nil))
+    ;; Run `New File…' (`find-file') via the minibuffer prompt so the user
+    ;; can type a new file name cleanly; GUI modal actions (`Open Project…',
+    ;; `New Agent') use their modal dialogs.
+    (let ((lispm-ui-in-gui-action (not (eq key 'file)))
+          (lispm-ui--command-from-mouse (and (not (eq key 'file))
+                                             lispm-ui--command-from-mouse)))
       (if (commandp command)
           (call-interactively command)
         (funcall command)))))
