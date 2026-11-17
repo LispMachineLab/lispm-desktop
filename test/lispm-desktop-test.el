@@ -18944,9 +18944,12 @@ avatar grid views."
       (should (eq lispm-desktop-characters--tab 'memory))
       (should (string-match-p "Keep commits atomic\\." (buffer-string)))
       (lispm-desktop-characters-next-tab)
+      (should (eq lispm-desktop-characters--tab 'knowledge))
+      (should (string-match-p "No knowledge files yet\\." (buffer-string)))
+      (lispm-desktop-characters-next-tab)
       (should (eq lispm-desktop-characters--tab 'conversations))
       (should (string-match-p "No conversations yet\\." (buffer-string)))
-      (lispm-desktop-characters-previous-tab)
+      (lispm-desktop-characters-select-tab 'memory)
       (should (eq lispm-desktop-characters--tab 'memory))
       ;; Return on a memory line visits memory.org at that entry.
       (goto-char (point-min))
