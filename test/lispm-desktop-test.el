@@ -9019,6 +9019,69 @@ idle, when its label there changes; progress alone does not."
               (should (equal (lispm-desktop-agent-list--running-label (current-buffer)) "running")))
           (kill-buffer))))))
 
+(ert-deftest lispm-desktop-test-agent-list-toolbar-combo-and-mru ()
+  "The agent sidebar toolbar puts the combo button for the most recently
+used harness and its dropdown menu on the left, followed by LispM's
+standalone button."
+  (let ((lispm-desktop-agent-list--last-used nil)
+        (launched nil)
+        (shown nil))
+    (lispm-desktop-test--with-agents
+        `((lispm :name "LispM" :built-in t :icon (identity "λ" nil) :text-icon "λ"
+                 :command ,(lambda () (interactive) (push 'lispm launched)))
+          (claude :name "Claude Code" :built-in t :program "emacs"
+                  :icon (identity "C" nil) :text-icon "C" :key "c"
+                  :command ,(lambda () (interactive) (push 'claude launched)))
+          (codex :name "Codex" :built-in t :program "emacs"
+                 :icon (identity "X" nil) :text-icon "X" :key "x"
+                 :command ,(lambda () (interactive) (push 'codex launched)))
+          (antigravity :name "Antigravity" :program "emacs"
+                       :icon (identity "A" nil) :text-icon "A" :key "y"
+                       :command ,(lambda () (interactive) (push 'antigravity launched)))
+          (openclaw :name "OpenClaw" :program "emacs"
+                    :icon (identity "O" nil) :text-icon "O" :key "o"
+                    :command ,(lambda () (interactive) (push 'openclaw launched)))
+          (hermes :name "Hermes" :program "emacs"
+                  :icon (identity "H" nil) :text-icon "H" :key "h"
+                  :command ,(lambda () (interactive) (push 'hermes launched))))
+      ;; With no prior sessions, definition order holds: Claude Code on
+      ;; the combo button plus the attached menu arrow on the left, then
+      ;; LispM standalone.
+      (let ((actions (lispm-desktop-agent-list--toolbar-actions
+                      (lispm-agents-available) nil nil)))
+        (should (equal (mapcar #'car actions) '("C+" "▾" "λ+")))
+        (should-not (nth 4 (nth 0 actions)))
+        (should (nth 4 (nth 1 actions)))
+        (should-not (nth 4 (nth 2 actions))))
+      ;; Recorded sessions reorder harnesses by most recent activity while
+      ;; keeping LispM's standalone button after the combo button.
+      (let* ((sessions '((:agent codex :id "1" :time 100)
+                         (:agent antigravity :id "2" :time 300)
+                         (:agent openclaw :id "3" :time 200)))
+             (actions (lispm-desktop-agent-list--toolbar-actions
+                       (lispm-agents-available) sessions nil)))
+        (should (equal (mapcar #'car actions) '("A+" "▾" "λ+")))
+        (cl-letf (((symbol-function 'lispm-agents-sessions-snapshot)
+                   (lambda () (cons sessions nil)))
+                  ((symbol-function 'lispm-agents-live-buffers) (lambda () nil))
+                  ((symbol-function 'lispm-ui-menu)
+                   (lambda (items &rest _) (setq shown items))))
+          (lispm-desktop-agent-list-new-menu)
+          (should (equal (mapcar (lambda (item) (plist-get item :label)) shown)
+                         '("A New Antigravity Session"
+                           "O New OpenClaw Session"
+                           "X New Codex Session"
+                           "C New Claude Code Session"
+                           "H New Hermes Session")))
+          ;; Choosing Hermes from the menu runs it and promotes it to the
+          ;; combo button's direct action.
+          (cl-letf (((symbol-function 'lispm-desktop-agent-list--redraw) #'ignore))
+            (funcall (plist-get (car (last shown)) :action)))
+          (should (equal launched '(hermes)))
+          (should (equal (mapcar #'car (lispm-desktop-agent-list--toolbar-actions
+                                        (lispm-agents-available) sessions nil))
+                         '("H+" "▾" "λ+"))))))))
+
 (ert-deftest lispm-desktop-test-title-bar-shows-program-status ()
   "A terminal's title bar shows what its program says it is doing."
   ;; Drawn as SVG: an Emacs without librsvg cannot.

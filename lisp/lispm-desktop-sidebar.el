@@ -152,15 +152,21 @@ toolbars are, it shows itself pushed in from the window's
 
 (defun lispm-desktop-sidebar--toolbar-buttons (actions row)
   "Return ACTIONS as bevel buttons on ROW.
-Each action is (LABEL COMMAND HELP [PRESSED]); PRESSED draws its button
-pushed in, as a toggle that is on.  LABEL and HELP are translated here,
-as the buttons are drawn: in English, marked with
-`lispm-desktop-tr-noop', they show in the language LispM speaks."
-  (mapconcat (pcase-lambda (`(,label ,command ,help ,pressed))
-               (lispm-desktop-sidebar-toolbar-button (lispm-desktop-tr label) command
-                                                     (and help (lispm-desktop-tr help))
-                                                     row (and pressed 'pressed)))
-             actions (propertize " " 'display `(space :width (,(lispm-desktop-px 4))))))
+Each action is (LABEL COMMAND HELP [PRESSED ATTACHED]); PRESSED draws its
+button pushed in, as a toggle that is on, and ATTACHED joins it to the
+button before it without a gap, as the menu half of a combo button.
+LABEL and HELP are translated here, as the buttons are drawn: in English,
+marked with `lispm-desktop-tr-noop', they show in the language LispM
+speaks."
+  (let ((parts nil))
+    (pcase-dolist (`(,label ,command ,help ,pressed ,attached) actions)
+      (when (and parts (not attached))
+        (push (propertize " " 'display `(space :width (,(lispm-desktop-px 4)))) parts))
+      (push (lispm-desktop-sidebar-toolbar-button (lispm-desktop-tr label) command
+                                                  (and help (lispm-desktop-tr help))
+                                                  row (and pressed 'pressed))
+            parts))
+    (apply #'concat (nreverse parts))))
 
 (defvar-local lispm-desktop-sidebar--faces nil
   "Face remapping cookies drawing this buffer as a list view.")

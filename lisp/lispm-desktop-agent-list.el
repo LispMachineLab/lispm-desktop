@@ -308,6 +308,116 @@ DIRECTORY is its directory."
     (setq lispm-desktop-agent-list--show-archived (not lispm-desktop-agent-list--show-archived)))
   (lispm-desktop-agent-list--redraw))
 
+(defvar lispm-desktop-agent-list--last-used nil
+  "When each agent was last used, as (AGENT . TIME) in float seconds.")
+
+(defun lispm-desktop-agent-list--agent-time (agent &optional sessions live)
+  "Return the latest time AGENT was used across SESSIONS and LIVE buffers."
+  (let ((time (or (alist-get agent lispm-desktop-agent-list--last-used) 0)))
+    (dolist (buffer live)
+      (when (eq (lispm-agents-of-buffer buffer) agent)
+        (setq time (max time (or (buffer-local-value 'lispm-agents-buffer-launched buffer) 0)))))
+    (dolist (session sessions)
+      (when (eq (plist-get session :agent) agent)
+        (setq time (max time
+                        (if (fboundp 'lispm-agents-session-opened-time)
+                            (lispm-agents-session-opened-time session)
+                          0)
+                        (or (plist-get session :time) 0)
+                        (or (plist-get session :started) 0)))))
+    (when (> time (or (alist-get agent lispm-desktop-agent-list--last-used) 0))
+      (setf (alist-get agent lispm-desktop-agent-list--last-used) time))
+    time))
+
+(defun lispm-desktop-agent-list--mru-agents (agents &optional sessions live)
+  "Return AGENTS, (AGENT . PROPS) entries, ordered most recently used first.
+Ties keep the order of AGENTS."
+  (let ((indexed (seq-map-indexed
+                  (lambda (entry index)
+                    (list (lispm-desktop-agent-list--agent-time (car entry) sessions live)
+                          index entry))
+                  agents)))
+    (mapcar #'caddr
+            (sort indexed
+                  (lambda (a b)
+                    (if (= (car a) (car b))
+                        (< (cadr a) (cadr b))
+                      (> (car a) (car b))))))))
+
+(defun lispm-desktop-agent-list--new-action (entry)
+  "Return the sidebar toolbar action starting a new session of ENTRY."
+  (pcase-let ((`(,agent . ,props) entry))
+    (list (concat (lispm-agents-icon agent) "+")
+          (plist-get props :command)
+          (lispm-desktop-tr "New %s session in the current project"
+                            (plist-get props :name)))))
+
+(defun lispm-desktop-agent-list--toolbar-actions (&optional agents sessions live)
+  "Return the new-session toolbar actions for AGENTS.
+The harnesses are ordered most recently used first, the first shown on
+the combo button on the left and the rest reached from its menu; LispM's
+own agent, when among AGENTS, always follows as a standalone button."
+  (let* ((agents (or agents (lispm-agents-available)))
+         (lispm (assq 'lispm agents))
+         (others (lispm-desktop-agent-list--mru-agents
+                  (if lispm (remq lispm agents) agents)
+                  sessions live)))
+    (append (when others
+              (cons (lispm-desktop-agent-list--new-action (car others))
+                    (when (cdr others)
+                      (list (list "▾" #'lispm-desktop-agent-list-new-menu
+                                  (lispm-desktop-tr "New Session")
+                                  nil t)))))
+            (when lispm
+              (list (lispm-desktop-agent-list--new-action lispm))))))
+
+(defun lispm-desktop-agent-list--new-menu-items (&optional agents sessions live)
+  "Return the menu items for starting a session of any harness, most
+recently used first."
+  (let* ((agents (or agents (lispm-agents-available)))
+         (sessions (or sessions (car (lispm-agents-sessions-snapshot))))
+         (live (or live (lispm-agents-live-buffers)))
+         (lispm (assq 'lispm agents))
+         (harnesses (lispm-desktop-agent-list--mru-agents
+                     (if lispm (remq lispm agents) agents)
+                     sessions live)))
+    (mapcar (pcase-lambda (`(,agent . ,props))
+              (let ((command (plist-get props :command)))
+                (list :label (concat (lispm-agents-icon agent) " "
+                                     (lispm-desktop-tr "New %s Session" (plist-get props :name)))
+                      :key (or (when (and (symbolp command) (commandp command))
+                                 (when-let* ((keys (seq-find #'lispm-ui-menu-keyboard-p
+                                                             (where-is-internal command))))
+                                   (key-description keys)))
+                               (plist-get props :key))
+                      :action (lambda ()
+                                (setf (alist-get agent lispm-desktop-agent-list--last-used)
+                                      (float-time))
+                                (lispm-desktop-agent-list--redraw)
+                                (if (commandp command)
+                                    (call-interactively command)
+                                  (funcall command))))))
+            (or harnesses agents))))
+
+(defun lispm-desktop-agent-list--new-menu-xy ()
+  "Return (X . Y) in the selected frame for the new-session menu: just
+under the combo button on the agent sidebar's header line, or nil."
+  (when-let* ((window (or (get-buffer-window lispm-desktop-agent-list-buffer-name)
+                          (and (eq (buffer-local-value 'major-mode (window-buffer))
+                                   'lispm-desktop-agent-list-mode)
+                               (selected-window)))))
+    (let ((body (window-body-pixel-edges window)))
+      (cons (+ (nth 0 body) (string-pixel-width " "))
+            (nth 1 body)))))
+
+(defun lispm-desktop-agent-list-new-menu ()
+  "Pop up a menu of the available harnesses, most recently used first, and
+start a session of the one chosen."
+  (interactive)
+  (when-let* ((items (lispm-desktop-agent-list--new-menu-items)))
+    (pcase-let ((`(,x . ,y) (lispm-desktop-agent-list--new-menu-xy)))
+      (lispm-ui-menu items x y))))
+
 (defun lispm-desktop-agent-list--info (sessions running reading &optional waiting)
   "Return the count on the sidebar's bottom edge: SESSIONS listed, RUNNING
 terminals, WAITING of them waiting for the user, and, when READING, that
@@ -355,13 +465,8 @@ sessions are still being read."
     (erase-buffer)
     (lispm-desktop-sidebar-set-toolbar
      'agents #'lispm-desktop-agent-list-refresh
-     ;; A new-session button per agent that can run here, those built
-     ;; in first.
-     (mapcar (pcase-lambda (`(,agent . ,props))
-               (list (concat (lispm-agents-icon agent) "+") (plist-get props :command)
-                     (lispm-desktop-tr "New %s session in the current project"
-                                       (plist-get props :name))))
-             (lispm-agents-available))
+     (lispm-desktop-agent-list--toolbar-actions (lispm-agents-available)
+                                                all (lispm-agents-live-buffers))
      ;; The archive toggle shows the archived count, pressed while archived
      ;; sessions are listed.
      (when (> archived 0)
@@ -544,6 +649,7 @@ A session that started none is said to have."
 (defvar-keymap lispm-desktop-agent-list-mode-map
   :doc "Keymap for the agent sidebar."
   :parent special-mode-map
+  "+" #'lispm-desktop-agent-list-new-menu
   "g" #'lispm-desktop-agent-list-refresh
   "r" #'lispm-desktop-agent-list-rename
   "a" #'lispm-desktop-agent-list-toggle-archive

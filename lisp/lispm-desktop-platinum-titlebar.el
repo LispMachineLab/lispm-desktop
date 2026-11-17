@@ -186,7 +186,9 @@ windows and the menu bar are left as they are, which
     (and target
          (equal (window-parameter (or window (selected-window)) 'lispm-ui-pressed) target))))
 
-(unless (fboundp 'lispm-ui-press)
+(unless (and (fboundp 'lispm-ui-press)
+             (let ((max (cdr (func-arity #'lispm-ui-press))))
+               (or (eq max 'many) (>= max 4))))
   (defun lispm-ui-press (position pressed-p command &optional target)
     "Hold a control at POSITION pressed until the mouse button rises."
     (let ((window (posn-window position))
