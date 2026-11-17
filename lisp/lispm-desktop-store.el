@@ -160,6 +160,7 @@
 (declare-function project-remember-projects-under "project" (dir &optional recursive))
 (declare-function lispm-desktop-console-error "lispm-desktop-console"
                   (source message &optional details))
+(declare-function lispm-desktop-characters--sync-apps "lispm-desktop-characters" ())
 (defvar package-vc-selected-packages)
 (defvar find-library-source-path)
 (defvar lispm-desktop-finder-folders)
@@ -794,7 +795,9 @@ each check of them, and after each install, uninstall and update."
               (when installed
                 (lispm-desktop-store--delete-skill-copy id installed))
               (lispm-desktop-store--keep id (lispm-desktop-store--plist-without props :hash)
-                                         :installed (lispm-desktop-store--copy-skill id props))))))))
+                                         :installed (lispm-desktop-store--copy-skill id props)))))))
+  (when (fboundp 'lispm-desktop-characters--sync-apps)
+    (lispm-desktop-characters--sync-apps)))
 
 (defun lispm-desktop-store--sync-skills-at-start ()
   "Install and uninstall the skills as what they require is installed, as

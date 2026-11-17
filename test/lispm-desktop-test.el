@@ -18886,24 +18886,36 @@ is, and of a line of a diary when it was and who asked what."
 
 (ert-deftest lispm-desktop-test-store-apps-are-characters ()
   "An application installed from the App Store with a skill is a character
-of its kind, its skill its soul, with no application of its own besides;
-uninstalled, it is a character no more."
+of its kind, its skill its soul, listed in the Characters application
+with no application of its own besides; uninstalled, it is a character
+no more."
   (skip-unless (lispm-desktop-characters-available-p))
   (lispm-desktop-test--with-characters
-    (cl-letf (((symbol-function 'lispm-desktop-store--installed-skills)
-               (lambda (id) (and (eq id 'notes) '((notes-skill :kind skill :requires (notes)))))))
-      (setq lispm-desktop-apps (append lispm-desktop-apps
-                                       (list (list 'notes :name "Notes" :icon "lispm" :store t
-                                                   :description "Keeps notes." :activate #'ignore))))
-      (lispm-desktop-characters--sync-apps)
+    (let ((lispm-desktop-store-installed nil)
+          (lispm-desktop-store--catalogs nil)
+          (lispm-desktop-apps-changed-hook (list #'lispm-desktop-characters--sync-apps)))
+      ;; At install, the application is registered before its skill is synced.
+      (lispm-desktop-define-app 'notes :name "Notes" :icon "lispm" :store t
+                                :description "Keeps notes." :activate #'ignore)
+      (should-not (lispm-get-character "notes" t))
+      (setq lispm-desktop-store-installed
+            '((notes :kind app) (notes-skill :kind skill :requires (notes))))
+      (lispm-desktop-store--sync-skills)
       (let ((notes (lispm-get-character "notes")))
         (should (equal (lispm-character-skill notes) "notes-skill"))
         (should (equal (lispm-character-title* notes) "Notes"))
-        (should (lispm-character-avatar notes)))
+        (should (lispm-character-avatar notes))
+        (should (equal (cdr (lispm-desktop-characters--icons notes))
+                       (lispm-character-avatar notes))))
       (should-not (alist-get 'character-notes lispm-desktop-apps))
-      (setq lispm-desktop-apps (assq-delete-all 'notes (copy-sequence lispm-desktop-apps)))
-      (lispm-desktop-characters--sync-apps)
-      (should-not (lispm-get-character "notes" t)))))
+      (with-current-buffer (lispm-desktop-characters--buffer)
+        (should (string-match-p "^   Notes Keeps notes\\.$" (buffer-string)))
+        (should (eq lispm-desktop-characters--selected 'notes))
+        (should (eq (lispm-character-name (lispm-desktop-characters--at-point)) 'notes)))
+      (lispm-desktop-remove-app 'notes)
+      (should-not (lispm-get-character "notes" t))
+      (with-current-buffer (lispm-desktop-characters--buffer)
+        (should (equal (buffer-string) ""))))))
 
 ;;;; The language LispM speaks
 
