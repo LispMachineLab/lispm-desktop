@@ -101,10 +101,18 @@
 (declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
 (declare-function lispm-desktop-remove-alias "lispm-desktop-surface" (app))
 (declare-function lispm-desktop-store--installed-skills "lispm-desktop-store" (id))
+(declare-function lispm-character-rag-enabled-p "lispm-characters" (character-or-agent))
+(declare-function lispm-character-comfyui-enabled-p "lispm-characters" (character-or-agent))
+(declare-function lispm-visit-character-file "lispm-characters" (character))
+(declare-function lispm-agent-character "lispm-core" (agent))
+(declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
+(declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-lispm-chat-buttons "lispm-desktop-lispm" ())
 (declare-function lispm-desktop-lispm-chat-status "lispm-desktop-lispm" ())
 (defvar lispm-character-change-functions)
 (defvar lispm-desktop-store-installed)
+(defvar lispm-chat-agent)
+(defvar lispm-desktop-context-menu-function)
 
 (defvar lispm-desktop-characters-icon-directory
   (locate-user-emacs-file "lispm-desktop/character-icons/")
@@ -272,9 +280,11 @@ Run from `lispm-desktop-apps-changed-hook'."
   "RET" #'lispm-desktop-characters-talk-here
   "n" #'lispm-desktop-characters-new
   "e" #'lispm-desktop-characters-change
+  "c" #'lispm-desktop-characters-change
   "d" #'lispm-desktop-characters-delete
   "a" #'lispm-desktop-characters-add-knowledge
   "i" #'lispm-desktop-characters-generate-avatar
+  "o" #'lispm-desktop-characters-open-file
   "v" #'lispm-desktop-characters-toggle-view
   "TAB" #'lispm-desktop-characters-next-tab
   "<backtab>" #'lispm-desktop-characters-previous-tab
@@ -283,6 +293,12 @@ Run from `lispm-desktop-apps-changed-hook'."
   "3" #'lispm-desktop-characters-tab-memory
   "4" #'lispm-desktop-characters-tab-knowledge
   "5" #'lispm-desktop-characters-tab-conversations
+  "<down-mouse-1>" #'lispm-desktop-characters-mouse-select
+  "<mouse-1>" #'lispm-desktop-characters-mouse-click
+  "<double-down-mouse-1>" #'ignore
+  "<double-mouse-1>" #'lispm-desktop-characters-mouse-open
+  "<down-mouse-3>" #'lispm-desktop-characters-context-menu
+  "<mouse-3>" #'ignore
   "g" #'lispm-desktop-characters-refresh)
 
 (define-derived-mode lispm-desktop-characters-mode special-mode "Characters"
@@ -294,6 +310,7 @@ deletes it.
 
 \\{lispm-desktop-characters-mode-map}"
   (setq-local revert-buffer-function (lambda (&rest _) (lispm-desktop-characters--draw))
+              lispm-desktop-context-menu-function #'lispm-desktop-characters--keyboard-menu
               truncate-lines t)
   (add-hook 'post-command-hook #'lispm-desktop-characters--follow nil t)
   (add-hook 'window-size-change-functions #'lispm-desktop-characters--resized nil t))
@@ -467,7 +484,15 @@ group box's sides; THIN makes it a gap of a few pixels."
                  (lispm-desktop-tr "The backend %s" (lispm-character-backend character)))
                 (t (lispm-desktop-tr "LispM's model")))
           (if-let* ((model (lispm-character-model character))) (concat " · " model) "")
-          (if-let* ((effort (lispm-character-effort character))) (concat " · " effort) "")))
+          (if-let* ((effort (lispm-character-effort character))) (concat " · " effort) "")
+          (if (and (fboundp 'lispm-character-rag-enabled-p)
+                   (lispm-character-rag-enabled-p character))
+              (concat " · " (lispm-desktop-tr "Knowledge"))
+            "")
+          (if (and (fboundp 'lispm-character-comfyui-enabled-p)
+                   (lispm-character-comfyui-enabled-p character))
+              " · ComfyUI"
+            "")))
 
 (defun lispm-desktop-characters--conversation-line (conversation)
   "What the list says of CONVERSATION, as `lispm-character-conversations' gives it."
@@ -929,6 +954,21 @@ An error if there is none."
     (user-error "%s" (lispm-desktop-tr "This LispM has no characters yet: update LispM Agent")))
   (lispm-character-generate-avatar (lispm-desktop-characters--at-point)))
 
+(defun lispm-desktop-characters-open-file (&optional character)
+  "Open the character file or skill manual of CHARACTER, by default the one at point."
+  (interactive)
+  (let* ((character (or character (lispm-desktop-characters--at-point)))
+         (file (or (lispm-character-file character)
+                   (and (lispm-character-skill character)
+                        (plist-get (lispm-desktop-characters--skill-info character) :file)))))
+    (cond
+     ((and file (file-readable-p file))
+      (find-file file))
+     ((fboundp 'lispm-visit-character-file)
+      (lispm-visit-character-file character))
+     (t
+      (lispm-desktop-characters-change character)))))
+
 (defun lispm-desktop-characters-talk-here ()
   "Talk to the character point is on, or open the conversation or file point is on."
   (interactive)
@@ -958,6 +998,110 @@ An error if there is none."
                                          (lispm-character-title* character)))
       (lispm-delete-character character))))
 
+(defun lispm-desktop-characters--press-select (event)
+  "Move point to where mouse EVENT pressed and select any character there."
+  (when-let* ((posn (event-start event))
+              (window (posn-window posn))
+              ((window-live-p window)))
+    (select-window window)
+    (when-let* ((pt (posn-point posn)))
+      (goto-char pt)
+      (when-let* ((name (get-text-property pt 'lispm-desktop-characters-name))
+                  ((not (eq name lispm-desktop-characters--selected))))
+        (lispm-desktop-characters--draw)))
+    (and lispm-desktop-characters--selected
+         (lispm-get-character lispm-desktop-characters--selected t))))
+
+(defun lispm-desktop-characters-mouse-select (event)
+  "Select the character clicked by mouse EVENT."
+  (interactive "e")
+  (lispm-desktop-characters--press-select event))
+
+(defun lispm-desktop-characters-mouse-click (event)
+  "Act on a single click EVENT: open a card conversation or file link, or select."
+  (interactive "e")
+  (lispm-desktop-characters--press-select event)
+  (when (or (get-text-property (point) 'lispm-desktop-characters-conversation)
+            (get-text-property (point) 'lispm-desktop-characters-file))
+    (lispm-desktop-characters-talk-here)))
+
+(defun lispm-desktop-characters-mouse-open (event)
+  "Open the character or card item double-clicked by EVENT."
+  (interactive "e")
+  (when (lispm-desktop-characters--press-select event)
+    (lispm-desktop-characters-talk-here)))
+
+(defun lispm-desktop-characters--menu-items (&optional character)
+  "Return the right-click context menu items for CHARACTER."
+  (let ((character (or character
+                       (and lispm-desktop-characters--selected
+                            (lispm-get-character lispm-desktop-characters--selected t)))))
+    `((:label ,(lispm-desktop-tr "Talk") :action lispm-desktop-characters-talk-here :key "RET"
+              :enabled ,(and character t))
+      (:label ,(lispm-desktop-tr "Change…") :action lispm-desktop-characters-change :key "e"
+              :enabled ,(and character t))
+      separator
+      (:label ,(lispm-desktop-tr "Add to knowledge base") :action lispm-desktop-characters-add-knowledge :key "a"
+              :enabled ,(and character t))
+      (:label ,(lispm-desktop-tr "Generate avatar with ComfyUI") :action lispm-desktop-characters-generate-avatar :key "i"
+              :enabled ,(and character (not (lispm-character-skill character)) t))
+      (:label ,(lispm-desktop-tr "Open character file") :action lispm-desktop-characters-open-file :key "o"
+              :enabled ,(and character t))
+      separator
+      (:label ,(lispm-desktop-tr "Switch between list and grid") :action lispm-desktop-characters-toggle-view :key "v")
+      (:label ,(lispm-desktop-tr "New Character…") :action lispm-desktop-characters-new :key "n")
+      (:label ,(lispm-desktop-tr "Delete…") :action lispm-desktop-characters-delete :key "d"
+              :enabled ,(and character
+                             (or (not (lispm-character-skill character))
+                                 (and (lispm-character-file character) t)))))))
+
+(defun lispm-desktop-characters-context-menu (event)
+  "Pop up the right-click menu for the character under mouse EVENT."
+  (interactive "e")
+  (let ((character (lispm-desktop-characters--press-select event))
+        (xy (lispm-desktop-popup-frame-xy event)))
+    (lispm-ui-menu (lispm-desktop-characters--menu-items character) (car xy) (cdr xy))))
+
+(defun lispm-desktop-characters--keyboard-menu ()
+  "Pop up the right-click menu of the selected character from the keyboard."
+  (let ((xy (lispm-desktop-popup-frame-xy (point))))
+    (lispm-ui-menu (lispm-desktop-characters--menu-items) (car xy) (cdr xy))))
+
+(defun lispm-desktop-characters-app-character (app)
+  "Return the character associated with desktop application APP, or nil."
+  (when (and app (lispm-desktop-characters-available-p))
+    (or (when-let* ((name (plist-get (cdr (assq app lispm-desktop-apps)) :character)))
+          (lispm-get-character name t))
+        (lispm-get-character app t))))
+
+(defun lispm-desktop-characters-app-menu-items (app)
+  "Return right-click menu items configuring or talking to APP when it is a character."
+  (when-let* ((character (lispm-desktop-characters-app-character app)))
+    `(,@(when (lispm-character-skill character)
+          `((:label ,(lispm-desktop-tr "Talk")
+                    :action ,(lambda () (interactive) (lispm-desktop-characters-talk character)))))
+      (:label ,(lispm-desktop-tr "Change…")
+              :action ,(lambda () (interactive) (lispm-desktop-characters-change character))))))
+
+(defun lispm-desktop-characters-change-current ()
+  "Open the configuration form for the character of the current chat buffer."
+  (interactive)
+  (if-let* ((agent (bound-and-true-p lispm-chat-agent))
+            (name (and (fboundp 'lispm-agent-character) (lispm-agent-character agent)))
+            (character (lispm-get-character name t)))
+      (lispm-desktop-characters-change character)
+    (user-error "%s" (lispm-desktop-tr "No character here"))))
+
+(defun lispm-desktop-characters--chat-buttons ()
+  "Toolbar buttons for `lispm-chat-mode', adding `Change…' in a character's chat."
+  (let ((base (when (fboundp 'lispm-desktop-lispm-chat-buttons)
+                (lispm-desktop-lispm-chat-buttons))))
+    (if (and (bound-and-true-p lispm-chat-agent)
+             (fboundp 'lispm-agent-character)
+             (lispm-agent-character lispm-chat-agent))
+        (append base `((,(lispm-desktop-tr-noop "Change…") lispm-desktop-characters-change-current)))
+      base)))
+
 ;;;; Setting up
 
 (defun lispm-desktop-characters--define-skins ()
@@ -976,6 +1120,7 @@ An error if there is none."
            ("d" . ,(lispm-desktop-tr-noop "Delete the character"))
            ("a" . ,(lispm-desktop-tr-noop "Add to knowledge base"))
            ("i" . ,(lispm-desktop-tr-noop "Generate avatar with ComfyUI"))
+           ("o" . ,(lispm-desktop-tr-noop "Open character file"))
            ("v" . ,(lispm-desktop-tr-noop "Switch between list and grid"))
            ("Tab" . ,(lispm-desktop-tr-noop "Next card tab"))
            ("g" . ,(lispm-desktop-tr-noop "Draw the list again")))
@@ -988,7 +1133,7 @@ a soul, a picture, a memory and a past of its own, whom you and every agent reac
   (lispm-desktop-app-ui-define
    'lispm-chat-mode
    :setup #'lispm-desktop-characters--wrap
-   :buttons #'lispm-desktop-lispm-chat-buttons
+   :buttons #'lispm-desktop-characters--chat-buttons
    :status #'lispm-desktop-lispm-chat-status))
 
 (defun lispm-desktop-characters--wrap ()

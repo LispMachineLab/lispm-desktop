@@ -46,6 +46,7 @@
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-popup-augment-items "lispm-desktop-popup" (items &optional window))
+(declare-function lispm-desktop-characters-app-menu-items "lispm-desktop-characters" (app))
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 ;;;; Variable & Face Aliases
@@ -366,6 +367,18 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
                             count count available)
         (lispm-desktop-tr-n "%d item" "%d items" count)))
 
+(defun lispm-desktop-finder--augment-menu (items &optional window)
+  "Augment Finder context menu ITEMS with character actions and look items."
+  (let* ((extra (when (fboundp 'lispm-desktop-characters-app-menu-items)
+                  (lispm-desktop-finder--in
+                    (and (eq lispm-finder--directory 'applications)
+                         lispm-finder--selected-app
+                         (lispm-desktop-characters-app-menu-items lispm-finder--selected-app)))))
+         (items (if (and extra (consp items))
+                    (cons (car items) (append extra (cdr items)))
+                  items)))
+    (lispm-desktop-popup-augment-items items window)))
+
 ;; Wire `lispm-finder' callbacks to `lispm-desktop'.
 (setq lispm-finder-show-function #'lispm-desktop-finder--show-window
       lispm-finder-close-function #'lispm-desktop-finder-close
@@ -383,7 +396,7 @@ DIRECTORY is a directory's name, or a key of `lispm-desktop-finder-folders'."
       lispm-finder-press-function #'lispm-desktop-platinum-press
       lispm-finder-translate-function #'lispm-desktop-tr
       lispm-finder-frame-xy-function #'lispm-desktop-popup-frame-xy
-      lispm-finder-menu-augment-function #'lispm-desktop-popup-augment-items
+      lispm-finder-menu-augment-function #'lispm-desktop-finder--augment-menu
       lispm-finder-extra-item-properties '(lispm-desktop-finder-item)
       lispm-finder-extra-target-properties '(lispm-desktop-platinum-target))
 

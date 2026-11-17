@@ -161,6 +161,7 @@
 (declare-function lispm-desktop-console-error "lispm-desktop-console"
                   (source message &optional details))
 (declare-function lispm-desktop-characters--sync-apps "lispm-desktop-characters" ())
+(declare-function lispm-desktop-characters-app-menu-items "lispm-desktop-characters" (app))
 (defvar package-vc-selected-packages)
 (defvar find-library-source-path)
 (defvar lispm-desktop-finder-folders)
@@ -4801,6 +4802,8 @@ The catalogs are fetched the first time it opens after Emacs starts."
                              (lispm-desktop-alias-possible-p id)))
       (:label ,(lispm-desktop-tr "Uninstall…") :action lispm-desktop-store-uninstall-selected :key "D"
               :enabled ,(and id (lispm-desktop-store-installed-p id) (not (lispm-desktop-store--busy-p id))))
+      ,@(when (and id (fboundp 'lispm-desktop-characters-app-menu-items))
+          (lispm-desktop-characters-app-menu-items id))
       (:label ,(lispm-desktop-tr "Stop") :action lispm-desktop-store-stop-selected :key "."
               :enabled ,(and id (lispm-desktop-store--busy-p id)
                              (lispm-desktop-store--stoppable-p (lispm-desktop-store--job id)) t))

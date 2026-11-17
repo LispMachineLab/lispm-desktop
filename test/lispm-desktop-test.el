@@ -18964,7 +18964,14 @@ avatar grid views."
       (should (eq lispm-desktop-characters--view 'grid))
       (should (text-property-any (point-min) (point-max) 'lispm-desktop-characters-name 'ada))
       (lispm-desktop-characters-toggle-view)
-      (should (eq lispm-desktop-characters--view 'list)))))
+      (should (eq lispm-desktop-characters--view 'list))
+      ;; Right-click context menu items for person and app characters.
+      (let ((items (lispm-desktop-characters--menu-items)))
+        (should (seq-some (lambda (it) (and (consp it) (equal (plist-get it :label) "Change…"))) items))
+        (should (seq-some (lambda (it) (and (consp it) (equal (plist-get it :label) "Open character file"))) items)))
+      (let ((app-items (lispm-desktop-characters-app-menu-items 'character-ada)))
+        (should (= (length app-items) 1))
+        (should (equal (plist-get (car app-items) :label) "Change…"))))))
 
 ;;;; The language LispM speaks
 
