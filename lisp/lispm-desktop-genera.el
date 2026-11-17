@@ -915,6 +915,12 @@ label inverted in solid black when SELECTED."
 (defvar-local lispm-desktop-genera--welcome-hits nil
   "Hit rectangles ((KEY LEFT TOP WIDTH HEIGHT) ...) of welcome page buttons.")
 
+(defvar-local lispm-desktop-genera--welcome-cursor-xy nil
+  "Buffer-local `(X . Y)' pixel position of the `Command: █' prompt cursor
+in the last rendered welcome SVG canvas, used to slice the canvas so
+Emacs's window `phys_cursor' and macOS `firstRectForCharacterRange:' IME
+candidate box align with the inline `Command: █' prompt.")
+
 (defvar lispm-desktop-genera--listener-input ""
   "Current live input string typed at `Command: █' on `Dynamic Lisp Listener 1'.")
 
@@ -1216,7 +1222,8 @@ elements including the bottom 2-line Mouse Documentation Line."
                (rules-svg nil)
                (notice-svg nil)
                (prompt-svg nil))
-    (setq lispm-desktop-genera--welcome-hits nil)
+    (setq lispm-desktop-genera--welcome-hits nil
+          lispm-desktop-genera--welcome-cursor-xy nil)
     ;; 1. Interactive quick-action button grid (standalone editor welcome page).
     (when (and standalone (<= (+ cur-y 56) max-y))
       (let ((res (lispm-desktop-genera--svg-buttons
@@ -1367,6 +1374,14 @@ elements including the bottom 2-line Mouse Documentation Line."
           (setq lispm-desktop-genera--welcome-hits
                 (append lispm-desktop-genera--welcome-hits
                         (list (list 'command col-x (- cur-y 10) col-w (+ (* n-lines line-h) 20)))))
+          (let* ((char-h (or (and (fboundp 'frame-char-height)
+                                  (ignore-errors (frame-char-height)))
+                             14))
+                 (cur-px (min (max 1 (+ col-x (* 6 (+ 9 (string-width in-str)))))
+                              (max 1 (- width 16))))
+                 (cur-py (min (max 1 (- (+ prompt-y 4) (max 10 char-h)))
+                              (max 1 (- height 2)))))
+            (setq lispm-desktop-genera--welcome-cursor-xy (cons cur-px cur-py)))
           (setq prompt-svg
                 (concat
                  (apply #'concat (nreverse out-svgs))
@@ -1546,7 +1561,8 @@ and Focus Mode windows of WIDTH columns by HEIGHT lines."
                     (push (funcall center (string-join (nreverse cur-row) " ")) rows))
                   (nreverse rows)))
                (lines nil))
-    (setq lispm-desktop-genera--welcome-hits nil)
+    (setq lispm-desktop-genera--welcome-hits nil
+          lispm-desktop-genera--welcome-cursor-xy nil)
     (dolist (l logos) (push l lines))
     (push "" lines)
     (push (funcall center "LispM Desktop™" title-face) lines)
@@ -2019,7 +2035,45 @@ evaluation when no agent is configured."
   (with-current-buffer (or buffer (current-buffer))
     (let ((disp (get-char-property (point) 'display)))
       (or (and (consp disp) (eq (car disp) 'image))
-          (and (consp disp) (consp (car disp)) (eq (caar disp) 'image))))))
+          (and (consp disp) (consp (car disp)) (eq (caar disp) 'image))
+          (and (consp disp) (consp (cadr disp)) (eq (caadr disp) 'image))))))
+
+(defun lispm-desktop-genera-insert-canvas (image width height &optional cursor-xy)
+  "Insert full-window SVG IMAGE of WIDTH by HEIGHT into the current buffer.
+When CURSOR-XY is `(CX . CY)' inside `(0..WIDTH, 0..HEIGHT)', split IMAGE
+into three slices of the same IMAGE spec — top (`0..CY'), bottom-left
+\(`0..CX'), and bottom-right (`CX..WIDTH') — and return the buffer position
+of the bottom-right slice (`4').  Placing window point on that slice sets
+Emacs's `win->phys_cursor' to `(CX, CY)', so macOS `firstRectForCharacterRange:'
+positions the IME candidate window directly under `Command: █'."
+  (pcase cursor-xy
+    ((and `(,cx . ,cy)
+          (guard (and (integerp width) (integerp height)
+                      (integerp cx) (integerp cy)
+                      (> cx 0) (< cx width)
+                      (> cy 0) (< cy height))))
+     (let ((h-bot (- height cy))
+           (w-right (- width cx)))
+       (insert (propertize " "
+                           'display (list (list 'slice 0 0 width cy) image)
+                           'pointer 'arrow
+                           'lispm-desktop-slice-offset (cons 0 0))
+               (propertize "\n"
+                           'line-height t
+                           'pointer 'arrow)
+               (propertize " "
+                           'display (list (list 'slice 0 cy cx h-bot) image)
+                           'pointer 'arrow
+                           'lispm-desktop-slice-offset (cons 0 cy))
+               (propertize " "
+                           'display (list (list 'slice cx cy w-right h-bot) image)
+                           'pointer 'arrow
+                           'lispm-desktop-slice-offset (cons cx cy)
+                           'lispm-desktop-cursor-anchor t))
+       4))
+    (_
+     (insert (propertize " " 'display image 'pointer 'arrow))
+     (point-min))))
 
 (defun lispm-desktop-genera--clear-ns-working-overlay ()
   "Remove `ns-working-overlay' if present without clobbering `ns-working-text'."
