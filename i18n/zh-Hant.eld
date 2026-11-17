@@ -1596,4 +1596,5 @@ Rust 的套件管理器 Cargo 會在安裝程式中
   ("Generate avatar with ComfyUI" . "使用 ComfyUI 產生頭像")
   ("Entry title: " . "條目標題：")
   ("Content: " . "內容：")
-  ("Keywords (comma-separated, optional): " . "觸發關鍵字（逗號分隔，可選）：")))
+  ("Keywords (comma-separated, optional): " . "觸發關鍵字（逗號分隔，可選）：")
+  ("Open character file" . "打開角色設定檔")))

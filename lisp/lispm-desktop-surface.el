@@ -1444,6 +1444,7 @@ dragged about, this puts them back."
 
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
+(declare-function lispm-desktop-characters-app-menu-items "lispm-desktop-characters" (app))
 
 (defun lispm-desktop--arrange-items ()
   "Return the menu items arranging the desktop's icons."
@@ -1459,6 +1460,8 @@ Icons and the desktop picture, as Mac OS 9's desktop offered them."
     (lispm-ui-menu
      `(,@(when selected
            `((:label ,(lispm-desktop-tr "Open") :action lispm-desktop-open :key "M-o")
+             ,@(when (fboundp 'lispm-desktop-characters-app-menu-items)
+                 (lispm-desktop-characters-app-menu-items selected))
              ,@(when (plist-get (lispm-desktop--item selected) :alias)
                  `((:label ,(lispm-desktop-tr "Remove from Desktop") :action lispm-desktop-remove-from-desktop
                            :key "M-DEL")))

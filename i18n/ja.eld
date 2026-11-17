@@ -1596,4 +1596,5 @@ Rust のパッケージマネージャ Cargo が
   ("Generate avatar with ComfyUI" . "ComfyUI でアバターを生成")
   ("Entry title: " . "項目のタイトル：")
   ("Content: " . "内容：")
-  ("Keywords (comma-separated, optional): " . "キーワード（カンマ区切り、任意）：")))
+  ("Keywords (comma-separated, optional): " . "キーワード（カンマ区切り、任意）：")
+  ("Open character file" . "キャラクターファイルを開く")))
