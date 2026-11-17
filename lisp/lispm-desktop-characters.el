@@ -77,11 +77,18 @@
 (declare-function lispm-character-backend "lispm-core" (character))
 (declare-function lispm-character-endpoint "lispm-core" (character))
 (declare-function lispm-character-soul "lispm-core" (character))
+(declare-function lispm-character-appearance "lispm-core" (character))
+(declare-function lispm-character-workflow "lispm-core" (character))
+(declare-function lispm-character-embedding-model "lispm-core" (character))
 (declare-function lispm-character-role "lispm-core" (character))
 (declare-function lispm-character-effort "lispm-core" (character))
 (declare-function lispm-character-file "lispm-core" (character))
 (declare-function lispm-character-directory "lispm-core" (character))
 (declare-function lispm-character-self "lispm-characters" (character))
+(declare-function lispm-character-knowledge-files "lispm-characters" (character))
+(declare-function lispm-character-rag-chunks "lispm-characters" (character))
+(declare-function lispm-character-rag-add "lispm-characters" (character title content &optional keywords))
+(declare-function lispm-character-generate-avatar "lispm-characters" (character &optional prompt callback))
 (declare-function lispm-character-conversations "lispm-characters" (character))
 (declare-function lispm-character-days "lispm-characters" (character &optional count))
 (declare-function lispm-skills--find "lispm-skills" (name &optional agent))
@@ -266,13 +273,16 @@ Run from `lispm-desktop-apps-changed-hook'."
   "n" #'lispm-desktop-characters-new
   "e" #'lispm-desktop-characters-change
   "d" #'lispm-desktop-characters-delete
+  "a" #'lispm-desktop-characters-add-knowledge
+  "i" #'lispm-desktop-characters-generate-avatar
   "v" #'lispm-desktop-characters-toggle-view
   "TAB" #'lispm-desktop-characters-next-tab
   "<backtab>" #'lispm-desktop-characters-previous-tab
   "1" #'lispm-desktop-characters-tab-all
   "2" #'lispm-desktop-characters-tab-soul
   "3" #'lispm-desktop-characters-tab-memory
-  "4" #'lispm-desktop-characters-tab-conversations
+  "4" #'lispm-desktop-characters-tab-knowledge
+  "5" #'lispm-desktop-characters-tab-conversations
   "g" #'lispm-desktop-characters-refresh)
 
 (define-derived-mode lispm-desktop-characters-mode special-mode "Characters"
@@ -295,9 +305,9 @@ deletes it.
   "How the characters are laid out above the card: `list' or `grid'.")
 
 (defvar-local lispm-desktop-characters--tab 'all
-  "Which section of the card is shown: `all', `soul', `memory' or `conversations'.")
+  "Which section of the card is shown: `all', `soul', `memory', `knowledge' or `conversations'.")
 
-(defconst lispm-desktop-characters--tabs '(all soul memory conversations)
+(defconst lispm-desktop-characters--tabs '(all soul memory knowledge conversations)
   "The tabs of a character card, in order.")
 
 (defun lispm-desktop-characters--buffer ()
@@ -540,6 +550,10 @@ group box's sides; THIN makes it a gap of a few pixels."
                   keymap ,(lispm-desktop-characters--tab-keymap 'memory)
                   mouse-face highlight
                   help-echo ,(lispm-desktop-tr "Next card tab"))
+                 (,(lispm-desktop-tr "Knowledge") ,(eq current 'knowledge)
+                  keymap ,(lispm-desktop-characters--tab-keymap 'knowledge)
+                  mouse-face highlight
+                  help-echo ,(lispm-desktop-tr "Next card tab"))
                  (,(lispm-desktop-tr "Conversations") ,(eq current 'conversations)
                   keymap ,(lispm-desktop-characters--tab-keymap 'conversations)
                   mouse-face highlight
@@ -626,7 +640,18 @@ its conversations and its days."
             (lispm-desktop-characters--card-row #'ignore t)
             (funcall heading (lispm-desktop-tr "Soul"))
             (dolist (row rows)
-              (funcall line row nil (lispm-character-file character)))))))
+              (funcall line row nil (lispm-character-file character))))
+          (when-let* (((fboundp 'lispm-character-appearance))
+                      (appearance (lispm-character-appearance character)))
+            (funcall line
+                     (propertize (lispm-desktop-tr "Appearance: %s"
+                                                   (concat appearance
+                                                           (if-let* ((wf (and (fboundp 'lispm-character-workflow)
+                                                                              (lispm-character-workflow character))))
+                                                               (concat " (" wf ")")
+                                                             "")))
+                                 'face 'shadow)
+                     nil (lispm-character-file character))))))
     ;; 2. Self (in its own words) and Memory (Lorebook).
     (when (memq tab '(all soul memory))
       (when-let* (((fboundp 'lispm-character-self))
@@ -662,7 +687,32 @@ its conversations and its days."
                   (dolist (row (lispm-desktop-characters--wrap-lines
                                 (plist-get entry :body) (- text-width 16) 2))
                     (funcall line (propertize (concat "  " row) 'face 'shadow) nil target)))))))))
-    ;; 3. Conversations & Lately (diary).
+    ;; 3. Knowledge base (RAG lorebook and attached documents).
+    (when (memq tab '(all knowledge))
+      (let ((files (and (fboundp 'lispm-character-knowledge-files)
+                        (ignore-errors (lispm-character-knowledge-files character))))
+            (chunks (and (fboundp 'lispm-character-rag-chunks)
+                         (ignore-errors (lispm-character-rag-chunks character)))))
+        (when (or files (eq tab 'knowledge))
+          (lispm-desktop-characters--card-row #'ignore t)
+          (funcall heading (lispm-desktop-tr "Knowledge"))
+          (if (null files)
+              (funcall line (propertize (lispm-desktop-tr "No knowledge files yet.") 'face 'shadow))
+            (dolist (chunk (seq-take chunks (if (eq tab 'all) 4 10)))
+              (let* ((kws (plist-get chunk :keywords))
+                     (kw-str (if kws (concat "  :" (string-join kws ":") ":") ""))
+                     (file (plist-get chunk :file)))
+                (funcall line
+                         (concat (lispm-desktop-characters--fit
+                                  (concat "• " (file-name-nondirectory file) " · " (plist-get chunk :title))
+                                  (- text-width (string-pixel-width kw-str)))
+                                 (propertize kw-str 'face 'shadow))
+                         nil file)
+                (when (eq tab 'knowledge)
+                  (dolist (row (lispm-desktop-characters--wrap-lines
+                                (plist-get chunk :text) (- text-width 16) 2))
+                    (funcall line (propertize (concat "  " row) 'face 'shadow) nil file)))))))))
+    ;; 4. Conversations & Lately (diary).
     (when (memq tab '(all conversations))
       (when (fboundp 'lispm-character-conversations)
         (let ((conversations (lispm-character-conversations character)))
@@ -849,10 +899,35 @@ An error if there is none."
   (interactive)
   (lispm-desktop-characters-select-tab 'memory))
 
+(defun lispm-desktop-characters-tab-knowledge ()
+  "Show the Knowledge (RAG) section of the character card."
+  (interactive)
+  (lispm-desktop-characters-select-tab 'knowledge))
+
 (defun lispm-desktop-characters-tab-conversations ()
   "Show the Conversations and Lately section of the character card."
   (interactive)
   (lispm-desktop-characters-select-tab 'conversations))
+
+(defun lispm-desktop-characters-add-knowledge (title content &optional keywords)
+  "Add a knowledge entry TITLE with CONTENT and KEYWORDS to the character at point."
+  (interactive
+   (list (read-string (lispm-desktop-tr "Entry title: "))
+         (read-string (lispm-desktop-tr "Content: "))
+         (read-string (lispm-desktop-tr "Keywords (comma-separated, optional): "))))
+  (unless (fboundp 'lispm-character-rag-add)
+    (user-error "%s" (lispm-desktop-tr "This LispM has no characters yet: update LispM Agent")))
+  (let ((character (lispm-desktop-characters--at-point)))
+    (lispm-character-rag-add character title content
+                             (and keywords (not (string-blank-p keywords)) keywords))
+    (lispm-desktop-characters--draw)))
+
+(defun lispm-desktop-characters-generate-avatar ()
+  "Generate an avatar picture for the character at point with ComfyUI."
+  (interactive)
+  (unless (fboundp 'lispm-character-generate-avatar)
+    (user-error "%s" (lispm-desktop-tr "This LispM has no characters yet: update LispM Agent")))
+  (lispm-character-generate-avatar (lispm-desktop-characters--at-point)))
 
 (defun lispm-desktop-characters-talk-here ()
   "Talk to the character point is on, or open the conversation or file point is on."
@@ -899,6 +974,8 @@ An error if there is none."
            ("Return" . ,(lispm-desktop-tr-noop "Talk to the character"))
            ("e" . ,(lispm-desktop-tr-noop "Change the character"))
            ("d" . ,(lispm-desktop-tr-noop "Delete the character"))
+           ("a" . ,(lispm-desktop-tr-noop "Add to knowledge base"))
+           ("i" . ,(lispm-desktop-tr-noop "Generate avatar with ComfyUI"))
            ("v" . ,(lispm-desktop-tr-noop "Switch between list and grid"))
            ("Tab" . ,(lispm-desktop-tr-noop "Next card tab"))
            ("g" . ,(lispm-desktop-tr-noop "Draw the list again")))
