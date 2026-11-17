@@ -83,6 +83,8 @@
 (declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
 (declare-function lispm-desktop-remove-alias "lispm-desktop-surface" (app))
 (declare-function lispm-desktop-store--installed-skills "lispm-desktop-store" (id))
+(declare-function lispm-desktop-lispm-chat-buttons "lispm-desktop-lispm" ())
+(declare-function lispm-desktop-lispm-chat-status "lispm-desktop-lispm" ())
 (defvar lispm-character-change-functions)
 (defvar lispm-desktop-store-installed)
 
@@ -101,7 +103,18 @@
   "The characters the user made: those that are no application."
   (seq-remove #'lispm-character-skill (lispm-characters)))
 
+(defun lispm-desktop-characters--listed ()
+  "The characters the Characters application lists: those the user made,
+then the applications that are characters."
+  (append (lispm-desktop-characters--people)
+          (seq-filter #'lispm-character-skill (lispm-characters))))
+
 ;;;; Icons
+
+(defun lispm-desktop-characters--svg-file-p (file)
+  "Return non-nil when FILE is an SVG image file."
+  (or (eq (image-supported-file-p file) 'svg)
+      (string-suffix-p ".svg" (downcase file))))
 
 (defun lispm-desktop-characters--large-icon (picture)
   "Return a 32-pixel SVG icon holding PICTURE, a file, framed in black.
@@ -114,7 +127,9 @@ after the picture, whose name changes with what it shows."
                                  directory)))
     (unless (file-exists-p file)
       (make-directory directory t)
-      (let* ((type (or (image-supported-file-p picture) 'png))
+      (let* ((type (or (and (lispm-desktop-characters--svg-file-p picture) 'svg)
+                       (image-supported-file-p picture)
+                       'png))
              (data (with-temp-buffer
                      (set-buffer-multibyte nil)
                      (insert-file-contents-literally picture)
@@ -126,14 +141,16 @@ xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"32\" height=\"32\" viewBox=
 <image x=\"1\" y=\"1\" width=\"30\" height=\"30\" preserveAspectRatio=\"xMidYMid slice\" \
 xlink:href=\"data:image/%s;base64,%s\"/>\
 <rect x=\"0.5\" y=\"0.5\" width=\"31\" height=\"31\" fill=\"none\" stroke=\"#000000\"/></svg>\n"
-                          (if (eq type 'jpeg) "jpeg" type) data)))))
+                          (pcase type ('jpeg "jpeg") ('svg "svg+xml") (_ type)) data)))))
     file))
 
 (defun lispm-desktop-characters--icons (character)
   "Return CHARACTER's icons, (SMALL . LARGE): its picture, else a person's."
   (if-let* ((picture (lispm-character-avatar character))
             ((file-readable-p picture)))
-      (cons picture (lispm-desktop-characters--large-icon picture))
+      (cons picture (if (lispm-desktop-characters--svg-file-p picture)
+                        picture
+                      (lispm-desktop-characters--large-icon picture)))
     (cons 'character 'character-32)))
 
 ;;;; Each character's application
@@ -183,6 +200,8 @@ This is a function of `lispm-character-change-functions'."
   (let ((character (and (eq change 'defined) (lispm-get-character name t))))
     (if (and character (not (lispm-character-skill character)))
         (lispm-desktop-characters--define-app character)
+      (unless character
+        (lispm-desktop-app-window-close (lispm-desktop-characters-app name)))
       (lispm-desktop-characters--remove-app name))
     (when (fboundp 'lispm-desktop-finder-folder-changed)
       (lispm-desktop-finder-folder-changed 'applications))
@@ -200,22 +219,29 @@ came with; nil if none.  Its first, if it came with several."
               (skill (car (lispm-desktop-store--installed-skills key))))
     (symbol-name (car skill))))
 
+(defun lispm-desktop-characters--app-skill (key props)
+  "The name of the skill of the application KEY, of PROPS; nil if none."
+  (or (plist-get props :skill)
+      (and (plist-get props :store)
+           (lispm-desktop-characters--store-skill key))))
+
 (defun lispm-desktop-characters--sync-apps ()
-  "Make each application installed from the App Store with a skill a
-character of its kind, and those uninstalled characters no more.
+  "Make each application with a skill a character of its kind, and those
+uninstalled characters no more.
 Run from `lispm-desktop-apps-changed-hook'."
   (when (fboundp 'lispm-define-app-character)
     (let (now)
       (pcase-dolist (`(,key . ,props) lispm-desktop-apps)
-        (when-let* (((plist-get props :store))
-                    (skill (lispm-desktop-characters--store-skill key)))
+        (when-let* ((skill (lispm-desktop-characters--app-skill key props)))
           (push key now)
           (unless (memq key lispm-desktop-characters--apps)
             (lispm-define-app-character
              key :title (lispm-desktop-tr (plist-get props :name)) :skill skill
              :description (plist-get props :description)
              :avatar (ignore-errors (lispm-ui-icon-file
-                                     (or (plist-get props :large-icon) (plist-get props :icon))))))))
+                                     (or (plist-get props :large-icon)
+                                         (plist-get props :folder)
+                                         (plist-get props :icon))))))))
       (dolist (key lispm-desktop-characters--apps)
         (unless (memq key now)
           (lispm-remove-app-character key)))
@@ -275,14 +301,14 @@ Characters has, before one shows it."
 and below it, who the one point is on is."
   (let* ((name (or (get-text-property (point) 'lispm-desktop-characters-name)
                    lispm-desktop-characters--selected))
-         (people (lispm-desktop-characters--people))
-         (selected (or (seq-find (lambda (character) (eq (lispm-character-name character) name)) people)
-                       (car people)))
+         (characters (lispm-desktop-characters--listed))
+         (selected (or (seq-find (lambda (character) (eq (lispm-character-name character) name)) characters)
+                       (car characters)))
          (on-row (get-text-property (point) 'lispm-desktop-characters-name))
          (inhibit-read-only t))
     (erase-buffer)
     (setq lispm-desktop-characters--selected (and selected (lispm-character-name selected)))
-    (dolist (character people)
+    (dolist (character characters)
       (let ((start (point))
             (indent (lispm-desktop-px 12)))
         (insert (propertize " " 'display `(space :width (,indent)))
@@ -484,8 +510,8 @@ An error if there is none."
       (user-error "%s" (lispm-desktop-tr "No character here"))))
 
 (defun lispm-desktop-characters--read (prompt)
-  "Read the name of a character the user made, with PROMPT; return it."
-  (let ((titles (mapcar #'lispm-character-title* (lispm-desktop-characters--people))))
+  "Read the name of a character, with PROMPT; return it."
+  (let ((titles (mapcar #'lispm-character-title* (lispm-desktop-characters--listed))))
     (unless titles
       (user-error "%s" (lispm-desktop-tr "There is no character yet")))
     (lispm-get-character (completing-read prompt titles nil t))))
@@ -556,7 +582,7 @@ An error if there is none."
            ("e" . ,(lispm-desktop-tr-noop "Change the character"))
            ("d" . ,(lispm-desktop-tr-noop "Delete the character"))
            ("g" . ,(lispm-desktop-tr-noop "Draw the list again")))
-   :empty `(,(lambda () (null (lispm-desktop-characters--people)))
+   :empty `(,(lambda () (null (lispm-desktop-characters--listed)))
             ,(lispm-desktop-tr-noop "No characters yet.  A character is someone: a name, \
 a soul, a picture, a memory and a past of its own, whom you and every agent reach by name, as @Ada.")
             ((,(lispm-desktop-tr-noop "New Character…") lispm-desktop-characters-new))))
