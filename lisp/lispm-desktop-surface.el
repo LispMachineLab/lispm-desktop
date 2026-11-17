@@ -313,6 +313,9 @@ this, see `lispm-desktop-make-alias'."
 (declare-function lispm-desktop-genera-listener-complete "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-previous "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-next "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-insert-canvas "lispm-desktop-genera"
+                  (image width height &optional cursor-xy))
+(defvar lispm-desktop-genera--welcome-cursor-xy)
 
 (defun lispm-desktop-self-insert ()
   "Type into `Dynamic Lisp Listener 1' when the desktop has no icons."
@@ -1005,7 +1008,9 @@ Where images cannot be shown, it is drawn in text, see
       (with-current-buffer buffer
         (let ((inhibit-read-only t)
               (width (window-body-width window t))
-              (height (1- (window-body-height window t))))
+              (height (1- (window-body-height window t)))
+              (cursor-pt nil))
+          (setq-local lispm-desktop-genera--welcome-cursor-xy nil)
           (erase-buffer)
           (if (display-images-p)
               (let* ((in-use (lispm-desktop--picture-in-use))
@@ -1017,7 +1022,13 @@ Where images cannot be shown, it is drawn in text, see
                                    'svg t
                                    :scale 1 :ascent 100
                                    (when picture (list :base-uri picture)))))
-                (insert (propertize " " 'display image 'pointer 'arrow))
+                (setq cursor-pt
+                      (if (fboundp 'lispm-desktop-genera-insert-canvas)
+                          (lispm-desktop-genera-insert-canvas
+                           image width height
+                           (bound-and-true-p lispm-desktop-genera--welcome-cursor-xy))
+                        (insert (propertize " " 'display image 'pointer 'arrow))
+                        (point-min)))
                 ;; Each drawing is a new image as large as the window; the
                 ;; last one is let go at once, or a drag would heap them up.
                 ;; It is let go from the desktop's frame, which Emacs then
@@ -1034,10 +1045,11 @@ Where images cannot be shown, it is drawn in text, see
                        width height (and (lispm-desktop-tty-images-p)
                                          (lambda (&rest icon) (push icon icons) t))))
               (lispm-desktop-tty-images-show window icons)))
-          (goto-char (point-min))
-          (set-window-start window (point-min) t)
-          (set-window-point window (point-min))
-          (set-window-hscroll window 0))))))
+          (let ((pt (or cursor-pt (point-min))))
+            (goto-char pt)
+            (set-window-start window (point-min) t)
+            (set-window-point window pt)
+            (set-window-hscroll window 0)))))))
 
 ;;;; Selecting and opening
 
@@ -1064,7 +1076,13 @@ The desktop drawn in text names it in the text clicked."
                                  (window-buffer (posn-window position)))))
           (get-text-property point 'lispm-desktop-item buffer))
         (when-let* ((xy (posn-object-x-y position)))
-          (lispm-desktop--key-at (car xy) (cdr xy))))))
+          (let* ((point (posn-point position))
+                 (buffer (and (windowp (posn-window position))
+                              (window-buffer (posn-window position))))
+                 (off (and point (bufferp buffer)
+                           (get-text-property point 'lispm-desktop-slice-offset buffer))))
+            (lispm-desktop--key-at (+ (car xy) (or (car-safe off) 0))
+                                   (+ (cdr xy) (or (cdr-safe off) 0))))))))
 
 (defvar lispm-desktop--last-click nil
   "The last icon clicked without being dragged: (KEY TIME (X . Y)).")
@@ -1673,6 +1691,10 @@ mode is turned off first: turned off, it restores the lines it found."
               cursor-type nil
               truncate-lines t
               auto-hscroll-mode nil
+              scroll-margin 0
+              scroll-conservatively 101
+              auto-window-vscroll nil
+              line-spacing 0
               ;; Fringes on both sides, however thin, keep Emacs from holding
               ;; the last column of the text area for its truncation mark,
               ;; which a picture as wide as the window would stop short of.

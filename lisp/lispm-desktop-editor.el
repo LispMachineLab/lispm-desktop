@@ -276,6 +276,10 @@ the edge of the windows below, which runs across the strip."
               cursor-type nil
               truncate-lines t
               auto-hscroll-mode nil
+              scroll-margin 0
+              scroll-conservatively 101
+              auto-window-vscroll nil
+              line-spacing 0
               left-fringe-width 0
               right-fringe-width 0
               evil-emacs-state-cursor '(nil)
@@ -773,11 +777,14 @@ listed an application's windows."
 (declare-function lispm-desktop-genera-listener-history-previous "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-next "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-mouse-system-menu "lispm-desktop-genera" (event))
+(declare-function lispm-desktop-genera-insert-canvas "lispm-desktop-genera"
+                  (image width height &optional cursor-xy))
 (declare-function lispm-desktop-agent-lispm-new "lispm-desktop-lispm" (&optional role))
 (declare-function lispm-desktop-shell-toggle "lispm-desktop-shells" ())
 (declare-function lispm-desktop-guide "lispm-desktop-guide" ())
 (declare-function lispm-terminal-quit "lispm-terminal" ())
 (defvar lispm-desktop-genera--welcome-hits)
+(defvar lispm-desktop-genera--welcome-cursor-xy)
 (defvar lispm-desktop-genera--listener-input)
 (defvar lispm-desktop-genera--listener-working-text)
 (defvar lispm-desktop-genera--listener-output)
@@ -829,9 +836,13 @@ listed an application's windows."
                      (get-text-property pt 'lispm-desktop-welcome-action buf))
                    (when-let* ((xy (posn-object-x-y pos))
                                ((bufferp buf)))
-                     (lispm-ui-modal-hit
-                      (buffer-local-value 'lispm-desktop-genera--welcome-hits buf)
-                      (car xy) (cdr xy))))))
+                     (let ((off (and (posn-point pos)
+                                     (get-text-property (posn-point pos)
+                                                        'lispm-desktop-slice-offset buf))))
+                       (lispm-ui-modal-hit
+                        (buffer-local-value 'lispm-desktop-genera--welcome-hits buf)
+                        (+ (car xy) (or (car-safe off) 0))
+                        (+ (cdr xy) (or (cdr-safe off) 0))))))))
       (cond
        ((eq key 'command)
         (when (bufferp buf)
@@ -1001,23 +1012,32 @@ listed an application's windows."
                            (bound-and-true-p lispm-desktop-genera--listener-output))))
           (when (or force (not (equal state lispm-desktop-editor--splash-state)))
             (setq lispm-desktop-editor--splash-state state)
-            (let ((inhibit-read-only t))
+            (let ((inhibit-read-only t)
+                  (cursor-pt nil))
+              (setq-local lispm-desktop-genera--welcome-cursor-xy nil)
               (erase-buffer)
               (if graphic
                   (let* ((svg (lispm-desktop-genera-welcome-svg
                                width height t lispm-desktop-editor--splash-focused))
                          (image (create-image svg 'svg t :scale 1 :ascent 100)))
-                    (insert (propertize " " 'display image 'pointer 'arrow))
+                    (setq cursor-pt
+                          (if (fboundp 'lispm-desktop-genera-insert-canvas)
+                              (lispm-desktop-genera-insert-canvas
+                               image width height
+                               (bound-and-true-p lispm-desktop-genera--welcome-cursor-xy))
+                            (insert (propertize " " 'display image 'pointer 'arrow))
+                            (point-min)))
                     (when (and lispm-desktop-editor--splash-image (window-live-p win))
                       (image-flush lispm-desktop-editor--splash-image (window-frame win)))
                     (setq lispm-desktop-editor--splash-image image))
                 (insert (lispm-desktop-genera-welcome-text
                          width height lispm-desktop-editor--splash-focused)))
-              (goto-char (point-min))
-              (when (and (window-live-p win) (eq (window-buffer win) buffer))
-                (set-window-start win (point-min) t)
-                (set-window-point win (point-min))
-                (set-window-hscroll win 0)))))))))
+              (let ((pt (or cursor-pt (point-min))))
+                (goto-char pt)
+                (when (and (window-live-p win) (eq (window-buffer win) buffer))
+                  (set-window-start win (point-min) t)
+                  (set-window-point win pt)
+                  (set-window-hscroll win 0))))))))))
 
 (defun lispm-desktop-editor--refresh-splash (&rest _)
   "Re-render the welcome screen when the look, theme or language changes."
@@ -1039,6 +1059,10 @@ listed an application's windows."
               cursor-type nil
               truncate-lines t
               auto-hscroll-mode nil
+              scroll-margin 0
+              scroll-conservatively 101
+              auto-window-vscroll nil
+              line-spacing 0
               left-fringe-width 1
               right-fringe-width 1
               show-trailing-whitespace nil
