@@ -76,8 +76,19 @@
 (declare-function lispm-character-model "lispm-core" (character))
 (declare-function lispm-character-backend "lispm-core" (character))
 (declare-function lispm-character-endpoint "lispm-core" (character))
+(declare-function lispm-character-soul "lispm-core" (character))
+(declare-function lispm-character-role "lispm-core" (character))
+(declare-function lispm-character-effort "lispm-core" (character))
+(declare-function lispm-character-file "lispm-core" (character))
+(declare-function lispm-character-directory "lispm-core" (character))
+(declare-function lispm-character-self "lispm-characters" (character))
 (declare-function lispm-character-conversations "lispm-characters" (character))
 (declare-function lispm-character-days "lispm-characters" (character &optional count))
+(declare-function lispm-skills--find "lispm-skills" (name &optional agent))
+(declare-function lispm-skills--index "lispm-skills" (skill))
+(declare-function lispm-skills--text "lispm-skills" (file))
+(declare-function lispm-memory--entries "lispm-memory" (buffer))
+(declare-function lispm-memory--visit "lispm-memory" (file header &optional to-change))
 (declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 (declare-function lispm-desktop-app-ui-menus "lispm-desktop-app-ui" (app))
 (declare-function lispm-desktop-finder-folder-changed "lispm-desktop-finder" (key))
@@ -255,6 +266,13 @@ Run from `lispm-desktop-apps-changed-hook'."
   "n" #'lispm-desktop-characters-new
   "e" #'lispm-desktop-characters-change
   "d" #'lispm-desktop-characters-delete
+  "v" #'lispm-desktop-characters-toggle-view
+  "TAB" #'lispm-desktop-characters-next-tab
+  "<backtab>" #'lispm-desktop-characters-previous-tab
+  "1" #'lispm-desktop-characters-tab-all
+  "2" #'lispm-desktop-characters-tab-soul
+  "3" #'lispm-desktop-characters-tab-memory
+  "4" #'lispm-desktop-characters-tab-conversations
   "g" #'lispm-desktop-characters-refresh)
 
 (define-derived-mode lispm-desktop-characters-mode special-mode "Characters"
@@ -272,6 +290,15 @@ deletes it.
 
 (defvar-local lispm-desktop-characters--selected nil
   "The name of the character whose information the list shows.")
+
+(defvar-local lispm-desktop-characters--view 'list
+  "How the characters are laid out above the card: `list' or `grid'.")
+
+(defvar-local lispm-desktop-characters--tab 'all
+  "Which section of the card is shown: `all', `soul', `memory' or `conversations'.")
+
+(defconst lispm-desktop-characters--tabs '(all soul memory conversations)
+  "The tabs of a character card, in order.")
 
 (defun lispm-desktop-characters--buffer ()
   "Return the buffer listing the characters, drawn."
@@ -296,9 +323,77 @@ Characters has, before one shows it."
       (window-body-width window t)
     (- (or (car (plist-get (alist-get 'characters lispm-desktop-app-window-kinds) :size)) 600) 24)))
 
+(defun lispm-desktop-characters--badge (character)
+  "Short identity badge for CHARACTER: @name and its role or app skill."
+  (concat "@" (symbol-name (lispm-character-name character))
+          (cond ((lispm-character-skill character)
+                 (concat " · " (lispm-character-skill character)))
+                ((lispm-character-role character)
+                 (concat " · " (symbol-name (lispm-character-role character))))
+                (t ""))))
+
+(defun lispm-desktop-characters--grid-tile (character selected-p)
+  "Insert a portrait tile for CHARACTER in the SillyTavern-style avatar grid."
+  (let* ((name (lispm-character-name character))
+         (title (lispm-character-title* character))
+         (tag (if (lispm-character-skill character)
+                  (concat "@" (symbol-name name) " · app")
+                (concat "@" (symbol-name name))))
+         (start (point)))
+    (if (or (lispm-desktop-tty-p) (not (display-images-p)))
+        (let ((cell (format (if selected-p "[*%s %s]" "[ %s %s]")
+                            (lispm-ui-icon 'character) title)))
+          (insert (propertize cell 'face (if selected-p 'highlight 'lispm-ui-title))))
+      (let* ((palette (or lispm-ui-current-palette
+                          '(:chrome "#DDDDDD" :content "#FFFFFF" :outline "#000000"
+                                    :text "#000000" :highlight "#000080" :highlight-text "#FFFFFF")))
+             (w 128) (h 78)
+             (svg (svg-create w h))
+             (bg (if selected-p
+                     (or (plist-get palette :content) "#FFFFFF")
+                   (or (plist-get palette :chrome) "#DDDDDD")))
+             (border (if selected-p
+                         (or (plist-get palette :highlight) "#000080")
+                       (or (plist-get palette :outline) "#000000")))
+             (icon-file (ignore-errors
+                          (lispm-ui-icon-file (cdr (lispm-desktop-characters--icons character)))))
+             (font (lispm-ui-svg-font 'lispm-ui-title))
+             (subfont (lispm-ui-svg-font 'lispm-ui-list)))
+        (lispm-ui-svg-fill svg 0 0 w h bg)
+        (svg-rectangle svg 0.5 0.5 (- w 1) (- h 1)
+                       :fill "none" :stroke border :stroke-width (if selected-p 2 1))
+        (when (and icon-file (file-readable-p icon-file))
+          (lispm-ui-svg-emacs-image svg (create-image icon-file) (/ (- w 32) 2) 6 32 32))
+        (lispm-ui-svg-label svg (lispm-desktop-characters--fit title (- w 12))
+                            (/ w 2) 54 (or (plist-get palette :text) "#000000") font "middle")
+        (lispm-ui-svg-label svg (lispm-desktop-characters--fit tag (- w 12))
+                            (/ w 2) 70 (lispm-ui-grey palette #x66) subfont "middle")
+        (insert (propertize title 'display `(image :type svg :ascent center
+                                                   :data ,(with-temp-buffer
+                                                            (svg-print svg)
+                                                            (buffer-string)))))))
+    (put-text-property start (point) 'lispm-desktop-characters-name name)
+    (put-text-property start (point) 'mouse-face 'highlight)))
+
+(defun lispm-desktop-characters--draw-grid (characters selected)
+  "Draw CHARACTERS as a multi-column portrait grid, SELECTED highlighted."
+  (let* ((width (lispm-desktop-characters--width))
+         (cols (max 1 (/ (max 128 (- width 24)) 136)))
+         (indent (lispm-desktop-px 12))
+         (gap (lispm-desktop-px 8))
+         (rows (seq-partition characters cols)))
+    (dolist (row rows)
+      (insert (propertize " " 'display `(space :width (,indent))))
+      (cl-loop for character in row
+               for rest on row
+               do (lispm-desktop-characters--grid-tile character (eq character selected))
+               when (cdr rest)
+               do (insert (propertize " " 'display `(space :width (,gap)))))
+      (insert "\n"))))
+
 (defun lispm-desktop-characters--draw ()
-  "Draw the list of characters in this buffer, point on the one it was on,
-and below it, who the one point is on is."
+  "Draw the list or grid of characters in this buffer, point on the one it
+was on, and below it, who the one point is on is."
   (let* ((name (or (get-text-property (point) 'lispm-desktop-characters-name)
                    lispm-desktop-characters--selected))
          (characters (lispm-desktop-characters--listed))
@@ -308,19 +403,21 @@ and below it, who the one point is on is."
          (inhibit-read-only t))
     (erase-buffer)
     (setq lispm-desktop-characters--selected (and selected (lispm-character-name selected)))
-    (dolist (character characters)
-      (let ((start (point))
-            (indent (lispm-desktop-px 12)))
-        (insert (propertize " " 'display `(space :width (,indent)))
-                (lispm-desktop-characters--icon character 32)
-                (propertize " " 'display `(space :width (,indent)))
-                (propertize (lispm-character-title* character) 'face 'lispm-ui-title))
-        (when-let* ((description (lispm-character-description character)))
-          (insert (propertize " " 'display `(space :align-to (,(lispm-desktop-px 160))))
-                  (propertize description 'face 'shadow)))
-        (insert "\n")
-        (put-text-property start (point) 'lispm-desktop-characters-name
-                           (lispm-character-name character))))
+    (if (eq lispm-desktop-characters--view 'grid)
+        (lispm-desktop-characters--draw-grid characters selected)
+      (dolist (character characters)
+        (let ((start (point))
+              (indent (lispm-desktop-px 12)))
+          (insert (propertize " " 'display `(space :width (,indent)))
+                  (lispm-desktop-characters--icon character 32)
+                  (propertize " " 'display `(space :width (,indent)))
+                  (propertize (lispm-character-title* character) 'face 'lispm-ui-title))
+          (when-let* ((description (lispm-character-description character)))
+            (insert (propertize " " 'display `(space :align-to (,(lispm-desktop-px 160))))
+                    (propertize description 'face 'shadow)))
+          (insert "\n")
+          (put-text-property start (point) 'lispm-desktop-characters-name
+                             (lispm-character-name character)))))
     (when selected
       (insert "\n")
       (lispm-desktop-characters--card selected))
@@ -347,13 +444,20 @@ group box's sides; THIN makes it a gap of a few pixels."
             (if thin (propertize "\n" 'face face) "\n"))))
 
 (defun lispm-desktop-characters--thinks (character)
-  "What CHARACTER thinks with, in words."
-  (concat (cond ((lispm-character-endpoint character)
+  "What CHARACTER thinks with, and its role or skill, in words."
+  (concat (cond ((lispm-character-skill character)
+                 (concat (lispm-desktop-tr "Skill") ": " (lispm-character-skill character) " · "))
+                ((lispm-character-role character)
+                 (concat (lispm-desktop-tr "Role") ": "
+                         (symbol-name (lispm-character-role character)) " · "))
+                (t ""))
+          (cond ((lispm-character-endpoint character)
                  (lispm-desktop-tr "Its own endpoint, %s" (plist-get (lispm-character-endpoint character) :url)))
                 ((lispm-character-backend character)
                  (lispm-desktop-tr "The backend %s" (lispm-character-backend character)))
                 (t (lispm-desktop-tr "LispM's model")))
-          (if-let* ((model (lispm-character-model character))) (concat " · " model) "")))
+          (if-let* ((model (lispm-character-model character))) (concat " · " model) "")
+          (if-let* ((effort (lispm-character-effort character))) (concat " · " effort) "")))
 
 (defun lispm-desktop-characters--conversation-line (conversation)
   "What the list says of CONVERSATION, as `lispm-character-conversations' gives it."
@@ -370,23 +474,108 @@ group box's sides; THIN makes it a gap of a few pixels."
                               (t ""))
                         'face 'shadow))))
 
+(defun lispm-desktop-characters--wrap-lines (text width &optional limit)
+  "Split and wrap TEXT into lines fitting WIDTH pixels, at most LIMIT lines."
+  (when (and text (not (string-blank-p text)))
+    (let ((lines (mapcan (lambda (paragraph)
+                           (let ((trimmed (string-trim paragraph)))
+                             (if (string-empty-p trimmed)
+                                 nil
+                               (or (ignore-errors
+                                     (lispm-ui-text-wrap trimmed (lambda (s) (<= (string-pixel-width s) width))))
+                                   (list (lispm-desktop-characters--fit trimmed width))))))
+                         (split-string (string-trim text) "\n+"))))
+      (if limit (seq-take lines limit) lines))))
+
+(defun lispm-desktop-characters--skill-info (character)
+  "Return (:file FILE :summary TEXT :tools LIST) for CHARACTER's skill, or nil."
+  (when-let* ((name (lispm-character-skill character))
+              (skill (and (fboundp 'lispm-skills--find) (ignore-errors (lispm-skills--find name))))
+              (file (plist-get skill :file)))
+    (let* ((raw (and (fboundp 'lispm-skills--text) (ignore-errors (lispm-skills--text file))))
+           (body (and raw (string-trim (replace-regexp-in-string
+                                        "\\`\\(?:#\\+.*\n\\)+" ""
+                                        (car (split-string raw "^\\* "))))))
+           (tools (and (fboundp 'lispm-skills--index)
+                       (ignore-errors (mapcar #'car (plist-get (lispm-skills--index skill) :tools))))))
+      (list :file file
+            :summary (or (and body (not (string-empty-p body)) body)
+                         (plist-get skill :description))
+            :tools tools))))
+
+(defun lispm-desktop-characters--memories (character)
+  "Personal memory entries of CHARACTER from its memory.org, as plists."
+  (when (and (fboundp 'lispm-character-directory) (fboundp 'lispm-memory--entries))
+    (let ((file (expand-file-name "memory.org"
+                                  (lispm-character-directory (lispm-character-name character)))))
+      (when (file-readable-p file)
+        (with-temp-buffer
+          (insert-file-contents file)
+          (delay-mode-hooks (org-mode))
+          (mapcar (lambda (entry) (plist-put entry :file file))
+                  (ignore-errors (lispm-memory--entries (current-buffer)))))))))
+
+(defun lispm-desktop-characters--tab-keymap (tab)
+  "Keymap selecting TAB on click or Return."
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mouse-1] (lambda () (interactive) (lispm-desktop-characters-select-tab tab)))
+    (define-key map (kbd "RET") (lambda () (interactive) (lispm-desktop-characters-select-tab tab)))
+    map))
+
+(defun lispm-desktop-characters--card-tabs (character width)
+  "Insert the tab strip of CHARACTER's card across WIDTH pixels."
+  (let* ((current (or lispm-desktop-characters--tab 'all))
+         (tabs `((,(lispm-desktop-tr "All") ,(eq current 'all)
+                  keymap ,(lispm-desktop-characters--tab-keymap 'all)
+                  mouse-face highlight
+                  help-echo ,(lispm-desktop-tr "Next card tab"))
+                 (,(if (lispm-character-skill character)
+                       (lispm-desktop-tr "Skill")
+                     (lispm-desktop-tr "Soul"))
+                  ,(eq current 'soul)
+                  keymap ,(lispm-desktop-characters--tab-keymap 'soul)
+                  mouse-face highlight
+                  help-echo ,(lispm-desktop-tr "Next card tab"))
+                 (,(lispm-desktop-tr-in "agents' memory" "Memory") ,(eq current 'memory)
+                  keymap ,(lispm-desktop-characters--tab-keymap 'memory)
+                  mouse-face highlight
+                  help-echo ,(lispm-desktop-tr "Next card tab"))
+                 (,(lispm-desktop-tr "Conversations") ,(eq current 'conversations)
+                  keymap ,(lispm-desktop-characters--tab-keymap 'conversations)
+                  mouse-face highlight
+                  help-echo ,(lispm-desktop-tr "Next card tab"))))
+         (tab-width (if (lispm-desktop-tty-p)
+                        (max 24 (/ (max 240 (- width 24)) (frame-char-width)))
+                      (max 120 (- width 24)))))
+    (dolist (row (split-string (lispm-ui-tabs tabs tab-width) "\n"))
+      (lispm-desktop-characters--card-row (lambda () (insert row))))))
+
 (defun lispm-desktop-characters--card (character)
   "Insert who CHARACTER is, in a group box titled with its name: its picture,
-what it is told to be, what it thinks with, its conversations, its days."
+what it is told to be, what it thinks with, its soul or skill, its memory,
+its conversations and its days."
   (let* ((margin (lispm-desktop-px 12))
          (width (- (lispm-desktop-characters--width) (* 2 margin)))
+         (text-width (max 80 (- width (lispm-desktop-px 48))))
+         (tab (or lispm-desktop-characters--tab 'all))
+         (title-line (concat (lispm-character-title* character)
+                             "  " (lispm-desktop-characters--badge character)))
          (heading (lambda (text)
                     (lispm-desktop-characters--card-row
                      (lambda () (insert (propertize text 'face 'lispm-ui-title))))))
-         (line (lambda (text &optional object)
+         (line (lambda (text &optional object file)
                  (lispm-desktop-characters--card-row
                   (lambda ()
                     (insert (propertize " " 'display `(space :width (,(lispm-desktop-px 12))))
-                            (if object
-                                (propertize text 'lispm-desktop-characters-conversation object
-                                            'mouse-face 'highlight
-                                            'help-echo (lispm-desktop-tr "Return opens the conversation"))
-                              text)))))))
+                            (cond (object
+                                   (propertize text 'lispm-desktop-characters-conversation object
+                                               'mouse-face 'highlight
+                                               'help-echo (lispm-desktop-tr "Return opens the conversation")))
+                                  (file
+                                   (propertize text 'lispm-desktop-characters-file file
+                                               'mouse-face 'highlight
+                                               'help-echo (lispm-desktop-tr "Return opens the file")))
+                                  (t text))))))))
     (insert (propertize " " 'display `(space :align-to (,margin)))
             (lispm-ui-group-edge width (lispm-character-title* character))
             "\n")
@@ -394,39 +583,109 @@ what it is told to be, what it thinks with, its conversations, its days."
     ;; Its picture in a well, beside who it is; on a text terminal, who it
     ;; is alone, a line each.
     (if (lispm-desktop-tty-p)
-        (dolist (text (delq nil (list (propertize (lispm-character-title* character)
-                                                  'face 'lispm-ui-title)
+        (dolist (text (delq nil (list (propertize title-line 'face 'lispm-ui-title)
                                       (lispm-character-description character)
                                       (propertize (lispm-desktop-characters--thinks character)
                                                   'face 'shadow))))
           (lispm-desktop-characters--card-row (lambda () (insert text))))
-    (lispm-desktop-characters--card-row
-     (lambda ()
-       (insert (if (lispm-desktop-tty-p)
-                   ""
-                 (propertize " " 'display (lispm-ui-form--well (lispm-character-avatar character))))
-               (propertize " " 'display `(space :width (,(lispm-desktop-px 12)))))
-       (let ((lines (delq nil (list (propertize (lispm-character-title* character)
-                                                'face '(lispm-ui-title (:height 1.3)))
-                                    (lispm-character-description character)
-                                    (propertize (lispm-desktop-characters--thinks character)
-                                                'face 'shadow)))))
-         ;; Beside the picture, one line under another, as tall as it.
-         (insert (propertize " " 'display
-                             `(image :type svg :ascent center
-                                     :data ,(lispm-desktop-characters--lines-svg lines width))))))))
-    (when (fboundp 'lispm-character-conversations)
-      (when-let* ((conversations (lispm-character-conversations character)))
+      (lispm-desktop-characters--card-row
+       (lambda ()
+         (insert (if (lispm-desktop-tty-p)
+                     ""
+                   (propertize " " 'display (lispm-ui-form--well (lispm-character-avatar character))))
+                 (propertize " " 'display `(space :width (,(lispm-desktop-px 12)))))
+         (let ((lines (delq nil (list (propertize title-line 'face '(lispm-ui-title (:height 1.3)))
+                                      (lispm-character-description character)
+                                      (propertize (lispm-desktop-characters--thinks character)
+                                                  'face 'shadow)))))
+           ;; Beside the picture, one line under another, as tall as it.
+           (insert (propertize " " 'display
+                               `(image :type svg :ascent center
+                                       :data ,(lispm-desktop-characters--lines-svg lines width))))))))
+    (lispm-desktop-characters--card-row #'ignore t)
+    (lispm-desktop-characters--card-tabs character width)
+    ;; 1. Soul (for person characters) or Skill (for app characters).
+    (when (memq tab '(all soul))
+      (let ((limit (if (eq tab 'all) 4 12)))
+        (if (lispm-character-skill character)
+            (let* ((info (lispm-desktop-characters--skill-info character))
+                   (file (plist-get info :file))
+                   (summary (or (plist-get info :summary) (lispm-character-description character)))
+                   (tools (plist-get info :tools)))
+              (when (or summary tools (eq tab 'soul))
+                (lispm-desktop-characters--card-row #'ignore t)
+                (funcall heading (lispm-desktop-tr "Skill"))
+                (dolist (row (lispm-desktop-characters--wrap-lines summary text-width limit))
+                  (funcall line row nil file))
+                (when tools
+                  (funcall line (propertize (lispm-desktop-tr "Tools: %s" (string-join tools ", "))
+                                            'face 'shadow)
+                           nil file))))
+          (when-let* ((soul (lispm-character-soul character))
+                      (rows (lispm-desktop-characters--wrap-lines soul text-width limit)))
+            (lispm-desktop-characters--card-row #'ignore t)
+            (funcall heading (lispm-desktop-tr "Soul"))
+            (dolist (row rows)
+              (funcall line row nil (lispm-character-file character)))))))
+    ;; 2. Self (in its own words) and Memory (Lorebook).
+    (when (memq tab '(all soul memory))
+      (when-let* (((fboundp 'lispm-character-self))
+                  (self (lispm-character-self character))
+                  (self-file (and (fboundp 'lispm-character-directory)
+                                  (expand-file-name "self.org"
+                                                    (lispm-character-directory
+                                                     (lispm-character-name character)))))
+                  (rows (lispm-desktop-characters--wrap-lines
+                         self text-width (if (eq tab 'all) 3 10))))
         (lispm-desktop-characters--card-row #'ignore t)
-        (funcall heading (lispm-desktop-tr "Conversations"))
-        (dolist (conversation (seq-take conversations 6))
-          (funcall line (lispm-desktop-characters--conversation-line conversation) conversation))))
-    (when (fboundp 'lispm-character-days)
-      (when-let* ((days (lispm-character-days character 4)))
-        (lispm-desktop-characters--card-row #'ignore t)
-        (funcall heading (lispm-desktop-tr "Lately"))
-        (dolist (day days)
-          (funcall line (lispm-desktop-characters--day-line day (- width (lispm-desktop-px 48)))))))
+        (funcall heading (lispm-desktop-tr "In its own words"))
+        (dolist (row rows)
+          (funcall line row nil self-file))))
+    (when (memq tab '(all memory))
+      (let ((memories (lispm-desktop-characters--memories character)))
+        (when (or memories (eq tab 'memory))
+          (lispm-desktop-characters--card-row #'ignore t)
+          (funcall heading (lispm-desktop-tr-in "agents' memory" "Memory"))
+          (if (null memories)
+              (funcall line (propertize (lispm-desktop-tr "No memories yet.") 'face 'shadow))
+            (dolist (entry (seq-take memories (if (eq tab 'all) 4 10)))
+              (let* ((tags (plist-get entry :tags))
+                     (tag-str (if tags (concat "  :" (string-join tags ":") ":") ""))
+                     (target (cons (plist-get entry :file) (plist-get entry :beg))))
+                (funcall line
+                         (concat (lispm-desktop-characters--fit
+                                  (concat "• " (plist-get entry :title))
+                                  (- text-width (string-pixel-width tag-str)))
+                                 (propertize tag-str 'face 'shadow))
+                         nil target)
+                (when (eq tab 'memory)
+                  (dolist (row (lispm-desktop-characters--wrap-lines
+                                (plist-get entry :body) (- text-width 16) 2))
+                    (funcall line (propertize (concat "  " row) 'face 'shadow) nil target)))))))))
+    ;; 3. Conversations & Lately (diary).
+    (when (memq tab '(all conversations))
+      (when (fboundp 'lispm-character-conversations)
+        (let ((conversations (lispm-character-conversations character)))
+          (when (or conversations (eq tab 'conversations))
+            (lispm-desktop-characters--card-row #'ignore t)
+            (funcall heading (lispm-desktop-tr "Conversations"))
+            (if (null conversations)
+                (funcall line (propertize (lispm-desktop-tr "No conversations yet.") 'face 'shadow))
+              (dolist (conversation (seq-take conversations (if (eq tab 'all) 6 12)))
+                (funcall line (lispm-desktop-characters--conversation-line conversation) conversation))))))
+      (when (fboundp 'lispm-character-days)
+        (when-let* ((days (lispm-character-days character (if (eq tab 'all) 4 12))))
+          (lispm-desktop-characters--card-row #'ignore t)
+          (funcall heading (lispm-desktop-tr "Lately"))
+          (dolist (day days)
+            (let ((episode-file (and (fboundp 'lispm-character-directory)
+                                     (plist-get day :day)
+                                     (expand-file-name
+                                      (format "episodes/%s.org" (plist-get day :day))
+                                      (lispm-character-directory (lispm-character-name character))))))
+              (funcall line
+                       (lispm-desktop-characters--day-line day text-width)
+                       nil (and episode-file (file-readable-p episode-file) episode-file)))))))
     (lispm-desktop-characters--card-row #'ignore t)
     (insert (propertize " " 'display `(space :align-to (,margin)))
             (lispm-ui-group-edge width nil t)
@@ -547,15 +806,74 @@ An error if there is none."
   (lispm-desktop-characters--show-form
    (lispm-character-form (or character (lispm-desktop-characters--at-point)))))
 
-(defun lispm-desktop-characters-talk-here ()
-  "Talk to the character point is on, or open the conversation point is on."
+(defun lispm-desktop-characters-toggle-view ()
+  "Switch the characters layout between list and avatar grid."
   (interactive)
-  (if-let* ((conversation (get-text-property (point) 'lispm-desktop-characters-conversation)))
+  (setq lispm-desktop-characters--view
+        (if (eq lispm-desktop-characters--view 'grid) 'list 'grid))
+  (lispm-desktop-characters--draw))
+
+(defun lispm-desktop-characters-select-tab (tab)
+  "Show TAB of the character card: `all', `soul', `memory' or `conversations'."
+  (interactive)
+  (when (memq tab lispm-desktop-characters--tabs)
+    (setq lispm-desktop-characters--tab tab)
+    (lispm-desktop-characters--draw)))
+
+(defun lispm-desktop-characters-next-tab ()
+  "Switch to the next tab of the character card."
+  (interactive)
+  (let* ((tabs lispm-desktop-characters--tabs)
+         (pos (or (seq-position tabs lispm-desktop-characters--tab) 0)))
+    (lispm-desktop-characters-select-tab (nth (mod (1+ pos) (length tabs)) tabs))))
+
+(defun lispm-desktop-characters-previous-tab ()
+  "Switch to the previous tab of the character card."
+  (interactive)
+  (let* ((tabs lispm-desktop-characters--tabs)
+         (pos (or (seq-position tabs lispm-desktop-characters--tab) 0)))
+    (lispm-desktop-characters-select-tab (nth (mod (1- pos) (length tabs)) tabs))))
+
+(defun lispm-desktop-characters-tab-all ()
+  "Show all sections of the character card."
+  (interactive)
+  (lispm-desktop-characters-select-tab 'all))
+
+(defun lispm-desktop-characters-tab-soul ()
+  "Show the Soul or Skill section of the character card."
+  (interactive)
+  (lispm-desktop-characters-select-tab 'soul))
+
+(defun lispm-desktop-characters-tab-memory ()
+  "Show the Memory section of the character card."
+  (interactive)
+  (lispm-desktop-characters-select-tab 'memory))
+
+(defun lispm-desktop-characters-tab-conversations ()
+  "Show the Conversations and Lately section of the character card."
+  (interactive)
+  (lispm-desktop-characters-select-tab 'conversations))
+
+(defun lispm-desktop-characters-talk-here ()
+  "Talk to the character point is on, or open the conversation or file point is on."
+  (interactive)
+  (cond
+   ((get-text-property (point) 'lispm-desktop-characters-conversation)
+    (let ((conversation (get-text-property (point) 'lispm-desktop-characters-conversation)))
       (if (plist-get conversation :home)
           (lispm-desktop-characters-talk lispm-desktop-characters--selected)
         (lispm-show (lispm-character-agent lispm-desktop-characters--selected
-                                           (plist-get conversation :root))))
-    (lispm-desktop-characters-talk (lispm-desktop-characters--at-point))))
+                                           (plist-get conversation :root))))))
+   ((get-text-property (point) 'lispm-desktop-characters-file)
+    (let* ((target (get-text-property (point) 'lispm-desktop-characters-file))
+           (file (if (consp target) (car target) target))
+           (pos (and (consp target) (cdr target))))
+      (when (and file (file-readable-p file))
+        (find-file file)
+        (when (integerp pos)
+          (goto-char (min pos (point-max)))))))
+   (t
+    (lispm-desktop-characters-talk (lispm-desktop-characters--at-point)))))
 
 (defun lispm-desktop-characters-delete (&optional character)
   "Delete CHARACTER, by default the one point is on, once you agree."
@@ -581,6 +899,8 @@ An error if there is none."
            ("Return" . ,(lispm-desktop-tr-noop "Talk to the character"))
            ("e" . ,(lispm-desktop-tr-noop "Change the character"))
            ("d" . ,(lispm-desktop-tr-noop "Delete the character"))
+           ("v" . ,(lispm-desktop-tr-noop "Switch between list and grid"))
+           ("Tab" . ,(lispm-desktop-tr-noop "Next card tab"))
            ("g" . ,(lispm-desktop-tr-noop "Draw the list again")))
    :empty `(,(lambda () (null (lispm-desktop-characters--listed)))
             ,(lispm-desktop-tr-noop "No characters yet.  A character is someone: a name, \

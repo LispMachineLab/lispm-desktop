@@ -18917,6 +18917,52 @@ no more."
       (with-current-buffer (lispm-desktop-characters--buffer)
         (should (equal (buffer-string) ""))))))
 
+(ert-deftest lispm-desktop-test-characters-card-tabs-and-grid ()
+  "The character card shows Soul, Self, Memory and Skill sections across
+its tabs, opens their files on Return, and switches between list and
+avatar grid views."
+  (skip-unless (lispm-desktop-characters-available-p))
+  (lispm-desktop-test--with-characters
+    (lispm-create-character "Ada"
+                            :description "Reviews changes."
+                            :soul "Plain-spoken and thorough."
+                            :role 'reviewer)
+    (let ((dir (lispm-character-directory 'ada)))
+      (with-temp-file (expand-file-name "self.org" dir)
+        (insert "#+title: Ada, in its own words\n\nI check edge cases first.\n"))
+      (with-temp-file (expand-file-name "memory.org" dir)
+        (insert "#+title: Memory of Ada\n* Prefer small diffs  :style:\nKeep commits atomic.\n")))
+    (with-current-buffer (lispm-desktop-characters--buffer)
+      (should (string-match-p "Plain-spoken and thorough\\." (buffer-string)))
+      (should (string-match-p "I check edge cases first\\." (buffer-string)))
+      (should (string-match-p "Prefer small diffs" (buffer-string)))
+      ;; Tab switching cycles through Soul, Memory and Conversations.
+      (lispm-desktop-characters-next-tab)
+      (should (eq lispm-desktop-characters--tab 'soul))
+      (should (string-match-p "Plain-spoken and thorough\\." (buffer-string)))
+      (lispm-desktop-characters-next-tab)
+      (should (eq lispm-desktop-characters--tab 'memory))
+      (should (string-match-p "Keep commits atomic\\." (buffer-string)))
+      (lispm-desktop-characters-next-tab)
+      (should (eq lispm-desktop-characters--tab 'conversations))
+      (should (string-match-p "No conversations yet\\." (buffer-string)))
+      (lispm-desktop-characters-previous-tab)
+      (should (eq lispm-desktop-characters--tab 'memory))
+      ;; Return on a memory line visits memory.org at that entry.
+      (goto-char (point-min))
+      (should (search-forward "Prefer small diffs" nil t))
+      (goto-char (match-beginning 0))
+      (lispm-desktop-characters-talk-here)
+      (should (string-suffix-p "/characters/ada/memory.org" (buffer-file-name)))
+      (kill-buffer (current-buffer))
+      ;; Toggle between list and avatar grid view.
+      (lispm-desktop-characters-select-tab 'all)
+      (lispm-desktop-characters-toggle-view)
+      (should (eq lispm-desktop-characters--view 'grid))
+      (should (text-property-any (point-min) (point-max) 'lispm-desktop-characters-name 'ada))
+      (lispm-desktop-characters-toggle-view)
+      (should (eq lispm-desktop-characters--view 'list)))))
+
 ;;;; The language LispM speaks
 
 (defun lispm-desktop-test--source-files ()
