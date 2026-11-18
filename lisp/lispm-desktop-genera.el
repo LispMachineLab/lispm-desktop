@@ -621,10 +621,10 @@ solid black inverse video when STATE is `pressed'."
                    (t outline)))
          (font (or font (lispm-ui-svg-font))))
     (lispm-ui-svg-paint svg x y width h bg)
-    (lispm-ui-svg-outline svg x y width h outline)
+    (lispm-ui-svg-outline svg x y width h (if disabled fg outline))
     (when (and default (not pressed))
-      (lispm-ui-svg-outline svg (1+ x) (1+ y) (- width 2) (- h 2) outline))
-    (unless pressed
+      (lispm-ui-svg-outline svg (1+ x) (1+ y) (- width 2) (- h 2) (if disabled fg outline)))
+    (unless (or pressed disabled)
       (lispm-ui-svg-paint svg (+ x 2) (- (+ y h) 2) (- width 2) 2 outline)
       (lispm-ui-svg-paint svg (- (+ x width) 2) (+ y 2) 2 (- h 2) outline))
     (when focused
@@ -645,8 +645,8 @@ inverted in solid black when STATE is `pressed'."
                    (disabled (plist-get palette :muted))
                    (t outline))))
     (lispm-ui-svg-paint svg x y width height bg)
-    (lispm-ui-svg-outline svg x y width height outline)
-    (unless pressed
+    (lispm-ui-svg-outline svg x y width height (if disabled fg outline))
+    (unless (or pressed disabled)
       (lispm-ui-svg-paint svg (1+ x) (+ y height -1) (1- width) 1 outline)
       (lispm-ui-svg-paint svg (+ x width -1) (1+ y) 1 (1- height) outline))
     (when label
