@@ -5853,10 +5853,12 @@ shown in its own control panel's window."
     (should-not (assq 'settings-security (lispm-desktop-settings--categories)))
     (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-internet)) '(network))))
   (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--skills-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--mcp-p) #'always)
             ((symbol-function 'lispm-desktop-settings--sandbox-p) #'ignore)
             ((symbol-function 'lispm-desktop-settings--security-p) #'always))
     (should (assq 'settings-agents (lispm-desktop-settings--categories)))
-    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-agents)) '(lispm)))
+    (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-agents)) '(lispm skills mcp)))
     (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-security)) '(security))))
   (should (equal (mapcar #'car (lispm-desktop-settings--panels 'settings-system)) '(kernel update)))
   (cl-letf (((symbol-function 'lispm-desktop-settings--fill) #'ignore))
@@ -6024,14 +6026,18 @@ loaded, and not before."
   (should (file-readable-p (lispm-ui-icon-file "sandbox-32"))))
 
 (ert-deftest lispm-desktop-test-settings-lispm-with-lispm-agent ()
-  "The LispM panel shows, between Network and Sandbox, once LispM Agent's
-settings are loaded, and not before."
+  "The LispM, Skills and MCP panels show, between Network and Sandbox,
+once LispM Agent's settings are loaded, and not before."
   (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'ignore))
-    (should-not (assq 'lispm (lispm-desktop-settings--panels))))
+    (should-not (assq 'lispm (lispm-desktop-settings--panels)))
+    (should-not (assq 'skills (lispm-desktop-settings--panels)))
+    (should-not (assq 'mcp (lispm-desktop-settings--panels))))
   (cl-letf (((symbol-function 'lispm-desktop-settings--lispm-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--skills-p) #'always)
+            ((symbol-function 'lispm-desktop-settings--mcp-p) #'always)
             ((symbol-function 'lispm-desktop-settings--sandbox-p) #'always))
     (let ((keys (mapcar #'car (lispm-desktop-settings--panels))))
-      (should (equal (seq-take (memq 'network keys) 3) '(network lispm sandbox)))))
+      (should (equal (seq-take (memq 'network keys) 5) '(network lispm skills mcp sandbox)))))
   (should (file-readable-p (lispm-ui-icon-file "lispm-32"))))
 
 (defmacro lispm-desktop-test--with-lispm-settings (&rest body)
@@ -6454,6 +6460,68 @@ never offered to take out."
         (should (equal offered (list (abbreviate-file-name directory))))
         (should (equal lispm-skill-directories (list lispm-skills--builtin)))
         (should (equal saved '(lispm-skill-directories lispm-skill-directories)))))))
+
+(ert-deftest lispm-desktop-test-settings-skills-panel ()
+  "The Skills panel lists skills by source, shows the selected skill's
+details and tools, opens its file, and uninstalls a user skill."
+  (skip-unless (image-type-available-p 'svg))
+  (lispm-desktop-test--with-lispm-settings
+    (let ((user-dir (file-name-as-directory (make-temp-file "lispm-desktop-test-skills" t))))
+      (unwind-protect
+          (let ((lispm-write-skill-directory user-dir)
+                (lispm-skill-directories (list lispm-skills--builtin user-dir)))
+            (lispm-create-skill "my-note" "Write structured notes." "* Notes\n\nWrite them." "My Note" t)
+            (lispm-desktop-setup-settings)
+            (with-current-buffer (lispm-desktop-settings-select 'skills)
+              (should (equal (lispm-desktop-platinum-title-text) "Agents"))
+              (dolist (text '("Skills" "my-note" "My Note" "Install…" "New…" "Open" "Skill Directories"))
+                (should (string-search text (lispm-desktop-test--settings-text))))
+              (lispm-desktop-test--press "my-note")
+              (should (string-search "Write structured notes." (lispm-desktop-test--settings-text)))
+              (should (lispm-desktop-test--settings-button "Uninstall"))
+              (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_prompt) t)))
+                (lispm-desktop-test--press "Uninstall"))
+              (should-not (file-exists-p (expand-file-name "my-note.org" user-dir)))))
+        (delete-directory user-dir t)))))
+
+(ert-deftest lispm-desktop-test-settings-mcp-panel ()
+  "The MCP panel lists configured MCP servers and their status, starts,
+stops, edits and removes them, and toggles autostart and default permission."
+  (skip-unless (image-type-available-p 'svg))
+  (skip-unless (require 'lispm-backend-form nil t))
+  (lispm-desktop-test--with-lispm-settings
+    (let ((lispm-mcp-servers nil)
+          (lispm-mcp-autostart t)
+          (started nil)
+          (stopped nil))
+      (cl-letf (((symbol-function 'lispm-mcp-start)
+                 (lambda (&optional server) (push (or server 'all) started)))
+                ((symbol-function 'lispm-mcp-stop)
+                 (lambda (&optional server) (push (or server 'all) stopped))))
+        (lispm-desktop-setup-settings)
+        (with-current-buffer (lispm-desktop-settings-select 'mcp)
+          (should (equal (lispm-desktop-platinum-title-text) "Agents"))
+          (should (string-search "No MCP servers configured." (lispm-desktop-test--settings-text)))
+          (let ((form nil))
+            (cl-letf (((symbol-function 'lispm-desktop-form-show)
+                       (lambda (_kind buffer _variable) (setq form buffer))))
+              (lispm-desktop-test--press "Add…"))
+            (should form)
+            (with-current-buffer form
+              (should (equal (lispm-ui-form-title) (lispm-tr "Add MCP Server")))
+              (lispm-mcp-form--apply-preset 'peekaboo)
+              (lispm-ui-form-submit)))
+          (run-hooks 'lispm-settings-change-hook)
+          (dolist (text '("peekaboo" "stopped" "npx -y @steipete/peekaboo mcp"
+                          "on demand (search_tools)" "Start" "Change…" "Remove…"))
+            (should (string-search text (lispm-desktop-test--settings-text))))
+          (lispm-desktop-test--press "Start this MCP server now")
+          (should (equal started '("peekaboo")))
+          (lispm-desktop-test--press "Start non-deferred servers when a session opens")
+          (should-not lispm-mcp-autostart)
+          (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_prompt) t)))
+            (lispm-desktop-test--press "Remove…"))
+          (should-not lispm-mcp-servers))))))
 
 (ert-deftest lispm-desktop-test-settings-sandbox-srt ()
   "The Sandbox panel says whether srt is installed, being installed, or why
