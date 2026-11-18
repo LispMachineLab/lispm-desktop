@@ -1335,7 +1335,6 @@
   ("Roles & Skills" . "Rôles et compétences")
   ("Agents started without choosing a role are:" . "Les agents lancés sans choisir de rôle ont :")
   ("Skills come from these directories, a later one's replacing an earlier one's of the same name:" . "Les compétences viennent de ces répertoires, celles d'un répertoire suivant remplaçant celles du même nom d'un précédent :")
-  ("LispM's own skills" . "Compétences propres à LispM")
   ("%d skill" "%d compétence" "%d compétences")
   ("not there yet" . "pas encore là")
   ("Add a directory of skills" . "Ajouter un répertoire de compétences")

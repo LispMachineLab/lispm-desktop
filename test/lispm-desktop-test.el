@@ -6118,7 +6118,7 @@ and the panel shows what was chosen."
                       "Permissions" "Allow" "Ask" "Deny" "Run shell commands"
                       "Memory" "Small" "Only when asked" "Save memory before summing up" "Show Memory…"
                       "Roles & Skills" "assistant" "A general assistant." "reviewer"
-                      "LispM's own skills" "Add…"))
+                      "builtin" "Add…"))
         (should (string-search text (lispm-desktop-test--settings-text))))
       ;; Backend controls depend on the installed agent's capabilities;
       ;; use help text because other groups also have Add/Remove buttons.
@@ -6128,7 +6128,7 @@ and the panel shows what was chosen."
       (should (eq (not (null (lispm-desktop-test--settings-help-button
                               "Remove the backend agents")))
                   (fboundp 'lispm-backend-remove)))
-      ;; Only LispM's own skills: nothing to remove.
+      ;; Only builtin skills: nothing to remove.
       (should-not (lispm-desktop-test--settings-help-button
                    "Take a directory out of those skills come from"))
       (should (lispm-desktop-test--radio-on-p "Medium"))
@@ -6462,25 +6462,47 @@ never offered to take out."
         (should (equal saved '(lispm-skill-directories lispm-skill-directories)))))))
 
 (ert-deftest lispm-desktop-test-settings-skills-panel ()
-  "The Skills panel lists skills by source, shows the selected skill's
-details and tools, opens its file, and uninstalls a user skill."
+  "The Skills panel filters skills by tab, shows builtin labels and small app
+logos for app skills, shows the selected skill's details and tools, opens its
+file, and deletes a user skill or directory."
   (skip-unless (image-type-available-p 'svg))
   (lispm-desktop-test--with-lispm-settings
     (let ((user-dir (file-name-as-directory (make-temp-file "lispm-desktop-test-skills" t))))
       (unwind-protect
           (let ((lispm-write-skill-directory user-dir)
-                (lispm-skill-directories (list lispm-skills--builtin user-dir)))
+                (lispm-skill-directories (list lispm-skills--builtin user-dir))
+                (lispm-desktop-store-installed
+                 '((feeds :kind skill :name "Feed Reader" :requires (elfeed))
+                   (elfeed :name "Elfeed" :icon "feeds"))))
             (lispm-create-skill "my-note" "Write structured notes." "* Notes\n\nWrite them." "My Note" t)
             (lispm-desktop-setup-settings)
             (with-current-buffer (lispm-desktop-settings-select 'skills)
               (should (equal (lispm-desktop-platinum-title-text) "Agents"))
-              (dolist (text '("Skills" "my-note" "My Note" "Install…" "New…" "Open" "Skill Directories"))
+              (dolist (text '("Skills" "All" "Installed" "builtin" "App Store" "Project"
+                              "my-note" "My Note" "Install…" "New…" "Open" "Delete" "Skill Directories"))
                 (should (string-search text (lispm-desktop-test--settings-text))))
+              ;; App Store skill resolves its required app's name and 16px icon.
+              (let ((app-skill (list :name "feeds" :title "Feeds" :origin "App Store"
+                                     :file "/tmp/store/skills/feeds.org")))
+                (should (equal (lispm-desktop-settings--skill-origin-text app-skill) "Elfeed"))
+                (should (lispm-desktop-settings--skill-app-icon app-skill)))
+              ;; Builtin skill shows "builtin" as its origin.
+              (should (equal (lispm-desktop-settings--skill-origin-text
+                              (list :name "create-skill"
+                                    :file (expand-file-name "create-skill/SKILL.org" lispm-skills--builtin)))
+                             "builtin"))
+              ;; Switching tabs filters skills.
+              (lispm-desktop-test--press "builtin")
+              (should (eq lispm-desktop-settings--skill-filter 'builtin))
+              (should-not (string-search "my-note" (lispm-desktop-test--settings-text)))
+              (lispm-desktop-test--press "Installed")
+              (should (eq lispm-desktop-settings--skill-filter 'user))
+              (should (string-search "my-note" (lispm-desktop-test--settings-text)))
               (lispm-desktop-test--press "my-note")
               (should (string-search "Write structured notes." (lispm-desktop-test--settings-text)))
-              (should (lispm-desktop-test--settings-button "Uninstall"))
+              (should (lispm-desktop-test--settings-button "Delete"))
               (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_prompt) t)))
-                (lispm-desktop-test--press "Uninstall"))
+                (lispm-desktop-test--press "Delete this skill from your skills directory"))
               (should-not (file-exists-p (expand-file-name "my-note.org" user-dir)))))
         (delete-directory user-dir t)))))
 

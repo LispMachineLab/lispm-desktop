@@ -1335,7 +1335,6 @@
   ("Roles & Skills" . "役割とスキル")
   ("Agents started without choosing a role are:" . "役割を選ばずに開始したエージェントの役割：")
   ("Skills come from these directories, a later one's replacing an earlier one's of the same name:" . "スキルは以下のディレクトリから読み込まれます。後のディレクトリのスキルが、前のディレクトリの同名のスキルを置き換えます：")
-  ("LispM's own skills" . "LispM自身のスキル")
   ("%d skill" "%d個のスキル")
   ("not there yet" . "まだありません")
   ("Add a directory of skills" . "スキルのディレクトリを追加")
