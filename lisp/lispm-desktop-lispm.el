@@ -145,11 +145,18 @@
    (lispm-agent-display-buffer (lispm-resume-file (plist-get session :file)))))
 
 (defun lispm-desktop-lispm-buffer-p (buffer)
-  "Return non-nil when BUFFER is where a live LispM agent is talked to."
+  "Return non-nil when BUFFER is where a live LispM agent is talked to.
+In the chat interface, the chat view represents the conversation once
+created; a background agent without a chat view yet is represented by
+its session transcript so every live agent appears once."
   (and (buffer-live-p buffer)
-       (if (eq lispm-interface 'chat)
-           (and (eq (buffer-local-value 'major-mode buffer) 'lispm-chat-mode)
-                (buffer-local-value 'lispm-chat-agent buffer))
+       (if (eq (bound-and-true-p lispm-interface) 'chat)
+           (or (and (eq (buffer-local-value 'major-mode buffer) 'lispm-chat-mode)
+                    (buffer-local-value 'lispm-chat-agent buffer))
+               (when-let* ((_ (buffer-local-value 'lispm-session-mode buffer))
+                           (agent (buffer-local-value 'lispm-session-agent buffer)))
+                 (and (not (buffer-live-p (lispm-agent-view agent)))
+                      agent)))
          (and (buffer-local-value 'lispm-session-mode buffer)
               (buffer-local-value 'lispm-session-agent buffer)))
        t))
@@ -189,7 +196,9 @@ lispm-desktop-ai reads these tags."
       (setq lispm-agents-buffer-session-id id
             lispm-agents-buffer-title (or lispm-agents-buffer-title
                                           (symbol-name (lispm-agent-name agent)))))
-    (setq-local lispm-desktop-conversation-buffer t)))
+    (when (or (not (eq (bound-and-true-p lispm-interface) 'chat))
+              (not (bound-and-true-p lispm-session-mode)))
+      (setq-local lispm-desktop-conversation-buffer t))))
 
 (defun lispm-desktop-lispm--status (buffer)
   "Return what the LispM agent talked to in BUFFER is doing, as

@@ -8994,6 +8994,33 @@ repeated state changes and transcript updates do not move it."
           (should-not (lispm-agents-archived-p session)))
       (delete-file lispm-agents-state-file))))
 
+(ert-deftest lispm-desktop-test-lispm-buffer-p-includes-background-helpers ()
+  "In the chat interface, a conversation with a chat view is represented by
+its chat buffer, while a background helper without a chat view is represented
+by its session transcript buffer so it appears in the live roster and Work view."
+  (dlet ((lispm-interface 'chat))
+    (let* ((boss-transcript (generate-new-buffer " *lispm-test-boss-transcript*"))
+           (boss-chat (generate-new-buffer "*lispm boss*"))
+           (helper-transcript (generate-new-buffer " *lispm-test-helper-transcript*"))
+           (boss (lispm-agent--create :id "boss-id" :name 'boss
+                                      :buffer boss-transcript :view boss-chat))
+           (helper (lispm-agent--create :id "helper-id" :name 'helper
+                                        :buffer helper-transcript :view nil)))
+      (unwind-protect
+          (progn
+            (with-current-buffer boss-transcript
+              (setq-local lispm-session-mode t lispm-session-agent boss))
+            (with-current-buffer boss-chat
+              (setq-local major-mode 'lispm-chat-mode lispm-chat-agent boss))
+            (with-current-buffer helper-transcript
+              (setq-local lispm-session-mode t lispm-session-agent helper)
+              (lispm-desktop-lispm--tag-buffer)
+              (should-not lispm-desktop-conversation-buffer))
+            (should (lispm-desktop-lispm-buffer-p boss-chat))
+            (should-not (lispm-desktop-lispm-buffer-p boss-transcript))
+            (should (lispm-desktop-lispm-buffer-p helper-transcript)))
+        (mapc #'kill-buffer (list boss-transcript boss-chat helper-transcript))))))
+
 (ert-deftest lispm-desktop-test-agent-list-refreshes-on-status-changes ()
   "An agent terminal's status refreshes the agent sidebar, once Emacs is
 idle, when its label there changes; progress alone does not."
