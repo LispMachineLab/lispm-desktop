@@ -84,14 +84,9 @@ while LispM Kit, which translates them, is being installed."
 `lispm-desktop-directory' says once the desktop's core is loaded.")
 
 (defconst lispm-desktop-deps
-  '((lispm-kit :url "https://github.com/LispMachineLab/lispm-kit" :checkout "lispm-kit"
-               ;; Newer than 0.1.0, whose engine translates nothing.
-               :needs "lispm-kit-i18n")
-    (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
-              ;; Its palette, drawing, icons, alerts, menus and fields.
-              :version "0.7.3")
-    (lispm-finder :url "https://github.com/LispMachineLab/lispm-finder" :checkout "lispm-finder"
-                  :version "0.1.0")
+  '((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
+              ;; Its palette, drawing, icons, alerts, menus, fields, Kit, Finder, and Prebuilt.
+              :needs "lispm-finder" :version "0.8.0")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.
@@ -202,10 +197,10 @@ or the fetch failed."
 (defun lispm-desktop-deps-prefetch-projects (&optional features)
   "Concurrently resolve tags and shallow-clone missing projects in FEATURES.
 When FEATURES is nil, defaults to the core startup projects
-`(lispm-kit lispm-ui lispm-browser lispm)'."
+`(lispm-ui lispm-browser lispm)'."
   (unless package-alist
     (ignore-errors (package-load-all-descriptors)))
-  (let* ((targets (or features '(lispm-kit lispm-ui lispm-browser lispm)))
+  (let* ((targets (or features '(lispm-ui lispm-browser lispm)))
          (missing (seq-filter (lambda (feature)
                                 (and (assq feature lispm-desktop-deps)
                                      (not (lispm-desktop-deps-present-p feature))

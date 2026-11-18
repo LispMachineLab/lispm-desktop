@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.24.22
+;; Version: 0.24.23
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -97,11 +97,10 @@
 (require 'lispm-desktop-deps)
 (unwind-protect
     (progn
-      ;; LispM UI, which draws the forms and asks what LispM and its
-      ;; applications ask; LispM's agent requires it too.
+      ;; LispM UI (including Kit, Finder, and Prebuilt), which draws the
+      ;; forms and asks what LispM and its applications ask; LispM's agent
+      ;; requires it too.
       (lispm-desktop-deps-ensure 'lispm-ui)
-      ;; LispM Finder, the spatial file manager and file/folder chooser.
-      (lispm-desktop-deps-ensure 'lispm-finder)
       ;; The browser is lispm-browser, which the desktop's browser files require.
       (lispm-desktop-deps-ensure 'lispm-browser)
       ;; Auth is installed before LispM Agent, which actively depends on it,

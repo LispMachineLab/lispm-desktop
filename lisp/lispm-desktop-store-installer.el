@@ -718,9 +718,7 @@ each, those it leaves uncompiled too."
   (user-error "%s" (string-trim-right (substring-no-properties prompt) "[ ?:]+")))
 
 (defconst lispm-desktop-store-installer-libraries
-  '((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt")
-    (lispm-kit :url "https://github.com/LispMachineLab/lispm-kit")
-    (lispm-ui :url "https://github.com/LispMachineLab/lispm-ui")
+  '((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui")
     (lispm-auth :url "https://github.com/LispMachineLab/lispm-auth")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :lisp-dir "lisp"))
   "LispM's libraries a package may require that no package archive holds,

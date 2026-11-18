@@ -1189,15 +1189,15 @@ package-vc to say."
               ((symbol-function 'lispm-desktop-store--release-tag) (lambda (_url) release)))
       (should (equal (lispm-desktop-store-installer--libraries
                       (lambda (deps)
-                        (should (equal deps '((lispm-prebuilt (0 1 0)) (nowhere (1)))))
+                        (should (equal deps '((lispm-ui (0 8 0)) (nowhere (1)))))
                         deps)
-                      '((lispm-prebuilt (0 1 0)) (nowhere (1))))
+                      '((lispm-ui (0 8 0)) (nowhere (1))))
                      '((nowhere (1)))))
       (should (equal installed
-                     '(((lispm-prebuilt :url "https://github.com/LispMachineLab/lispm-prebuilt") "v0.1.0"))))
+                     '(((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui") "v0.1.0"))))
       (setq installed nil release nil)
-      (should-not (lispm-desktop-store-installer--libraries (lambda (_deps) '((lispm-prebuilt (0 1 0))))
-                                                            '((lispm-prebuilt (0 1 0)))))
+      (should-not (lispm-desktop-store-installer--libraries (lambda (_deps) '((lispm-ui (0 8 0))))
+                                                            '((lispm-ui (0 8 0)))))
       (should (equal (cadr (car installed)) :last-release))
       ;; Nothing missing: nothing more installed.
       (setq installed nil)
@@ -1344,17 +1344,17 @@ sources at the top of its repository."
                                   "-l" "lispm-desktop-deps"
                                   "--eval" "(prin1 (list (featurep 'lispm-desktop-i18n) (featurep 'lispm-desktop-core) (lispm-desktop-deps--tr \"%s lacks %s\" \"kit\" \"words\")))")))
       (should (string-suffix-p "(nil nil \"kit lacks words\")" (buffer-string)))))
-  (should (equal (plist-get (alist-get 'lispm-kit lispm-desktop-deps) :needs) "lispm-kit-i18n"))
+  (should (equal (plist-get (alist-get 'lispm-ui lispm-desktop-deps) :needs) "lispm-finder"))
   (let ((installed nil)
         (load-path '("/elsewhere")))
     (cl-letf (((symbol-function 'locate-library) #'ignore)
               ((symbol-function 'lispm-desktop-deps--checkout) #'ignore)
               ((symbol-function 'lispm-desktop-deps--requirements) #'ignore)
-              ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) "v0.2.0"))
+              ((symbol-function 'lispm-desktop-deps--release-tag) (lambda (_url) "v0.8.0"))
               ((symbol-function 'package-load-all-descriptors) #'ignore)
               ((symbol-function 'package-vc-install) (lambda (spec rev) (push (list spec rev) installed))))
-      (lispm-desktop-deps-ensure 'lispm-kit))
-    (should (equal installed '(((lispm-kit :url "https://github.com/LispMachineLab/lispm-kit") "v0.2.0"))))))
+      (lispm-desktop-deps-ensure 'lispm-ui))
+    (should (equal installed '(((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui") "v0.8.0"))))))
 
 (ert-deftest lispm-desktop-test-deps-catch-up ()
   "A project lacking the library the desktop needs of it is brought up to

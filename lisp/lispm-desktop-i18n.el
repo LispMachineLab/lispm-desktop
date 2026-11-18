@@ -64,7 +64,7 @@
 
 (unless (locate-library "lispm-kit-i18n")
   (require 'lispm-desktop-deps)
-  (lispm-desktop-deps-ensure 'lispm-kit))
+  (lispm-desktop-deps-ensure 'lispm-ui))
 (require 'lispm-kit-i18n)
 
 (defalias 'lispm-desktop-tr-noop #'lispm-kit-tr-noop

@@ -121,7 +121,6 @@ first, and installs when told to."
   '(("LispM Desktop" . "lispm-desktop-core.el")
     ("LispM Agent" . "lispm.el")
     ("LispM Browser" . "lispm-browser.el")
-    ("LispM Kit" . "lispm-kit-i18n.el")
     ("LispM UI" . "lispm-ui.el")
     ("LispM Kernel" . "lispm-kernel.el"))
   "The LispM projects Software Update keeps up to date: (NAME . FILE), FILE
