@@ -29,6 +29,9 @@
 
 (require 'lispm-desktop-core)
 
+(declare-function evil-set-leader "evil-core" (state key &optional localleader))
+(declare-function evil-define-key "evil-core" (state keymap key def &rest bindings))
+
 (defconst lispm-desktop-leader-bindings
   '(("e" . find-file)
     ("b" . consult-buffer)

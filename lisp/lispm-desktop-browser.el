@@ -46,6 +46,13 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-look)
 
+(declare-function xwidget-webkit-copy-selection-as-kill "xwidget" ())
+(declare-function tabspaces-reset-buffer-list "tabspaces" ())
+(declare-function tabspaces--current-tab-name "tabspaces" ())
+(declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
+(declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional setup))
+(declare-function lispm-desktop-main-area--windows "lispm-desktop-interface" (&optional frame))
+
 ;;;; Browser
 ;;
 ;; The embedded WebKit browser is laid out as Netscape Communicator's window
@@ -742,6 +749,9 @@ extensions, or nothing is drawn."
                                 'keymap lispm-desktop-browser-extensions-button-map))
             (+ (* (length buttons) (+ size lispm-desktop-browser-extension-gap)) size)))))
 
+(defconst lispm-desktop-browser-address-height 30
+  "Pixel height of the address line, the edit field and the toolbar around it.")
+
 (defun lispm-desktop-browser--extension-anchor (id)
   "Return where the location toolbar's button of extension ID is, or the
 Extensions button's for `menu', for its popup to hang from.  This is
@@ -777,9 +787,6 @@ An edited address is kept while the page stays put; see
 (defun lispm-desktop-browser--note-address-edit (&rest _)
   "Record that the address was edited, from `after-change-functions'."
   (setq lispm-desktop-browser--address-edited t))
-
-(defconst lispm-desktop-browser-address-height 30
-  "Pixel height of the address line, the edit field and the toolbar around it.")
 
 (defvar lispm-desktop-browser-bookmarks-button-map
   (let ((map (make-sparse-keymap)))

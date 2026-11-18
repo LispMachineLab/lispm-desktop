@@ -39,6 +39,11 @@
 (declare-function lispm-desktop-deps-prefetch-packages "lispm-desktop-deps" (requirements))
 (declare-function lispm-desktop-deps-flush-deferred-compiles "lispm-desktop-deps" (&optional sync))
 (defvar lispm-desktop-deps--fast-install-active)
+(defvar exec-path-from-shell-check-startup-files)
+(defvar corfu-auto-prefix)
+(defvar corfu-auto-delay)
+
+(declare-function lispm-desktop-tab-bar-tab-name "lispm-desktop-interface" (tab _i))
 
 (defun lispm-desktop-packages--refresh-missing ()
   "Refresh archive contents once and prefetch missing session packages in parallel."
@@ -59,45 +64,8 @@
                      (fboundp 'lispm-desktop-deps-prefetch-packages))
             (lispm-desktop-deps-prefetch-packages reqs)))))))
 
-(defun lispm-desktop-setup-common-packages ()
-  "Set up common packages."
-  (setq make-backup-files nil
-        auto-save-default nil)
-  (lispm-desktop-packages--refresh-missing)
-
-  ;; A package is installed even when the `:if' of its declaration is
-  ;; false, so a declaration that may not apply goes inside a `when'.
-  (when (or (lispm-desktop-macos-p) (lispm-desktop-linux-p))
-    ;; Opened from the Dock, or from the applications menu of a GNU/Linux
-    ;; desktop, Emacs gets none of the shell's environment: take its PATH,
-    ;; and the API keys LispM's agents use.  Installed in a batch Emacs
-    ;; too, as the installer runs one, so that the first start has nothing
-    ;; to fetch.
-    (use-package exec-path-from-shell
-      :if (lispm-desktop-gui-p)
-      :init
-      (setq exec-path-from-shell-check-startup-files nil)
-      :config
-      (dolist (variable '("OPENAI_API_KEY" "ANTHROPIC_API_KEY"))
-        (add-to-list 'exec-path-from-shell-variables variable t))
-      (exec-path-from-shell-initialize)))
-
-  (use-package which-key
-    :init (which-key-mode 1))
-
-  (use-package magit
-    :commands magit-status)
-
-  (use-package vertico
-    :init (vertico-mode 1))
-
-  (use-package savehist
-    :ensure nil
-    :init (savehist-mode 1))
-
-  (use-package marginalia
-    :init (marginalia-mode 1))
-
+(defun lispm-desktop-setup-completion-packages ()
+  "Configure Orderless, Consult, Embark, Corfu, and Cape completion packages."
   (use-package orderless
     :init
     (setq completion-styles '(orderless basic)
@@ -141,7 +109,73 @@
     :after corfu
     :init
     (add-to-list 'completion-at-point-functions #'cape-file)
-    (add-to-list 'completion-at-point-functions #'cape-dabbrev))
+    (add-to-list 'completion-at-point-functions #'cape-dabbrev)))
+
+(defun lispm-desktop-setup-evil-package ()
+  "Configure Evil mode when `lispm-desktop-editing-style' is `vim'."
+  (when (eq lispm-desktop-editing-style 'vim)
+    (use-package evil
+      :init
+      ;; Evil edits files only: buffers whose major mode derives from
+      ;; `prog-mode', `text-mode' or `conf-mode' start in Normal state, and every
+      ;; other buffer (shells, terminals, dired, treemacs, magit, help, ...)
+      ;; starts in Emacs state so Evil passes all key and mouse events through.
+      ;; Evil resolves a buffer's state along the derived-mode chain.
+      (setq evil-want-abbrev-expand-on-insert-exit nil
+            evil-undo-system 'undo-redo
+            evil-default-state 'emacs
+            evil-normal-state-modes '(prog-mode text-mode conf-mode)
+            evil-insert-state-modes nil
+            evil-motion-state-modes nil
+            evil-emacs-state-modes nil)
+      (evil-mode 1)
+      :config
+      (dolist (map (list evil-normal-state-map
+                         evil-visual-state-map
+                         evil-insert-state-map
+                         evil-emacs-state-map))
+        (lispm-desktop-bind-clipboard-keys map)))))
+
+(defun lispm-desktop-setup-common-packages ()
+  "Set up common packages."
+  (setq make-backup-files nil
+        auto-save-default nil)
+  (lispm-desktop-packages--refresh-missing)
+
+  ;; A package is installed even when the `:if' of its declaration is
+  ;; false, so a declaration that may not apply goes inside a `when'.
+  (when (or (lispm-desktop-macos-p) (lispm-desktop-linux-p))
+    ;; Opened from the Dock, or from the applications menu of a GNU/Linux
+    ;; desktop, Emacs gets none of the shell's environment: take its PATH,
+    ;; and the API keys LispM's agents use.  Installed in a batch Emacs
+    ;; too, as the installer runs one, so that the first start has nothing
+    ;; to fetch.
+    (use-package exec-path-from-shell
+      :if (lispm-desktop-gui-p)
+      :init
+      (setq exec-path-from-shell-check-startup-files nil)
+      :config
+      (dolist (variable '("OPENAI_API_KEY" "ANTHROPIC_API_KEY"))
+        (add-to-list 'exec-path-from-shell-variables variable t))
+      (exec-path-from-shell-initialize)))
+
+  (use-package which-key
+    :init (which-key-mode 1))
+
+  (use-package magit
+    :commands magit-status)
+
+  (use-package vertico
+    :init (vertico-mode 1))
+
+  (use-package savehist
+    :ensure nil
+    :init (savehist-mode 1))
+
+  (use-package marginalia
+    :init (marginalia-mode 1))
+
+  (lispm-desktop-setup-completion-packages)
 
   (use-package recentf
     :ensure nil
@@ -179,28 +213,7 @@
   (lispm-desktop-load-theme lispm-desktop-theme)
   (setq inhibit-compacting-font-caches t)
 
-  (when (eq lispm-desktop-editing-style 'vim)
-    (use-package evil
-      :init
-      ;; Evil edits files only: buffers whose major mode derives from
-      ;; `prog-mode', `text-mode' or `conf-mode' start in Normal state, and every
-      ;; other buffer (shells, terminals, dired, treemacs, magit, help, ...)
-      ;; starts in Emacs state so Evil passes all key and mouse events through.
-      ;; Evil resolves a buffer's state along the derived-mode chain.
-      (setq evil-want-abbrev-expand-on-insert-exit nil
-            evil-undo-system 'undo-redo
-            evil-default-state 'emacs
-            evil-normal-state-modes '(prog-mode text-mode conf-mode)
-            evil-insert-state-modes nil
-            evil-motion-state-modes nil
-            evil-emacs-state-modes nil)
-      (evil-mode 1)
-      :config
-      (dolist (map (list evil-normal-state-map
-                         evil-visual-state-map
-                         evil-insert-state-map
-                         evil-emacs-state-map))
-        (lispm-desktop-bind-clipboard-keys map))))
+  (lispm-desktop-setup-evil-package)
 
   (use-package yasnippet
     :init (yas-global-mode 1)))

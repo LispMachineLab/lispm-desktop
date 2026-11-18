@@ -49,6 +49,9 @@
   (setq ns-use-proxy-icon nil
         ns-use-native-fullscreen nil))
 
+(defvar native-comp-async-report-warnings-errors)
+(defvar native-comp-async-jobs-number)
+
 ;; Log asynchronous native-compilation warnings from third-party packages to
 ;; *Warnings* without popping up its window, and cap background compilation
 ;; at two concurrent jobs so a full package rebuild cannot saturate the machine.

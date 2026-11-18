@@ -453,6 +453,19 @@ FRAME, one about to be deleted, is on a text terminal.  This is on
                     (frame-list))
     (remove-function pre-redisplay-function #'lispm-desktop--tty-redraw-moved-frames)))
 
+(defvar mac-option-key-is-meta)
+(defvar mac-command-key-is-meta)
+(defvar mac-command-modifier)
+(defvar mac-option-modifier)
+(defvar evil-state)
+(defvar evil-visual-beginning)
+(defvar evil-visual-end)
+(defvar eat-terminal)
+
+(declare-function evil-normal-state "evil-states" (&optional arg))
+(declare-function eat-term-send-string "eat" (terminal string))
+(declare-function eat-term-send-string-as-yank "eat" (terminal string))
+
 (defun lispm-desktop-setup-meta-key-issue ()
   "Map macOS command key to Meta."
   (when (lispm-desktop-macos-p)

@@ -38,6 +38,11 @@
 (require 'lispm-desktop-tty-images)
 
 (defvar lispm-desktop-platinum-mode-line-format)
+(defvar doc-view-continuous)
+(defvar dirvish-side-width)
+(defvar dirvish-quick-access-entries)
+
+(declare-function lispm-agents-buffer-label "lispm-agents" (&optional buffer))
 
 (defun lispm-desktop-disable-display-line-numbers ()
   "Disable line numbers in the current buffer."
@@ -342,49 +347,38 @@ terminal, the fonts, and neither splash screen nor bell."
   (setq inhibit-startup-screen t
         ring-bell-function 'ignore))
 
-(defun lispm-desktop-setup-interface ()
-  "Set up interface."
-  (lispm-desktop-setup-plain-interface)
-  ;; A window moved on a text terminal leaves no copy where it was.
-  (when (featurep 'tty-child-frames)
-    (add-hook 'after-make-frame-functions #'lispm-desktop--tty-frame-made)
-    (add-hook 'delete-frame-functions #'lispm-desktop--tty-frame-gone)
-    (mapc #'lispm-desktop--tty-frame-made (frame-list)))
-  ;; Icons as images where the terminal shows them.
-  (lispm-desktop-tty-images-setup)
-  (when (lispm-desktop-macos-p)
-    (define-key global-map [ns-drag-file] 'ns-find-file))
-  (lispm-desktop-ansi-apply-faces)
-  (add-hook 'enable-theme-functions #'lispm-desktop-ansi-apply-faces)
-  (setq lispm-desktop-platinum-window-kind-function #'lispm-desktop-main-area--kind)
-  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--session-scroll-bar)
-  ;; `switch-to-buffer' obeys these too, so no command bypasses the columns;
-  ;; a dedicated window, such as the sidebar's, sends the buffer elsewhere.
-  ;; A file of another project opens where it is asked for, as in Emacs:
-  ;; only switching projects changes the workspace.
-  (add-to-list 'display-buffer-alist
-               '(lispm-desktop-main-area--astray-p lispm-desktop-main-area-display-file))
-  (add-to-list 'display-buffer-alist
-               '(lispm-desktop-main-area--session-p lispm-desktop-main-area-display-session))
-  (add-to-list 'display-buffer-alist
-               '(lispm-desktop-sidebar-view-buffer-p lispm-desktop-sidebar-display-view))
-  (setq switch-to-buffer-obey-display-actions t
-        switch-to-buffer-in-dedicated-window 'pop)
-  (setq doc-view-continuous t)
-  (set-face-attribute 'mode-line nil :height 120)
-  (when (fboundp 'menu-bar-mode)
-    (menu-bar-mode 1)
-    (mapc #'lispm-desktop-frame-menu-bar (frame-list))
-    (add-hook 'after-make-frame-functions #'lispm-desktop-frame-menu-bar))
-  (when (fboundp 'tooltip-mode)
-    (tooltip-mode 1))
-  (global-prettify-symbols-mode 1)
-  (global-visual-line-mode 1)
-  (global-display-line-numbers-mode 1)
-  (global-hl-line-mode 1)
-  (dolist (hook '(eshell-mode-hook term-mode-hook shell-mode-hook eat-mode-hook doc-view-mode-hook treemacs-mode-hook))
-    (add-hook hook #'lispm-desktop-disable-display-line-numbers))
+(defun lispm-desktop-setup-terminal-packages ()
+  "Configure Eat terminals, Nerd Icons, and TRAMP."
+  (use-package eat
+    :commands (eat eat-project)
+    :bind ("C-c T" . eat-project)
+    :init
+    (setq eat-enable-auto-line-mode nil
+          eat-very-visible-cursor-type '(box nil nil)
+          eat-very-visible-vertical-bar-cursor-type '(bar nil nil)
+          eat-very-visible-horizontal-bar-cursor-type '(hbar nil nil)
+          eat-term-name "xterm-256color"
+          eat-term-terminfo-directory (cond
+                                       ((file-directory-p "/opt/local/share/terminfo")
+                                        "/opt/local/share/terminfo")
+                                       ((file-directory-p "/usr/share/terminfo")
+                                        "/usr/share/terminfo")))
+    :config
+    (advice-add 'eat-exec :filter-args #'lispm-desktop-eat-wrap-command-with-stty)
+    (add-hook 'eat-update-hook #'lispm-desktop-eat-mark-unmodified)
+    :hook ((eat-mode . lispm-desktop-terminal-display)
+           (eat-mode . lispm-desktop-eat-terminal-keys)
+           (eshell-load . eat-eshell-mode)
+           (eshell-load . eat-eshell-visual-command-mode)))
 
+  (use-package nerd-icons)
+
+  (use-package tramp
+    :ensure nil
+    :config (setq tramp-default-method "sshx")))
+
+(defun lispm-desktop-setup-interface-packages ()
+  "Configure navigation, project tree, file manager, and terminal packages."
   (use-package avy
     :bind (("C-c SPC" . avy-goto-char-timer)
            ("M-g w" . avy-goto-word-1)
@@ -441,33 +435,51 @@ terminal, the fonts, and neither splash screen nor bell."
     (dirvish-override-dired-mode 1)
     (dirvish-side-follow-mode 1))
 
-  (use-package eat
-    :commands (eat eat-project)
-    :bind ("C-c T" . eat-project)
-    :init
-    (setq eat-enable-auto-line-mode nil
-          eat-very-visible-cursor-type '(box nil nil)
-          eat-very-visible-vertical-bar-cursor-type '(bar nil nil)
-          eat-very-visible-horizontal-bar-cursor-type '(hbar nil nil)
-          eat-term-name "xterm-256color"
-          eat-term-terminfo-directory (cond
-                                       ((file-directory-p "/opt/local/share/terminfo")
-                                        "/opt/local/share/terminfo")
-                                       ((file-directory-p "/usr/share/terminfo")
-                                        "/usr/share/terminfo")))
-    :config
-    (advice-add 'eat-exec :filter-args #'lispm-desktop-eat-wrap-command-with-stty)
-    (add-hook 'eat-update-hook #'lispm-desktop-eat-mark-unmodified)
-    :hook ((eat-mode . lispm-desktop-terminal-display)
-           (eat-mode . lispm-desktop-eat-terminal-keys)
-           (eshell-load . eat-eshell-mode)
-           (eshell-load . eat-eshell-visual-command-mode)))
+  (lispm-desktop-setup-terminal-packages))
 
-  (use-package nerd-icons)
-
-  (use-package tramp
-    :ensure nil
-    :config (setq tramp-default-method "sshx")))
+(defun lispm-desktop-setup-interface ()
+  "Set up interface."
+  (lispm-desktop-setup-plain-interface)
+  ;; A window moved on a text terminal leaves no copy where it was.
+  (when (featurep 'tty-child-frames)
+    (add-hook 'after-make-frame-functions #'lispm-desktop--tty-frame-made)
+    (add-hook 'delete-frame-functions #'lispm-desktop--tty-frame-gone)
+    (mapc #'lispm-desktop--tty-frame-made (frame-list)))
+  ;; Icons as images where the terminal shows them.
+  (lispm-desktop-tty-images-setup)
+  (when (lispm-desktop-macos-p)
+    (define-key global-map [ns-drag-file] 'ns-find-file))
+  (lispm-desktop-ansi-apply-faces)
+  (add-hook 'enable-theme-functions #'lispm-desktop-ansi-apply-faces)
+  (setq lispm-desktop-platinum-window-kind-function #'lispm-desktop-main-area--kind)
+  (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop--session-scroll-bar)
+  ;; `switch-to-buffer' obeys these too, so no command bypasses the columns;
+  ;; a dedicated window, such as the sidebar's, sends the buffer elsewhere.
+  ;; A file of another project opens where it is asked for, as in Emacs:
+  ;; only switching projects changes the workspace.
+  (add-to-list 'display-buffer-alist
+               '(lispm-desktop-main-area--astray-p lispm-desktop-main-area-display-file))
+  (add-to-list 'display-buffer-alist
+               '(lispm-desktop-main-area--session-p lispm-desktop-main-area-display-session))
+  (add-to-list 'display-buffer-alist
+               '(lispm-desktop-sidebar-view-buffer-p lispm-desktop-sidebar-display-view))
+  (setq switch-to-buffer-obey-display-actions t
+        switch-to-buffer-in-dedicated-window 'pop)
+  (setq doc-view-continuous t)
+  (set-face-attribute 'mode-line nil :height 120)
+  (when (fboundp 'menu-bar-mode)
+    (menu-bar-mode 1)
+    (mapc #'lispm-desktop-frame-menu-bar (frame-list))
+    (add-hook 'after-make-frame-functions #'lispm-desktop-frame-menu-bar))
+  (when (fboundp 'tooltip-mode)
+    (tooltip-mode 1))
+  (global-prettify-symbols-mode 1)
+  (global-visual-line-mode 1)
+  (global-display-line-numbers-mode 1)
+  (global-hl-line-mode 1)
+  (dolist (hook '(eshell-mode-hook term-mode-hook shell-mode-hook eat-mode-hook doc-view-mode-hook treemacs-mode-hook))
+    (add-hook hook #'lispm-desktop-disable-display-line-numbers))
+  (lispm-desktop-setup-interface-packages))
 
 
 (provide 'lispm-desktop-interface)

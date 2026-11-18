@@ -1105,7 +1105,7 @@ when it is to be installed."
 (defmacro lispm-desktop-store--quietly (&rest body)
   "Run BODY showing none of the buffers it would show, as the log of the
 package's compilation, which would split the App Store's window."
-  (declare (indent 0))
+  (declare (indent 0) (debug t))
   `(save-window-excursion
      (let ((display-buffer-overriding-action '(display-buffer-no-window (allow-no-window . t))))
        ,@body)))
@@ -1455,31 +1455,39 @@ and the keys' left out."
   (pcase-let* ((`(,_ . ,props) (lispm-desktop-store-job-item job))
                (file (make-temp-file "lispm-desktop-store-job" nil ".el"))
                (log (generate-new-buffer (format " *App Store: %s*" (plist-get props :name))))
-               (process-environment (lispm-desktop-store--git-environment)))
-    (with-temp-file file
-      (insert ";;; -*- lexical-binding: t -*-\n")
-      (let ((print-length nil) (print-level nil) (print-escape-newlines t))
-        (prin1 (lispm-desktop-store-installer-program task) (current-buffer))))
-    (setf (lispm-desktop-store-job-file job) file
-          (lispm-desktop-store-job-log job) log
-          (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
-    (add-hook 'kill-emacs-hook #'lispm-desktop-store--abandon)
-    (let ((process (make-process
-                    :name "lispm-desktop-store-install"
-                    :command (list (expand-file-name invocation-name invocation-directory)
-                                   "-Q" "--batch" "-l" file)
-                    :connection-type 'pipe
-                    ;; Its log goes when the job does, unasked.
-                    :stderr (make-pipe-process :name "lispm-desktop-store-install log"
-                                               :buffer log :noquery t)
-                    :filter (lambda (_process text) (lispm-desktop-store--heard job text))
-                    :sentinel (lambda (process _event)
-                                (unless (process-live-p process)
-                                  ;; Alerts and loading are no sentinel's work.
-                                  (run-at-time 0 nil #'lispm-desktop-store--ended job))))))
-      (setf (lispm-desktop-store-job-process job) process)
-      ;; Nothing it asks is answered: it fails instead of waiting.
-      (process-send-eof process))))
+               (process-environment (lispm-desktop-store--git-environment))
+               (started nil))
+    (unwind-protect
+        (progn
+          (with-temp-file file
+            (insert ";;; -*- lexical-binding: t -*-\n")
+            (let ((print-length nil) (print-level nil) (print-escape-newlines t))
+              (prin1 (lispm-desktop-store-installer-program task) (current-buffer))))
+          (setf (lispm-desktop-store-job-file job) file
+                (lispm-desktop-store-job-log job) log
+                (lispm-desktop-store-job-before job) (lispm-desktop-store--package-directories))
+          (add-hook 'kill-emacs-hook #'lispm-desktop-store--abandon)
+          (let ((process (make-process
+                          :name "lispm-desktop-store-install"
+                          :command (list (expand-file-name invocation-name invocation-directory)
+                                         "-Q" "--batch" "-l" file)
+                          :connection-type 'pipe
+                          ;; Its log goes when the job does, unasked.
+                          :stderr (make-pipe-process :name "lispm-desktop-store-install log"
+                                                     :buffer log :noquery t)
+                          :filter (lambda (_process text) (lispm-desktop-store--heard job text))
+                          :sentinel (lambda (process _event)
+                                      (unless (process-live-p process)
+                                        ;; Alerts and loading are no sentinel's work.
+                                        (run-at-time 0 nil #'lispm-desktop-store--ended job))))))
+            (setf (lispm-desktop-store-job-process job) process
+                  started t)
+            ;; Nothing it asks is answered: it fails instead of waiting.
+            (process-send-eof process)))
+      (unless started
+        (ignore-errors (delete-file file))
+        (when (buffer-live-p log)
+          (kill-buffer log))))))
 
 (defun lispm-desktop-store--stage-bounds (stage)
   "Return the part of the progress bar STAGE fills, as (FROM TO)."
@@ -1499,32 +1507,33 @@ rollback target.  Its starting commit must match the parent's snapshot."
 (defun lispm-desktop-store--heard (job text)
   "Take what JOB's Emacs said, TEXT: how far it is, see
 lispm-desktop-store-installer.el, else what goes in its log."
-  (let* ((lines (split-string (concat (lispm-desktop-store-job-pending job) text) "\n"))
-         (tag lispm-desktop-store-installer-tag))
-    (setf (lispm-desktop-store-job-pending job) (car (last lines)))
-    (dolist (line (butlast lines))
-      (if (string-prefix-p tag line)
-          (pcase (ignore-errors (car (read-from-string line (length tag))))
-            (`(updating ,name ,former ,target)
-             (lispm-desktop-store--record-update job name former target))
-            (`(stage ,(and stage (guard (assq stage lispm-desktop-store-stages))))
-             (setf (lispm-desktop-store-job-stage job) stage
-                   (lispm-desktop-store-job-fraction job)
-                   (max (lispm-desktop-store-job-fraction job) (car (lispm-desktop-store--stage-bounds stage)))))
-            (`(progress ,(and fraction (pred numberp)))
-             (pcase-let ((`(,from ,to) (lispm-desktop-store--stage-bounds (lispm-desktop-store-job-stage job))))
-               (setf (lispm-desktop-store-job-fraction job)
-                     (max (lispm-desktop-store-job-fraction job) (+ from (* (- to from) (min 1 fraction)))))))
-            (`(done ,installed) (setf (lispm-desktop-store-job-installed job) (list installed)))
-            (`(rejected ,message)
-             (setf (lispm-desktop-store-job-rejected job) t
-                   (lispm-desktop-store-job-error job) message))
-            (`(failed ,message) (setf (lispm-desktop-store-job-error job) message)))
-        (when (and (not (string-blank-p line)) (buffer-live-p (lispm-desktop-store-job-log job)))
-          (with-current-buffer (lispm-desktop-store-job-log job)
-            (goto-char (point-max))
-            (insert line "\n")))))
-    (lispm-desktop-store--redraw-soon)))
+  (save-match-data
+    (let* ((lines (split-string (concat (lispm-desktop-store-job-pending job) text) "\n"))
+           (tag lispm-desktop-store-installer-tag))
+      (setf (lispm-desktop-store-job-pending job) (car (last lines)))
+      (dolist (line (butlast lines))
+        (if (string-prefix-p tag line)
+            (pcase (ignore-errors (car (read-from-string line (length tag))))
+              (`(updating ,name ,former ,target)
+               (lispm-desktop-store--record-update job name former target))
+              (`(stage ,(and stage (guard (assq stage lispm-desktop-store-stages))))
+               (setf (lispm-desktop-store-job-stage job) stage
+                     (lispm-desktop-store-job-fraction job)
+                     (max (lispm-desktop-store-job-fraction job) (car (lispm-desktop-store--stage-bounds stage)))))
+              (`(progress ,(and fraction (pred numberp)))
+               (pcase-let ((`(,from ,to) (lispm-desktop-store--stage-bounds (lispm-desktop-store-job-stage job))))
+                 (setf (lispm-desktop-store-job-fraction job)
+                       (max (lispm-desktop-store-job-fraction job) (+ from (* (- to from) (min 1 fraction)))))))
+              (`(done ,installed) (setf (lispm-desktop-store-job-installed job) (list installed)))
+              (`(rejected ,message)
+               (setf (lispm-desktop-store-job-rejected job) t
+                     (lispm-desktop-store-job-error job) message))
+              (`(failed ,message) (setf (lispm-desktop-store-job-error job) message)))
+          (when (and (not (string-blank-p line)) (buffer-live-p (lispm-desktop-store-job-log job)))
+            (with-current-buffer (lispm-desktop-store-job-log job)
+              (goto-char (point-max))
+              (insert line "\n")))))
+      (lispm-desktop-store--redraw-soon))))
 
 (defun lispm-desktop-store--last-said (job)
   "Return the last line JOB's Emacs said in its log, or nil."
@@ -1603,6 +1612,26 @@ by preflight changed nothing and must not check out or rebuild anything."
                      (lispm-desktop-store-job-bytecode job)))
         (lispm-desktop-store--adopt job)))))
 
+(defun lispm-desktop-store--activate-and-reload (desc name package source-path)
+  "Activate package DESC and reload its previously loaded files from SOURCE-PATH."
+  (unless (or (package-activate-1 desc nil 'deps)
+              (package-activate-1 desc))
+    (error (lispm-desktop-tr "Its package %s cannot be activated") (package-desc-name desc)))
+  (let* ((library (package-desc-name desc))
+         (selected (alist-get library (bound-and-true-p package-vc-selected-packages) nil nil #'string=))
+         (spec (cond ((and (eq library name) (consp package)) (cdr package))
+                     ((and (consp selected) (keywordp (car selected))) selected)
+                     (t (alist-get library lispm-desktop-store-installer-libraries))))
+         (code (copy-package-desc desc))
+         (find-library-source-path source-path))
+    ;; Autoloads establish the new load path before requires run.  The
+    ;; saved source path identifies files loaded from an older checkout.
+    (when (package-vc-p desc)
+      (setf (package-desc-dir code)
+            (expand-file-name (or (plist-get spec :lisp-dir) ".")
+                              (or (alist-get :vc-dir (package-desc-extras desc)) (package-desc-dir desc)))))
+    (package--reload-previously-loaded code)))
+
 (defun lispm-desktop-store--adopt (job)
   "Make what JOB's Emacs installed known to this one and take part, as
 installing it here would have: its package and those it brought, active,
@@ -1664,23 +1693,7 @@ again."
     ;; Use package.el's normal update reload, not forced feature unloading:
     ;; Desktop may already use these libraries.  Dependencies reload first.
     (dolist (desc changed)
-      (unless (or (package-activate-1 desc nil 'deps)
-                  (package-activate-1 desc))
-        (error (lispm-desktop-tr "Its package %s cannot be activated") (package-desc-name desc)))
-      (let* ((library (package-desc-name desc))
-             (selected (alist-get library (bound-and-true-p package-vc-selected-packages) nil nil #'string=))
-             (spec (cond ((and (eq library name) (consp package)) (cdr package))
-                         ((and (consp selected) (keywordp (car selected))) selected)
-                         (t (alist-get library lispm-desktop-store-installer-libraries))))
-             (code (copy-package-desc desc))
-             (find-library-source-path source-path))
-        ;; Autoloads establish the new load path before requires run.  The
-        ;; saved source path identifies files loaded from an older checkout.
-        (when (package-vc-p desc)
-          (setf (package-desc-dir code)
-                (expand-file-name (or (plist-get spec :lisp-dir) ".")
-                                  (or (alist-get :vc-dir (package-desc-extras desc)) (package-desc-dir desc)))))
-        (package--reload-previously-loaded code)))
+      (lispm-desktop-store--activate-and-reload desc name package source-path))
     (unless again
       (unless (memq name package-selected-packages)
         (customize-save-variable 'package-selected-packages (cons name package-selected-packages)))

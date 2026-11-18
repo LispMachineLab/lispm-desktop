@@ -370,6 +370,96 @@ text colours; the underline still identifies the selected row."
                     (when (suitable candidate) (throw 'found candidate))))))
             body))))))
 
+(defun lispm-desktop-platinum--apply-row-selection-faces (text)
+  "Configure Platinum current and selected row faces for TEXT."
+  ;; The row of what is being worked on elsewhere: the list, as the
+  ;; look drew it, tinted with the accent, as the desktop behind the
+  ;; windows is.  The selection's own colour will not do: a dark
+  ;; theme's, as Dracula's, is barely lighter than its list.  Where
+  ;; colours cannot be blended, as on a text terminal, the secondary
+  ;; selection stands in.
+  (let* ((body (face-background 'lispm-desktop-platinum-list-body nil t))
+         (accent (lispm-ui-color :accent))
+         (tinted (lispm-ui-blend body accent 0.25))
+         (region (face-background 'region nil t))
+         (preserved (lispm-desktop-platinum--selection-background
+                     body accent region (lispm-desktop-platinum--row-foregrounds) tinted))
+         ;; Some light palettes leave no room for a distinct background
+         ;; while preserving both default and dim text.  Only then use
+         ;; a conventional selection with its own contrasting text.
+         (selected (or preserved
+                       (if (and (>= (or (lispm-desktop-platinum--text-contrast
+                                          region "#ffffff") 0) 4.5)
+                                (> (or (lispm-desktop-platinum--color-distance body region) 0) 3))
+                           region
+                         (lispm-desktop-platinum--color-at-luminance accent 0.10))))
+         (foreground (and (not preserved) selected "#ffffff"))
+         ;; A focus edge remains clear when light themes allow only a
+         ;; near-white fill.  It does not cover icon or status colours,
+         ;; or change row height as a box around the row would.
+         (edge (and tinted selected
+                    (if (>= (or (lispm-desktop-platinum--text-contrast accent selected) 0) 3)
+                        accent
+                      (or foreground text)))))
+    (set-face-attribute 'lispm-desktop-platinum-row-current nil
+                        :inherit (if tinted 'unspecified 'secondary-selection)
+                        :background (or tinted 'unspecified))
+    ;; Never inherit region's foreground.  Reset an exceptional text
+    ;; colour on theme/look changes so the normal path keeps row colours.
+    (set-face-attribute 'lispm-desktop-platinum-row-selected nil
+                        :inherit 'unspecified
+                        :background (or selected 'unspecified)
+                        :foreground (or foreground 'unspecified)
+                        :underline (if edge `(:color ,edge :style line) 'unspecified)
+                        :extend t)))
+
+(defun lispm-desktop-platinum--apply-bar-and-list-faces (text chrome header)
+  "Configure Platinum bar, list, tooltip, and placard faces."
+  (set-face-attribute 'tab-line nil
+                      :inherit 'unspecified :background chrome :foreground text
+                      :box nil :height 'unspecified)
+  (set-face-attribute 'tab-bar nil
+                      :inherit 'unspecified :background chrome :foreground text
+                      :box nil)
+  (set-face-attribute 'mode-line nil
+                      :inherit 'unspecified :background chrome :foreground text
+                      :box nil :overline 'unspecified :underline 'unspecified
+                      :height 'unspecified)
+  (set-face-attribute 'mode-line-inactive nil
+                      :inherit 'unspecified :background chrome
+                      :foreground (lispm-ui-color :muted)
+                      :box nil :overline 'unspecified :underline 'unspecified
+                      :height 'unspecified)
+  ;; Lists as Finder's list view drew them: rows lighter than the
+  ;; platinum, the column sorted by in platinum, a lit line atop
+  ;; each row.
+  (set-face-attribute 'lispm-desktop-platinum-sorted nil
+                      :background (lispm-ui-grey lispm-ui-current-palette #xDD)
+                      :extend t)
+  (set-face-attribute 'lispm-desktop-platinum-list-body nil
+                      :inherit 'lispm-ui-list
+                      :background (lispm-ui-grey lispm-ui-current-palette #xEE))
+  (set-face-attribute 'lispm-desktop-platinum-row nil
+                      :overline (lispm-ui-grey lispm-ui-current-palette #xFF))
+  ;; Balloon Help: a note in the list's type, on the header's grey.
+  ;; It carries no outline: macOS sizes a tooltip without its box,
+  ;; which would cut the right edge off.
+  (set-face-attribute 'tooltip nil
+                      :inherit 'lispm-ui-list :background header
+                      :foreground text :height 0.9 :box nil)
+  ;; Placards are Mac OS 9's outlined plates; an inactive window's
+  ;; lie flat, outlined in grey.  Their text stays text, so what
+  ;; other packages show there, images included, still shows.
+  (set-face-attribute 'lispm-desktop-platinum-placard nil
+                      :inherit 'lispm-ui-list :background chrome :foreground text
+                      :height 0.95
+                      :box `(:line-width (1 . 1) :color ,(lispm-ui-color :outline)))
+  (set-face-attribute 'lispm-desktop-platinum-placard-inactive nil
+                      :inherit 'lispm-ui-list :background chrome
+                      :foreground (lispm-ui-color :muted) :height 0.95
+                      :box `(:line-width (1 . 1)
+                             :color ,(lispm-ui-grey lispm-ui-current-palette #x99))))
+
 (defun lispm-desktop-platinum-apply-faces ()
   "Set every chrome face in the palette just derived from the active theme,
 and the look's fonts, LispM UI's faces' too, whose colours LispM UI has
@@ -388,50 +478,7 @@ faces this function never sets, so re-running it is idempotent."
                           (lispm-desktop-platinum--family
                            (lispm-ui-look-families :list-families
                                                    lispm-desktop-platinum-list-families)))))
-    (set-face-attribute 'tab-line nil
-                        :inherit 'unspecified :background chrome :foreground text
-                        :box nil :height 'unspecified)
-    (set-face-attribute 'tab-bar nil
-                        :inherit 'unspecified :background chrome :foreground text
-                        :box nil)
-    (set-face-attribute 'mode-line nil
-                        :inherit 'unspecified :background chrome :foreground text
-                        :box nil :overline 'unspecified :underline 'unspecified
-                        :height 'unspecified)
-    (set-face-attribute 'mode-line-inactive nil
-                        :inherit 'unspecified :background chrome
-                        :foreground (lispm-ui-color :muted)
-                        :box nil :overline 'unspecified :underline 'unspecified
-                        :height 'unspecified)
-    ;; Lists as Finder's list view drew them: rows lighter than the
-    ;; platinum, the column sorted by in platinum, a lit line atop
-    ;; each row.
-    (set-face-attribute 'lispm-desktop-platinum-sorted nil
-                        :background (lispm-ui-grey lispm-ui-current-palette #xDD)
-                        :extend t)
-    (set-face-attribute 'lispm-desktop-platinum-list-body nil
-                        :inherit 'lispm-ui-list
-                        :background (lispm-ui-grey lispm-ui-current-palette #xEE))
-    (set-face-attribute 'lispm-desktop-platinum-row nil
-                        :overline (lispm-ui-grey lispm-ui-current-palette #xFF))
-    ;; Balloon Help: a note in the list's type, on the header's grey.
-    ;; It carries no outline: macOS sizes a tooltip without its box,
-    ;; which would cut the right edge off.
-    (set-face-attribute 'tooltip nil
-                        :inherit 'lispm-ui-list :background header
-                        :foreground text :height 0.9 :box nil)
-    ;; Placards are Mac OS 9's outlined plates; an inactive window's
-    ;; lie flat, outlined in grey.  Their text stays text, so what
-    ;; other packages show there, images included, still shows.
-    (set-face-attribute 'lispm-desktop-platinum-placard nil
-                        :inherit 'lispm-ui-list :background chrome :foreground text
-                        :height 0.95
-                        :box `(:line-width (1 . 1) :color ,(lispm-ui-color :outline)))
-    (set-face-attribute 'lispm-desktop-platinum-placard-inactive nil
-                        :inherit 'lispm-ui-list :background chrome
-                        :foreground (lispm-ui-color :muted) :height 0.95
-                        :box `(:line-width (1 . 1)
-                               :color ,(lispm-ui-grey lispm-ui-current-palette #x99)))
+    (lispm-desktop-platinum--apply-bar-and-list-faces text chrome header)
     (dolist (face '(lispm-ui-title lispm-ui-title-inactive
                     lispm-desktop-platinum-menu-title lispm-desktop-platinum-menu-title-active))
       (apply #'set-face-attribute face nil :family (or system 'unspecified) :height 120
@@ -479,46 +526,7 @@ faces this function never sets, so re-running it is idempotent."
                         :foreground (lispm-ui-color :outline)
                         :background (lispm-ui-color :chrome))
     (lispm-desktop-platinum-apply-look-faces lispm-ui-current-palette)
-    ;; The row of what is being worked on elsewhere: the list, as the
-    ;; look drew it, tinted with the accent, as the desktop behind the
-    ;; windows is.  The selection's own colour will not do: a dark
-    ;; theme's, as Dracula's, is barely lighter than its list.  Where
-    ;; colours cannot be blended, as on a text terminal, the secondary
-    ;; selection stands in.
-    (let* ((body (face-background 'lispm-desktop-platinum-list-body nil t))
-           (accent (lispm-ui-color :accent))
-           (tinted (lispm-ui-blend body accent 0.25))
-           (region (face-background 'region nil t))
-           (preserved (lispm-desktop-platinum--selection-background
-                       body accent region (lispm-desktop-platinum--row-foregrounds) tinted))
-           ;; Some light palettes leave no room for a distinct background
-           ;; while preserving both default and dim text.  Only then use
-           ;; a conventional selection with its own contrasting text.
-           (selected (or preserved
-                         (if (and (>= (or (lispm-desktop-platinum--text-contrast
-                                            region "#ffffff") 0) 4.5)
-                                  (> (or (lispm-desktop-platinum--color-distance body region) 0) 3))
-                             region
-                           (lispm-desktop-platinum--color-at-luminance accent 0.10))))
-           (foreground (and (not preserved) selected "#ffffff"))
-           ;; A focus edge remains clear when light themes allow only a
-           ;; near-white fill.  It does not cover icon or status colours,
-           ;; or change row height as a box around the row would.
-           (edge (and tinted selected
-                      (if (>= (or (lispm-desktop-platinum--text-contrast accent selected) 0) 3)
-                          accent
-                        (or foreground text)))))
-      (set-face-attribute 'lispm-desktop-platinum-row-current nil
-                          :inherit (if tinted 'unspecified 'secondary-selection)
-                          :background (or tinted 'unspecified))
-      ;; Never inherit region's foreground.  Reset an exceptional text
-      ;; colour on theme/look changes so the normal path keeps row colours.
-      (set-face-attribute 'lispm-desktop-platinum-row-selected nil
-                          :inherit 'unspecified
-                          :background (or selected 'unspecified)
-                          :foreground (or foreground 'unspecified)
-                          :underline (if edge `(:color ,edge :style line) 'unspecified)
-                          :extend t))))
+    (lispm-desktop-platinum--apply-row-selection-faces text)))
 
 ;; Before LispM UI draws its forms again, at 90: they are measured in the
 ;; fonts set here.

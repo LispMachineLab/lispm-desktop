@@ -88,7 +88,7 @@ the window that had the keyboard gets it back once the walk is over.")
 
 (defmacro lispm-desktop-platinum-with-open-menu (key &rest body)
   "Run BODY, which pops up a menu, with menu bar item KEY highlighted."
-  (declare (indent 1))
+  (declare (indent 1) (debug (form body)))
   `(let ((lispm-desktop-platinum--open-menu ,key))
      (lispm-desktop-platinum-redraw-menu-bar)
      (redisplay t)

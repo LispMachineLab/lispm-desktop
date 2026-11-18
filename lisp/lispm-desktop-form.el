@@ -232,32 +232,97 @@ narrower than Emacs's own, so its fields widen."
 (defvar lispm-desktop-form--modal-stack nil
   "Stack of active modal prompt child frames on the desktop screen.")
 
+(defun lispm-desktop-form--window-canceller (cancel-fn)
+  "Return a window close callback invoking CANCEL-FN in the window's buffer."
+  (lambda (win)
+    (let ((buf (window-buffer win)))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (funcall cancel-fn))))))
+
+(defun lispm-desktop-form--modal-cleanup (frame prev-frame prev-window)
+  "Return a zero-argument cleanup closure tearing down modal FRAME."
+  (lambda ()
+    (setq lispm-desktop-form--modal-stack
+          (delq frame lispm-desktop-form--modal-stack))
+    (when (frame-live-p frame)
+      (let ((outer (lispm-desktop-platinum-window-outer frame)))
+        (delete-frame frame t)
+        (when (and (not (eq outer frame)) (frame-live-p outer))
+          (let ((buf (window-buffer (frame-root-window outer))))
+            (delete-frame outer t)
+            (when (buffer-live-p buf)
+              (kill-buffer buf))))))
+    (when (frame-live-p prev-frame)
+      (select-frame-set-input-focus prev-frame))
+    (when (window-live-p prev-window)
+      (select-window prev-window))))
+
+(defun lispm-desktop-form--open-modal-frame (buffer title kind width height close-fn configure-win)
+  "Create and display a modal child frame for BUFFER; return its cleanup closure.
+TITLE names the frame, KIND sets `lispm-desktop-window-kind', WIDTH and
+HEIGHT give the initial pixel size, CLOSE-FN handles window close, and
+CONFIGURE-WIN configures `(WIN . FRAME)' before display."
+  (let* ((prev-frame (selected-frame))
+         (prev-window (selected-window))
+         (anchor-frame prev-frame)
+         (screen (lispm-desktop-apps-screen))
+         (z-order (+ 30 (* 5 (length lispm-desktop-form--modal-stack))))
+         (left (/ (- (frame-inner-width screen) width) 2))
+         (top (/ (- (frame-inner-height screen) height) 2))
+         (frame nil)
+         (cleanup (lambda ()
+                    (funcall (lispm-desktop-form--modal-cleanup frame prev-frame prev-window))))
+         (ok nil))
+    (unwind-protect
+        (progn
+          (setq frame
+                (let ((after-make-frame-functions nil)
+                      (before-make-frame-hook nil))
+                  (make-frame
+                   `((parent-frame . ,screen)
+                     (minibuffer . ,(minibuffer-window screen))
+                     (name . ,title)
+                     (lispm-desktop-app . ,(lispm-desktop-apps-frontmost))
+                     (lispm-desktop-window-kind . ,kind)
+                     (lispm-ui-modal-prompt . ,anchor-frame)
+                     (lispm-desktop-close-function . ,close-fn)
+                     (lispm-desktop-window . t) (top-visible . ,z-order)
+                     (undecorated . t) (visibility . nil)
+                     (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
+                     (menu-bar-lines . 0) (tool-bar-lines . 0)
+                     (internal-border-width . 0)
+                     (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
+                     (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
+                     (user-position . t)
+                     (left . ,left) (top . ,top)
+                     (width . (text-pixels . ,width))
+                     (height . (text-pixels . ,height))))))
+          (push frame lispm-desktop-form--modal-stack)
+          (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
+          (let ((win (frame-root-window frame)))
+            (set-window-buffer win buffer)
+            (set-window-dedicated-p win t)
+            (set-window-fringes win 0 0)
+            (funcall configure-win win frame))
+          (lispm-desktop-apps-show-window frame)
+          (lispm-desktop-form--center-modal frame anchor-frame)
+          (lispm-desktop-platinum-raise-window frame)
+          (select-frame-set-input-focus frame)
+          (select-window (frame-root-window frame))
+          (lispm-desktop-platinum-frame-update frame)
+          (with-current-buffer buffer
+            (force-mode-line-update))
+          (setq ok t)
+          cleanup)
+      (unless ok
+        (funcall cleanup)))))
+
 (defun lispm-desktop-form--modal-show (buffer)
   "Show modal prompt form BUFFER centered over the current frame; return cleanup."
   (if (and (display-graphic-p) (not noninteractive))
-      (let* ((prev-frame (selected-frame))
-             (prev-window (selected-window))
-             (anchor-frame prev-frame)
-             (screen (lispm-desktop-apps-screen))
-             (title (or (lispm-ui-form-title buffer) "Prompt"))
-             (z-order (+ 30 (* 5 (length lispm-desktop-form--modal-stack))))
-             (frame nil)
-             (cleanup
-              (lambda ()
-                (setq lispm-desktop-form--modal-stack
-                      (delq frame lispm-desktop-form--modal-stack))
-                (when (frame-live-p frame)
-                  (let ((outer (lispm-desktop-platinum-window-outer frame)))
-                    (delete-frame frame t)
-                    (when (and (not (eq outer frame)) (frame-live-p outer))
-                      (let ((buf (window-buffer (frame-root-window outer))))
-                        (delete-frame outer t)
-                        (when (buffer-live-p buf)
-                          (kill-buffer buf))))))
-                (when (frame-live-p prev-frame)
-                  (select-frame-set-input-focus prev-frame))
-                (when (window-live-p prev-window)
-                  (select-window prev-window)))))
+      (let ((title (or (lispm-ui-form-title buffer) "Prompt"))
+            (close-fn (lispm-desktop-form--window-canceller #'lispm-ui-form-cancel)))
         (with-current-buffer buffer
           (let ((base (format "*%s*" title)))
             (unless (equal (buffer-name buffer) base)
@@ -268,76 +333,25 @@ narrower than Emacs's own, so its fields widen."
                       display-line-numbers nil
                       lispm-desktop-platinum-window-title #'lispm-desktop-form--title
                       lispm-desktop-platinum-window-icon 'none
-                      lispm-desktop-platinum-box-functions
-                      (list :close (lambda (win)
-                                     (let ((buf (window-buffer win)))
-                                       (when (buffer-live-p buf)
-                                         (with-current-buffer buf
-                                           (lispm-ui-form-cancel)))))))
+                      lispm-desktop-platinum-box-functions (list :close close-fn))
           (when (bound-and-true-p display-line-numbers-mode)
             (display-line-numbers-mode -1))
           (lispm-ui-form-redraw))
-        (let ((ok nil))
-          (unwind-protect
-              (pcase-let* ((`(,width . ,height) (lispm-desktop-form-window-size buffer))
-                           (left (/ (- (frame-inner-width screen) width) 2))
-                           (top (/ (- (frame-inner-height screen) height) 2)))
-                (setq frame
-                      (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (make-frame
-                         `((parent-frame . ,screen)
-                           (minibuffer . ,(minibuffer-window screen))
-                           (name . ,title)
-                           (lispm-desktop-app . ,(lispm-desktop-apps-frontmost))
-                           (lispm-desktop-window-kind . prompt)
-                           (lispm-ui-modal-prompt . ,anchor-frame)
-                           (lispm-desktop-close-function
-                            . ,(lambda (win)
-                                 (let ((buf (window-buffer win)))
-                                   (when (buffer-live-p buf)
-                                     (with-current-buffer buf
-                                       (lispm-ui-form-cancel))))))
-                           (lispm-desktop-window . t) (top-visible . ,z-order)
-                           (undecorated . t) (visibility . nil)
-                           (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                           (menu-bar-lines . 0) (tool-bar-lines . 0)
-                           (internal-border-width . 0)
-                           (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                           (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                           (user-position . t)
-                           (left . ,left) (top . ,top)
-                           (width . (text-pixels . ,width))
-                           (height . (text-pixels . ,height))))))
-                (push frame lispm-desktop-form--modal-stack)
-                (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
-                (let ((win (frame-root-window frame)))
-                  (set-window-buffer win buffer)
-                  (set-window-dedicated-p win t)
-                  (with-current-buffer buffer
-                    (setq-local lispm-desktop-platinum-window-icon 'none
-                                mode-line-format nil
-                                header-line-format nil
-                                display-line-numbers nil)
-                    (when (bound-and-true-p display-line-numbers-mode)
-                      (display-line-numbers-mode -1)))
-                  (set-window-fringes win 0 0)
-                  (set-window-parameter win 'mode-line-format 'none)
-                  (set-window-parameter win 'header-line-format 'none))
-                (pcase-let ((`(,w . ,h) (lispm-desktop-form-window-size buffer)))
-                  (set-frame-size frame w h t))
-                (lispm-desktop-apps-show-window frame)
-                (lispm-desktop-form--center-modal frame anchor-frame)
-                (lispm-desktop-platinum-raise-window frame)
-                (select-frame-set-input-focus frame)
-                (select-window (frame-root-window frame))
-                (lispm-desktop-platinum-frame-update frame)
-                (with-current-buffer buffer
-                  (force-mode-line-update))
-                (setq ok t)
-                cleanup)
-            (unless ok
-              (funcall cleanup)))))
+        (pcase-let ((`(,width . ,height) (lispm-desktop-form-window-size buffer)))
+          (lispm-desktop-form--open-modal-frame
+           buffer title 'prompt width height close-fn
+           (lambda (win frame)
+             (with-current-buffer buffer
+               (setq-local lispm-desktop-platinum-window-icon 'none
+                           mode-line-format nil
+                           header-line-format nil
+                           display-line-numbers nil)
+               (when (bound-and-true-p display-line-numbers-mode)
+                 (display-line-numbers-mode -1)))
+             (set-window-parameter win 'mode-line-format 'none)
+             (set-window-parameter win 'header-line-format 'none)
+             (pcase-let ((`(,w . ,h) (lispm-desktop-form-window-size buffer)))
+               (set-frame-size frame w h t))))))
     (if (fboundp 'lispm-ui-form-modal-show-default)
         (lispm-ui-form-modal-show-default buffer)
       (lispm-ui-form--modal-show-default buffer))))
@@ -345,35 +359,7 @@ narrower than Emacs's own, so its fields widen."
 (defun lispm-desktop-form--finder-modal-show (buffer title width height)
   "Show Finder chooser BUFFER in a floating Platinum modal window of WIDTHxHEIGHT."
   (if (and (display-graphic-p) (not noninteractive))
-      (let* ((prev-frame (selected-frame))
-             (prev-window (selected-window))
-             (anchor-frame prev-frame)
-             (screen (lispm-desktop-apps-screen))
-             (z-order (+ 30 (* 5 (length lispm-desktop-form--modal-stack))))
-             (left (/ (- (frame-inner-width screen) width) 2))
-             (top (/ (- (frame-inner-height screen) height) 2))
-             (close-fn (lambda (win)
-                         (let ((buf (window-buffer win)))
-                           (when (buffer-live-p buf)
-                             (with-current-buffer buf
-                               (lispm-finder-choose-cancel))))))
-             (frame nil)
-             (cleanup
-              (lambda ()
-                (setq lispm-desktop-form--modal-stack
-                      (delq frame lispm-desktop-form--modal-stack))
-                (when (frame-live-p frame)
-                  (let ((outer (lispm-desktop-platinum-window-outer frame)))
-                    (delete-frame frame t)
-                    (when (and (not (eq outer frame)) (frame-live-p outer))
-                      (let ((buf (window-buffer (frame-root-window outer))))
-                        (delete-frame outer t)
-                        (when (buffer-live-p buf)
-                          (kill-buffer buf))))))
-                (when (frame-live-p prev-frame)
-                  (select-frame-set-input-focus prev-frame))
-                (when (window-live-p prev-window)
-                  (select-window prev-window)))))
+      (let ((close-fn (lispm-desktop-form--window-canceller #'lispm-finder-choose-cancel)))
         (with-current-buffer buffer
           (setq-local display-line-numbers nil
                       lispm-desktop-platinum-window-title title
@@ -393,61 +379,21 @@ narrower than Emacs's own, so its fields widen."
                       lispm-desktop-platinum-box-functions (list :close close-fn))
           (when (bound-and-true-p display-line-numbers-mode)
             (display-line-numbers-mode -1)))
-        (let ((ok nil))
-          (unwind-protect
-              (progn
-                (setq frame
-                      (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (make-frame
-                         `((parent-frame . ,screen)
-                           (minibuffer . ,(minibuffer-window screen))
-                           (name . ,title)
-                           (lispm-desktop-app . ,(lispm-desktop-apps-frontmost))
-                           (lispm-desktop-window-kind . finder-choose)
-                           (lispm-ui-modal-prompt . ,anchor-frame)
-                           (lispm-desktop-close-function . ,close-fn)
-                           (lispm-desktop-window . t) (top-visible . ,z-order)
-                           (undecorated . t) (visibility . nil)
-                           (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                           (menu-bar-lines . 0) (tool-bar-lines . 0)
-                           (internal-border-width . 0)
-                           (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                           (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                           (user-position . t)
-                           (left . ,left) (top . ,top)
-                           (width . (text-pixels . ,width))
-                           (height . (text-pixels . ,height))))))
-                (push frame lispm-desktop-form--modal-stack)
-                (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
-                (let ((win (frame-root-window frame)))
-                  (set-window-buffer win buffer)
-                  (set-window-dedicated-p win t)
-                  (set-window-fringes win 0 0)
-                  (set-window-parameter win 'mode-line-format nil)
-                  (set-window-parameter win 'header-line-format nil))
-                (with-current-buffer buffer
-                  (setq-local header-line-format
-                              (if (fboundp 'lispm-finder-choose-header)
-                                  '(:eval (lispm-finder-choose-header))
-                                '(:eval (lispm-finder--choose-header)))
-                              mode-line-format
-                              (if (fboundp 'lispm-finder-choose-footer)
-                                  '(:eval (lispm-finder-choose-footer))
-                                '(:eval (lispm-finder--choose-footer)))))
-                (set-frame-size frame width height t)
-                (lispm-desktop-apps-show-window frame)
-                (lispm-desktop-form--center-modal frame anchor-frame)
-                (lispm-desktop-platinum-raise-window frame)
-                (select-frame-set-input-focus frame)
-                (select-window (frame-root-window frame))
-                (lispm-desktop-platinum-frame-update frame)
-                (with-current-buffer buffer
-                  (force-mode-line-update))
-                (setq ok t)
-                cleanup)
-            (unless ok
-              (funcall cleanup)))))
+        (lispm-desktop-form--open-modal-frame
+         buffer title 'finder-choose width height close-fn
+         (lambda (win frame)
+           (set-window-parameter win 'mode-line-format nil)
+           (set-window-parameter win 'header-line-format nil)
+           (with-current-buffer buffer
+             (setq-local header-line-format
+                         (if (fboundp 'lispm-finder-choose-header)
+                             '(:eval (lispm-finder-choose-header))
+                           '(:eval (lispm-finder--choose-header)))
+                         mode-line-format
+                         (if (fboundp 'lispm-finder-choose-footer)
+                             '(:eval (lispm-finder-choose-footer))
+                           '(:eval (lispm-finder--choose-footer)))))
+           (set-frame-size frame width height t))))
     (if (fboundp 'lispm-finder-modal-show-default)
         (lispm-finder-modal-show-default buffer title width height)
       (lispm-finder--modal-show-default buffer title width height))))

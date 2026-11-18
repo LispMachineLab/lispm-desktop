@@ -356,6 +356,50 @@
                               (number-sequence 0 (1- (length text)))))))
   (concat "| " (truncate-string-to-width text (- width 4) nil ?\s t) " |"))
 
+(defun lispm-desktop-installer-screen--ascii-lines (width status)
+  "Build the ASCII installer box lines of WIDTH columns for STATUS."
+  (let ((border (concat "+" (make-string (- width 2) ?-) "+"))
+        (display-status (lispm-desktop-installer-screen--localize-status status))
+        (display-message (lispm-desktop-installer-screen--localize-status
+                          (or lispm-desktop-installer-screen--message ""))))
+    (list border
+          (lispm-desktop-installer-screen--line
+           (lispm-desktop-installer-screen--tr "LISPM  /  SYSTEM INSTALLATION") width)
+          border
+          (lispm-desktop-installer-screen--line "" width)
+          (lispm-desktop-installer-screen--line (propertize "        #########" 'face '(:foreground "#f35a55" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "        ###   ####" 'face '(:foreground "#f66b4b" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "               ####" 'face '(:foreground "#fa7f36" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "               ####" 'face '(:foreground "#ff9221" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "              ######" 'face '(:foreground "#f6a52b" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "            #### ####" 'face '(:foreground "#c4bb45" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "          ####    ####" 'face '(:foreground "#73b98a" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "        ####       ####" 'face '(:foreground "#15b9d6" :weight bold)) width)
+          (lispm-desktop-installer-screen--line (propertize "      ######        ###########" 'face '(:foreground "#00bafa" :weight bold)) width)
+          (lispm-desktop-installer-screen--line "" width)
+          (lispm-desktop-installer-screen--line
+           (lispm-desktop-installer-screen--tr "Preparing your LispM system") width)
+          (lispm-desktop-installer-screen--line "" width)
+          (lispm-desktop-installer-screen--line
+           (let* ((size (max 5 (min 30 (- width 12))))
+                  (filled (round (/ (* size (lispm-desktop-installer-screen--progress-fraction))
+                                    (float (length lispm-desktop-installer-screen--stages))))))
+             (format "[%s%s] %d/%d" (make-string filled ?#)
+                     (make-string (- size filled) ?-)
+                     (lispm-desktop-installer-screen--progress)
+                     (length lispm-desktop-installer-screen--stages))) width)
+          (lispm-desktop-installer-screen--line display-status width)
+          (lispm-desktop-installer-screen--line display-message width)
+          (lispm-desktop-installer-screen--line
+           (lispm-desktop-installer-screen--tr
+            "Packages installed: %d" lispm-desktop-installer-screen--completed) width)
+          (lispm-desktop-installer-screen--line
+           (if lispm-desktop-installer-screen--last
+               (lispm-desktop-installer-screen--tr "Last: %s" lispm-desktop-installer-screen--last)
+             (lispm-desktop-installer-screen--tr "This may take a few minutes.")) width)
+          (lispm-desktop-installer-screen--line "" width)
+          border)))
+
 (defun lispm-desktop-installer-screen-report (status)
   "Display STATUS before a potentially slow installation operation."
   (when lispm-desktop-installer-screen--active
@@ -371,47 +415,7 @@
            (lispm-desktop-installer-screen--large-logo (>= width 70))
            (margin (make-string (max 0 (/ (- (window-body-width window) width) 2)) ?\s))
            (top (make-string (max 0 (/ (- (window-body-height window) 22) 2)) ?\n))
-           (border (concat "+" (make-string (- width 2) ?-) "+"))
-           (display-status (lispm-desktop-installer-screen--localize-status status))
-           (display-message (lispm-desktop-installer-screen--localize-status
-                             (or lispm-desktop-installer-screen--message "")))
-           (lines (list border
-                        (lispm-desktop-installer-screen--line
-                         (lispm-desktop-installer-screen--tr "LISPM  /  SYSTEM INSTALLATION") width)
-                        border
-                        (lispm-desktop-installer-screen--line "" width)
-                        (lispm-desktop-installer-screen--line (propertize "        #########" 'face '(:foreground "#f35a55" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "        ###   ####" 'face '(:foreground "#f66b4b" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "               ####" 'face '(:foreground "#fa7f36" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "               ####" 'face '(:foreground "#ff9221" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "              ######" 'face '(:foreground "#f6a52b" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "            #### ####" 'face '(:foreground "#c4bb45" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "          ####    ####" 'face '(:foreground "#73b98a" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "        ####       ####" 'face '(:foreground "#15b9d6" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line (propertize "      ######        ###########" 'face '(:foreground "#00bafa" :weight bold)) width)
-                        (lispm-desktop-installer-screen--line "" width)
-                        (lispm-desktop-installer-screen--line
-                         (lispm-desktop-installer-screen--tr "Preparing your LispM system") width)
-                        (lispm-desktop-installer-screen--line "" width)
-                        (lispm-desktop-installer-screen--line
-                         (let* ((size (max 5 (min 30 (- width 12))))
-                                (filled (round (/ (* size (lispm-desktop-installer-screen--progress-fraction))
-                                                  (float (length lispm-desktop-installer-screen--stages))))))
-                           (format "[%s%s] %d/%d" (make-string filled ?#)
-                                   (make-string (- size filled) ?-)
-                                   (lispm-desktop-installer-screen--progress)
-                                   (length lispm-desktop-installer-screen--stages))) width)
-                        (lispm-desktop-installer-screen--line display-status width)
-                        (lispm-desktop-installer-screen--line display-message width)
-                        (lispm-desktop-installer-screen--line
-                         (lispm-desktop-installer-screen--tr
-                          "Packages installed: %d" lispm-desktop-installer-screen--completed) width)
-                        (lispm-desktop-installer-screen--line
-                         (if lispm-desktop-installer-screen--last
-                             (lispm-desktop-installer-screen--tr "Last: %s" lispm-desktop-installer-screen--last)
-                           (lispm-desktop-installer-screen--tr "This may take a few minutes.")) width)
-                        (lispm-desktop-installer-screen--line "" width)
-                        border)))
+           (lines (lispm-desktop-installer-screen--ascii-lines width status)))
       (when (< (window-body-height window) (length lines))
         (setq lines (delete (lispm-desktop-installer-screen--line "" width) lines)))
       (unless (window-live-p lispm-desktop-installer-screen--window)

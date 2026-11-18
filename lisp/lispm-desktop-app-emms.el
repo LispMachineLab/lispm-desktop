@@ -411,18 +411,25 @@ alone, then call THEN; say why when it cannot be built."
   "Read the Music library with LispM Music Library.app, opened by
 LaunchServices, out of sight; call THEN with what it read, as JSON
 parsed into plists."
-  (let ((output (make-temp-file "lispm-music-library" nil ".json")))
-    (lispm-exec
-     "open"
-     (list "-W" "-g" "-n" (lispm-desktop-app-emms--reader) "--args" output)
-     (lambda (_exit _output _errors)
-       (let ((data (ignore-errors
-                     (with-temp-buffer
-                       (insert-file-contents output)
-                       (json-parse-buffer :object-type 'plist :array-type 'list
-                                          :null-object nil :false-object nil)))))
-         (delete-file output)
-         (funcall then data))))))
+  (let ((output (make-temp-file "lispm-music-library" nil ".json"))
+        (started nil))
+    (unwind-protect
+        (progn
+          (lispm-exec
+           "open"
+           (list "-W" "-g" "-n" (lispm-desktop-app-emms--reader) "--args" output)
+           (lambda (_exit _output _errors)
+             (let ((data (unwind-protect
+                             (ignore-errors
+                               (with-temp-buffer
+                                 (insert-file-contents output)
+                                 (json-parse-buffer :object-type 'plist :array-type 'list
+                                                    :null-object nil :false-object nil)))
+                           (ignore-errors (delete-file output)))))
+               (funcall then data))))
+          (setq started t))
+      (unless started
+        (ignore-errors (delete-file output))))))
 
 (defun lispm-desktop-app-emms--not-read (data)
   "Say the Music library could not be read, with why, from DATA, what

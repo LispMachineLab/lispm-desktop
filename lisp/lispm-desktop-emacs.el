@@ -207,18 +207,19 @@ at most."
 
 (defun lispm-desktop-emacs--filter (process output)
   "Keep OUTPUT of install.sh, PROCESS, and read the download's progress."
-  (when (buffer-live-p (process-buffer process))
-    (with-current-buffer (process-buffer process)
-      (goto-char (point-max))
-      (insert output)))
-  ;; curl's progress bar ends each update in a percentage.
-  (let ((start 0) (last nil))
-    (while (string-match "\\([0-9]+\\(?:\\.[0-9]\\)?\\)%" output start)
-      (setq last (string-to-number (match-string 1 output))
-            start (match-end 0)))
-    (when last
-      (setq lispm-desktop-emacs--progress (min 100.0 last))
-      (lispm-desktop-emacs--changed t))))
+  (save-match-data
+    (when (buffer-live-p (process-buffer process))
+      (with-current-buffer (process-buffer process)
+        (goto-char (point-max))
+        (insert output)))
+    ;; curl's progress bar ends each update in a percentage.
+    (let ((start 0) (last nil))
+      (while (string-match "\\([0-9]+\\(?:\\.[0-9]\\)?\\)%" output start)
+        (setq last (string-to-number (match-string 1 output))
+              start (match-end 0)))
+      (when last
+        (setq lispm-desktop-emacs--progress (min 100.0 last))
+        (lispm-desktop-emacs--changed t)))))
 
 (defun lispm-desktop-emacs--failure (buffer)
   "Return why install.sh failed, as it said in BUFFER, or nil."
