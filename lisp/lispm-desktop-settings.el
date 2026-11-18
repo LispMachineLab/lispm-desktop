@@ -1151,6 +1151,10 @@ consolidates itself (with a LispM Agent that does), and Show Memory…."
                                     (lispm-desktop-tr "Open the memory of a project or a role, or a task list"))
     (insert "\n")))
 
+(defun lispm-desktop-settings--popup-menu-p ()
+  "Return non-nil when settings buttons should open a graphical popup menu."
+  (and (not noninteractive) (lispm-ui-popup-available-p)))
+
 (defun lispm-desktop-settings--add-skill-directory ()
   "Ask for a directory of skills, and add it to those agents read, last."
   (lispm-add-skill-directory (read-directory-name (lispm-desktop-tr "Directory of skills: ") "~/" nil t) t))
@@ -1162,7 +1166,7 @@ Without DIRECTORY, pop up the removable directories under the button pressed."
       (lispm-remove-skill-directory directory t)
     (let ((directories (mapcar #'abbreviate-file-name
                                (seq-remove #'lispm-skill-directory-builtin-p lispm-skill-directories))))
-      (if (and (not noninteractive) (lispm-ui-popup-available-p))
+      (if (lispm-desktop-settings--popup-menu-p)
           (lispm-desktop-settings--popup-under-button
            (mapcar (lambda (dir)
                      (list :label dir
@@ -1250,14 +1254,28 @@ rest; programs providing models add to the Model group through it."
 (defvar-local lispm-desktop-settings--selected-skill nil
   "Name of the skill selected in the Skills panel.")
 
+(defun lispm-desktop-settings--store-skill-p (skill)
+  "Return non-nil when SKILL comes from an App Store skill source."
+  (and (eq (lispm-skill-kind skill) 'source)
+       (not (equal (plist-get skill :origin) "LispM Desktop"))))
+
+(defun lispm-desktop-settings--store-skill-entry-p (entry)
+  "Return non-nil when store ENTRY describes a skill item."
+  (eq (plist-get (cdr entry) :kind) 'skill))
+
+(defun lispm-desktop-settings--store-skill-app-id (entry)
+  "Return the owning application symbol declared by store skill ENTRY."
+  (car (plist-get (cdr entry) :requires)))
+
 (defun lispm-desktop-settings--skill-app-item (skill)
-  "Return the App Store item (ID . PROPS) that SKILL belongs to, or nil."
-  (when-let* ((name (plist-get skill :name))
+  "Return the App Store item (ID . PROPS) that store SKILL belongs to, or nil."
+  (when-let* (((lispm-desktop-settings--store-skill-p skill))
+              (name (plist-get skill :name))
               (sym (and (stringp name) (intern name)))
               (entry (or (let ((s (assq sym lispm-desktop-store-installed)))
-                           (and (eq (plist-get (cdr s) :kind) 'skill) s))
+                           (and (lispm-desktop-settings--store-skill-entry-p s) s))
                          (assq sym (lispm-desktop-store--skills))))
-              (app-id (car (plist-get (cdr entry) :requires)))
+              (app-id (lispm-desktop-settings--store-skill-app-id entry))
               (item (or (assq app-id (lispm-desktop-store-items))
                         (assq app-id lispm-desktop-store-installed))))
     item))

@@ -6441,11 +6441,12 @@ use it, saved."
                      '("test-model" "test-small" "test-large" "Other Model…"))))))
 
 (ert-deftest lispm-desktop-test-settings-lispm-skill-directories ()
-  "Directories of skills are added, last, and taken out; LispM's own is
-never offered to take out."
+  "Directories of skills are added, last, and taken out via per-row Delete,
+popup menu, or completion; builtin is never offered to take out, and files stay."
   (lispm-desktop-test--with-lispm-settings
     (let ((directory (file-name-as-directory (expand-file-name "skills" lispm-directory)))
-          (offered nil))
+          (offered nil)
+          (popup-items nil))
       (make-directory directory)
       (with-temp-file (expand-file-name "tidy.org" directory) (insert "* Tidy\n"))
       (cl-letf (((symbol-function 'read-directory-name) (lambda (&rest _) directory))
@@ -6455,16 +6456,34 @@ never offered to take out."
         (should (equal (cadr lispm-skill-directories) (abbreviate-file-name directory)))
         (with-current-buffer (lispm-desktop-settings-select 'lispm)
           (should (string-search "1 skill" (buffer-string)))
+          (should (lispm-desktop-test--settings-button "Delete"))
           (should (lispm-desktop-test--settings-button "Remove…")))
         (lispm-desktop-settings--remove-skill-directory)
         (should (equal offered (list (abbreviate-file-name directory))))
         (should (equal lispm-skill-directories (list lispm-skills--builtin)))
-        (should (equal saved '(lispm-skill-directories lispm-skill-directories)))))))
+        (should (file-exists-p (expand-file-name "tidy.org" directory)))
+        ;; Re-add and remove via GUI popup menu under Remove… button.
+        (lispm-desktop-settings--add-skill-directory)
+        (cl-letf (((symbol-function 'lispm-desktop-settings--popup-menu-p) #'always)
+                  ((symbol-function 'lispm-desktop-settings--popup-under-button)
+                   (lambda (items)
+                     (setq popup-items items)
+                     (funcall (plist-get (car items) :action)))))
+          (lispm-desktop-settings--remove-skill-directory))
+        (should (equal (mapcar (lambda (it) (plist-get it :label)) popup-items)
+                       (list (abbreviate-file-name directory))))
+        (should (equal lispm-skill-directories (list lispm-skills--builtin)))
+        ;; Re-add and remove via the row-specific Delete action.
+        (lispm-desktop-settings--add-skill-directory)
+        (with-current-buffer (lispm-desktop-settings-select 'lispm)
+          (lispm-desktop-test--press "Take a directory out of those skills come from"))
+        (should (equal lispm-skill-directories (list lispm-skills--builtin)))
+        (should (file-exists-p (expand-file-name "tidy.org" directory)))))))
 
 (ert-deftest lispm-desktop-test-settings-skills-panel ()
   "The Skills panel filters skills by tab, shows builtin labels and small app
-logos for app skills, shows the selected skill's details and tools, opens its
-file, and deletes a user skill or directory."
+logos for app skills without conflating user skills of the same name, shows the
+selected skill's details and tools, and deletes a user skill or directory."
   (skip-unless (image-type-available-p 'svg))
   (lispm-desktop-test--with-lispm-settings
     (let ((user-dir (file-name-as-directory (make-temp-file "lispm-desktop-test-skills" t))))
@@ -6481,11 +6500,19 @@ file, and deletes a user skill or directory."
               (dolist (text '("Skills" "All" "Installed" "builtin" "App Store" "Project"
                               "my-note" "My Note" "Install…" "New…" "Open" "Delete" "Skill Directories"))
                 (should (string-search text (lispm-desktop-test--settings-text))))
-              ;; App Store skill resolves its required app's name and 16px icon.
+              ;; App Store skill resolves its required app's name and 16px icon;
+              ;; a user skill sharing the same name "feeds" does not inherit store provenance.
               (let ((app-skill (list :name "feeds" :title "Feeds" :origin "App Store"
-                                     :file "/tmp/store/skills/feeds.org")))
+                                     :file "/tmp/store/skills/feeds.org"))
+                    (user-feeds (list :name "feeds" :title "My Feeds"
+                                      :file (expand-file-name "feeds.org" user-dir))))
                 (should (equal (lispm-desktop-settings--skill-origin-text app-skill) "Elfeed"))
-                (should (lispm-desktop-settings--skill-app-icon app-skill)))
+                (should (equal (lispm-desktop-settings--skill-app-icon app-skill)
+                               (lispm-ui-icon "feeds")))
+                (should-not (lispm-desktop-settings--skill-app-item user-feeds))
+                (should-not (lispm-desktop-settings--skill-app-icon user-feeds))
+                (should (equal (lispm-desktop-settings--skill-origin-text user-feeds)
+                               (abbreviate-file-name user-dir))))
               ;; Builtin skill shows "builtin" as its origin.
               (should (equal (lispm-desktop-settings--skill-origin-text
                               (list :name "create-skill"
@@ -6503,7 +6530,11 @@ file, and deletes a user skill or directory."
               (should (lispm-desktop-test--settings-button "Delete"))
               (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_prompt) t)))
                 (lispm-desktop-test--press "Delete this skill from your skills directory"))
-              (should-not (file-exists-p (expand-file-name "my-note.org" user-dir)))))
+              (should-not (file-exists-p (expand-file-name "my-note.org" user-dir)))
+              ;; Removing the non-builtin skill directory via its row Delete button in Skills panel.
+              (lispm-desktop-test--press "Take a directory out of those skills come from")
+              (should (equal lispm-skill-directories (list lispm-skills--builtin)))
+              (should (file-directory-p user-dir))))
         (delete-directory user-dir t)))))
 
 (ert-deftest lispm-desktop-test-settings-mcp-panel ()
