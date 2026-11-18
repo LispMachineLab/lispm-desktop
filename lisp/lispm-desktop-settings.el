@@ -154,6 +154,8 @@
 (defvar lispm-memory-model)
 (defvar lispm-episodes)
 (defvar lispm-skill-directories)
+(defvar lispm-mcp-servers)
+(defvar lispm-mcp-autostart)
 (declare-function lispm-model-status "lispm-settings" ())
 (declare-function lispm-model-choices "lispm-settings" ())
 (declare-function lispm-set-model "lispm-settings" (backend model &optional save))
@@ -166,8 +168,25 @@
 (declare-function lispm-backend-remove "lispm-settings" (name &optional save))
 (declare-function lispm-backend-api-name "lispm-settings" (api))
 (declare-function lispm-backend-form "lispm-backend-form" (&optional name))
+(declare-function lispm-mcp-form "lispm-backend-form" (&optional name))
+(declare-function lispm-skill-form "lispm-backend-form" ())
 (declare-function lispm-model-setup-form "lispm-backend-form" ())
 (defvar lispm-backend-form-show-function)
+(declare-function lispm-skills "lispm-skills" (&optional agent))
+(declare-function lispm-install-skill "lispm-skills" (source &optional noconfirm))
+(declare-function lispm-create-skill "lispm-skills" (name description &optional instructions title no-open))
+(declare-function lispm-delete-skill "lispm-skills" (name))
+(declare-function lispm-trust-skill "lispm-skills" (file &optional distrust))
+(declare-function lispm-skill-trusted-p "lispm-skills" (skill &optional text))
+(declare-function lispm-skill-kind "lispm-settings" (skill))
+(declare-function lispm-skill-tools "lispm-settings" (skill))
+(declare-function lispm-skill-has-code-p "lispm-settings" (skill))
+(declare-function lispm-mcp-start "lispm-mcp" (&optional server))
+(declare-function lispm-mcp-stop "lispm-mcp" (&optional server))
+(declare-function lispm-mcp-refresh "lispm-mcp" (&optional server))
+(declare-function lispm-mcp-server-get "lispm-settings" (name))
+(declare-function lispm-mcp-server-status "lispm-settings" (name))
+(declare-function lispm-mcp-server-remove "lispm-settings" (name &optional save))
 (declare-function lispm-auth-app-requires-password-p "lispm-auth" (app))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 (declare-function lispm-auth-locked-p "lispm-auth" ())
@@ -218,6 +237,10 @@
     (network ,(lispm-desktop-tr-noop "Network") lispm-desktop-settings--network "network-32")
     (lispm ,(lispm-desktop-tr-noop "LispM") lispm-desktop-settings--lispm "lispm-32"
            lispm-desktop-settings--lispm-p)
+    (skills ,(lispm-desktop-tr-noop "Skills") lispm-desktop-settings--skills "document-org-32"
+            lispm-desktop-settings--skills-p)
+    (mcp ,(lispm-desktop-tr-noop "MCP") lispm-desktop-settings--mcp "network-32"
+         lispm-desktop-settings--mcp-p)
     (sandbox ,(lispm-desktop-tr-noop "Sandbox") lispm-desktop-settings--sandbox "sandbox-32"
              lispm-desktop-settings--sandbox-p)
     (security ,(lispm-desktop-tr-noop "Security") lispm-desktop-settings--security "security-32"
@@ -242,7 +265,7 @@ a control panel, see `lispm-desktop-settings-categories'.")
     (settings-internet ,(lispm-desktop-tr-noop "Internet") "globe" "network-32"
                        (browser network))
     (settings-agents ,(lispm-desktop-tr-noop "Agents") "lispm" "lispm-32"
-                     (lispm sandbox))
+                     (lispm skills mcp sandbox))
     (settings-system ,(lispm-desktop-tr-noop "System") "computer" "kernel-32"
                      (kernel update))
     (settings-security ,(lispm-desktop-tr-noop "Security") "security" "security-32"
@@ -282,6 +305,16 @@ settings: LispM Agent 0.3.0 or later is loaded."
   "Return non-nil when LispM Agent says what its settings are, for the
 LispM panel: LispM Agent 0.6.0 or later is loaded."
   (and (featurep 'lispm-settings) (fboundp 'lispm-model-status)))
+
+(defun lispm-desktop-settings--skills-p ()
+  "Return non-nil when LispM Agent says what its skills are, for the
+Skills panel."
+  (and (lispm-desktop-settings--lispm-p) (fboundp 'lispm-skill-kind)))
+
+(defun lispm-desktop-settings--mcp-p ()
+  "Return non-nil when LispM Agent says what its MCP servers are, for the
+MCP panel."
+  (and (lispm-desktop-settings--lispm-p) (fboundp 'lispm-mcp-server-status)))
 
 (defun lispm-desktop-settings--panels (&optional category)
   "Return the panels that show here; with CATEGORY, a key of
@@ -1132,20 +1165,8 @@ agents read; its skills stay where they are."
                       (car (last directories)))
      t)))
 
-(defun lispm-desktop-settings--lispm-roles ()
-  "Insert the LispM panel's Roles & Skills group: the role agents start
-with, and the directories of skills, with Add… and Remove…."
-  (lispm-desktop-settings--heading (lispm-desktop-tr "Roles & Skills"))
-  (lispm-desktop-settings--paragraph (lispm-desktop-tr "Agents started without choosing a role are:"))
-  (dolist (role (lispm-default-role-choices))
-    (let ((name (symbol-name (lispm-role-name role)))
-          (description (lispm-role-description role)))
-      (lispm-desktop-settings--radio name (eq (lispm-role-name role) lispm-default-role)
-                                     (lambda () (lispm-set-default-role (lispm-role-name role) t))
-                                     (and description
-                                          (lispm-desktop-settings--fit description
-                                                                       (lispm-desktop-settings--note-room name))))))
-  (insert "\n")
+(defun lispm-desktop-settings--skill-directories-body ()
+  "Insert the list of skill directories and the Add… and Remove… buttons."
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "Skills come from these directories, a later one's replacing an earlier one's of the same name:"))
   (dolist (directory lispm-skill-directories)
@@ -1166,7 +1187,34 @@ with, and the directories of skills, with Add… and Remove…."
   (when (seq-remove #'lispm-skill-directory-builtin-p lispm-skill-directories)
     (insert " ")
     (lispm-desktop-settings--button (lispm-desktop-tr "Remove…") #'lispm-desktop-settings--remove-skill-directory
-                                    (lispm-desktop-tr "Take a directory out of those skills come from")))
+                                    (lispm-desktop-tr "Take a directory out of those skills come from"))))
+
+(defun lispm-desktop-settings--lispm-roles ()
+  "Insert the LispM panel's Roles & Skills group: the role agents start
+with, and the directories of skills, with Add… and Remove…."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Roles & Skills"))
+  (lispm-desktop-settings--paragraph (lispm-desktop-tr "Agents started without choosing a role are:"))
+  (dolist (role (lispm-default-role-choices))
+    (let ((name (symbol-name (lispm-role-name role)))
+          (description (lispm-role-description role)))
+      (lispm-desktop-settings--radio name (eq (lispm-role-name role) lispm-default-role)
+                                     (lambda () (lispm-set-default-role (lispm-role-name role) t))
+                                     (and description
+                                          (lispm-desktop-settings--fit description
+                                                                       (lispm-desktop-settings--note-room name))))))
+  (insert "\n")
+  (lispm-desktop-settings--skill-directories-body)
+  (when (or (lispm-desktop-settings--skills-p) (lispm-desktop-settings--mcp-p))
+    (insert "\n\n" (lispm-desktop-settings--indent))
+    (when (lispm-desktop-settings--skills-p)
+      (lispm-desktop-settings--button (lispm-desktop-tr "Skills…")
+                                      (lambda () (lispm-desktop-settings-select 'skills))
+                                      (lispm-desktop-tr "Show the Skills panel"))
+      (insert " "))
+    (when (lispm-desktop-settings--mcp-p)
+      (lispm-desktop-settings--button (lispm-desktop-tr "MCP…")
+                                      (lambda () (lispm-desktop-settings-select 'mcp))
+                                      (lispm-desktop-tr "Show the MCP panel"))))
   (insert "\n"))
 
 (defun lispm-desktop-settings--lispm ()
@@ -1178,6 +1226,312 @@ rest; programs providing models add to the Model group through it."
   (lispm-desktop-settings--lispm-permissions)
   (lispm-desktop-settings--lispm-memory)
   (lispm-desktop-settings--lispm-roles))
+
+;;;; Skills panel
+
+(defvar-local lispm-desktop-settings--skill-filter 'all
+  "Kind of skills shown in the Skills panel: all, user, builtin, source or project.")
+
+(defvar-local lispm-desktop-settings--selected-skill nil
+  "Name of the skill selected in the Skills panel.")
+
+(defun lispm-desktop-settings--skill-origin-text (skill)
+  "Return a short label saying where SKILL comes from."
+  (pcase (lispm-skill-kind skill)
+    ('builtin (lispm-desktop-tr "LispM's own skills"))
+    ('user (abbreviate-file-name (file-name-directory (plist-get skill :file))))
+    ('project
+     (if (and (lispm-skill-has-code-p skill) (not (lispm-skill-trusted-p skill)))
+         (lispm-desktop-tr "Project (asks before running)")
+       (lispm-desktop-tr "Project")))
+    ('source (or (plist-get skill :origin) (lispm-desktop-tr "App Store")))
+    (_ (abbreviate-file-name (file-name-directory (plist-get skill :file))))))
+
+(defun lispm-desktop-settings--matching-skills ()
+  "Return the skills matching `lispm-desktop-settings--skill-filter'."
+  (let ((agent (or (bound-and-true-p lispm-session-agent)
+                   (bound-and-true-p lispm-chat-agent))))
+    (seq-filter (lambda (skill)
+                  (let ((kind (lispm-skill-kind skill)))
+                    (pcase lispm-desktop-settings--skill-filter
+                      ('all t)
+                      ('user (memq kind '(user directory)))
+                      (wanted (eq kind wanted)))))
+                (lispm-skills agent))))
+
+(defun lispm-desktop-settings--install-skill ()
+  "Ask for a skill file or directory and install it in the user's skills."
+  (interactive)
+  (call-interactively #'lispm-install-skill))
+
+(defun lispm-desktop-settings--new-skill ()
+  "Open the form to create a new skill, or prompt in the minibuffer."
+  (interactive)
+  (if (and (not noninteractive) (fboundp 'lispm-skill-form))
+      (lispm-desktop-settings--show-backend-form (lispm-skill-form))
+    (call-interactively #'lispm-create-skill)))
+
+(defun lispm-desktop-settings--open-skill (skill)
+  "Open SKILL's file in a buffer."
+  (when-let* ((file (plist-get skill :file)))
+    (pop-to-buffer (find-file-noselect file))))
+
+(defun lispm-desktop-settings--delete-skill (skill)
+  "Delete user SKILL once confirmed."
+  (let ((name (plist-get skill :name)))
+    (when (yes-or-no-p (lispm-desktop-tr "Delete the skill %s?" name))
+      (lispm-delete-skill name))))
+
+(defun lispm-desktop-settings--skill-details (skill)
+  "Insert the details and actions of SKILL in the Skills panel."
+  (let* ((name (plist-get skill :name))
+         (title (or (plist-get skill :title) name))
+         (file (plist-get skill :file))
+         (kind (lispm-skill-kind skill))
+         (tools (mapcar #'car (lispm-skill-tools skill))))
+    (insert "\n" (lispm-desktop-settings--indent)
+            (propertize title 'face 'bold)
+            (propertize (format " (%s) · %s" name (lispm-desktop-settings--skill-origin-text skill))
+                        'face 'shadow)
+            "\n")
+    (when file
+      (lispm-desktop-settings--note (abbreviate-file-name file)))
+    (when-let* ((description (plist-get skill :description))
+                ((not (string-empty-p description))))
+      (lispm-desktop-settings--paragraph description))
+    (when tools
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "Tools: %s" (string-join tools ", "))))
+    (insert (lispm-desktop-settings--indent))
+    (lispm-desktop-settings--button (lispm-desktop-tr "Open")
+                                    (lambda () (lispm-desktop-settings--open-skill skill))
+                                    (lispm-desktop-tr "Open the skill's file in the editor"))
+    (when (eq kind 'user)
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Uninstall")
+                                      (lambda () (lispm-desktop-settings--delete-skill skill))
+                                      (lispm-desktop-tr "Delete this skill from your skills directory")))
+    (when (and (eq kind 'project) (lispm-skill-has-code-p skill))
+      (insert " ")
+      (if (lispm-skill-trusted-p skill)
+          (lispm-desktop-settings--button (lispm-desktop-tr "Untrust")
+                                          (lambda () (lispm-untrust-skill file))
+                                          (lispm-desktop-tr "Have agents ask again before running a skill's code"))
+        (lispm-desktop-settings--button (lispm-desktop-tr "Trust…")
+                                        (lambda () (lispm-trust-skill file))
+                                        (lispm-desktop-tr "Trust the code of this project skill"))))
+    (insert "\n")))
+
+(defun lispm-desktop-settings--skills ()
+  "Insert the Skills panel: all available skills by source, installing,
+creating, opening and deleting skills, and the directories skills come from."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Skills"))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Manuals and tools agents load when a task calls for them:"))
+  (let* (( filter-choices
+           (list (cons 'all (lispm-desktop-tr "All"))
+                 (cons 'user (lispm-desktop-tr "Installed"))
+                 (cons 'builtin (lispm-desktop-tr "LispM's own skills"))
+                 (cons 'source (lispm-desktop-tr "App Store"))
+                 (cons 'project (lispm-desktop-tr "Project"))))
+         (skills (lispm-desktop-settings--matching-skills))
+         (selected (or (seq-find (lambda (s)
+                                   (equal (plist-get s :name) lispm-desktop-settings--selected-skill))
+                                 skills)
+                       (car skills))))
+    (setq lispm-desktop-settings--selected-skill (and selected (plist-get selected :name)))
+    (insert (lispm-desktop-settings--indent))
+    (lispm-ui-insert-popup-button
+     (or (cdr (assq lispm-desktop-settings--skill-filter filter-choices))
+         (lispm-desktop-tr "All"))
+     filter-choices
+     (lambda (filter)
+       (setq lispm-desktop-settings--skill-filter filter
+             lispm-desktop-settings--selected-skill nil)
+       (lispm-desktop-settings--render))
+     :current lispm-desktop-settings--skill-filter)
+    (insert " ")
+    (lispm-desktop-settings--button (lispm-desktop-tr "Install…")
+                                    #'lispm-desktop-settings--install-skill
+                                    (lispm-desktop-tr "Install a skill from a file or directory"))
+    (when (fboundp 'lispm-create-skill)
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "New…")
+                                      #'lispm-desktop-settings--new-skill
+                                      (lispm-desktop-tr "Create a new skill in your skills directory")))
+    (insert "\n\n")
+    (if (null skills)
+        (lispm-desktop-settings--note (lispm-desktop-tr "No matching skills."))
+      (dolist (skill skills)
+        (let* ((name (plist-get skill :name))
+               (title (or (plist-get skill :title) ""))
+               (origin (lispm-desktop-settings--skill-origin-text skill))
+               (note (if (and (not (string-empty-p title)) (not (equal title name)))
+                         (format "%s · %s" title origin)
+                       origin)))
+          (lispm-desktop-settings--radio
+           name (equal name lispm-desktop-settings--selected-skill)
+           (lambda () (setq lispm-desktop-settings--selected-skill name))
+           (lispm-desktop-settings--fit note (lispm-desktop-settings--note-room name)))))
+      (when selected
+        (lispm-desktop-settings--skill-details selected))))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Skill Directories"))
+  (lispm-desktop-settings--skill-directories-body)
+  (insert "\n"))
+
+;;;; MCP panel
+
+(defvar-local lispm-desktop-settings--selected-mcp nil
+  "Name of the MCP server selected in the MCP panel.")
+
+(defun lispm-desktop-settings--mcp-status-text (name)
+  "Return how MCP server NAME stands, in the language spoken."
+  (let* ((status (lispm-mcp-server-status name))
+         (state (plist-get status :state))
+         (tools (plist-get status :tools)))
+    (pcase state
+      ('running (if (> tools 0)
+                    (lispm-desktop-tr-n "running, %d tool" "running, %d tools" tools tools)
+                  (lispm-desktop-tr "running")))
+      ('starting (lispm-desktop-tr "starting…"))
+      ('failed (lispm-desktop-tr "failed"))
+      (_ (lispm-desktop-tr "stopped")))))
+
+(defun lispm-desktop-settings--mcp-target-text (config)
+  "Return the command or address of MCP server CONFIG."
+  (if-let* ((url (plist-get config :url)))
+      url
+    (string-join (cons (or (plist-get config :command) "")
+                       (plist-get config :args))
+                 " ")))
+
+(defun lispm-desktop-settings--add-mcp-server ()
+  "Open the form to add an MCP server."
+  (interactive)
+  (when (fboundp 'lispm-mcp-form)
+    (lispm-desktop-settings--show-backend-form (lispm-mcp-form))))
+
+(defun lispm-desktop-settings--edit-mcp-server (name)
+  "Open the form to change MCP server NAME."
+  (when (fboundp 'lispm-mcp-form)
+    (lispm-desktop-settings--show-backend-form (lispm-mcp-form name))))
+
+(defun lispm-desktop-settings--remove-mcp-server (name)
+  "Stop and remove MCP server NAME once confirmed."
+  (when (yes-or-no-p (lispm-desktop-tr "Remove the MCP server %s?" name))
+    (lispm-mcp-server-remove name t)))
+
+(defun lispm-desktop-settings--mcp-details (name config)
+  "Insert the details and actions of MCP server NAME, of CONFIG."
+  (let* ((status (lispm-mcp-server-status name))
+         (state (plist-get status :state))
+         (tools (plist-get status :tool-names))
+         (deferred (if (plist-member config :defer) (plist-get config :defer) t))
+         (permission (or (plist-get config :permission) 'mcp))
+         (sandbox (plist-get config :sandbox)))
+    (insert "\n" (lispm-desktop-settings--indent)
+            (propertize name 'face 'bold)
+            (propertize (format " · %s · %s"
+                                (lispm-desktop-settings--mcp-status-text name)
+                                (if deferred
+                                    (lispm-desktop-tr "on demand (search_tools)")
+                                  (lispm-desktop-tr "starts with each session")))
+                        'face 'shadow)
+            "\n")
+    (lispm-desktop-settings--note
+     (concat (lispm-desktop-settings--mcp-target-text config)
+             (format " · %s" permission)
+             (if (and (plist-get config :command) sandbox)
+                 (format " · sandbox %s" sandbox)
+               "")))
+    (when-let* ((description (plist-get config :description))
+                ((not (string-empty-p description))))
+      (lispm-desktop-settings--paragraph description))
+    (when tools
+      (lispm-desktop-settings--paragraph
+       (lispm-desktop-tr "Tools: %s" (string-join tools ", "))))
+    (insert (lispm-desktop-settings--indent))
+    (if (memq state '(running starting))
+        (lispm-desktop-settings--button (lispm-desktop-tr "Stop")
+                                        (lambda () (lispm-mcp-stop name))
+                                        (lispm-desktop-tr "Stop this MCP server and unregister its tools"))
+      (lispm-desktop-settings--button (lispm-desktop-tr "Start")
+                                      (lambda () (lispm-mcp-start name))
+                                      (lispm-desktop-tr "Start this MCP server now")))
+    (when (eq state 'running)
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Refresh")
+                                      (lambda () (lispm-mcp-refresh name))
+                                      (lispm-desktop-tr "Reload the tools of this MCP server")))
+    (when (fboundp 'lispm-mcp-form)
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Change…")
+                                      (lambda () (lispm-desktop-settings--edit-mcp-server name))
+                                      (lispm-desktop-tr "Change this MCP server's configuration")))
+    (insert " ")
+    (lispm-desktop-settings--button (lispm-desktop-tr "Remove…")
+                                    (lambda () (lispm-desktop-settings--remove-mcp-server name))
+                                    (lispm-desktop-tr "Remove this MCP server"))
+    (insert "\n")))
+
+(defun lispm-desktop-settings--mcp ()
+  "Insert the MCP panel: configured Model Context Protocol servers, their
+live status and tools, adding, changing, starting and stopping them, and
+how they start and ask for permission."
+  (lispm-desktop-settings--heading (lispm-desktop-tr "MCP Servers"))
+  (lispm-desktop-settings--paragraph
+   (lispm-desktop-tr "Model Context Protocol servers whose tools agents use as their own:"))
+  (let* ((servers lispm-mcp-servers)
+         (selected (or (assoc lispm-desktop-settings--selected-mcp servers)
+                       (car servers))))
+    (setq lispm-desktop-settings--selected-mcp (car selected))
+    (insert (lispm-desktop-settings--indent))
+    (when (fboundp 'lispm-mcp-form)
+      (lispm-desktop-settings--button (lispm-desktop-tr "Add…")
+                                      #'lispm-desktop-settings--add-mcp-server
+                                      (lispm-desktop-tr "Add an MCP server")))
+    (when servers
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Start All")
+                                      (lambda () (lispm-mcp-start))
+                                      (lispm-desktop-tr "Start all MCP servers that are not running"))
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Stop All")
+                                      (lambda () (lispm-mcp-stop))
+                                      (lispm-desktop-tr "Stop all running MCP servers"))
+      (insert " ")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Refresh")
+                                      (lambda () (lispm-mcp-refresh))
+                                      (lispm-desktop-tr "Reload tools from running MCP servers")))
+    (insert "\n\n")
+    (if (null servers)
+        (lispm-desktop-settings--note (lispm-desktop-tr "No MCP servers configured."))
+      (pcase-dolist (`(,name . ,config) servers)
+        (let ((note (format "%s · %s"
+                            (lispm-desktop-settings--mcp-status-text name)
+                            (lispm-desktop-settings--mcp-target-text config))))
+          (lispm-desktop-settings--radio
+           name (equal name lispm-desktop-settings--selected-mcp)
+           (lambda () (setq lispm-desktop-settings--selected-mcp name))
+           (lispm-desktop-settings--fit note (lispm-desktop-settings--note-room name)))))
+      (when selected
+        (lispm-desktop-settings--mcp-details (car selected) (cdr selected)))))
+  (lispm-desktop-settings--heading (lispm-desktop-tr "Startup & Permissions"))
+  (lispm-desktop-settings--check-box
+   (lispm-desktop-tr "Start non-deferred servers when a session opens") lispm-mcp-autostart
+   (lambda () (lispm-settings-set 'lispm-mcp-autostart (not lispm-mcp-autostart) t))
+   (lispm-desktop-tr "servers not loaded on demand with search_tools"))
+  (insert "\n" (lispm-desktop-settings--indent)
+          (propertize (lispm-desktop-tr "Default MCP permission: ") 'face 'shadow))
+  (let ((chosen (lispm-default-permission 'mcp)))
+    (pcase-dolist (`(,action . ,_) lispm-permission-actions)
+      (let ((name (lispm-permission-action-name action)))
+        (lispm-desktop-settings--radio-button
+         name (eq chosen action)
+         (lambda () (lispm-set-default-permission 'mcp action t))
+         (lispm-desktop-tr "Choose %s" name))
+        (insert "  "))))
+  (insert "\n"))
 
 (defun lispm-desktop-settings--sandbox-level (level)
   "Run agents' shell commands and MCP servers at sandbox LEVEL, now and at

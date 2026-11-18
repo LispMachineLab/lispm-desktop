@@ -869,7 +869,7 @@ does not change."
 (lispm-deftool settings_show
     ((panel string "The panel to show; without it, the one shown last." :optional t
             :enum ("themes" "desktop" "keyboard" "language" "browser" "network" "sandbox"
-                   "lispm" "security" "startup" "kernel" "update" "apps")))
+                   "lispm" "skills" "mcp" "security" "startup" "kernel" "update" "apps")))
   "Open the control panel holding a panel, on it; in Focus Mode, list the panel's settings in the minibuffer."
   (let ((key (and panel (intern panel))))
     (when (and key (not (assq key (lispm-desktop-settings--panels))))
