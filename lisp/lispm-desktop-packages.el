@@ -65,17 +65,7 @@
             (lispm-desktop-deps-prefetch-packages reqs)))))))
 
 (defun lispm-desktop-setup-completion-packages ()
-  "Configure minibuffer and in-buffer completion packages."
-  (use-package vertico
-    :init (vertico-mode 1))
-
-  (use-package savehist
-    :ensure nil
-    :init (savehist-mode 1))
-
-  (use-package marginalia
-    :init (marginalia-mode 1))
-
+  "Configure Orderless, Consult, Embark, Corfu, and Cape completion packages."
   (use-package orderless
     :init
     (setq completion-styles '(orderless basic)
@@ -174,6 +164,16 @@
 
   (use-package magit
     :commands magit-status)
+
+  (use-package vertico
+    :init (vertico-mode 1))
+
+  (use-package savehist
+    :ensure nil
+    :init (savehist-mode 1))
+
+  (use-package marginalia
+    :init (marginalia-mode 1))
 
   (lispm-desktop-setup-completion-packages)
 
