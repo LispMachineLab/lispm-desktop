@@ -31,7 +31,7 @@
             (lispm-desktop-installer-screen-watch-deps)
             (lispm-desktop-deps-prefetch-projects)
             (when (locate-library "lispm-kit-i18n")
-              (lispm-desktop-installer-screen-complete 'lispm-kit))
+              (lispm-desktop-installer-screen-complete 'lispm-ui))
             (require 'lispm-desktop)
             (lispm-desktop-installer-screen-complete 'desktop)
             (setq started t))

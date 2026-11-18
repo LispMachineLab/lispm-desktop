@@ -28,7 +28,7 @@
 (defvar lispm-desktop-installer-screen--last nil)
 (defconst lispm-desktop-installer-screen--buffer " *LispM installation*")
 (defvar lispm-desktop-installer-screen--large-logo nil)
-(defconst lispm-desktop-installer-screen--stages '(lispm-kit lispm-ui lispm-browser lispm lispm-auth desktop))
+(defconst lispm-desktop-installer-screen--stages '(lispm-ui lispm-browser lispm lispm-auth desktop))
 (defvar lispm-desktop-installer-screen--finished nil)
 (defvar lispm-desktop-installer-screen--status "Preparing installation...")
 (defvar lispm-desktop-installer-screen--message nil)

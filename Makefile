@@ -4,13 +4,10 @@ EMACS ?= emacs
 LISPM_BROWSER ?= ../lispm-browser/lisp
 # lisp/ of lispm-agent, whose editor's agents the desktop draws.
 LISPM_AGENT ?= ../lispm-agent/lisp
-# lispm-kit, whose engine translates the desktop's words.
-LISPM_KIT ?= ../lispm-kit
-# LispM UI, with which the desktop draws forms and asks: a checkout beside
-# this one by default, as lispm-desktop-deps.el looks for it.
+# LispM UI (including Kit, Finder, and Prebuilt), with which the desktop draws
+# forms, translates words, and manages files: a checkout beside this one by
+# default, as lispm-desktop-deps.el looks for it.
 LISPM_UI ?= ../lispm-ui
-# LispM Finder, the spatial file manager and file/folder chooser.
-LISPM_FINDER ?= ../lispm-finder
 # lispm-stickies, whose notes the desktop shows: with a checkout beside this
 # one, the tests of Stickies on the desktop run too.
 LISPM_STICKIES ?= ../lispm-stickies
@@ -29,7 +26,7 @@ TEST_PROFILE = --eval '(setq user-emacs-directory (file-name-as-directory (make-
 test:
 	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
 	  --eval "(setq lispm-desktop-term-module-source 'build)" \
-	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) $(STICKIES) -l test/lispm-desktop-test.el \
+	  -L lisp -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) $(STICKIES) -l test/lispm-desktop-test.el \
 	  -l test/lispm-desktop-installer-screen-test.el \
 	  -l test/lispm-desktop-deps-refresh-test.el \
 	  -l test/lispm-desktop-store-defaults-test.el \
@@ -44,13 +41,13 @@ test:
 # no longer gives; the tests fail on either.
 i18n:
 	$(EMACS) -Q --batch $(TEST_PROFILE) --eval '(setq native-comp-enable-subr-trampolines nil)' \
-	  -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el \
+	  -L lisp -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -l test/lispm-desktop-test.el \
 	  -f lispm-desktop-test-report-catalogs
 
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_KIT) -L $(LISPM_UI) -L $(LISPM_FINDER) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
+	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
 	  -f batch-byte-compile lisp/*.el; \
 	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 
