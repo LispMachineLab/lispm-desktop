@@ -210,7 +210,7 @@ so the echo area stays quiet; keyboard operations return nil."
                (stringp text)
                (not (string-empty-p text)))
       (lispm-desktop-console-report 'note (if gui "LispM" "Emacs") text))
-    (and gui (stringp text) (not (string-empty-p text)) t)))
+    (and gui (not lispm-desktop-console--quiet) (stringp text) (not (string-empty-p text)) t)))
 
 ;;;; What the Console shows
 

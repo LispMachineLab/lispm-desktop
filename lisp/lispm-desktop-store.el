@@ -258,6 +258,9 @@ for; a category holding nothing is left out.")
 (defvar-local lispm-desktop-store--selected nil
   "The ID of the item selected, or nil.")
 
+(defvar-local lispm-desktop-store--grid-page 0
+  "Which page of the grid shows, the first 0.")
+
 (defvar-local lispm-desktop-store--status-text nil
   "What the App Store is doing, for its placard, or nil.")
 
@@ -616,10 +619,39 @@ skills that come with it go with it, and are not among them."
               (list (plist-get props :name))))
           lispm-desktop-store-installed))
 
+(defconst lispm-desktop-store-program-directories
+  '("~/.local/bin"
+    "~/.antigravity/bin"
+    "/Applications/Gemini.app/Contents/Helpers"
+    "/Applications/Antigravity.app/Contents/Helpers"
+    "/Applications/Antigravity.app/Contents/Resources/app/bin"
+    "~/Applications/Gemini.app/Contents/Helpers"
+    "~/Applications/Antigravity.app/Contents/Helpers"
+    "~/Applications/Antigravity.app/Contents/Resources/app/bin")
+  "Directories looked in for an item's `:program' when `exec-path' lacks it:
+Emacs started from the Dock may not have `~/.local/bin' or a macOS app
+bundle's `Contents/Helpers' on `PATH'.")
+
+(defun lispm-desktop-store--find-program (program)
+  "Return the path to PROGRAM on `exec-path' or in
+`lispm-desktop-store-program-directories', or nil.  Found outside
+`exec-path', its directory is added to `exec-path' and `PATH'."
+  (or (executable-find program)
+      (when-let* ((found (let ((exec-path (mapcar #'expand-file-name
+                                                  lispm-desktop-store-program-directories)))
+                           (executable-find program)))
+                  (directory (file-name-directory found)))
+        (unless (member (directory-file-name directory)
+                        (mapcar #'directory-file-name (seq-filter #'stringp exec-path)))
+          (setq exec-path (append exec-path (list directory)))
+          (setenv "PATH" (concat (or (getenv "PATH") "") path-separator
+                                 (directory-file-name directory))))
+        found)))
+
 (defun lispm-desktop-store--missing-program (props)
   "Return the program the item of PROPS needs and PATH lacks, or nil."
   (let ((program (plist-get props :program)))
-    (and (stringp program) (not (executable-find program)) program)))
+    (and (stringp program) (not (lispm-desktop-store--find-program program)) program)))
 
 (defun lispm-desktop-store--newer-emacs (props)
   "Return the major version of Emacs the item of PROPS needs when this
@@ -938,7 +970,7 @@ language LispM speaks."
                                   name (plist-get spec :url) (plist-get spec :rev))
                 "\n")))
      (when-let* ((program (plist-get props :program)))
-       (concat (lispm-desktop-tr "It runs %s, found at %s." program (executable-find program)) "\n"))
+       (concat (lispm-desktop-tr "It runs %s, found at %s." program (lispm-desktop-store--find-program program)) "\n"))
      (mapconcat (lambda (need)
                   (concat (lispm-desktop-tr "With it, %s, for %s: %s." (lispm-desktop-needs-name need)
                                             (lispm-desktop-needs-get need :for)
@@ -2383,6 +2415,8 @@ by a checkout on `load-path' rather than an ELPA package in `package-alist'."
   "Make the installed item ID, of PROPS, take part: an application one of
 the desktop's, an extension loaded, the commands its needs name offering
 them where they are missing."
+  (when-let* ((program (plist-get props :program)))
+    (lispm-desktop-store--find-program program))
   (lispm-desktop-store--activate-package (plist-get props :package))
   (pcase (plist-get props :kind)
     ('app (lispm-desktop-store--register-app id props))
@@ -2715,9 +2749,14 @@ drawn."
                                       lispm-desktop-store--rows-height)))
 
 (defun lispm-desktop-store--page-of (items size)
-  "Return which page of ITEMS, SIZE of them a page, holds the item
-selected, the first counted 0: 0 when none does."
-  (/ (or (seq-position (mapcar #'car items) lispm-desktop-store--selected) 0) size))
+  "Return which page of ITEMS, SIZE of them a page, shows on the grid,
+the first counted 0: the page holding the item selected when one is,
+else `lispm-desktop-store--grid-page'."
+  (if-let* ((index (and lispm-desktop-store--selected
+                        (seq-position (mapcar #'car items) lispm-desktop-store--selected))))
+      (/ index size)
+    (min (max 0 lispm-desktop-store--grid-page)
+         (1- (lispm-desktop-store--pages (length items) size)))))
 
 (defun lispm-desktop-store--page-items ()
   "Return the items of the grid's page shown: the one holding the item
@@ -3875,8 +3914,8 @@ or updates, or its count."
                             (length items) installed))))
 
 (defun lispm-desktop-store--keep-selection ()
-  "Keep the item selected one the window shows: on the grid, one of its
-items, the first otherwise; on an item's page, one listed still, else
+  "Keep the item selected one the window shows: on the grid, nil when it
+is not among the items shown; on an item's page, one listed still, else
 the grid shows again."
   (when (and (eq lispm-desktop-store--view 'item)
              (not (assq lispm-desktop-store--selected (lispm-desktop-store-items))))
@@ -3884,7 +3923,9 @@ the grid shows again."
   (when (eq lispm-desktop-store--view 'grid)
     (let ((shown (lispm-desktop-store--shown)))
       (unless (assq lispm-desktop-store--selected shown)
-        (setq lispm-desktop-store--selected (caar shown))))))
+        (setq lispm-desktop-store--selected nil))
+      (setq lispm-desktop-store--grid-page
+            (lispm-desktop-store--page-of shown (lispm-desktop-store--page-size))))))
 
 (defun lispm-desktop-store--protect (field)
   "Make the window's text read-only, but the search field's, FIELD, (START
@@ -4102,13 +4143,14 @@ grid shows what it matches as typing pauses.  This is a buffer-local
                                   (lispm-desktop-store--searched)))))))))
 
 (defun lispm-desktop-store--searched ()
-  "Show the grid of what the search matches, the best selected, or the
-category's again after the search was emptied."
+  "Show the grid of what the search matches, or the category's again
+after the search was emptied."
   (when (timerp lispm-desktop-store--search-timer)
     (cancel-timer lispm-desktop-store--search-timer))
   (setq lispm-desktop-store--search-timer nil
         lispm-desktop-store--view 'grid
-        lispm-desktop-store--selected nil)
+        lispm-desktop-store--selected nil
+        lispm-desktop-store--grid-page 0)
   (lispm-desktop-store--render))
 
 (defun lispm-desktop-store--leave-field ()
@@ -4241,13 +4283,16 @@ holding it; an item's page shows its page."
 
 (defun lispm-desktop-store--move (step)
   "Select the item STEP places from the one selected in the grid, the
-first or the last past either end."
+first of the page shown when none is selected, or the first or the last
+past either end."
   (lispm-desktop-store--in-window
    (lambda ()
      (when-let* ((ids (mapcar #'car (lispm-desktop-store--shown))))
        (let ((index (seq-position ids lispm-desktop-store--selected)))
          (lispm-desktop-store--select
-          (nth (if index (max 0 (min (1- (length ids)) (+ index step))) 0) ids)))))))
+          (if index
+              (nth (max 0 (min (1- (length ids)) (+ index step))) ids)
+            (or (caar (lispm-desktop-store--page-items)) (car ids)))))))))
 
 (defun lispm-desktop-store--item-page-p ()
   "Return non-nil while the App Store's window shows an item's page."
@@ -4291,8 +4336,8 @@ show its previous page."
     (lispm-desktop-store--move (- (lispm-desktop-store--in-window #'lispm-desktop-store--columns)))))
 
 (defun lispm-desktop-store-next-page (&optional back)
-  "Show the grid's next page, its first item selected, or the previous
-page when BACK; on an item's page, its next page or its previous one."
+  "Show the grid's next page, or the previous page when BACK; on an
+item's page, its next page or its previous one."
   (interactive)
   (if (lispm-desktop-store--item-page-p)
       (lispm-desktop-store--turn-item-page (if back -1 1))
@@ -4302,11 +4347,13 @@ page when BACK; on an item's page, its next page or its previous one."
               (size (lispm-desktop-store--page-size))
               (page (+ (lispm-desktop-store--page-of items size) (if back -1 1))))
          (when (< -1 page (lispm-desktop-store--pages (length items) size))
-           (lispm-desktop-store--select (car (nth (* page size) items)))))))))
+           (setq lispm-desktop-store--grid-page page)
+           (when lispm-desktop-store--selected
+             (setq lispm-desktop-store--selected (car (nth (* page size) items))))
+           (lispm-desktop-store--render)))))))
 
 (defun lispm-desktop-store-previous-page ()
-  "Show the grid's previous page, its first item selected; on an item's
-page, its previous page."
+  "Show the grid's previous page; on an item's page, its previous page."
   (interactive)
   (lispm-desktop-store-next-page t))
 
@@ -4322,7 +4369,9 @@ in the grid; the search field empties."
    (lambda ()
      (setq lispm-desktop-store--category category
            lispm-desktop-store--filter nil
-           lispm-desktop-store--view 'grid)
+           lispm-desktop-store--view 'grid
+           lispm-desktop-store--selected nil
+           lispm-desktop-store--grid-page 0)
      (lispm-desktop-store--render))))
 
 (defun lispm-desktop-store-next-category (&optional back)
@@ -4384,6 +4433,39 @@ pressed the default button."
       (lispm-desktop-store-act-selected)
     (lispm-desktop-store-show-item)))
 
+(defun lispm-desktop-store--explain-unavailable (id props)
+  "Show in an alert why the item ID, of PROPS, cannot act now."
+  (cond
+   ((when-let* ((emacs (lispm-desktop-store--newer-emacs props)))
+      (lispm-ui-alert 'caution
+                      (lispm-desktop-tr "%s runs in Emacs %d or later; this is Emacs %s"
+                                        (plist-get props :name) emacs emacs-version)
+                      `((,(lispm-desktop-tr "OK") ok default)))
+      t))
+   ((when-let* ((program (lispm-desktop-store--missing-program props)))
+      (let ((install (plist-get props :install)))
+        (when (eq 'copy (lispm-ui-alert
+                         'caution
+                         (lispm-desktop-tr "%s needs `%s', which is not on PATH"
+                                           (plist-get props :name) program)
+                         (if install
+                             `((,(lispm-desktop-tr "Copy Command") copy)
+                               (,(lispm-desktop-tr "OK") ok default))
+                           `((,(lispm-desktop-tr "OK") ok default)))
+                         (when install
+                           (lispm-desktop-tr "Install with: %s" install))))
+          (kill-new install)
+          (message (lispm-desktop-tr "Copied: %s") install)))
+      t))
+   ((lispm-desktop-store--busy-p id)
+    (lispm-ui-alert 'note
+                    (lispm-desktop-tr "%s can no longer be stopped" (plist-get props :name))
+                    `((,(lispm-desktop-tr "OK") ok default))))
+   (t
+    (lispm-ui-alert 'note
+                    (lispm-desktop-tr "%s is installed" (plist-get props :name))
+                    `((,(lispm-desktop-tr "OK") ok default))))))
+
 (defun lispm-desktop-store-act (id)
   "Press the button of the item ID: get it, open it, update it, or stop
 installing or updating it."
@@ -4394,10 +4476,12 @@ installing or updating it."
       ('open (lispm-desktop-store-open id))
       ('update (lispm-desktop-store-update id))
       ('stop (lispm-desktop-store-stop id))
-      (_ (lispm-desktop-store--check-program props)
-         (when (lispm-desktop-store--busy-p id)
-           (user-error (lispm-desktop-tr "%s can no longer be stopped") (plist-get props :name)))
-         (user-error (lispm-desktop-tr "%s is installed") (plist-get props :name))))))
+      (_ (if (and (fboundp 'lispm-ui-gui-action-p) (lispm-ui-gui-action-p))
+             (lispm-desktop-store--explain-unavailable id props)
+           (lispm-desktop-store--check-program props)
+           (when (lispm-desktop-store--busy-p id)
+             (user-error (lispm-desktop-tr "%s can no longer be stopped") (plist-get props :name)))
+           (user-error (lispm-desktop-tr "%s is installed") (plist-get props :name)))))))
 
 (defun lispm-desktop-store-act-selected ()
   "Press the button of the item selected: Get, Open or Update."
@@ -4525,13 +4609,14 @@ one, or the one chosen of them."
 
 (defun lispm-desktop-store--grid-click (event)
   "Act on the click EVENT on the grid: show the category clicked, the page
-of the item clicked, or press the button clicked."
+of the item clicked, or press the button clicked; a click on blank grid
+space clears the selection."
   (interactive "e")
   (pcase (lispm-desktop-store--grid-event event)
     (`(category . ,category) (lispm-desktop-store-show-category category))
     (`(item . ,id) (lispm-desktop-store-show-item id))
-    (`(button . ,id) (lispm-desktop-store--select id)
-     (lispm-desktop-store-act id))))
+    (`(button . ,id) (lispm-desktop-store-act id))
+    ('nil (lispm-desktop-store--select nil))))
 
 (defun lispm-desktop-store--grid-press (event)
   "Hold the button of an item pressed with the mouse EVENT pushed in while
@@ -4542,7 +4627,6 @@ for its click."
   (pcase (lispm-desktop-store--grid-event event)
     ((and `(button . ,id) target)
      (let ((buffer (window-buffer (posn-window (event-start event)))))
-       (lispm-desktop-store--select id)
        (when (lispm-ui-modal-hold
               (lambda (moved) (and (windowp (posn-window (event-start moved)))
                                    (equal (lispm-desktop-store--grid-event moved) target)))
