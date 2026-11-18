@@ -55,6 +55,7 @@
 (declare-function lispm-desktop-terminal-make "lispm-desktop-term" (name program &rest args))
 (declare-function lispm-desktop-terminal-live-p "lispm-desktop-term" (buffer))
 (declare-function lispm-desktop-terminal-paste "lispm-desktop-term" (buffer text))
+(declare-function lispm-desktop-terminal-send "lispm-desktop-term" (buffer text))
 (declare-function lispm-desktop-term-waiting-buffers "lispm-desktop-term" ())
 (declare-function lispm-desktop-platinum-main-window "lispm-desktop-platinum-titlebar" (&optional frame))
 (declare-function lispm-desktop-apps-frontmost "lispm-desktop-apps" ())

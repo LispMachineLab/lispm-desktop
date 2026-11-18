@@ -424,6 +424,33 @@ names no colours, its label and the lines of its text, centred."
                 (lispm-desktop-tr "Tab moves, Return chooses, DEL goes back, Esc decides later.")
               (lispm-desktop-tr "Tab moves, Return chooses, Esc decides later.")))))
 
+(defun lispm-desktop-assistant--draw-progress (svg cx cy cw ch page text)
+  "Draw the setup progress bar and status messages of PAGE into SVG."
+  (let* ((size 96)
+         (top (+ cy 90))
+         (bar-x (+ cx 32))
+         (bar-y (- (+ cy ch) 94))
+         (bar-width (- cw 64))
+         (done (or (plist-get page :progress) 0))
+         (sub (or (plist-get page :subprogress) 0.0))
+         (total (max 1 (or (plist-get page :total) 1)))
+         (effective (min (float total) (+ (float done) (if (< done total) sub 0.0)))))
+    (svg-embed svg (lispm-ui-icon-file 'lambda)
+               "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
+    (svg-rectangle svg bar-x bar-y bar-width 18 :fill "#ffffff" :stroke "#222222")
+    (when (> effective 0)
+      (svg-rectangle svg (+ bar-x 2) (+ bar-y 2)
+                     (max 1 (round (/ (* (- bar-width 4) effective) (float total))))
+                     14 :fill "#306ba4"))
+    (lispm-ui-svg-content svg (format "%d / %d" done total)
+                          bar-x (+ bar-y 22) 16 text 'lispm-ui-small)
+    (when-let* ((status (plist-get page :status)))
+      (lispm-ui-svg-content svg (lispm-desktop-platinum-fit (propertize status 'face 'lispm-ui-list) (- bar-width 10))
+                            bar-x (+ bar-y 40) 16 text 'lispm-ui-list))
+    (when-let* ((message (plist-get page :message)))
+      (lispm-ui-svg-content svg (lispm-desktop-platinum-fit (propertize message 'face 'lispm-ui-small) (- bar-width 10))
+                            bar-x (+ bar-y 59) 16 text 'lispm-ui-small))))
+
 (defun lispm-desktop-assistant-draw (palette width height page focused pressed)
   "Return an SVG WIDTH by HEIGHT pixels of the assistant showing PAGE.
 It is drawn in PALETTE as a Mac OS 9 window in the middle of the desktop,
@@ -471,30 +498,7 @@ page with a :picture shows LispM's λ instead of choices, and its
           (setq top (+ top 16))))
       (if (plist-get page :picture)
           ;; Leave room below the logo for the setup progress and messages.
-          (let* ((size 96)
-                 (top (+ cy 90))
-                 (bar-x (+ cx 32))
-                 (bar-y (- (+ cy ch) 94))
-                 (bar-width (- cw 64))
-                 (done (or (plist-get page :progress) 0))
-                 (sub (or (plist-get page :subprogress) 0.0))
-                 (total (max 1 (or (plist-get page :total) 1)))
-                 (effective (min (float total) (+ (float done) (if (< done total) sub 0.0)))))
-            (svg-embed svg (lispm-ui-icon-file 'lambda)
-                       "image/png" nil :x (+ cx (/ (- cw size) 2)) :y top :width size :height size)
-            (svg-rectangle svg bar-x bar-y bar-width 18 :fill "#ffffff" :stroke "#222222")
-            (when (> effective 0)
-              (svg-rectangle svg (+ bar-x 2) (+ bar-y 2)
-                             (max 1 (round (/ (* (- bar-width 4) effective) (float total))))
-                             14 :fill "#306ba4"))
-            (lispm-ui-svg-content svg (format "%d / %d" done total)
-                                 bar-x (+ bar-y 22) 16 text 'lispm-ui-small)
-            (when-let* ((status (plist-get page :status)))
-              (lispm-ui-svg-content svg (lispm-desktop-platinum-fit (propertize status 'face 'lispm-ui-list) (- bar-width 10))
-                                   bar-x (+ bar-y 40) 16 text 'lispm-ui-list))
-            (when-let* ((message (plist-get page :message)))
-              (lispm-ui-svg-content svg (lispm-desktop-platinum-fit (propertize message 'face 'lispm-ui-small) (- bar-width 10))
-                                   bar-x (+ bar-y 59) 16 text 'lispm-ui-small)))
+          (lispm-desktop-assistant--draw-progress svg cx cy cw ch page text)
         (seq-mapn (lambda (choice rect index)
                     (lispm-desktop-assistant--draw-card svg palette rect choice
                                                         (and (eql pressed index) 'pressed)
@@ -1279,6 +1283,29 @@ page then stays, saying LispM is being set up, until
         (internal-show-cursor window nil)
         (redisplay t)))))
 
+(defun lispm-desktop-assistant--init-backdrop-buffer (backdrop desktop)
+  "Configure BACKDROP buffer with DESKTOP background and hidden chrome/cursors."
+  (with-current-buffer backdrop
+    (setq-local face-remapping-alist
+                `((default (:background ,desktop) default)
+                  (fringe (:background ,desktop) fringe))
+                mode-line-format nil
+                header-line-format nil
+                tab-line-format nil
+                cursor-type nil
+                cursor-in-non-selected-windows nil
+                evil-emacs-state-cursor '(nil)
+                evil-normal-state-cursor '(nil)
+                evil-insert-state-cursor '(nil)
+                evil-motion-state-cursor '(nil)
+                truncate-lines t
+                left-fringe-width 0
+                right-fringe-width 0
+                left-margin-width 0
+                right-margin-width 0
+                vertical-scroll-bar nil
+                horizontal-scroll-bar nil)))
+
 (defun lispm-desktop-assistant--prepare-confirm-backdrop ()
   "Ensure a clean desktop backdrop in the selected window while confirming.
 Return a cleanup function restoring the window's prior state."
@@ -1307,26 +1334,7 @@ Return a cleanup function restoring the window's prior state."
         (set-frame-parameter frame 'background-color desktop)
         (set-face-background 'fringe desktop frame)
         (lispm-desktop-assistant--color-echo-area desktop)
-        (with-current-buffer backdrop
-          (setq-local face-remapping-alist
-                      `((default (:background ,desktop) default)
-                        (fringe (:background ,desktop) fringe))
-                      mode-line-format nil
-                      header-line-format nil
-                      tab-line-format nil
-                      cursor-type nil
-                      cursor-in-non-selected-windows nil
-                      evil-emacs-state-cursor '(nil)
-                      evil-normal-state-cursor '(nil)
-                      evil-insert-state-cursor '(nil)
-                      evil-motion-state-cursor '(nil)
-                      truncate-lines t
-                      left-fringe-width 0
-                      right-fringe-width 0
-                      left-margin-width 0
-                      right-margin-width 0
-                      vertical-scroll-bar nil
-                      horizontal-scroll-bar nil))
+        (lispm-desktop-assistant--init-backdrop-buffer backdrop desktop)
         (let ((message-log-max nil))
           (message nil))
         (cond

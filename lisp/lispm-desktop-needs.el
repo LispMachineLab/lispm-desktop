@@ -753,10 +753,11 @@ first if need be."
                :name "lispm-desktop-needs" :noquery t :connection-type 'pipe
                :command (cons brew arguments)
                :filter (lambda (_process output)
-                         (lispm-desktop-needs--log output)
-                         (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))
-                           (setf (lispm-desktop-needs--job-note job) line))
-                         (lispm-desktop-needs--render))
+                         (save-match-data
+                           (lispm-desktop-needs--log output)
+                           (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))
+                             (setf (lispm-desktop-needs--job-note job) line))
+                           (lispm-desktop-needs--render)))
                :sentinel (lambda (process _event)
                            (unless (process-live-p process)
                              (lispm-desktop-needs--brew-ended job process start)))))
@@ -873,10 +874,11 @@ once the installer ended without, or after too long."
              :name "lispm-desktop-needs" :noquery t :connection-type 'pipe
              :command (cons cargo arguments)
              :filter (lambda (_process output)
-                       (lispm-desktop-needs--log output)
-                       (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))
-                         (setf (lispm-desktop-needs--job-note job) line))
-                       (lispm-desktop-needs--render))
+                       (save-match-data
+                         (lispm-desktop-needs--log output)
+                         (when-let* ((line (car (last (split-string output "\n" t "[ \t\r]+")))))
+                           (setf (lispm-desktop-needs--job-note job) line))
+                         (lispm-desktop-needs--render)))
              :sentinel (lambda (process _event)
                          (unless (process-live-p process)
                            (lispm-desktop-needs--cargo-ended job process start)))))

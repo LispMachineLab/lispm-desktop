@@ -501,50 +501,53 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
     (format "%s (%S, app: %s%s%s)"
             id title app (or finder-detail "") (or rolled ""))))
 
-(defun lispm-desktop-lispm--request-context (agent)
-  "Return live LispM Desktop and Listener scenario introspection for AGENT."
-  (let* ((system-p (and (fboundp 'lispm-system-agent-p)
-                        (lispm-system-agent-p agent)))
-         (entry-id (and (fboundp 'lispm-agent-entry)
+(defun lispm-desktop-lispm--active-surface (agent system-p genera-p in-focus)
+  "Describe the active interaction surface for AGENT."
+  (let* ((entry-id (and (fboundp 'lispm-agent-entry)
                         (plist-get (ignore-errors (funcall 'lispm-agent-entry agent)) :id)))
          (from-bar-ask (and system-p
                             (bound-and-true-p lispm-bar--asked)
                             entry-id
-                            (equal entry-id (cdr lispm-bar--asked))))
+                            (equal entry-id (cdr lispm-bar--asked)))))
+    (cond
+     ((and system-p
+           from-bar-ask
+           (or (eq (bound-and-true-p lispm-bar-entrypoint) 'genera-listener)
+               (and (null (bound-and-true-p lispm-bar-entrypoint))
+                    genera-p
+                    (bound-and-true-p lispm-desktop-genera--listener-ai-active))))
+      (concat
+       "Active surface: Dynamic Lisp Listener 1 (\"Command: █\" prompt at the bottom of the Open Genera 2.0 screen; there is NO top LispM bar in the genera look, and this is NOT a separate chat window).\n"
+       "Listener dispatch rules: Typing at \"Command: █\" and pressing Return first matches built-in Genera commands (e.g. \"Home\", \"Emacs\", \"Browser\", \"Applications\", \"App Store\", \"Control Panels\", \"Focus Mode\", \"Help Commands\", \"Clear\"), evaluates \"(...)\" S-expressions locally as Emacs Lisp, and routes other inputs to you (LispM). Your reply streams inline directly above \"Command: █\"."))
+     ((and system-p
+           (or (and (fboundp 'lispm-bar-open-p) (lispm-bar-open-p))
+               from-bar-ask))
+      "Active surface: LispM Bar (one-line popup field with compact reply panel).")
+     (in-focus
+      "Active surface: Focus Mode (LispM full-frame keyboard terminal with *LispM Sessions* on the left, active chat listener on the right, and who-line at the bottom).")
+     (system-p
+      (format "Active surface: LispM Agent chat / session buffer (%s)."
+              (buffer-name (or (and (fboundp 'lispm-agent-view)
+                                    (ignore-errors (funcall 'lispm-agent-view agent)))
+                               (current-buffer)))))
+     (t
+      (format "Active surface: Project agent chat / session buffer (%s, root: %s)."
+              (buffer-name (or (and (fboundp 'lispm-agent-view)
+                                    (ignore-errors (funcall 'lispm-agent-view agent)))
+                               (current-buffer)))
+              (abbreviate-file-name (or (and (fboundp 'lispm-agent-root)
+                                             (ignore-errors (funcall 'lispm-agent-root agent)))
+                                        default-directory)))))))
+
+(defun lispm-desktop-lispm--request-context (agent)
+  "Return live LispM Desktop and Listener scenario introspection for AGENT."
+  (let* ((system-p (and (fboundp 'lispm-system-agent-p)
+                        (lispm-system-agent-p agent)))
          (genera-p (and (fboundp 'lispm-desktop-genera--look-p)
                         (lispm-desktop-genera--look-p)))
          (in-focus (or (lispm-desktop-lispm-terminal-open-p)
                        (and (fboundp 'lispm-terminal-p) (lispm-terminal-p))))
-         (surface
-          (cond
-           ((and system-p
-                 from-bar-ask
-                 (or (eq (bound-and-true-p lispm-bar-entrypoint) 'genera-listener)
-                     (and (null (bound-and-true-p lispm-bar-entrypoint))
-                          genera-p
-                          (bound-and-true-p lispm-desktop-genera--listener-ai-active))))
-            (concat
-             "Active surface: Dynamic Lisp Listener 1 (\"Command: █\" prompt at the bottom of the Open Genera 2.0 screen; there is NO top LispM bar in the genera look, and this is NOT a separate chat window).\n"
-             "Listener dispatch rules: Typing at \"Command: █\" and pressing Return first matches built-in Genera commands (e.g. \"Home\", \"Emacs\", \"Browser\", \"Applications\", \"App Store\", \"Control Panels\", \"Focus Mode\", \"Help Commands\", \"Clear\"), evaluates \"(...)\" S-expressions locally as Emacs Lisp, and routes other inputs to you (LispM). Your reply streams inline directly above \"Command: █\"."))
-           ((and system-p
-                 (or (and (fboundp 'lispm-bar-open-p) (lispm-bar-open-p))
-                     from-bar-ask))
-            "Active surface: LispM Bar (one-line popup field with compact reply panel).")
-           (in-focus
-            "Active surface: Focus Mode (LispM full-frame keyboard terminal with *LispM Sessions* on the left, active chat listener on the right, and who-line at the bottom).")
-           (system-p
-            (format "Active surface: LispM Agent chat / session buffer (%s)."
-                    (buffer-name (or (and (fboundp 'lispm-agent-view)
-                                          (ignore-errors (funcall 'lispm-agent-view agent)))
-                                     (current-buffer)))))
-           (t
-            (format "Active surface: Project agent chat / session buffer (%s, root: %s)."
-                    (buffer-name (or (and (fboundp 'lispm-agent-view)
-                                          (ignore-errors (funcall 'lispm-agent-view agent)))
-                                     (current-buffer)))
-                    (abbreviate-file-name (or (and (fboundp 'lispm-agent-root)
-                                                   (ignore-errors (funcall 'lispm-agent-root agent)))
-                                              default-directory))))))
+         (surface (lispm-desktop-lispm--active-surface agent system-p genera-p in-focus))
          (look-desc
           (pcase lispm-desktop-look
             ('genera "genera (Symbolics Open Genera 2.0 1-bit monochrome workstation chrome; full screen is Dynamic Lisp Listener 1 with left 1-bit scrollbar, inverse-video Mouse Documentation Line, and bottom Who-Line; no top menu bar)")

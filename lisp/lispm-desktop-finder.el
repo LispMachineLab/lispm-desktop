@@ -173,7 +173,7 @@
 
 (defmacro lispm-desktop-finder--in (&rest body)
   "Run BODY in the Finder window's buffer."
-  (declare (indent 0))
+  (declare (indent 0) (debug t))
   `(with-current-buffer (lispm-desktop-finder--buffer) ,@body))
 
 ;;;; Mode & Window Setup

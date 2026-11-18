@@ -47,7 +47,7 @@ i18n:
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch --eval '(package-initialize)' -L lisp -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
+	$(EMACS) -Q --batch --eval '(package-initialize)' --eval '(setq byte-compile-error-on-warn t)' -L lisp -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
 	  -f batch-byte-compile lisp/*.el; \
 	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
 

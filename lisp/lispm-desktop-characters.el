@@ -322,7 +322,8 @@ deletes it.
   "How the characters are laid out above the card: `list' or `grid'.")
 
 (defvar-local lispm-desktop-characters--tab 'all
-  "Which section of the card is shown: `all', `soul', `memory', `knowledge' or `conversations'.")
+  "Which section of the card is shown.
+One of `all', `soul', `memory', `knowledge' or `conversations'.")
 
 (defconst lispm-desktop-characters--tabs '(all soul memory knowledge conversations)
   "The tabs of a character card, in order.")
@@ -589,6 +590,132 @@ group box's sides; THIN makes it a gap of a few pixels."
     (dolist (row (split-string (lispm-ui-tabs tabs tab-width) "\n"))
       (lispm-desktop-characters--card-row (lambda () (insert row))))))
 
+(defun lispm-desktop-characters--card-soul-section (character tab text-width heading line)
+  "Render CHARACTER's Soul or Skill section for TAB using HEADING and LINE."
+  (when (memq tab '(all soul))
+    (let ((limit (if (eq tab 'all) 4 12)))
+      (if (lispm-character-skill character)
+          (let* ((info (lispm-desktop-characters--skill-info character))
+                 (file (plist-get info :file))
+                 (summary (or (plist-get info :summary) (lispm-character-description character)))
+                 (tools (plist-get info :tools)))
+            (when (or summary tools (eq tab 'soul))
+              (lispm-desktop-characters--card-row #'ignore t)
+              (funcall heading (lispm-desktop-tr "Skill"))
+              (dolist (row (lispm-desktop-characters--wrap-lines summary text-width limit))
+                (funcall line row nil file))
+              (when tools
+                (funcall line (propertize (lispm-desktop-tr "Tools: %s" (string-join tools ", "))
+                                          'face 'shadow)
+                         nil file))))
+        (when-let* ((soul (lispm-character-soul character))
+                    (rows (lispm-desktop-characters--wrap-lines soul text-width limit)))
+          (lispm-desktop-characters--card-row #'ignore t)
+          (funcall heading (lispm-desktop-tr "Soul"))
+          (dolist (row rows)
+            (funcall line row nil (lispm-character-file character))))
+        (when-let* (((fboundp 'lispm-character-appearance))
+                    (appearance (lispm-character-appearance character)))
+          (funcall line
+                   (propertize (lispm-desktop-tr "Appearance: %s"
+                                                 (concat appearance
+                                                         (if-let* ((wf (and (fboundp 'lispm-character-workflow)
+                                                                            (lispm-character-workflow character))))
+                                                             (concat " (" wf ")")
+                                                           "")))
+                               'face 'shadow)
+                   nil (lispm-character-file character)))))))
+
+(defun lispm-desktop-characters--card-memory-section (character tab text-width heading line)
+  "Render CHARACTER's Self and Memory sections for TAB using HEADING and LINE."
+  (when (memq tab '(all soul memory))
+    (when-let* (((fboundp 'lispm-character-self))
+                (self (lispm-character-self character))
+                (self-file (and (fboundp 'lispm-character-directory)
+                                (expand-file-name "self.org"
+                                                  (lispm-character-directory
+                                                   (lispm-character-name character)))))
+                (rows (lispm-desktop-characters--wrap-lines
+                       self text-width (if (eq tab 'all) 3 10))))
+      (lispm-desktop-characters--card-row #'ignore t)
+      (funcall heading (lispm-desktop-tr "In its own words"))
+      (dolist (row rows)
+        (funcall line row nil self-file))))
+  (when (memq tab '(all memory))
+    (let ((memories (lispm-desktop-characters--memories character)))
+      (when (or memories (eq tab 'memory))
+        (lispm-desktop-characters--card-row #'ignore t)
+        (funcall heading (lispm-desktop-tr-in "agents' memory" "Memory"))
+        (if (null memories)
+            (funcall line (propertize (lispm-desktop-tr "No memories yet.") 'face 'shadow))
+          (dolist (entry (seq-take memories (if (eq tab 'all) 4 10)))
+            (let* ((tags (plist-get entry :tags))
+                   (tag-str (if tags (concat "  :" (string-join tags ":") ":") ""))
+                   (target (cons (plist-get entry :file) (plist-get entry :beg))))
+              (funcall line
+                       (concat (lispm-desktop-characters--fit
+                                (concat "• " (plist-get entry :title))
+                                (- text-width (string-pixel-width tag-str)))
+                               (propertize tag-str 'face 'shadow))
+                       nil target)
+              (when (eq tab 'memory)
+                (dolist (row (lispm-desktop-characters--wrap-lines
+                              (plist-get entry :body) (- text-width 16) 2))
+                  (funcall line (propertize (concat "  " row) 'face 'shadow) nil target))))))))))
+
+(defun lispm-desktop-characters--card-knowledge-section (character tab text-width heading line)
+  "Render CHARACTER's RAG Knowledge section for TAB using HEADING and LINE."
+  (when (memq tab '(all knowledge))
+    (let ((files (and (fboundp 'lispm-character-knowledge-files)
+                      (ignore-errors (lispm-character-knowledge-files character))))
+          (chunks (and (fboundp 'lispm-character-rag-chunks)
+                       (ignore-errors (lispm-character-rag-chunks character)))))
+      (when (or files (eq tab 'knowledge))
+        (lispm-desktop-characters--card-row #'ignore t)
+        (funcall heading (lispm-desktop-tr "Knowledge"))
+        (if (null files)
+            (funcall line (propertize (lispm-desktop-tr "No knowledge files yet.") 'face 'shadow))
+          (dolist (chunk (seq-take chunks (if (eq tab 'all) 4 10)))
+            (let* ((kws (plist-get chunk :keywords))
+                   (kw-str (if kws (concat "  :" (string-join kws ":") ":") ""))
+                   (file (plist-get chunk :file)))
+              (funcall line
+                       (concat (lispm-desktop-characters--fit
+                                (concat "• " (file-name-nondirectory file) " · " (plist-get chunk :title))
+                                (- text-width (string-pixel-width kw-str)))
+                               (propertize kw-str 'face 'shadow))
+                       nil file)
+              (when (eq tab 'knowledge)
+                (dolist (row (lispm-desktop-characters--wrap-lines
+                              (plist-get chunk :text) (- text-width 16) 2))
+                  (funcall line (propertize (concat "  " row) 'face 'shadow) nil file))))))))))
+
+(defun lispm-desktop-characters--card-conversations-section (character tab text-width heading line)
+  "Render CHARACTER's Conversations and Lately sections for TAB."
+  (when (memq tab '(all conversations))
+    (when (fboundp 'lispm-character-conversations)
+      (let ((conversations (lispm-character-conversations character)))
+        (when (or conversations (eq tab 'conversations))
+          (lispm-desktop-characters--card-row #'ignore t)
+          (funcall heading (lispm-desktop-tr "Conversations"))
+          (if (null conversations)
+              (funcall line (propertize (lispm-desktop-tr "No conversations yet.") 'face 'shadow))
+            (dolist (conversation (seq-take conversations (if (eq tab 'all) 6 12)))
+              (funcall line (lispm-desktop-characters--conversation-line conversation) conversation))))))
+    (when (fboundp 'lispm-character-days)
+      (when-let* ((days (lispm-character-days character (if (eq tab 'all) 4 12))))
+        (lispm-desktop-characters--card-row #'ignore t)
+        (funcall heading (lispm-desktop-tr "Lately"))
+        (dolist (day days)
+          (let ((episode-file (and (fboundp 'lispm-character-directory)
+                                   (plist-get day :day)
+                                   (expand-file-name
+                                    (format "episodes/%s.org" (plist-get day :day))
+                                    (lispm-character-directory (lispm-character-name character))))))
+            (funcall line
+                     (lispm-desktop-characters--day-line day text-width)
+                     nil (and episode-file (file-readable-p episode-file) episode-file))))))))
+
 (defun lispm-desktop-characters--card (character)
   "Insert who CHARACTER is, in a group box titled with its name: its picture,
 what it is told to be, what it thinks with, its soul or skill, its memory,
@@ -644,123 +771,13 @@ its conversations and its days."
     (lispm-desktop-characters--card-row #'ignore t)
     (lispm-desktop-characters--card-tabs character width)
     ;; 1. Soul (for person characters) or Skill (for app characters).
-    (when (memq tab '(all soul))
-      (let ((limit (if (eq tab 'all) 4 12)))
-        (if (lispm-character-skill character)
-            (let* ((info (lispm-desktop-characters--skill-info character))
-                   (file (plist-get info :file))
-                   (summary (or (plist-get info :summary) (lispm-character-description character)))
-                   (tools (plist-get info :tools)))
-              (when (or summary tools (eq tab 'soul))
-                (lispm-desktop-characters--card-row #'ignore t)
-                (funcall heading (lispm-desktop-tr "Skill"))
-                (dolist (row (lispm-desktop-characters--wrap-lines summary text-width limit))
-                  (funcall line row nil file))
-                (when tools
-                  (funcall line (propertize (lispm-desktop-tr "Tools: %s" (string-join tools ", "))
-                                            'face 'shadow)
-                           nil file))))
-          (when-let* ((soul (lispm-character-soul character))
-                      (rows (lispm-desktop-characters--wrap-lines soul text-width limit)))
-            (lispm-desktop-characters--card-row #'ignore t)
-            (funcall heading (lispm-desktop-tr "Soul"))
-            (dolist (row rows)
-              (funcall line row nil (lispm-character-file character))))
-          (when-let* (((fboundp 'lispm-character-appearance))
-                      (appearance (lispm-character-appearance character)))
-            (funcall line
-                     (propertize (lispm-desktop-tr "Appearance: %s"
-                                                   (concat appearance
-                                                           (if-let* ((wf (and (fboundp 'lispm-character-workflow)
-                                                                              (lispm-character-workflow character))))
-                                                               (concat " (" wf ")")
-                                                             "")))
-                                 'face 'shadow)
-                     nil (lispm-character-file character))))))
+    (lispm-desktop-characters--card-soul-section character tab text-width heading line)
     ;; 2. Self (in its own words) and Memory (Lorebook).
-    (when (memq tab '(all soul memory))
-      (when-let* (((fboundp 'lispm-character-self))
-                  (self (lispm-character-self character))
-                  (self-file (and (fboundp 'lispm-character-directory)
-                                  (expand-file-name "self.org"
-                                                    (lispm-character-directory
-                                                     (lispm-character-name character)))))
-                  (rows (lispm-desktop-characters--wrap-lines
-                         self text-width (if (eq tab 'all) 3 10))))
-        (lispm-desktop-characters--card-row #'ignore t)
-        (funcall heading (lispm-desktop-tr "In its own words"))
-        (dolist (row rows)
-          (funcall line row nil self-file))))
-    (when (memq tab '(all memory))
-      (let ((memories (lispm-desktop-characters--memories character)))
-        (when (or memories (eq tab 'memory))
-          (lispm-desktop-characters--card-row #'ignore t)
-          (funcall heading (lispm-desktop-tr-in "agents' memory" "Memory"))
-          (if (null memories)
-              (funcall line (propertize (lispm-desktop-tr "No memories yet.") 'face 'shadow))
-            (dolist (entry (seq-take memories (if (eq tab 'all) 4 10)))
-              (let* ((tags (plist-get entry :tags))
-                     (tag-str (if tags (concat "  :" (string-join tags ":") ":") ""))
-                     (target (cons (plist-get entry :file) (plist-get entry :beg))))
-                (funcall line
-                         (concat (lispm-desktop-characters--fit
-                                  (concat "• " (plist-get entry :title))
-                                  (- text-width (string-pixel-width tag-str)))
-                                 (propertize tag-str 'face 'shadow))
-                         nil target)
-                (when (eq tab 'memory)
-                  (dolist (row (lispm-desktop-characters--wrap-lines
-                                (plist-get entry :body) (- text-width 16) 2))
-                    (funcall line (propertize (concat "  " row) 'face 'shadow) nil target)))))))))
+    (lispm-desktop-characters--card-memory-section character tab text-width heading line)
     ;; 3. Knowledge base (RAG lorebook and attached documents).
-    (when (memq tab '(all knowledge))
-      (let ((files (and (fboundp 'lispm-character-knowledge-files)
-                        (ignore-errors (lispm-character-knowledge-files character))))
-            (chunks (and (fboundp 'lispm-character-rag-chunks)
-                         (ignore-errors (lispm-character-rag-chunks character)))))
-        (when (or files (eq tab 'knowledge))
-          (lispm-desktop-characters--card-row #'ignore t)
-          (funcall heading (lispm-desktop-tr "Knowledge"))
-          (if (null files)
-              (funcall line (propertize (lispm-desktop-tr "No knowledge files yet.") 'face 'shadow))
-            (dolist (chunk (seq-take chunks (if (eq tab 'all) 4 10)))
-              (let* ((kws (plist-get chunk :keywords))
-                     (kw-str (if kws (concat "  :" (string-join kws ":") ":") ""))
-                     (file (plist-get chunk :file)))
-                (funcall line
-                         (concat (lispm-desktop-characters--fit
-                                  (concat "• " (file-name-nondirectory file) " · " (plist-get chunk :title))
-                                  (- text-width (string-pixel-width kw-str)))
-                                 (propertize kw-str 'face 'shadow))
-                         nil file)
-                (when (eq tab 'knowledge)
-                  (dolist (row (lispm-desktop-characters--wrap-lines
-                                (plist-get chunk :text) (- text-width 16) 2))
-                    (funcall line (propertize (concat "  " row) 'face 'shadow) nil file)))))))))
+    (lispm-desktop-characters--card-knowledge-section character tab text-width heading line)
     ;; 4. Conversations & Lately (diary).
-    (when (memq tab '(all conversations))
-      (when (fboundp 'lispm-character-conversations)
-        (let ((conversations (lispm-character-conversations character)))
-          (when (or conversations (eq tab 'conversations))
-            (lispm-desktop-characters--card-row #'ignore t)
-            (funcall heading (lispm-desktop-tr "Conversations"))
-            (if (null conversations)
-                (funcall line (propertize (lispm-desktop-tr "No conversations yet.") 'face 'shadow))
-              (dolist (conversation (seq-take conversations (if (eq tab 'all) 6 12)))
-                (funcall line (lispm-desktop-characters--conversation-line conversation) conversation))))))
-      (when (fboundp 'lispm-character-days)
-        (when-let* ((days (lispm-character-days character (if (eq tab 'all) 4 12))))
-          (lispm-desktop-characters--card-row #'ignore t)
-          (funcall heading (lispm-desktop-tr "Lately"))
-          (dolist (day days)
-            (let ((episode-file (and (fboundp 'lispm-character-directory)
-                                     (plist-get day :day)
-                                     (expand-file-name
-                                      (format "episodes/%s.org" (plist-get day :day))
-                                      (lispm-character-directory (lispm-character-name character))))))
-              (funcall line
-                       (lispm-desktop-characters--day-line day text-width)
-                       nil (and episode-file (file-readable-p episode-file) episode-file)))))))
+    (lispm-desktop-characters--card-conversations-section character tab text-width heading line)
     (lispm-desktop-characters--card-row #'ignore t)
     (insert (propertize " " 'display `(space :align-to (,margin)))
             (lispm-ui-group-edge width nil t)
@@ -955,7 +972,8 @@ An error if there is none."
   (lispm-character-generate-avatar (lispm-desktop-characters--at-point)))
 
 (defun lispm-desktop-characters-open-file (&optional character)
-  "Open the character file or skill manual of CHARACTER, by default the one at point."
+  "Open the character file or skill manual of CHARACTER.
+Defaults to the character at point."
   (interactive)
   (let* ((character (or character (lispm-desktop-characters--at-point)))
          (file (or (lispm-character-file character)
@@ -1075,7 +1093,7 @@ An error if there is none."
         (lispm-get-character app t))))
 
 (defun lispm-desktop-characters-app-menu-items (app)
-  "Return right-click menu items configuring or talking to APP when it is a character."
+  "Return right-click menu items for APP when it is backed by a character."
   (when-let* ((character (lispm-desktop-characters-app-character app)))
     `(,@(when (lispm-character-skill character)
           `((:label ,(lispm-desktop-tr "Talk")

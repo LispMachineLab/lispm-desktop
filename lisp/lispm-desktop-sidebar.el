@@ -34,6 +34,10 @@
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-i18n)
 
+(declare-function lispm-desktop-main-area-show-terminal "lispm-desktop-interface" (buffer))
+(declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
+(declare-function treemacs-get-local-window "treemacs-scope" ())
+
 ;;;; Left sidebar views
 ;;
 ;; The left sidebar shows at most one view at a time.  Each tab bar button

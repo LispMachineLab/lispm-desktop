@@ -454,6 +454,25 @@ and a keyhole."
           :cancel (list cancel-x cancel-w cancel-label)
           :confirm (list confirm-x confirm-w confirm-label))))
 
+(defun lispm-desktop-auth--draw-setup-footer (svg palette page cx cy cw ch margin muted)
+  "Draw the bottom rule, action buttons, and key hint of PAGE into SVG."
+  (let ((field-width (- cw (* 2 margin))))
+    (lispm-ui-svg-fill svg (+ cx margin) (- (+ cy ch) 40) field-width 1
+                       (lispm-ui-grey palette #xB4))
+    (lispm-ui-svg-fill svg (+ cx margin) (- (+ cy ch) 39) field-width 1
+                       (lispm-ui-grey palette #xFF))
+    (pcase-let* ((buttons (lispm-desktop-auth--setup-page-buttons cx cw cy ch))
+                 (button-y (plist-get buttons :y))
+                 (`(,cancel-x ,cancel-w ,cancel-label) (plist-get buttons :cancel))
+                 (`(,confirm-x ,confirm-w ,confirm-label) (plist-get buttons :confirm))
+                 (change (and (plist-get page :change)
+                              (lispm-desktop-tr "C-p changes the password"))))
+      (lispm-ui-svg-push-button svg cancel-x button-y palette cancel-label cancel-w)
+      (lispm-ui-svg-push-button svg confirm-x button-y palette confirm-label confirm-w)
+      (when change
+        (lispm-ui-svg-content
+         svg change (+ cx margin) button-y 16 muted 'lispm-ui-small)))))
+
 (defun lispm-desktop-auth--setup-page-svg (width height page palette)
   "Return an SVG WIDTH by HEIGHT pixels of PAGE as a window on the desktop.
 PAGE is a page asking for LispM's password; PALETTE colours it."
@@ -526,22 +545,7 @@ PAGE is a page asking for LispM's password; PALETTE colours it."
                                   'lispm-ui-list)
             (setq top (+ top 16)))))
       ;; A rule above the keys at the foot, lit under.
-      (lispm-ui-svg-fill svg (+ cx margin) (- (+ cy ch) 40) field-width 1
-                         (lispm-ui-grey palette #xB4))
-      (lispm-ui-svg-fill svg (+ cx margin) (- (+ cy ch) 39) field-width 1
-                         (lispm-ui-grey palette #xFF))
-      (pcase-let* ((buttons (lispm-desktop-auth--setup-page-buttons cx cw cy ch))
-                   (button-y (plist-get buttons :y))
-                   (`(,cancel-x ,cancel-w ,cancel-label) (plist-get buttons :cancel))
-                   (`(,confirm-x ,confirm-w ,confirm-label) (plist-get buttons :confirm))
-                   (change (and (plist-get page :change)
-                                (lispm-desktop-tr "C-p changes the password"))))
-        (lispm-ui-svg-push-button svg cancel-x button-y palette cancel-label cancel-w)
-        (lispm-ui-svg-push-button svg confirm-x button-y palette confirm-label confirm-w)
-        (when change
-          (lispm-ui-svg-content
-           svg change
-           (+ cx margin) button-y 16 muted 'lispm-ui-small)))
+      (lispm-desktop-auth--draw-setup-footer svg palette page cx cy cw ch margin muted)
       svg)))
 
 (defun lispm-desktop-auth--setup-page-event (_page event)
@@ -624,6 +628,54 @@ when the desktop has finished setting up and prompts on demand."
        (lambda () (funcall orig prompt confirm message)))
     (funcall orig prompt confirm message)))
 
+(defun lispm-desktop-auth--prepare-page-window (frame windowed)
+  "Prepare FRAME and the selected window for an Auth page before showing it."
+  (add-hook 'lispm-auth-page-mode-hook #'lispm-desktop-auth--hide-page-cursor)
+  (when (fboundp 'lispm-auth--page-redraw)
+    (advice-add 'lispm-auth--page-redraw :before #'lispm-desktop-auth--hide-page-cursor))
+  (when (and (window-live-p (selected-window))
+             (or (window-minibuffer-p (selected-window))
+                 (window-dedicated-p (selected-window))
+                 (window-parameter (selected-window) 'window-side)))
+    (when-let* ((main (or (window-main-window frame)
+                          (frame-first-window frame))))
+      (when (window-live-p main)
+        (select-window main))))
+  (let ((window (selected-window)))
+    (when (and (window-live-p window)
+               (window-parameter window 'lispm-desktop-platinum-scroll-frame)
+               (fboundp 'lispm-desktop-platinum-scroll-sync))
+      (lispm-desktop-platinum-scroll-sync)))
+  (when (and (display-graphic-p frame) (not windowed))
+    (let* ((palette (lispm-desktop-auth--setup-page-palette))
+           (content (or (plist-get palette :content)
+                        (face-attribute 'default :background nil 'default)
+                        "#FFFFFF"))
+           (text (or (plist-get palette :text)
+                     (face-attribute 'default :foreground nil 'default)
+                     "#000000")))
+      (set-frame-parameter frame 'background-color content)
+      (set-frame-parameter frame 'foreground-color text)
+      (set-face-background 'fringe content frame))))
+
+(defun lispm-desktop-auth--page-cleanup (frame saved-bg saved-fringe was-invisible)
+  "Return a `kill-buffer-hook' callback restoring FRAME after an Auth page closes."
+  (lambda ()
+    (when (and (frame-live-p frame) (not (frame-parent frame)))
+      (let ((bg (or saved-bg
+                    (and (bound-and-true-p lispm-ui-current-palette)
+                         (plist-get lispm-ui-current-palette :content))
+                    (face-attribute 'default :background nil 'default))))
+        (when (stringp bg)
+          (set-frame-parameter frame 'background-color bg)))
+      (set-face-background 'fringe (or saved-fringe 'unspecified) frame)
+      (dolist (face '(window-divider window-divider-first-pixel window-divider-last-pixel))
+        (set-face-attribute face frame :foreground 'unspecified))
+      (when (fboundp 'lispm-desktop-assistant--restore-echo-area)
+        (lispm-desktop-assistant--restore-echo-area))
+      (when was-invisible
+        (ignore-errors (make-frame-invisible frame t))))))
+
 (defun lispm-desktop-auth--around-page-show (orig page)
   "Ensure the window and frame are prepared before showing PAGE."
   (let* ((frame (selected-frame))
@@ -640,33 +692,7 @@ when the desktop has finished setting up and prompts on demand."
                             (display-graphic-p frame)
                             (face-background 'fringe frame nil))))
     (when (not noninteractive)
-      (add-hook 'lispm-auth-page-mode-hook #'lispm-desktop-auth--hide-page-cursor)
-      (when (fboundp 'lispm-auth--page-redraw)
-        (advice-add 'lispm-auth--page-redraw :before #'lispm-desktop-auth--hide-page-cursor))
-      (when (and (window-live-p (selected-window))
-                 (or (window-minibuffer-p (selected-window))
-                     (window-dedicated-p (selected-window))
-                     (window-parameter (selected-window) 'window-side)))
-        (when-let* ((main (or (window-main-window frame)
-                              (frame-first-window frame))))
-          (when (window-live-p main)
-            (select-window main))))
-      (let ((window (selected-window)))
-        (when (and (window-live-p window)
-                   (window-parameter window 'lispm-desktop-platinum-scroll-frame)
-                   (fboundp 'lispm-desktop-platinum-scroll-sync))
-          (lispm-desktop-platinum-scroll-sync)))
-      (when (and (display-graphic-p frame) (not windowed))
-        (let* ((palette (lispm-desktop-auth--setup-page-palette))
-               (content (or (plist-get palette :content)
-                            (face-attribute 'default :background nil 'default)
-                            "#FFFFFF"))
-               (text (or (plist-get palette :text)
-                         (face-attribute 'default :foreground nil 'default)
-                         "#000000")))
-          (set-frame-parameter frame 'background-color content)
-          (set-frame-parameter frame 'foreground-color text)
-          (set-face-background 'fringe content frame))))
+      (lispm-desktop-auth--prepare-page-window frame windowed))
     (let ((ignore-window-parameters t)
           (real-delete-other-windows (symbol-function 'delete-other-windows))
           (real-redisplay (symbol-function 'redisplay)))
@@ -698,21 +724,7 @@ when the desktop has finished setting up and prompts on demand."
           (lispm-desktop-auth--hide-page-cursor page)
           (when (and (or windowed was-invisible) (frame-live-p frame) (display-graphic-p frame))
             (add-hook 'kill-buffer-hook
-                      (lambda ()
-                        (when (and (frame-live-p frame) (not (frame-parent frame)))
-                          (let ((bg (or saved-bg
-                                        (and (bound-and-true-p lispm-ui-current-palette)
-                                             (plist-get lispm-ui-current-palette :content))
-                                        (face-attribute 'default :background nil 'default))))
-                            (when (stringp bg)
-                              (set-frame-parameter frame 'background-color bg)))
-                          (set-face-background 'fringe (or saved-fringe 'unspecified) frame)
-                          (dolist (face '(window-divider window-divider-first-pixel window-divider-last-pixel))
-                            (set-face-attribute face frame :foreground 'unspecified))
-                          (when (fboundp 'lispm-desktop-assistant--restore-echo-area)
-                            (lispm-desktop-assistant--restore-echo-area))
-                          (when was-invisible
-                            (ignore-errors (make-frame-invisible frame t)))))
+                      (lispm-desktop-auth--page-cleanup frame saved-bg saved-fringe was-invisible)
                       nil t)))))))
 
 (defun lispm-desktop-auth--scroll-bar (buffer)

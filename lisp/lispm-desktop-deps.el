@@ -70,6 +70,7 @@
 (require 'lispm-desktop-store-installer)
 
 (declare-function lispm-desktop-tr "lispm-desktop-i18n" (message &rest args))
+(declare-function package-desc-archive-location "package" (desc))
 
 (defun lispm-desktop-deps--tr (message &rest args)
   "Return MESSAGE formatted with ARGS, translated as `lispm-desktop-tr'
@@ -194,6 +195,76 @@ or the fetch failed."
   (or (cdr (assoc url lispm-desktop-deps--prefetched-tags))
       (lispm-desktop-store--release-tag url)))
 
+(defun lispm-desktop-deps--prefetch-tags (missing)
+  "Concurrently resolve release tags for MISSING features via `git ls-remote'."
+  (let ((tag-procs nil))
+    (dolist (feature missing)
+      (let* ((spec (alist-get feature lispm-desktop-deps))
+             (url (plist-get spec :url))
+             (pinned (plist-get spec :tag)))
+        (cond
+         (pinned
+          (setf (alist-get url lispm-desktop-deps--prefetched-tags nil nil #'equal) pinned))
+         ((and url (not (assoc url lispm-desktop-deps--prefetched-tags)))
+          (let ((buf (generate-new-buffer " *lispm-deps-tag*")))
+            (condition-case nil
+                (let ((proc (make-process
+                             :name (format "lispm-deps-tag-%s" feature)
+                             :buffer buf
+                             :command (list "git" "ls-remote" "--tags" "--refs" url "v*")
+                             :connection-type 'pipe
+                             :noquery t)))
+                  (push (list proc buf url) tag-procs))
+              (error (kill-buffer buf))))))))
+    (unwind-protect
+        (while (seq-some (lambda (item) (process-live-p (car item))) tag-procs)
+          (accept-process-output nil 0.05))
+      (dolist (item tag-procs)
+        (pcase-let ((`(,proc ,buf ,url) item))
+          (when (process-live-p proc) (delete-process proc))
+          (when (buffer-live-p buf)
+            (when (and (eq (process-status proc) 'exit)
+                       (zerop (process-exit-status proc)))
+              (when-let* ((tag (with-current-buffer buf
+                                 (lispm-desktop-deps--parse-latest-release-tag (buffer-string)))))
+                (setf (alist-get url lispm-desktop-deps--prefetched-tags nil nil #'equal) tag)))
+            (kill-buffer buf)))))))
+
+(defun lispm-desktop-deps--clone-progress-filter (feature pcts)
+  "Return a process filter recording clone percentage of FEATURE into PCTS."
+  (lambda (_proc chunk)
+    (save-match-data
+      (when (string-match "\\([0-9]+\\)%" chunk)
+        (puthash feature (string-to-number (match-string 1 chunk)) pcts)
+        (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
+                   (fboundp 'lispm-desktop-installer-screen-report))
+          (let ((sum 0) (cnt 0))
+            (maphash (lambda (_k v)
+                       (setq sum (+ sum v)
+                             cnt (1+ cnt)))
+                     pcts)
+            (when (> cnt 0)
+              (lispm-desktop-installer-screen-report
+               (format "Downloading (%d%%)…" (/ sum cnt))))))))))
+
+(defun lispm-desktop-deps--finish-prefetch-clones (auth-proc auth-part auth-dest clone-procs)
+  "Finalize prefetched AUTH-PROC archive and CLONE-PROCS repositories."
+  (when auth-proc
+    (when (process-live-p auth-proc) (delete-process auth-proc))
+    (if (and (eq (process-status auth-proc) 'exit)
+             (zerop (process-exit-status auth-proc))
+             (file-regular-p auth-part))
+        (ignore-errors (rename-file auth-part auth-dest t))
+      (ignore-errors (delete-file auth-part))))
+  (dolist (item clone-procs)
+    (pcase-let ((`(,proc ,key ,target ,holder) item))
+      (when (process-live-p proc) (delete-process proc))
+      (if (and (eq (process-status proc) 'exit)
+               (zerop (process-exit-status proc))
+               (file-directory-p (expand-file-name ".git" target)))
+          (push (cons key target) lispm-desktop-store-installer--prefetched-clones)
+        (ignore-errors (delete-directory holder t))))))
+
 (defun lispm-desktop-deps-prefetch-projects (&optional features)
   "Concurrently resolve tags and shallow-clone missing projects in FEATURES.
 When FEATURES is nil, defaults to the core startup projects
@@ -207,40 +278,9 @@ When FEATURES is nil, defaults to the core startup projects
                                      (not (assq feature package-alist))))
                               targets)))
     (when (>= (length missing) 2)
-      ;; Phase 1: Resolve release tags concurrently via `git ls-remote'.
-      (let ((tag-procs nil)
-            (process-environment (lispm-desktop-store--git-environment)))
-        (dolist (feature missing)
-          (let* ((spec (alist-get feature lispm-desktop-deps))
-                 (url (plist-get spec :url))
-                 (pinned (plist-get spec :tag)))
-            (cond
-             (pinned
-              (setf (alist-get url lispm-desktop-deps--prefetched-tags nil nil #'equal) pinned))
-             ((and url (not (assoc url lispm-desktop-deps--prefetched-tags)))
-              (let ((buf (generate-new-buffer " *lispm-deps-tag*")))
-                (condition-case nil
-                    (let ((proc (make-process
-                                 :name (format "lispm-deps-tag-%s" feature)
-                                 :buffer buf
-                                 :command (list "git" "ls-remote" "--tags" "--refs" url "v*")
-                                 :connection-type 'pipe
-                                 :noquery t)))
-                      (push (list proc buf url) tag-procs))
-                  (error (kill-buffer buf))))))))
-        (unwind-protect
-            (while (seq-some (lambda (item) (process-live-p (car item))) tag-procs)
-              (accept-process-output nil 0.05))
-          (dolist (item tag-procs)
-            (pcase-let ((`(,proc ,buf ,url) item))
-              (when (process-live-p proc) (delete-process proc))
-              (when (buffer-live-p buf)
-                (when (and (eq (process-status proc) 'exit)
-                           (zerop (process-exit-status proc)))
-                  (when-let* ((tag (with-current-buffer buf
-                                     (lispm-desktop-deps--parse-latest-release-tag (buffer-string)))))
-                    (setf (alist-get url lispm-desktop-deps--prefetched-tags nil nil #'equal) tag)))
-                (kill-buffer buf)))))
+      (let ((process-environment (lispm-desktop-store--git-environment)))
+        ;; Phase 1: Resolve release tags concurrently via `git ls-remote'.
+        (lispm-desktop-deps--prefetch-tags missing)
         ;; Phase 2: Concurrently shallow-clone all missing projects with resolved tags,
         ;; and prefetch the LispM Auth release archive in the same parallel wave.
         (let ((stage-root (expand-file-name ".prefetch-clones" user-emacs-directory))
@@ -293,40 +333,14 @@ When FEATURES is nil, defaults to the core startup projects
                                                   "--depth" "1" "--branch" tag "--" url target)
                                    :connection-type 'pipe
                                    :noquery t
-                                   :filter (lambda (_proc chunk)
-                                             (when (string-match "\\([0-9]+\\)%" chunk)
-                                               (puthash feature (string-to-number (match-string 1 chunk)) pcts)
-                                               (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
-                                                          (fboundp 'lispm-desktop-installer-screen-report))
-                                                 (let ((sum 0) (cnt 0))
-                                                   (maphash (lambda (_k v)
-                                                              (setq sum (+ sum v)
-                                                                    cnt (1+ cnt)))
-                                                            pcts)
-                                                   (when (> cnt 0)
-                                                     (lispm-desktop-installer-screen-report
-                                                      (format "Downloading (%d%%)…" (/ sum cnt)))))))))))
+                                   :filter (lispm-desktop-deps--clone-progress-filter feature pcts))))
                         (push (list proc key target holder) clone-procs))
                     (error (ignore-errors (delete-directory holder t))))))))
           (unwind-protect
               (while (or (and auth-proc (process-live-p auth-proc))
                          (seq-some (lambda (item) (process-live-p (car item))) clone-procs))
                 (accept-process-output nil 0.05))
-            (when auth-proc
-              (when (process-live-p auth-proc) (delete-process auth-proc))
-              (if (and (eq (process-status auth-proc) 'exit)
-                       (zerop (process-exit-status auth-proc))
-                       (file-regular-p auth-part))
-                  (ignore-errors (rename-file auth-part auth-dest t))
-                (ignore-errors (delete-file auth-part))))
-            (dolist (item clone-procs)
-              (pcase-let ((`(,proc ,key ,target ,holder) item))
-                (when (process-live-p proc) (delete-process proc))
-                (if (and (eq (process-status proc) 'exit)
-                         (zerop (process-exit-status proc))
-                         (file-directory-p (expand-file-name ".git" target)))
-                    (push (cons key target) lispm-desktop-store-installer--prefetched-clones)
-                  (ignore-errors (delete-directory holder t)))))))))))
+            (lispm-desktop-deps--finish-prefetch-clones auth-proc auth-part auth-dest clone-procs)))))))
 
 (defun lispm-desktop-deps--archive-cache-dir (url)
   "Return the local prefetch directory for the archive at URL, or nil."
@@ -589,21 +603,22 @@ non-blockingly via `accept-process-output' while updating UI progress."
                                :connection-type 'pipe
                                :noquery t
                                :filter (lambda (_proc chunk)
-                                         (let ((pos 0)
-                                               (hits 0))
-                                           (while (string-match "LISPM-COMPILED" chunk pos)
-                                             (setq hits (1+ hits)
-                                                   pos (match-end 0)))
-                                           (when (> hits 0)
-                                             (setq done (min total (+ done hits)))
-                                             (when on-progress
-                                               (funcall on-progress done total))
-                                             (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
-                                                        (fboundp 'lispm-desktop-installer-screen-report))
-                                               (lispm-desktop-installer-screen-report
-                                                (format "Compiling (%d%%)…" (/ (* 100 done) (max 1 total)))))
-                                             (when (fboundp 'lispm-desktop-assistant-compile-progress)
-                                               (lispm-desktop-assistant-compile-progress done total))))))))
+                                         (save-match-data
+                                           (let ((pos 0)
+                                                 (hits 0))
+                                             (while (string-match "LISPM-COMPILED" chunk pos)
+                                               (setq hits (1+ hits)
+                                                     pos (match-end 0)))
+                                             (when (> hits 0)
+                                               (setq done (min total (+ done hits)))
+                                               (when on-progress
+                                                 (funcall on-progress done total))
+                                               (when (and (bound-and-true-p lispm-desktop-installer-screen--active)
+                                                          (fboundp 'lispm-desktop-installer-screen-report))
+                                                 (lispm-desktop-installer-screen-report
+                                                  (format "Compiling (%d%%)…" (/ (* 100 done) (max 1 total)))))
+                                               (when (fboundp 'lispm-desktop-assistant-compile-progress)
+                                                 (lispm-desktop-assistant-compile-progress done total)))))))))
                     (push proc procs))
                 (error
                  (dolist (f bucket)

@@ -20476,6 +20476,33 @@ empty Return behavior at `Command: █', and AI scenario introspection."
           (let ((ctx (lispm-desktop-lispm--request-context 'fake-system-agent)))
             (should (string-search "Active surface: LispM Agent chat / session buffer" ctx))))))))
 
+(ert-deftest lispm-desktop-test-process-filters-preserve-match-data ()
+  "Asynchronous process filters preserve caller `match-data'."
+  (let ((sample "alpha:42")
+        (pcts (make-hash-table :test 'eq))
+        (job (lispm-desktop-store--make-job :item '(demo :name "Demo") :pending "")))
+    (should (string-match "\\([a-z]+\\):\\([0-9]+\\)" sample))
+    (cl-letf (((symbol-function 'lispm-desktop-emacs--changed) #'ignore)
+              ((symbol-function 'lispm-desktop-store--redraw-soon) #'ignore)
+              ((symbol-function 'process-buffer) #'ignore))
+      (lispm-desktop-emacs--filter nil "#### 58.5%\n")
+      (lispm-desktop-store--heard job "Compiling...\n")
+      (funcall (lispm-desktop-deps--clone-progress-filter 'lispm-ui pcts) nil "Receiving objects: 75%\n"))
+    (should (= (gethash 'lispm-ui pcts) 75))
+    (should (equal (match-string 1 sample) "alpha"))
+    (should (equal (match-string 2 sample) "42"))))
+
+(ert-deftest lispm-desktop-test-form-window-canceller ()
+  "`lispm-desktop-form--window-canceller' invokes its cancel function in the window's buffer."
+  (with-temp-buffer
+    (let* ((target-buf (current-buffer))
+           (cancelled-in nil)
+           (canceller (lispm-desktop-form--window-canceller
+                       (lambda () (setq cancelled-in (current-buffer))))))
+      (cl-letf (((symbol-function 'window-buffer) (lambda (_win) target-buf)))
+        (funcall canceller 'fake-win))
+      (should (eq cancelled-in target-buf)))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

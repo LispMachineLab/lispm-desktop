@@ -360,6 +360,15 @@ COMMAND), or nil."
             ((get-text-property point 'lispm-desktop-workspace-action)
              (cons 'action (get-text-property point 'lispm-desktop-workspace-action)))))))
 
+(defun lispm-desktop-workspaces--event-move (event role columns)
+  "Return the selection delta for EVENT and ROLE across COLUMNS, or nil.
+Places to move the ring: along a row, or a row down or up.  C-Tab and
+Command-` step as the system's window switchers do."
+  (cond ((or (memq role '(next right)) (memq event '(C-tab ?\M-`))) 1)
+        ((or (memq role '(previous left)) (memq event '(C-S-tab ?\M-~))) -1)
+        ((eq role 'down) columns)
+        ((eq role 'up) (- columns))))
+
 (defun lispm-desktop-workspaces-choose (&optional step x y)
   "Show the workspaces' panel and return what was chosen, or nil.
 The value is (workspace . NAME) or (action . COMMAND).  The workspace
@@ -398,13 +407,7 @@ X, Y of the screen frame, or stands over its upper middle."
                 (while t
                   (let* ((event (lispm-ui-modal-read))
                          (role (lispm-ui-modal-role event))
-                         ;; Places to move the ring: along a row, or a row
-                         ;; down or up.  C-Tab and Command-` step as the
-                         ;; system's window switchers do.
-                         (move (cond ((or (memq role '(next right)) (memq event '(C-tab ?\M-`))) 1)
-                                     ((or (memq role '(previous left)) (memq event '(C-S-tab ?\M-~))) -1)
-                                     ((eq role 'down) columns)
-                                     ((eq role 'up) (- columns)))))
+                         (move (lispm-desktop-workspaces--event-move event role columns)))
                     (cond
                      ((eq role 'cancel) (throw 'done nil))
                      ((memq role '(confirm press))

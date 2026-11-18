@@ -91,6 +91,7 @@
 (defvar lispm-desktop-installer-screen--message)
 (defvar lispm-desktop-installer-screen--status)
 (declare-function lispm-desktop-installer-screen-report "lispm-desktop-installer-screen" (status))
+(declare-function lispm-desktop-native-comp-mend "lispm-desktop-native-comp" ())
 
 (defvar lispm-desktop-store-installer--update-observer nil
   "When non-nil, a function receiving NAME, FROM and TO before an update.

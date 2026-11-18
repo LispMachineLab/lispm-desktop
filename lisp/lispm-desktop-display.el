@@ -272,16 +272,17 @@ screen: a child frame's count from its parent's inside."
 Whatever may ask or show something runs as an event of its own, from the
 command loop: a modal alert run here would wait for the very input this
 filter brings."
-  (let ((pending (concat (or (process-get client :pending) "") output)))
-    (while (string-match "\n" pending)
-      (let ((line (substring pending 0 (match-beginning 0))))
-        (setq pending (substring pending (match-end 0)))
-        (condition-case err
-            (lispm-desktop-display--handle
-             client (json-parse-string line :object-type 'plist :array-type 'list
-                                       :null-object nil :false-object nil))
-          (error (message "LispM: an application said %S: %s" line (error-message-string err))))))
-    (process-put client :pending pending)))
+  (save-match-data
+    (let ((pending (concat (or (process-get client :pending) "") output)))
+      (while (string-match "\n" pending)
+        (let ((line (substring pending 0 (match-beginning 0))))
+          (setq pending (substring pending (match-end 0)))
+          (condition-case err
+              (lispm-desktop-display--handle
+               client (json-parse-string line :object-type 'plist :array-type 'list
+                                         :null-object nil :false-object nil))
+            (error (message "LispM: an application said %S: %s" line (error-message-string err))))))
+      (process-put client :pending pending))))
 
 (defun lispm-desktop-display--enqueue (event)
   "Have EVENT read next, after those already waiting, see
