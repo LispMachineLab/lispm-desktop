@@ -1547,7 +1547,9 @@ Its pages take the desktop's keys, and \\`C-c x' prefixes its commands."
         lispm-browser-tab-window-function #'lispm-desktop-platinum-main-window
         lispm-browser-show-function #'lispm-desktop-browser-show
         lispm-browser-raise-function #'lispm-desktop-browser--raise
-        lispm-browser-clipboard-function #'lispm-desktop-clipboard-text)
+        lispm-browser-clipboard-function #'lispm-desktop-clipboard-text
+        browse-url-browser-function #'lispm-browser-browse-url
+        browse-url-secondary-browser-function #'browse-url-default-browser)
   (add-hook 'lispm-browser-tab-hook #'lispm-desktop-browser--setup)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-browser--scroll-bar)
   (add-hook 'window-size-change-functions #'lispm-desktop-browser--fit-xwidgets)
