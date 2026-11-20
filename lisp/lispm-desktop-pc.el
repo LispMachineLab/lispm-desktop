@@ -176,57 +176,63 @@ look's :box-width; the title is centred between them, narrowed to fit."
          (pos (if parent (frame-position frame) '(0 . 0))))
     (cons (+ (car pos) border x) (+ (cdr pos) border y))))
 
-(defun lispm-desktop-pc-system-menu (window)
+(defun lispm-desktop-pc-system-menu (&optional window)
   "Drop WINDOW's system menu from its system menu box, as Windows and OS/2
 did: Restore, Minimize, Maximize and Close, those WINDOW cannot do
 disabled, in the look's own words, its :system-menu, followed by Switch To
 items for the desktop's applications.  A second click on the system menu
 box while the menu is up closes WINDOW, as double-clicking Windows 3.2's
 Control-Menu box did."
-  (pcase-let* ((`(,_ ,zoom ,collapse) (lispm-desktop-platinum-window-controls window))
-               (zoomed (lispm-desktop-pc-window-zoomed-p window))
-               (minimized (lispm-desktop-pc-window-minimized-p window))
-               (`(,left ,top ,_ ,_) (window-pixel-edges window))
-               (margins (lispm-desktop-platinum-window-box-margins window))
-               (`(,restore ,minimize ,maximize ,close)
-                (mapcar #'lispm-desktop-tr (lispm-ui-look-get :system-menu)))
-               (apps (and (not noninteractive)
-                          (fboundp 'lispm-desktop-apps-application-items)
-                          (lispm-desktop-apps-application-items)))
-               (`(,sx . ,sy)
-                (lispm-desktop-pc--screen-xy
-                 window
-                 (+ left (lispm-desktop-look-box-margin (car margins)))
-                 (+ top (window-tab-line-height window))))
-               (frame (window-frame window))
-               (opened (float-time))
-               (chosen
-                (let ((lispm-ui-menu-parent (or (frame-parent frame) frame)))
-                  (lispm-ui-menu
-                   (append
-                    (list (list :label restore
-                                :enabled (and (or (and zoom zoomed) (and collapse minimized)) t)
-                                :action (lambda ()
-                                          (if minimized
-                                              (lispm-desktop-platinum-collapse-window window)
-                                            (lispm-desktop-platinum-zoom-window window))))
-                          (list :label minimize :enabled (and collapse (not minimized) t)
-                                :action (lambda () (lispm-desktop-platinum-collapse-window window)))
-                          (list :label maximize :enabled (and zoom (not zoomed) t)
-                                :action (lambda () (lispm-desktop-platinum-zoom-window window)))
-                          'separator
-                          (list :label close
-                                :action (lambda () (lispm-desktop-platinum-close-window window))))
-                    (when apps (cons 'separator apps)))
-                   sx sy))))
-    (when (and (null chosen)
-               (lispm-ui-modal-mouse-down-p last-input-event)
-               (< (- (float-time) opened) (/ (or double-click-time 500) 1000.0))
-               (let ((pos (event-start last-input-event)))
-                 (and (eq (posn-window pos) window)
-                      (eq (lispm-desktop-platinum--press-target pos) 'close))))
-      (lispm-desktop-platinum-close-window window))
-    chosen))
+  (interactive (list (selected-window)))
+  (let ((window (if (window-live-p window) window (selected-window))))
+    (pcase-let* ((`(,_ ,zoom ,collapse) (lispm-desktop-platinum-window-controls window))
+                 (zoomed (lispm-desktop-pc-window-zoomed-p window))
+                 (minimized (lispm-desktop-pc-window-minimized-p window))
+                 (`(,left ,top ,_ ,_) (window-pixel-edges window))
+                 (margins (lispm-desktop-platinum-window-box-margins window))
+                 (`(,restore ,minimize ,maximize ,close)
+                  (mapcar #'lispm-desktop-tr (lispm-ui-look-get :system-menu)))
+                 (apps (and (not noninteractive)
+                            (fboundp 'lispm-desktop-apps-application-items)
+                            (lispm-desktop-apps-application-items)))
+                 (`(,sx . ,sy)
+                  (lispm-desktop-pc--screen-xy
+                   window
+                   (+ left (lispm-desktop-look-box-margin (car margins)))
+                   (+ top (window-tab-line-height window))))
+                 (frame (window-frame window))
+                 (opened (float-time))
+                 (chosen
+                  (let ((lispm-ui-menu-parent (or (frame-parent frame) frame)))
+                    (lispm-ui-menu
+                     (append
+                      (list (list :label restore
+                                  :enabled (and (or (and zoom zoomed) (and collapse minimized)) t)
+                                  :action (lambda ()
+                                            (if minimized
+                                                (lispm-desktop-platinum-collapse-window window)
+                                              (lispm-desktop-platinum-zoom-window window))))
+                            (list :label minimize :enabled (and collapse (not minimized) t)
+                                  :action (lambda () (lispm-desktop-platinum-collapse-window window)))
+                            (list :label maximize :enabled (and zoom (not zoomed) t)
+                                  :action (lambda () (lispm-desktop-platinum-zoom-window window)))
+                            'separator
+                            (list :label close
+                                  :action (lambda () (lispm-desktop-platinum-close-window window))))
+                      (when apps (cons 'separator apps)))
+                     sx sy))))
+      (when (and (null chosen)
+                 (lispm-ui-modal-mouse-down-p last-input-event)
+                 (< (- (float-time) opened) (/ (or double-click-time 500) 1000.0))
+                 (let ((pos (event-start last-input-event)))
+                   (and (eq (funcall #'posn-window pos) window)
+                        (eq (lispm-desktop-platinum--press-target pos) 'close))))
+        (lispm-desktop-platinum-close-window window))
+      chosen)))
+
+(cl-defmethod lispm-desktop-platinum-window-menu (window &context (lispm-desktop-look (lispm-ui-look-family pc)))
+  "Pop up WINDOW's PC system menu (Control-Menu)."
+  (lispm-desktop-pc-system-menu window))
 
 (cl-defmethod lispm-desktop-platinum-draw-title-bar (width active icon title modified controls
                                                            &context (lispm-desktop-look (lispm-ui-look-family pc))

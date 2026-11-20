@@ -898,6 +898,15 @@ This is a buffer-local `window-selection-change-functions' function."
     (lispm-desktop-browser--render-address target)
     (select-window window)))
 
+(defun lispm-desktop-browser-address-cancel ()
+  "Cancel editing the address field, restore the page URL, and focus the page."
+  (interactive)
+  (deactivate-mark)
+  (lispm-desktop-browser--sync t)
+  (when-let* ((window (lispm-desktop-browser--window))
+              ((window-live-p window)))
+    (select-window window)))
+
 (defun lispm-desktop-browser-focus-address ()
   "Select the address window with the whole address marked for replacement:
 typing or pasting replaces it, see
@@ -942,6 +951,7 @@ click all of it."
     ("M-." . lispm-browser-stop)
     ("M-d" . lispm-browser-add-bookmark)
     ("M-b" . lispm-desktop-browser-edit-bookmarks)
+    ("M-B" . lispm-desktop-browser-bookmarks-menu)
     ("M-y" . lispm-desktop-browser-show-history)
     ("M-t" . lispm-browser-new-tab)
     ("M-}" . lispm-browser-next-tab)
@@ -968,6 +978,8 @@ presses an extension's button, see `lispm-browser-extensions-press'.")
   (let ((map (make-sparse-keymap)))
     (lispm-desktop-browser-bind-keys map)
     (keymap-set map "RET" #'lispm-desktop-browser-address-submit)
+    (keymap-set map "<escape>" #'lispm-desktop-browser-address-cancel)
+    (keymap-set map "C-g" #'lispm-desktop-browser-address-cancel)
     map)
   "Keymap of the browser address window.")
 

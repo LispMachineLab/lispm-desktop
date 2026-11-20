@@ -20556,6 +20556,198 @@ empty Return behavior at `Command: █', and AI scenario introspection."
         (funcall canceller 'fake-win))
       (should (eq cancelled-in target-buf)))))
 
+(ert-deftest lispm-desktop-test-pure-keyboard-interaction-across-modes ()
+  "Verify pure-keyboard operation across looks, Listener, welcome screen,
+floating windows, Control Strip fallback, sidebar views, Finder, and Term."
+  ;; 1. `M-v' and `lispm-desktop-paste' work in read-only `*Desktop*' (genera)
+  ;;    and `*GNU Emacs*' (`lispm-desktop-editor-splash-mode') without signaling
+  ;;    `buffer-read-only', and arrow keys while typing in `Command: █' never
+  ;;    hijack quick-action button focus.
+  (let ((lispm-desktop-look 'genera)
+        (lispm-desktop-genera--listener-input "")
+        (lispm-desktop-genera--listener-working-text nil)
+        (lispm-desktop-genera--listener-output "Ready.")
+        (lispm-desktop-genera--listener-history '("Show System" "(+ 1 2)"))
+        (lispm-desktop-genera--listener-history-index nil)
+        (lispm-desktop-genera--listener-ai-active nil)
+        (interprogram-paste-function nil)
+        (kill-ring '("(+ 20 22)")))
+    (cl-letf (((symbol-function 'lispm-desktop-genera--refresh-listener) #'ignore)
+              ((symbol-function 'lispm-desktop-editor--render-splash) #'ignore)
+              ((symbol-function 'lispm-desktop-clipboard-text) (lambda () "(+ 20 22)")))
+      (with-temp-buffer
+        (lispm-desktop-mode)
+        (should (eq (keymap-lookup lispm-desktop-mode-map "M-v") #'lispm-desktop-yank))
+        (lispm-desktop-paste)
+        (should (equal lispm-desktop-genera--listener-input "(+ 20 22)")))
+      (setq lispm-desktop-genera--listener-input "")
+      (with-temp-buffer
+        (lispm-desktop-editor-splash-mode)
+        (should (eq (keymap-lookup lispm-desktop-editor-splash-mode-map "M-v")
+                    #'lispm-desktop-editor-splash-yank))
+        ;; Focus a button while prompt is empty, then paste via `lispm-desktop-paste':
+        ;; button focus clears and text pastes into `Command: █'.
+        (lispm-desktop-editor-splash-next)
+        (should lispm-desktop-editor--splash-focused)
+        (lispm-desktop-paste)
+        (should-not lispm-desktop-editor--splash-focused)
+        (should (equal lispm-desktop-genera--listener-input "(+ 20 22)"))
+        ;; Left/Right while input is active must NOT re-focus quick-action buttons.
+        (lispm-desktop-editor-splash-left)
+        (should-not lispm-desktop-editor--splash-focused)
+        (lispm-desktop-editor-splash-right)
+        (should-not lispm-desktop-editor--splash-focused)
+        ;; Up/Down while input is active cycles Listener history instead of buttons.
+        (lispm-desktop-editor-splash-up)
+        (should-not lispm-desktop-editor--splash-focused)
+        (should (equal lispm-desktop-genera--listener-input "Show System"))
+        (lispm-desktop-editor-splash-down)
+        (should (equal lispm-desktop-genera--listener-input "")))
+      ;; Empty Return on Listener when no AI reply is active displays inline commands.
+      (setq lispm-desktop-genera--listener-input ""
+            lispm-desktop-genera--listener-output "Ready."
+            lispm-desktop-genera--listener-ai-active nil)
+      (lispm-desktop-genera-listener-ret)
+      (should (string-prefix-p "Commands:" lispm-desktop-genera--listener-output))))
+  ;; 2. `lispm-desktop-apps-next-window' (`C-c O') cycles through visible floating
+  ;;    windows (including Finder) and the root desktop screen.
+  (lispm-desktop-test--with-frames lispm-desktop-test--windows-behind
+    (let ((lispm-desktop-apps--frontmost 'desktop)
+          (lispm-desktop-apps-frontmost-functions nil)
+          (selected 'a))
+      (cl-letf (((symbol-function 'selected-frame) (lambda () selected))
+                ((symbol-function 'select-frame-set-input-focus)
+                 (lambda (f &rest _) (setq selected f)))
+                ((symbol-function 'lispm-desktop-apps-activate) #'ignore)
+                ((symbol-function 'lispm-desktop-apps-screen) (lambda () 'screen)))
+        (should (eq (lispm-desktop-apps-next-window) 'c))
+        (should (eq selected 'c))
+        (should (eq (lispm-desktop-apps-next-window) 'screen))
+        (should (eq selected 'screen))
+        (should (eq (lispm-desktop-apps-next-window) 'a))
+        (should (eq selected 'a)))))
+  ;; 3. `lispm-desktop-platinum-drag-outline' supports pure-keyboard outline
+  ;;    movement and resizing via arrow/C-f/C-n keys and confirms on Return.
+  (lispm-desktop-test--with-outline (list (cons '(500 . 300) ?\C-f)
+                                          (cons '(500 . 300) ?\C-n)
+                                          (cons '(500 . 300) ?\r))
+    (should (lispm-desktop-platinum-drag-outline 'window 'move))
+    (should (equal moves '((outer 118 73))))
+    (should (= ran 1)))
+  (lispm-desktop-test--with-outline (list (cons '(500 . 300) 'right)
+                                          (cons '(500 . 300) 'down)
+                                          (cons '(500 . 300) 'return))
+    (should (lispm-desktop-platinum-drag-outline 'window 'grow))
+    (should (equal sizes '((window 424 324))))
+    (should (= ran 1)))
+  ;; 4. `lispm-desktop-window-menu' (`C-c W') dispatches across `platinum', `win3'/`os2',
+  ;;    and `genera', and `win3'/`os2' define `:background-menu #'lispm-desktop-pc-task-menu'.
+  (dolist (look '(win3 os2))
+    (let ((lispm-desktop-look look))
+      (should (eq (lispm-desktop-look-property :background-menu)
+                  #'lispm-desktop-pc-task-menu))))
+  (let ((called nil))
+    (cl-letf (((symbol-function 'lispm-ui-menu)
+               (lambda (items &rest _) (setq called (cons 'platinum (length items)))))
+              ((symbol-function 'lispm-desktop-pc-system-menu)
+               (lambda (w) (setq called (cons 'pc w))))
+              ((symbol-function 'lispm-desktop-genera-window-menu)
+               (lambda (w &rest _) (setq called (cons 'genera w)))))
+      (let ((lispm-desktop-look 'platinum))
+        (lispm-desktop-window-menu (selected-window))
+        (should (eq (car called) 'platinum)))
+      (let ((lispm-desktop-look 'win3))
+        (lispm-desktop-window-menu (selected-window))
+        (should (equal called (cons 'pc (selected-window)))))
+      (let ((lispm-desktop-look 'genera))
+        (lispm-desktop-window-menu (selected-window))
+        (should (equal called (cons 'genera (selected-window)))))))
+  ;; 5. `lispm-desktop-strip-select' (`C-c b') falls back to a popup menu when
+  ;;    the graphical Control Strip frame is not live.
+  (let ((menu-items nil))
+    (cl-letf (((symbol-function 'lispm-desktop-strip--live-p) #'ignore)
+              ((symbol-function 'lispm-desktop-strip-show) #'ignore)
+              ((symbol-function 'lispm-ui-menu)
+               (lambda (items &rest _) (setq menu-items items))))
+      (lispm-desktop-strip-select)
+      (should (>= (length menu-items) 3))
+      (should (plist-get (car menu-items) :submenu))))
+  ;; 6. `lispm-desktop-sidebar-next-view' (`C-c S'), Finder `M-<left>'/`M-<right>',
+  ;;    and Term `S-<next>'/`C-c C-p'/`C-c C-n' bindings.
+  (let ((selected-views nil)
+        (current 'files))
+    (cl-letf (((symbol-function 'lispm-desktop-sidebar-current-view) (lambda () current))
+              ((symbol-function 'lispm-desktop-sidebar-select)
+               (lambda (v) (setq current v) (push v selected-views)))
+              ((symbol-function 'lispm-desktop-sidebar--window) #'ignore))
+      (lispm-desktop-sidebar-next-view)
+      (lispm-desktop-sidebar-next-view t)
+      (should (equal (reverse selected-views) '(agents files)))))
+  (should (eq (keymap-lookup lispm-finder-mode-map "M-<left>") #'lispm-finder-back))
+  (should (eq (keymap-lookup lispm-finder-mode-map "M-<right>") #'lispm-finder-forward))
+  (should (eq (keymap-lookup lispm-desktop-term-keys-mode-map "S-<next>")
+              #'lispm-desktop-term-scroll-forward))
+  (should (eq (keymap-lookup lispm-desktop-term-keys-mode-map "C-c C-p")
+              #'lispm-desktop-term-scroll-back))
+  (should (eq (keymap-lookup lispm-desktop-term-keys-mode-map "C-c C-n")
+              #'lispm-desktop-term-scroll-forward))
+  ;; 7. Round 2: `:empty' overlay page buttons support keyboard focus cycling
+  ;;    (`TAB'/`<backtab>') and `RET'/`SPC' activation, plus `C-c RET' strip actions.
+  (let* ((pressed nil)
+         (lispm-desktop-app-ui-skins
+          `((special-mode
+             :empty (,(lambda () t)
+                     "Empty state."
+                     (("First" ,(lambda () (interactive) (setq pressed 'first)))
+                      ("Second" ,(lambda () (interactive) (setq pressed 'second)))))))))
+    (with-temp-buffer
+      (special-mode)
+      (setq lispm-desktop-app-ui--app 'test-app)
+      (lispm-desktop-app-ui-mode 1)
+      (should (lispm-desktop-app-ui--page-active-p))
+      (should (= lispm-desktop-app-ui--page-focused 0))
+      (lispm-desktop-app-ui-page-press)
+      (should (eq pressed 'first))
+      (lispm-desktop-app-ui-page-next-button)
+      (should (= lispm-desktop-app-ui--page-focused 1))
+      (lispm-desktop-app-ui-page-press)
+      (should (eq pressed 'second))
+      (lispm-desktop-app-ui-page-previous-button)
+      (should (= lispm-desktop-app-ui--page-focused 0))))
+  ;; 8. Round 2: Characters grid view `<right>'/`<left>'/`]'/`['/`q'/`M-w',
+  ;;    `lispm-desktop-app-window-mode-map'/`lispm-desktop-needs-installer-mode-map'
+  ;;    `q'/`M-w', Browser address `<escape>'/`C-g' cancel, and Finder chooser keys.
+  (should (eq (keymap-lookup lispm-desktop-characters-mode-map "]")
+              #'lispm-desktop-characters-next))
+  (should (eq (keymap-lookup lispm-desktop-characters-mode-map "[")
+              #'lispm-desktop-characters-previous))
+  (should (eq (keymap-lookup lispm-desktop-characters-mode-map "<right>")
+              #'lispm-desktop-characters-right))
+  (should (eq (keymap-lookup lispm-desktop-characters-mode-map "<left>")
+              #'lispm-desktop-characters-left))
+  (should (eq (keymap-lookup lispm-desktop-characters-mode-map "q")
+              #'lispm-desktop-characters-close))
+  (should (eq (keymap-lookup lispm-desktop-characters-mode-map "M-w")
+              #'lispm-desktop-characters-close))
+  (should (eq (keymap-lookup lispm-desktop-app-window-mode-map "q")
+              #'lispm-desktop-app-window-quit))
+  (should (eq (keymap-lookup lispm-desktop-app-window-mode-map "M-w")
+              #'lispm-desktop-app-window-quit))
+  (should (eq (keymap-lookup lispm-desktop-needs-installer-mode-map "q")
+              #'lispm-desktop-app-window-quit))
+  (should (eq (keymap-lookup lispm-desktop-needs-installer-mode-map "M-w")
+              #'lispm-desktop-app-window-quit))
+  (should (eq (keymap-lookup lispm-desktop-browser-address-mode-map "<escape>")
+              #'lispm-desktop-browser-address-cancel))
+  (should (eq (keymap-lookup lispm-desktop-browser-address-mode-map "C-g")
+              #'lispm-desktop-browser-address-cancel))
+  (should (eq (keymap-lookup lispm-finder-choose-mode-map "^")
+              #'lispm-finder-up))
+  (should (eq (keymap-lookup lispm-finder-choose-mode-map "q")
+              #'lispm-finder-choose-cancel))
+  (should (eq (keymap-lookup lispm-finder-choose-mode-map "M-w")
+              #'lispm-finder-choose-cancel)))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

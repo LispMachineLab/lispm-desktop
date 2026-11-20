@@ -1040,7 +1040,9 @@ once the installer ended without, or after too long."
   "s" #'lispm-desktop-needs-stop
   "r" #'lispm-desktop-needs-retry
   "l" #'lispm-desktop-needs-show-log
-  "g" #'lispm-desktop-needs--render)
+  "g" #'lispm-desktop-needs--render
+  "q" #'lispm-desktop-app-window-quit
+  "M-w" #'lispm-desktop-app-window-quit)
 
 (define-derived-mode lispm-desktop-needs-installer-mode special-mode "Installer"
   "The Installer's window: what it installs, and how far it is."

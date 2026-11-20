@@ -771,12 +771,13 @@ listed an application's windows."
 (declare-function lispm-desktop-genera-listener-backspace "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-kill-input "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-abort "lispm-desktop-genera" ())
-(declare-function lispm-desktop-genera-listener-yank "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-yank "lispm-desktop-genera" (&optional text))
 (declare-function lispm-desktop-genera-listener-complete "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-ret "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-previous "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-next "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-mouse-system-menu "lispm-desktop-genera" (event))
+(declare-function lispm-desktop-genera-system-menu "lispm-desktop-genera" (&optional x y window))
 (declare-function lispm-desktop-genera-insert-canvas "lispm-desktop-genera"
                   (image width height &optional cursor-xy))
 (declare-function lispm-desktop-agent-lispm-new "lispm-desktop-lispm" (&optional role))
@@ -788,6 +789,7 @@ listed an application's windows."
 (defvar lispm-desktop-genera--listener-input)
 (defvar lispm-desktop-genera--listener-working-text)
 (defvar lispm-desktop-genera--listener-output)
+(defvar lispm-desktop-genera--listener-history-index)
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
 
@@ -862,6 +864,11 @@ listed an application's windows."
               (setq lispm-desktop-editor--splash-focused nil)
               (lispm-desktop-editor--render-splash win t)))))))))
 
+(defun lispm-desktop-editor-splash--input-active-p ()
+  "Return non-nil when `Command: █' on the welcome screen holds live text."
+  (or (not (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) "")))
+      (not (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-working-text) "")))))
+
 (defun lispm-desktop-editor--splash-step (delta)
   "Move welcome screen button focus by DELTA (1 or -1)."
   (let* ((keys (mapcar #'car (lispm-desktop-genera-welcome-actions)))
@@ -881,11 +888,50 @@ listed an application's windows."
   (interactive)
   (lispm-desktop-editor--splash-step -1))
 
+(defun lispm-desktop-editor-splash-right ()
+  "Focus the next button when `Command: █' is empty."
+  (interactive)
+  (if (lispm-desktop-editor-splash--input-active-p)
+      (when lispm-desktop-editor--splash-focused
+        (setq lispm-desktop-editor--splash-focused nil)
+        (lispm-desktop-editor--render-splash nil t))
+    (lispm-desktop-editor-splash-next)))
+
+(defun lispm-desktop-editor-splash-left ()
+  "Focus the previous button when `Command: █' is empty."
+  (interactive)
+  (if (lispm-desktop-editor-splash--input-active-p)
+      (when lispm-desktop-editor--splash-focused
+        (setq lispm-desktop-editor--splash-focused nil)
+        (lispm-desktop-editor--render-splash nil t))
+    (lispm-desktop-editor-splash-previous)))
+
+(defun lispm-desktop-editor-splash-up ()
+  "Cycle previous Listener history while typing, or focus the previous button."
+  (interactive)
+  (if (or (lispm-desktop-editor-splash--input-active-p)
+          (bound-and-true-p lispm-desktop-genera--listener-history-index))
+      (progn
+        (setq lispm-desktop-editor--splash-focused nil)
+        (when (fboundp 'lispm-desktop-genera-listener-history-previous)
+          (call-interactively #'lispm-desktop-genera-listener-history-previous)))
+    (lispm-desktop-editor-splash-previous)))
+
+(defun lispm-desktop-editor-splash-down ()
+  "Cycle next Listener history while typing, or focus the next button."
+  (interactive)
+  (if (or (lispm-desktop-editor-splash--input-active-p)
+          (bound-and-true-p lispm-desktop-genera--listener-history-index))
+      (progn
+        (setq lispm-desktop-editor--splash-focused nil)
+        (when (fboundp 'lispm-desktop-genera-listener-history-next)
+          (call-interactively #'lispm-desktop-genera-listener-history-next)))
+    (lispm-desktop-editor-splash-next)))
+
 (defun lispm-desktop-editor-splash-tab ()
   "Complete Listener input when non-empty, else focus the next button."
   (interactive)
-  (if (and (or (not (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) "")))
-               (not (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-working-text) ""))))
+  (if (and (lispm-desktop-editor-splash--input-active-p)
            (fboundp 'lispm-desktop-genera-listener-complete))
       (call-interactively #'lispm-desktop-genera-listener-complete)
     (lispm-desktop-editor-splash-next)))
@@ -897,12 +943,18 @@ listed an application's windows."
   (when (fboundp 'lispm-desktop-genera-listener-self-insert)
     (call-interactively #'lispm-desktop-genera-listener-self-insert)))
 
+(defun lispm-desktop-editor-splash-yank (&optional text)
+  "Paste TEXT (or the top of the kill ring) into `Command: █'."
+  (interactive)
+  (setq lispm-desktop-editor--splash-focused nil)
+  (when (fboundp 'lispm-desktop-genera-listener-yank)
+    (lispm-desktop-genera-listener-yank text)))
+
 (defun lispm-desktop-editor-splash-spc ()
   "Insert a space into `Command: █', or activate the focused button."
   (interactive)
   (if (and lispm-desktop-editor--splash-focused
-           (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-input) ""))
-           (string-empty-p (or (bound-and-true-p lispm-desktop-genera--listener-working-text) "")))
+           (not (lispm-desktop-editor-splash--input-active-p)))
       (lispm-desktop-editor--splash-run-action lispm-desktop-editor--splash-focused)
     (lispm-desktop-editor-splash-self-insert)))
 
@@ -913,6 +965,7 @@ listed an application's windows."
    ((and (or (not (string-empty-p (string-trim (or (bound-and-true-p lispm-desktop-genera--listener-input) ""))))
              (not (string-empty-p (string-trim (or (bound-and-true-p lispm-desktop-genera--listener-working-text) "")))))
          (fboundp 'lispm-desktop-genera-listener-ret))
+    (setq lispm-desktop-editor--splash-focused nil)
     (call-interactively #'lispm-desktop-genera-listener-ret))
    (lispm-desktop-editor--splash-focused
     (lispm-desktop-editor--splash-run-action lispm-desktop-editor--splash-focused))
@@ -948,8 +1001,9 @@ listed an application's windows."
     (keymap-set map "<backspace>" #'lispm-desktop-genera-listener-backspace)
     (keymap-set map "C-u" #'lispm-desktop-genera-listener-kill-input)
     (keymap-set map "C-k" #'lispm-desktop-genera-listener-kill-input)
-    (keymap-set map "C-y" #'lispm-desktop-genera-listener-yank)
-    (keymap-set map "s-v" #'lispm-desktop-genera-listener-yank)
+    (keymap-set map "C-y" #'lispm-desktop-editor-splash-yank)
+    (keymap-set map "M-v" #'lispm-desktop-editor-splash-yank)
+    (keymap-set map "s-v" #'lispm-desktop-editor-splash-yank)
     (keymap-set map "M-p" #'lispm-desktop-genera-listener-history-previous)
     (keymap-set map "M-n" #'lispm-desktop-genera-listener-history-next)
     (keymap-set map "C-g" #'lispm-desktop-editor-splash-abort)
@@ -960,16 +1014,16 @@ listed an application's windows."
     (keymap-set map "<mouse-3>" #'ignore)
     (keymap-set map "TAB" #'lispm-desktop-editor-splash-tab)
     (keymap-set map "<tab>" #'lispm-desktop-editor-splash-tab)
-    (keymap-set map "<right>" #'lispm-desktop-editor-splash-next)
-    (keymap-set map "<down>" #'lispm-desktop-editor-splash-next)
-    (keymap-set map "C-f" #'lispm-desktop-editor-splash-next)
-    (keymap-set map "C-n" #'lispm-desktop-editor-splash-next)
+    (keymap-set map "<right>" #'lispm-desktop-editor-splash-right)
+    (keymap-set map "<down>" #'lispm-desktop-editor-splash-down)
+    (keymap-set map "C-f" #'lispm-desktop-editor-splash-right)
+    (keymap-set map "C-n" #'lispm-desktop-editor-splash-down)
     (keymap-set map "<backtab>" #'lispm-desktop-editor-splash-previous)
     (keymap-set map "S-TAB" #'lispm-desktop-editor-splash-previous)
-    (keymap-set map "<left>" #'lispm-desktop-editor-splash-previous)
-    (keymap-set map "<up>" #'lispm-desktop-editor-splash-previous)
-    (keymap-set map "C-b" #'lispm-desktop-editor-splash-previous)
-    (keymap-set map "C-p" #'lispm-desktop-editor-splash-previous)
+    (keymap-set map "<left>" #'lispm-desktop-editor-splash-left)
+    (keymap-set map "<up>" #'lispm-desktop-editor-splash-up)
+    (keymap-set map "C-b" #'lispm-desktop-editor-splash-left)
+    (keymap-set map "C-p" #'lispm-desktop-editor-splash-up)
     (keymap-set map "RET" #'lispm-desktop-editor-splash-ret)
     (keymap-set map "<return>" #'lispm-desktop-editor-splash-ret)
     map)
@@ -1068,6 +1122,8 @@ listed an application's windows."
               show-trailing-whitespace nil
               evil-emacs-state-cursor '(nil)
               evil-normal-state-cursor '(nil)
+              lispm-desktop-paste-function #'lispm-desktop-editor-splash-yank
+              lispm-desktop-context-menu-function #'lispm-desktop-genera-system-menu
               revert-buffer-function (lambda (&rest _) (lispm-desktop-editor--refresh-splash)))
   (when (fboundp 'display-line-numbers-mode)
     (display-line-numbers-mode -1))

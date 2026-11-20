@@ -971,6 +971,11 @@ Codex read as a new line.")
   (lispm-desktop-term-module-scroll lispm-desktop-term--terminal (or lines 1))
   (lispm-desktop-term--render t))
 
+(defun lispm-desktop-term-scroll-forward (&optional lines)
+  "Scroll the terminal's view LINES forward toward the live screen."
+  (interactive "p")
+  (lispm-desktop-term-scroll-back (- (or lines 1))))
+
 (defun lispm-desktop-term--mouse-cell (posn)
   "Return the terminal's cell at POSN, as (COLUMN . LINE) counted from 1.
 It is measured in the terminal's font, which may not be the frame's."
@@ -1122,7 +1127,10 @@ search and copy."
     (define-key map (kbd "<left>") #'lispm-desktop-term-left)
     (lispm-desktop-bind-clipboard-keys map t)
     (define-key map (kbd "C-c C-h") #'lispm-desktop-term-history)
+    (define-key map (kbd "C-c C-p") #'lispm-desktop-term-scroll-back)
+    (define-key map (kbd "C-c C-n") #'lispm-desktop-term-scroll-forward)
     (define-key map (kbd "S-<prior>") #'lispm-desktop-term-scroll-back)
+    (define-key map (kbd "S-<next>") #'lispm-desktop-term-scroll-forward)
     (define-key map (kbd "<wheel-up>") #'lispm-desktop-term-wheel-up)
     (define-key map (kbd "<wheel-down>") #'lispm-desktop-term-wheel-down)
     (define-key map (kbd "S-<wheel-up>") #'lispm-desktop-term-wheel-up)

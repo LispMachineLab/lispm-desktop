@@ -589,7 +589,11 @@ See `lispm-desktop-platinum--title-bar'."
 
 ;;;; Title bar commands
 
-(defun lispm-desktop-platinum-close-window (window)
+(declare-function lispm-desktop-platinum-move-window-interactively "lispm-desktop-platinum-frames" (&optional frame))
+(declare-function lispm-desktop-platinum-resize-window-interactively "lispm-desktop-platinum-frames" (&optional frame))
+(declare-function lispm-desktop-apps-next-window "lispm-desktop-apps" ())
+
+(defun lispm-desktop-platinum-close-window (&optional window)
   "Close WINDOW as Mac OS closed a window: put its document away.
 A sidebar is hidden; a window whose frame names a function closing it,
 its frame parameter `lispm-desktop-close-function', as an application's
@@ -597,24 +601,26 @@ window does, is closed by that function.  Otherwise WINDOW's buffer is
 killed, once an alert has asked about unsaved changes or a running
 process, and WINDOW goes too when other windows remain in the main area;
 the last one shows the desktop."
-  (cond
-   ((lispm-desktop-platinum--box-function window :close)
-    (funcall (lispm-desktop-platinum--box-function window :close) window))
-   ((frame-parameter (window-frame window) 'lispm-desktop-close-function)
-    (funcall (frame-parameter (window-frame window) 'lispm-desktop-close-function) window))
-   ((window-parameter window 'window-side)
-    (funcall lispm-desktop-platinum-side-window-close-function window))
-   (t
-    (let ((buffer (window-buffer window)))
-      (when (lispm-desktop-platinum-confirm-close buffer)
-        (let ((kill-buffer-query-functions nil))
-          (kill-buffer buffer))
-        ;; The main area's last window uncovers the desktop, as closing
-        ;; Mac OS 9's last window did; any other window goes.
-        (when (window-live-p window)
-          (if (cdr (lispm-desktop-platinum-main-windows (window-frame window)))
-              (delete-window window)
-            (funcall lispm-desktop-platinum-last-window-function window))))))))
+  (interactive (list (selected-window)))
+  (let ((window (or window (selected-window))))
+    (cond
+     ((lispm-desktop-platinum--box-function window :close)
+      (funcall (lispm-desktop-platinum--box-function window :close) window))
+     ((frame-parameter (window-frame window) 'lispm-desktop-close-function)
+      (funcall (frame-parameter (window-frame window) 'lispm-desktop-close-function) window))
+     ((window-parameter window 'window-side)
+      (funcall lispm-desktop-platinum-side-window-close-function window))
+     (t
+      (let ((buffer (window-buffer window)))
+        (when (lispm-desktop-platinum-confirm-close buffer)
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer buffer))
+          ;; The main area's last window uncovers the desktop, as closing
+          ;; Mac OS 9's last window did; any other window goes.
+          (when (window-live-p window)
+            (if (cdr (lispm-desktop-platinum-main-windows (window-frame window)))
+                (delete-window window)
+              (funcall lispm-desktop-platinum-last-window-function window)))))))))
 
 (defun lispm-desktop-platinum-confirm-close (buffer)
   "Ask, as Mac OS 9 asked, whether BUFFER may close; return non-nil if so.
@@ -744,12 +750,14 @@ Emacs again.  Where alerts cannot be drawn, QUIT asks."
                                   (lispm-desktop-tr "Really quit Emacs? ")))))
           (kill-emacs nil restart))))))
 
-(defun lispm-desktop-platinum-zoom-window (window)
+(defun lispm-desktop-platinum-zoom-window (&optional window)
   "Zoom WINDOW to the whole main area, or back to where it was.
 The sidebar stays, as `delete-other-windows' leaves side windows be.  A
 window in a frame of its own, an application's or a game's, zooms its
 frame instead, see `lispm-desktop-platinum-zoom-frame'."
-  (let* ((frame (window-frame window))
+  (interactive (list (selected-window)))
+  (let* ((window (or window (selected-window)))
+         (frame (window-frame window))
          (saved (frame-parameter frame 'lispm-desktop-platinum-unzoom)))
     (cond
      ((lispm-desktop-platinum--box-function window :zoom)
@@ -813,21 +821,23 @@ POSITION, where `lispm-desktop-platinum-window-position' counts it."
   (lispm-desktop-platinum-move-window frame (car position) (cdr position))
   (lispm-desktop-platinum-frame-update frame))
 
-(defun lispm-desktop-platinum-collapse-window (window)
+(defun lispm-desktop-platinum-collapse-window (&optional window)
   "Roll WINDOW up to its title bar, or down again, as a window shade.
 Only a window sharing its column with another can roll up."
-  (cond
-   ((lispm-desktop-platinum--box-function window :collapse)
-    (funcall (lispm-desktop-platinum--box-function window :collapse) window))
-   ((window-parameter window 'lispm-desktop-platinum-shade)
-    (let ((height (window-parameter window 'lispm-desktop-platinum-shade)))
-      (set-window-parameter window 'lispm-desktop-platinum-shade nil)
-      (window-resize window (- height (window-total-height window)) nil t)))
-   ((window-combined-p window)
-    (set-window-parameter window 'lispm-desktop-platinum-shade (window-total-height window))
-    (window-resize window (- (window-min-size window nil t)
-                             (window-total-height window))
-                   nil t))))
+  (interactive (list (selected-window)))
+  (let ((window (or window (selected-window))))
+    (cond
+     ((lispm-desktop-platinum--box-function window :collapse)
+      (funcall (lispm-desktop-platinum--box-function window :collapse) window))
+     ((window-parameter window 'lispm-desktop-platinum-shade)
+      (let ((height (window-parameter window 'lispm-desktop-platinum-shade)))
+        (set-window-parameter window 'lispm-desktop-platinum-shade nil)
+        (window-resize window (- height (window-total-height window)) nil t)))
+     ((window-combined-p window)
+      (set-window-parameter window 'lispm-desktop-platinum-shade (window-total-height window))
+      (window-resize window (- (window-min-size window nil t)
+                               (window-total-height window))
+                     nil t)))))
 
 (defun lispm-desktop-platinum-window-buffers (window)
   "Return the buffers WINDOW could show: its workspace's.
@@ -902,6 +912,46 @@ from the keyboard, for the selected window."
                        :checked (eq buffer (window-buffer window))))
                (seq-take (lispm-desktop-platinum-window-buffers window) 30)))
      x y)))
+
+(cl-defgeneric lispm-desktop-platinum-window-menu (window)
+  "Pop up the window operations menu for WINDOW in the active look."
+  (let* ((window (if (window-live-p window) window (selected-window)))
+         (frame (window-frame window))
+         (floating (and (frame-live-p frame)
+                        (frame-parameter frame 'lispm-desktop-window))))
+    (pcase-let ((`(,close ,zoom ,collapse) (lispm-desktop-platinum-window-controls window))
+                (`(,x . ,y) (lispm-desktop-platinum--title-xy window)))
+      (lispm-ui-menu
+       (list (list :label (lispm-desktop-tr "Close Window")
+                   :enabled (and close t)
+                   :action (lambda () (lispm-desktop-platinum-close-window window)))
+             (list :label "Zoom Window"
+                   :enabled (and zoom t)
+                   :action (lambda () (lispm-desktop-platinum-zoom-window window)))
+             (list :label "Collapse Window"
+                   :enabled (and collapse t)
+                   :action (lambda () (lispm-desktop-platinum-collapse-window window)))
+             'separator
+             (list :label "Move Window"
+                   :enabled (and floating t)
+                   :action (lambda ()
+                             (when (frame-live-p frame)
+                               (lispm-desktop-platinum-move-window-interactively frame))))
+             (list :label "Resize Window"
+                   :enabled (and floating t)
+                   :action (lambda ()
+                             (when (frame-live-p frame)
+                               (lispm-desktop-platinum-resize-window-interactively frame))))
+             'separator
+             (list :label "Next Floating Window"
+                   :key "C-c O"
+                   :action #'lispm-desktop-apps-next-window))
+       x y))))
+
+(defun lispm-desktop-window-menu (&optional window)
+  "Open the window operations or system menu for WINDOW from the keyboard."
+  (interactive (list (selected-window)))
+  (lispm-desktop-platinum-window-menu (or window (selected-window))))
 
 (provide 'lispm-desktop-platinum-titlebar)
 ;;; lispm-desktop-platinum-titlebar.el ends here
