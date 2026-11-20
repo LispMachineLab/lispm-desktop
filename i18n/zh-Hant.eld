@@ -1335,7 +1335,6 @@
   ("Roles & Skills" . "角色與技能")
   ("Agents started without choosing a role are:" . "未選擇角色就啟動的代理使用：")
   ("Skills come from these directories, a later one's replacing an earlier one's of the same name:" . "技能來自以下目錄，後面目錄中的技能會取代前面目錄中的同名技能：")
-  ("LispM's own skills" . "LispM 內建的技能")
   ("%d skill" "%d 個技能")
   ("not there yet" . "尚不存在")
   ("Add a directory of skills" . "加入技能目錄")

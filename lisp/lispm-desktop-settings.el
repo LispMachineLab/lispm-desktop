@@ -1151,36 +1151,55 @@ consolidates itself (with a LispM Agent that does), and Show Memory…."
                                     (lispm-desktop-tr "Open the memory of a project or a role, or a task list"))
     (insert "\n")))
 
+(defun lispm-desktop-settings--popup-menu-p ()
+  "Return non-nil when settings buttons should open a graphical popup menu."
+  (and (not noninteractive) (lispm-ui-popup-available-p)))
+
 (defun lispm-desktop-settings--add-skill-directory ()
   "Ask for a directory of skills, and add it to those agents read, last."
   (lispm-add-skill-directory (read-directory-name (lispm-desktop-tr "Directory of skills: ") "~/" nil t) t))
 
-(defun lispm-desktop-settings--remove-skill-directory ()
-  "Ask for a directory of skills, not LispM's own, and take it out of those
-agents read; its skills stay where they are."
-  (let ((directories (mapcar #'abbreviate-file-name
-                             (seq-remove #'lispm-skill-directory-builtin-p lispm-skill-directories))))
-    (lispm-remove-skill-directory
-     (completing-read (lispm-desktop-tr "Take out the directory of skills: ") directories nil t nil nil
-                      (car (last directories)))
-     t)))
+(defun lispm-desktop-settings--remove-skill-directory (&optional directory)
+  "Take DIRECTORY out of those agents read; its skills stay where they are.
+Without DIRECTORY, pop up the removable directories under the button pressed."
+  (if directory
+      (lispm-remove-skill-directory directory t)
+    (let ((directories (mapcar #'abbreviate-file-name
+                               (seq-remove #'lispm-skill-directory-builtin-p lispm-skill-directories))))
+      (if (lispm-desktop-settings--popup-menu-p)
+          (lispm-desktop-settings--popup-under-button
+           (mapcar (lambda (dir)
+                     (list :label dir
+                           :action (lambda () (lispm-remove-skill-directory dir t))))
+                   directories))
+        (lispm-remove-skill-directory
+         (completing-read (lispm-desktop-tr "Take out the directory of skills: ") directories nil t nil nil
+                          (car (last directories)))
+         t)))))
 
 (defun lispm-desktop-settings--skill-directories-body ()
   "Insert the list of skill directories and the Add… and Remove… buttons."
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "Skills come from these directories, a later one's replacing an earlier one's of the same name:"))
   (dolist (directory lispm-skill-directories)
-    (let ((count (lispm-skill-directory-count directory))
-          (name (if (lispm-skill-directory-builtin-p directory)
-                    (lispm-desktop-tr "LispM's own skills")
-                  (abbreviate-file-name directory))))
+    (let* ((builtin (lispm-skill-directory-builtin-p directory))
+           (count (lispm-skill-directory-count directory))
+           (name (if builtin
+                     "builtin"
+                   (abbreviate-file-name directory))))
       (insert (lispm-desktop-settings--indent)
-              (lispm-desktop-settings--truncate name 48) "  "
+              (lispm-desktop-settings--truncate name 40) "  "
               (propertize (if (file-directory-p directory)
                               (lispm-desktop-tr-n "%d skill" "%d skills" count count)
                             (lispm-desktop-tr "not there yet"))
-                          'face 'shadow)
-              "\n")))
+                          'face 'shadow))
+      (unless builtin
+        (insert "  ")
+        (lispm-desktop-settings--button
+         (lispm-desktop-tr "Delete")
+         (lambda () (lispm-desktop-settings--remove-skill-directory directory))
+         (lispm-desktop-tr "Take a directory out of those skills come from")))
+      (insert "\n")))
   (insert "\n" (lispm-desktop-settings--indent))
   (lispm-desktop-settings--button (lispm-desktop-tr "Add…") #'lispm-desktop-settings--add-skill-directory
                                   (lispm-desktop-tr "Add a directory of skills"))
@@ -1235,16 +1254,60 @@ rest; programs providing models add to the Model group through it."
 (defvar-local lispm-desktop-settings--selected-skill nil
   "Name of the skill selected in the Skills panel.")
 
+(defun lispm-desktop-settings--store-skill-p (skill)
+  "Return non-nil when SKILL comes from an App Store skill source."
+  (and (eq (lispm-skill-kind skill) 'source)
+       (not (equal (plist-get skill :origin) "LispM Desktop"))))
+
+(defun lispm-desktop-settings--store-skill-entry-p (entry)
+  "Return non-nil when store ENTRY describes a skill item."
+  (eq (plist-get (cdr entry) :kind) 'skill))
+
+(defun lispm-desktop-settings--store-skill-app-id (entry)
+  "Return the owning application symbol declared by store skill ENTRY."
+  (car (plist-get (cdr entry) :requires)))
+
+(defun lispm-desktop-settings--skill-app-item (skill)
+  "Return the App Store item (ID . PROPS) that store SKILL belongs to, or nil."
+  (when-let* (((lispm-desktop-settings--store-skill-p skill))
+              (name (plist-get skill :name))
+              (sym (and (stringp name) (intern name)))
+              (entry (or (let ((s (assq sym lispm-desktop-store-installed)))
+                           (and (lispm-desktop-settings--store-skill-entry-p s) s))
+                         (assq sym (lispm-desktop-store--skills))))
+              (app-id (lispm-desktop-settings--store-skill-app-id entry))
+              (item (or (assq app-id (lispm-desktop-store-items))
+                        (assq app-id lispm-desktop-store-installed))))
+    item))
+
+(defun lispm-desktop-settings--skill-app-icon (skill)
+  "Return the small app logo string for SKILL when it is app-related, or nil."
+  (cond
+   ((when-let* ((item (lispm-desktop-settings--skill-app-item skill)))
+      (lispm-ui-icon (lispm-desktop-store--icon (cdr item) nil))))
+   ((equal (plist-get skill :origin) "LispM Desktop")
+    (pcase (plist-get skill :name)
+      ("app-store" (lispm-ui-icon "app-store"))
+      ("settings" (lispm-ui-icon "control-panels"))
+      ("desktop" (lispm-ui-icon "disk"))
+      (_ (lispm-ui-icon "lispm"))))
+   ((eq (lispm-skill-kind skill) 'source)
+    (lispm-ui-icon "app-store"))))
+
 (defun lispm-desktop-settings--skill-origin-text (skill)
   "Return a short label saying where SKILL comes from."
   (pcase (lispm-skill-kind skill)
-    ('builtin (lispm-desktop-tr "LispM's own skills"))
+    ('builtin "builtin")
     ('user (abbreviate-file-name (file-name-directory (plist-get skill :file))))
     ('project
      (if (and (lispm-skill-has-code-p skill) (not (lispm-skill-trusted-p skill)))
          (lispm-desktop-tr "Project (asks before running)")
        (lispm-desktop-tr "Project")))
-    ('source (or (plist-get skill :origin) (lispm-desktop-tr "App Store")))
+    ('source
+     (if-let* ((item (lispm-desktop-settings--skill-app-item skill))
+               (app-name (plist-get (cdr item) :name)))
+         app-name
+       (or (plist-get skill :origin) (lispm-desktop-tr "App Store"))))
     (_ (abbreviate-file-name (file-name-directory (plist-get skill :file))))))
 
 (defun lispm-desktop-settings--matching-skills ()
@@ -1258,6 +1321,36 @@ rest; programs providing models add to the Model group through it."
                       ('user (memq kind '(user directory)))
                       (wanted (eq kind wanted)))))
                 (lispm-skills agent))))
+
+(defun lispm-desktop-settings--select-skill-tab (filter)
+  "Select skill kind tab FILTER and re-render the Skills panel."
+  (setq lispm-desktop-settings--skill-filter filter
+        lispm-desktop-settings--selected-skill nil)
+  (lispm-desktop-settings--render))
+
+(defun lispm-desktop-settings--insert-skill-tabs (filter-choices)
+  "Insert the tab strip choosing among FILTER-CHOICES in the Skills panel."
+  (let* ((window (get-buffer-window (current-buffer) t))
+         (body-w (if window (window-body-width window t) 520))
+         (margin (lispm-desktop-px lispm-desktop-settings--group-margin))
+         (tab-width (if (lispm-desktop-tty-p)
+                        (max 24 (- body-w (* 2 margin) 6))
+                      (max 160 (- body-w (* 2 margin) (lispm-desktop-px 36)))))
+         (tabs (mapcar (pcase-lambda (`(,key . ,label))
+                         (list label (eq key lispm-desktop-settings--skill-filter)
+                               'button (list t)
+                               'category 'default-button
+                               'action (lambda (_)
+                                         (lispm-desktop-settings--select-skill-tab key))
+                               'keymap lispm-ui-push-button-map
+                               'follow-link t
+                               'lispm-ui-label label
+                               'mouse-face 'highlight
+                               'pointer 'arrow
+                               'help-echo (lispm-desktop-tr "Choose %s" label)))
+                       filter-choices)))
+    (dolist (row (split-string (lispm-ui-tabs tabs tab-width) "\n"))
+      (insert (lispm-desktop-settings--indent) row "\n"))))
 
 (defun lispm-desktop-settings--install-skill ()
   "Ask for a skill file or directory and install it in the user's skills."
@@ -1288,8 +1381,10 @@ rest; programs providing models add to the Model group through it."
          (title (or (plist-get skill :title) name))
          (file (plist-get skill :file))
          (kind (lispm-skill-kind skill))
+         (icon (lispm-desktop-settings--skill-app-icon skill))
          (tools (mapcar #'car (lispm-skill-tools skill))))
     (insert "\n" (lispm-desktop-settings--indent)
+            (if icon (concat icon " ") "")
             (propertize title 'face 'bold)
             (propertize (format " (%s) · %s" name (lispm-desktop-settings--skill-origin-text skill))
                         'face 'shadow)
@@ -1308,7 +1403,7 @@ rest; programs providing models add to the Model group through it."
                                     (lispm-desktop-tr "Open the skill's file in the editor"))
     (when (eq kind 'user)
       (insert " ")
-      (lispm-desktop-settings--button (lispm-desktop-tr "Uninstall")
+      (lispm-desktop-settings--button (lispm-desktop-tr "Delete")
                                       (lambda () (lispm-desktop-settings--delete-skill skill))
                                       (lispm-desktop-tr "Delete this skill from your skills directory")))
     (when (and (eq kind 'project) (lispm-skill-has-code-p skill))
@@ -1328,29 +1423,20 @@ creating, opening and deleting skills, and the directories skills come from."
   (lispm-desktop-settings--heading (lispm-desktop-tr "Skills"))
   (lispm-desktop-settings--paragraph
    (lispm-desktop-tr "Manuals and tools agents load when a task calls for them:"))
-  (let* (( filter-choices
-           (list (cons 'all (lispm-desktop-tr "All"))
-                 (cons 'user (lispm-desktop-tr "Installed"))
-                 (cons 'builtin (lispm-desktop-tr "LispM's own skills"))
-                 (cons 'source (lispm-desktop-tr "App Store"))
-                 (cons 'project (lispm-desktop-tr "Project"))))
+  (let* ((filter-choices
+          (list (cons 'all (lispm-desktop-tr "All"))
+                (cons 'user (lispm-desktop-tr "Installed"))
+                (cons 'builtin "builtin")
+                (cons 'source (lispm-desktop-tr "App Store"))
+                (cons 'project (lispm-desktop-tr "Project"))))
          (skills (lispm-desktop-settings--matching-skills))
          (selected (or (seq-find (lambda (s)
                                    (equal (plist-get s :name) lispm-desktop-settings--selected-skill))
                                  skills)
                        (car skills))))
     (setq lispm-desktop-settings--selected-skill (and selected (plist-get selected :name)))
-    (insert (lispm-desktop-settings--indent))
-    (lispm-ui-insert-popup-button
-     (or (cdr (assq lispm-desktop-settings--skill-filter filter-choices))
-         (lispm-desktop-tr "All"))
-     filter-choices
-     (lambda (filter)
-       (setq lispm-desktop-settings--skill-filter filter
-             lispm-desktop-settings--selected-skill nil)
-       (lispm-desktop-settings--render))
-     :current lispm-desktop-settings--skill-filter)
-    (insert " ")
+    (lispm-desktop-settings--insert-skill-tabs filter-choices)
+    (insert "\n" (lispm-desktop-settings--indent))
     (lispm-desktop-settings--button (lispm-desktop-tr "Install…")
                                     #'lispm-desktop-settings--install-skill
                                     (lispm-desktop-tr "Install a skill from a file or directory"))
@@ -1365,14 +1451,28 @@ creating, opening and deleting skills, and the directories skills come from."
       (dolist (skill skills)
         (let* ((name (plist-get skill :name))
                (title (or (plist-get skill :title) ""))
+               (icon (lispm-desktop-settings--skill-app-icon skill))
+               (label (if icon (concat icon " " name) name))
                (origin (lispm-desktop-settings--skill-origin-text skill))
                (note (if (and (not (string-empty-p title)) (not (equal title name)))
                          (format "%s · %s" title origin)
                        origin)))
-          (lispm-desktop-settings--radio
-           name (equal name lispm-desktop-settings--selected-skill)
+          (insert (lispm-desktop-settings--indent))
+          (lispm-desktop-settings--radio-button
+           label (equal name lispm-desktop-settings--selected-skill)
            (lambda () (setq lispm-desktop-settings--selected-skill name))
-           (lispm-desktop-settings--fit note (lispm-desktop-settings--note-room name)))))
+           (lispm-desktop-tr "Choose %s" name))
+          (when note
+            (insert "  " (propertize (lispm-desktop-settings--fit
+                                      note (lispm-desktop-settings--note-room label))
+                                     'face 'shadow)))
+          (when (eq (lispm-skill-kind skill) 'user)
+            (insert "  ")
+            (lispm-desktop-settings--button
+             (lispm-desktop-tr "Delete")
+             (lambda () (lispm-desktop-settings--delete-skill skill))
+             (lispm-desktop-tr "Delete this skill from your skills directory")))
+          (insert "\n")))
       (when selected
         (lispm-desktop-settings--skill-details selected))))
   (lispm-desktop-settings--heading (lispm-desktop-tr "Skill Directories"))
