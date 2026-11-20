@@ -594,7 +594,8 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
   ;; terminals leave to Emacs too.  U is Info's key for up, as the
   ;; Finder's title menu goes up the folder's path.
   (keymap-global-set "C-c m" #'lispm-desktop-platinum-menu-bar-open)
-  (keymap-global-set "C-c u" #'lispm-desktop-platinum-title-menu))
+  (keymap-global-set "C-c u" #'lispm-desktop-platinum-title-menu)
+  (keymap-global-set "C-c W" #'lispm-desktop-window-menu))
 
 (provide 'lispm-desktop-platinum)
 ;;; lispm-desktop-platinum.el ends here

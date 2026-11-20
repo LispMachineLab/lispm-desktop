@@ -286,6 +286,14 @@ Run from `lispm-desktop-apps-changed-hook'."
   "i" #'lispm-desktop-characters-generate-avatar
   "o" #'lispm-desktop-characters-open-file
   "v" #'lispm-desktop-characters-toggle-view
+  "]" #'lispm-desktop-characters-next
+  "[" #'lispm-desktop-characters-previous
+  "M-n" #'lispm-desktop-characters-next
+  "M-p" #'lispm-desktop-characters-previous
+  "<right>" #'lispm-desktop-characters-right
+  "<left>" #'lispm-desktop-characters-left
+  "C-f" #'lispm-desktop-characters-right
+  "C-b" #'lispm-desktop-characters-left
   "TAB" #'lispm-desktop-characters-next-tab
   "<backtab>" #'lispm-desktop-characters-previous-tab
   "1" #'lispm-desktop-characters-tab-all
@@ -299,7 +307,9 @@ Run from `lispm-desktop-apps-changed-hook'."
   "<double-mouse-1>" #'lispm-desktop-characters-mouse-open
   "<down-mouse-3>" #'lispm-desktop-characters-context-menu
   "<mouse-3>" #'ignore
-  "g" #'lispm-desktop-characters-refresh)
+  "g" #'lispm-desktop-characters-refresh
+  "q" #'lispm-desktop-characters-close
+  "M-w" #'lispm-desktop-characters-close)
 
 (define-derived-mode lispm-desktop-characters-mode special-mode "Characters"
   "The characters LispM has, one a row, and who the one point is on is.
@@ -904,6 +914,56 @@ An error if there is none."
   (setq lispm-desktop-characters--view
         (if (eq lispm-desktop-characters--view 'grid) 'list 'grid))
   (lispm-desktop-characters--draw))
+
+(defun lispm-desktop-characters-next (&optional step)
+  "Select the next character in the list or grid (or offset by STEP)."
+  (interactive)
+  (when-let* ((characters (lispm-desktop-characters--listed))
+              (names (mapcar #'lispm-character-name characters))
+              (count (length names))
+              ((> count 0)))
+    (let* ((current (or (get-text-property (point) 'lispm-desktop-characters-name)
+                        lispm-desktop-characters--selected))
+           (idx (or (seq-position names current) 0))
+           (target (nth (mod (+ idx (or step 1)) count) names)))
+      (setq lispm-desktop-characters--selected target)
+      (goto-char (point-min))
+      (lispm-desktop-characters--draw)
+      (when-let* ((pos (text-property-any (point-min) (point-max)
+                                          'lispm-desktop-characters-name target)))
+        (goto-char pos)))))
+
+(defun lispm-desktop-characters-previous ()
+  "Select the previous character in the list or grid."
+  (interactive)
+  (lispm-desktop-characters-next -1))
+
+(defun lispm-desktop-characters-right ()
+  "Move to the next character tile in grid view, or forward one character."
+  (interactive)
+  (if (and (eq lispm-desktop-characters--view 'grid)
+           (or (get-text-property (point) 'lispm-desktop-characters-name)
+               (text-property-not-all (line-beginning-position) (line-end-position)
+                                      'lispm-desktop-characters-name nil)))
+      (lispm-desktop-characters-next 1)
+    (forward-char 1)))
+
+(defun lispm-desktop-characters-left ()
+  "Move to the previous character tile in grid view, or backward one character."
+  (interactive)
+  (if (and (eq lispm-desktop-characters--view 'grid)
+           (or (get-text-property (point) 'lispm-desktop-characters-name)
+               (text-property-not-all (line-beginning-position) (line-end-position)
+                                      'lispm-desktop-characters-name nil)))
+      (lispm-desktop-characters-next -1)
+    (backward-char 1)))
+
+(defun lispm-desktop-characters-close ()
+  "Close the Characters floating window, or quit the current window."
+  (interactive)
+  (if (lispm-desktop-app-window-id (selected-frame))
+      (lispm-desktop-app-window-close 'characters)
+    (quit-window)))
 
 (defun lispm-desktop-characters-select-tab (tab)
   "Show TAB of the character card: `all', `soul', `memory' or `conversations'."

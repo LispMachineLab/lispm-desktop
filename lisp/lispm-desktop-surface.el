@@ -309,7 +309,7 @@ this, see `lispm-desktop-make-alias'."
 (declare-function lispm-desktop-genera-listener-backspace "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-kill-input "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-abort "lispm-desktop-genera" ())
-(declare-function lispm-desktop-genera-listener-yank "lispm-desktop-genera" ())
+(declare-function lispm-desktop-genera-listener-yank "lispm-desktop-genera" (&optional text))
 (declare-function lispm-desktop-genera-listener-complete "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-previous "lispm-desktop-genera" ())
 (declare-function lispm-desktop-genera-listener-history-next "lispm-desktop-genera" ())
@@ -338,12 +338,12 @@ this, see `lispm-desktop-make-alias'."
              (fboundp 'lispm-desktop-genera-listener-kill-input))
     (call-interactively #'lispm-desktop-genera-listener-kill-input)))
 
-(defun lispm-desktop-yank ()
-  "Yank text into `Dynamic Lisp Listener 1' when the desktop has no icons."
+(defun lispm-desktop-yank (&optional text)
+  "Yank TEXT (or the top of the kill ring) into `Dynamic Lisp Listener 1'."
   (interactive)
   (when (and (null (lispm-desktop-icon-side))
              (fboundp 'lispm-desktop-genera-listener-yank))
-    (call-interactively #'lispm-desktop-genera-listener-yank)))
+    (lispm-desktop-genera-listener-yank text)))
 
 (defun lispm-desktop-tab ()
   "Select the next desktop icon, or complete in `Dynamic Lisp Listener 1'."
@@ -364,6 +364,7 @@ this, see `lispm-desktop-make-alias'."
     (keymap-set map "C-u" #'lispm-desktop-kill-input)
     (keymap-set map "C-k" #'lispm-desktop-kill-input)
     (keymap-set map "C-y" #'lispm-desktop-yank)
+    (keymap-set map "M-v" #'lispm-desktop-yank)
     (keymap-set map "s-v" #'lispm-desktop-yank)
     (keymap-set map "M-p" #'lispm-desktop-select-previous)
     (keymap-set map "M-n" #'lispm-desktop-select-next)
@@ -1714,6 +1715,7 @@ mode is turned off first: turned off, it restores the lines it found."
 \\{lispm-desktop-mode-map}"
   (lispm-desktop--bare)
   (setq-local revert-buffer-function (lambda (&rest _) (lispm-desktop--render))
+              lispm-desktop-paste-function #'lispm-desktop-yank
               lispm-desktop-context-menu-function #'lispm-desktop--keyboard-menu)
   (add-hook 'window-size-change-functions #'lispm-desktop--render nil t)
   (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t)

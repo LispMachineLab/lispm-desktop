@@ -1084,6 +1084,20 @@ out to the root, which holds still while a window over it moves."
                 frame (frame-parent frame))))
       (cons x y))))
 
+(defun lispm-desktop-platinum--track-key-step (event tty)
+  "Return (DX . DY) when EVENT is a keyboard directional step, or nil.
+TTY scales steps to character cells instead of pixels."
+  (when event
+    (let* ((mods (event-modifiers event))
+           (basic (event-basic-type event))
+           (mult (if (memq 'shift mods) 3 1))
+           (sx (* mult (if tty 2 24)))
+           (sy (* mult (if tty 1 24))))
+      (cond ((or (eq basic 'left) (memq event '(?\C-b ?b))) (cons (- sx) 0))
+            ((or (eq basic 'right) (memq event '(?\C-f ?f))) (cons sx 0))
+            ((or (eq basic 'up) (memq event '(?\C-p ?p))) (cons 0 (- sy)))
+            ((or (eq basic 'down) (memq event '(?\C-n ?n))) (cons 0 sy))))))
+
 (defun lispm-desktop-platinum-track (step &optional pointer start)
   "Follow the mouse while its button is held, calling STEP with how far it
 has moved from START, (DX . DY) in pixels, whenever that changes.
@@ -1095,20 +1109,24 @@ mouse is when the drag begins.  The mouse is looked at every
 `lispm-desktop-platinum-drag-interval' seconds; on a text terminal,
 which reports every move from cell to cell, as each move or click comes,
 and only then.
-Return (EVENT . DELTA): EVENT the button's release, or nil when Escape
-or C-g gave the drag up; DELTA the last move, or nil when it never moved.
+Return (EVENT . DELTA): EVENT the button's release (or Return/Space when
+confirmed from the keyboard), or nil when Escape or C-g gave the drag up;
+DELTA the last move, or nil when it never moved.
 Mac OS 9's mouse had one button, so any of the three let go ends the
 drag: none leaves it following the mouse once every button is up.
-Other keys and the window system's own events change nothing."
+Arrow keys and C-b/C-f/C-p/C-n also step DELTA from the keyboard, and
+Return or Space confirms."
   (let* ((tty (lispm-desktop-tty-p))
          (pointer (or pointer
                       (if tty
                           #'lispm-desktop-platinum-tty-pointer
                         #'mouse-absolute-pixel-position)))
          (start (or start (funcall pointer) '(0 . 0)))
+         (kb-dx 0)
+         (kb-dy 0)
          (delta nil)
-        (event nil)
-        (done nil))
+         (event nil)
+         (done nil))
     (condition-case nil
         (track-mouse
           (setq track-mouse 'dragging)
@@ -1116,27 +1134,40 @@ Other keys and the window system's own events change nothing."
             ;; A terminal's keys and mouse reports are sequences, which a
             ;; read given up halfway would lose: there it waits for them.
             (setq event (lispm-ui-modal-read-event (unless tty lispm-desktop-platinum-drag-interval)))
-            (cond ((memq event '(escape ?\e ?\C-g))
-                   (setq done t event nil))
-                  ((and event (not (mouse-movement-p event))
-                        (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3))
-                        (seq-intersection (event-modifiers event) '(click drag)))
-                   (setq done t)))
-            (when-let* (((if tty
-                             ;; A terminal tells where the mouse is within
-                             ;; the frame under it, as that frame stood when
-                             ;; the event was read: a window moved since
-                             ;; would put it askew, and the release of a drag
-                             ;; comes after the move that brought it there.
-                             (and event
-                                  (or (mouse-movement-p event)
-                                      (memq 'click (event-modifiers event))))
-                           (or (not done) event)))
-                        (place (funcall pointer))
-                        (now (cons (- (car place) (car start)) (- (cdr place) (cdr start))))
-                        ((not (or (equal now delta) (and (null delta) (equal now '(0 . 0)))))))
-              (setq delta now)
-              (funcall step delta))))
+            (let ((key-step (lispm-desktop-platinum--track-key-step event tty)))
+              (cond ((memq event '(escape ?\e ?\C-g))
+                     (setq done t event nil))
+                    ((memq event '(return ?\r ?\n ?\s))
+                     (setq done t))
+                    ((and event (not (mouse-movement-p event))
+                          (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3))
+                          (seq-intersection (event-modifiers event) '(click drag)))
+                     (setq done t))
+                    (key-step
+                     (setq kb-dx (+ kb-dx (car key-step))
+                           kb-dy (+ kb-dy (cdr key-step)))
+                     (let* ((place (and (not tty) (funcall pointer)))
+                            (mx (if place (- (car place) (car start)) 0))
+                            (my (if place (- (cdr place) (cdr start)) 0)))
+                       (setq delta (cons (+ mx kb-dx) (+ my kb-dy)))
+                       (funcall step delta))))
+              (when-let* (((not key-step))
+                          ((if tty
+                               ;; A terminal tells where the mouse is within
+                               ;; the frame under it, as that frame stood when
+                               ;; the event was read: a window moved since
+                               ;; would put it askew, and the release of a drag
+                               ;; comes after the move that brought it there.
+                               (and event
+                                    (or (mouse-movement-p event)
+                                        (memq 'click (event-modifiers event))))
+                             (or (not done) event)))
+                          (place (funcall pointer))
+                          (now (cons (+ (- (car place) (car start)) kb-dx)
+                                     (+ (- (cdr place) (cdr start)) kb-dy)))
+                          ((not (or (equal now delta) (and (null delta) (equal now '(0 . 0)))))))
+                (setq delta now)
+                (funcall step delta)))))
       (quit (setq event nil)))
     (cons event delta)))
 
@@ -1232,6 +1263,30 @@ up.  Return non-nil when the window moved or grew."
                  (push event unread-command-events)
                (select-frame-set-input-focus frame)))
            nil))))
+
+(defun lispm-desktop-platinum-move-window-interactively (&optional frame)
+  "Move floating window FRAME (or the selected floating frame) via outline.
+Arrow keys or C-b/C-f/C-p/C-n move the outline (Shift moves faster),
+Return or Space confirms, and Escape or C-g cancels."
+  (interactive)
+  (let ((frame (or frame (selected-frame))))
+    (unless (and (frame-live-p frame) (frame-parameter frame 'lispm-desktop-window))
+      (user-error "The selected window is not a floating window"))
+    (message "Move window: arrow keys or C-f/C-b/C-n/C-p (Shift for fast), RET to confirm, C-g to cancel")
+    (prog1 (lispm-desktop-platinum-drag-outline frame 'move)
+      (message nil))))
+
+(defun lispm-desktop-platinum-resize-window-interactively (&optional frame)
+  "Resize floating window FRAME (or the selected floating frame) via outline.
+Arrow keys or C-b/C-f/C-p/C-n resize the outline (Shift resizes faster),
+Return or Space confirms, and Escape or C-g cancels."
+  (interactive)
+  (let ((frame (or frame (selected-frame))))
+    (unless (and (frame-live-p frame) (frame-parameter frame 'lispm-desktop-window))
+      (user-error "The selected window is not a floating window"))
+    (message "Resize window: arrow keys or C-f/C-b/C-n/C-p (Shift for fast), RET to confirm, C-g to cancel")
+    (prog1 (lispm-desktop-platinum-drag-outline frame 'grow)
+      (message nil))))
 
 (defun lispm-desktop-platinum-sweep-outline (&optional parent)
   "Sweep a rubber-band outline on PARENT with the mouse and return its geometry.

@@ -462,6 +462,9 @@ else its :large-icon, or nil when it has none."
                   (or (not running) (and (functionp running) (funcall running)))))
               (lispm-desktop-apps--available)))
 
+(declare-function lispm-desktop--tab-p "lispm-desktop-surface" (&optional frame))
+(defvar lispm-finder--had-focus)
+
 (defun lispm-desktop-apps-next ()
   "Bring the next running application in front, as the Application menu
 would, wrapping around: the desktop, the editor, the browser while it
@@ -471,6 +474,34 @@ has a page open, Control Panels while they are open."
          (index (or (seq-position apps (lispm-desktop-apps-frontmost)) -1)))
     (when apps
       (lispm-desktop-apps-activate (nth (mod (1+ index) (length apps)) apps)))))
+
+(defun lispm-desktop-apps-next-window ()
+  "Cycle keyboard focus among visible floating windows and the root desktop."
+  (interactive)
+  (let* ((screen (lispm-desktop-apps-screen))
+         (hidden (lispm-desktop-apps-hidden-p screen))
+         (floating (seq-filter #'frame-visible-p (lispm-desktop-apps-windows screen)))
+         (targets (append floating
+                          (when (and (frame-live-p screen) (not hidden) floating)
+                            (list screen))))
+         (current (selected-frame))
+         (index (seq-position targets current)))
+    (if (null targets)
+        (call-interactively #'lispm-desktop-apps-next)
+      (let ((next (nth (mod (1+ (or index -1)) (length targets)) targets)))
+        (if (eq next screen)
+            (progn
+              (when (boundp 'lispm-finder--had-focus)
+                (setq lispm-finder--had-focus nil))
+              (select-frame-set-input-focus screen)
+              (when (or (not (framep screen))
+                        (and (fboundp 'lispm-desktop--tab-p) (lispm-desktop--tab-p screen)))
+                (lispm-desktop-apps-set-frontmost 'desktop)))
+          (lispm-desktop-platinum-raise-window next)
+          (select-frame-set-input-focus next)
+          (when-let* ((app (frame-parameter next 'lispm-desktop-app)))
+            (lispm-desktop-apps-set-frontmost app)))
+        next))))
 
 (defun lispm-desktop-apps-menus ()
   "Return the frontmost application's menus, for the menu bar."
@@ -619,14 +650,16 @@ This is `lispm-desktop-platinum-window-area-function'."
         lispm-desktop-platinum-application-function #'lispm-desktop-apps-application
         lispm-desktop-platinum-applications-function #'lispm-desktop-apps-application-items
         lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence
-        lispm-desktop-platinum-window-area-function #'lispm-desktop-apps-window-area)
+        lispm-desktop-platinum-window-area-function #'lispm-desktop-apps-window-area
+        lispm-desktop-platinum-next-window-function #'lispm-desktop-apps-next-window)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-apps--follow-workspace)
   (add-hook 'window-selection-change-functions #'lispm-desktop-apps--follow-window)
   (add-hook 'window-size-change-functions #'lispm-desktop-apps--screen-resized)
   (add-hook 'lispm-desktop-platinum-frame-moved-functions #'lispm-desktop-apps-keep-on-desktop)
   ;; The next application from the keyboard, as Command-Tab is the
-  ;; system's.
-  (keymap-global-set "C-c o" #'lispm-desktop-apps-next))
+  ;; system's; C-c O cycles among visible floating windows and the desktop.
+  (keymap-global-set "C-c o" #'lispm-desktop-apps-next)
+  (keymap-global-set "C-c O" #'lispm-desktop-apps-next-window))
 
 (provide 'lispm-desktop-apps)
 ;;; lispm-desktop-apps.el ends here

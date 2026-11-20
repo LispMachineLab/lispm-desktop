@@ -865,15 +865,33 @@ This is one of `lispm-desktop-app-board-resized-functions'."
 (defvar-local lispm-desktop-app-ui--page nil
   "The overlay showing the current buffer's page while it has nothing to show.")
 
-(defun lispm-desktop-app-ui--page-button (label command)
-  "Return a push button reading LABEL that runs COMMAND, for a page."
+(defvar-local lispm-desktop-app-ui--page-focused 0
+  "Zero-based index of the focused button on the current buffer's `:empty' page.")
+
+(defun lispm-desktop-app-ui--empty-buttons ()
+  "Return the active `:empty' page buttons ((LABEL COMMAND) ...), or nil."
+  (when-let* ((empty (lispm-desktop-app-ui-get :empty)))
+    (pcase-let ((`(,predicate ,_ ,buttons) empty))
+      (when (ignore-errors (funcall predicate))
+        (if (functionp buttons) (funcall buttons) buttons)))))
+
+(defun lispm-desktop-app-ui--page-active-p ()
+  "Return non-nil when the current buffer shows an `:empty' page with buttons."
+  (and lispm-desktop-app-ui--page
+       (overlay-buffer lispm-desktop-app-ui--page)
+       (consp (lispm-desktop-app-ui--empty-buttons))))
+
+(defun lispm-desktop-app-ui--page-button (label command &optional default focused)
+  "Return a push button reading LABEL that runs COMMAND, for a page.
+DEFAULT rings it as the default button; FOCUSED adds the keyboard focus ring."
   (let ((map (make-sparse-keymap))
         (run (lambda (event)
                (interactive "e")
                (lispm-desktop-app-ui-call (posn-window (event-start event)) command))))
     (keymap-set map "<down-mouse-1>" #'ignore)
     (keymap-set map "<mouse-1>" run)
-    (propertize (lispm-ui-push-button label) 'keymap map 'mouse-face nil
+    (propertize (lispm-ui-push-button label :default default :focused focused :pad 5)
+                'keymap map 'mouse-face nil
                 'help-echo (let ((keys (where-is-internal command nil t)))
                              (if keys (lispm-desktop-tr "%s (%s)" label (key-description keys)) label)))))
 
@@ -881,18 +899,77 @@ This is one of `lispm-desktop-app-board-resized-functions'."
   "Return the page saying TEXT over BUTTONS, centred in the window; TEXT
 and the buttons' labels are in English, translated here, TEXT's lines
 broken where it says."
-  (let ((centre (lambda (string)
-                  (concat (propertize " " 'display
-                                      `(space :align-to (- center (0.5 . (,(string-pixel-width string))))))
-                          string "\n"))))
+  (let* ((count (length buttons))
+         (focused (if (> count 0)
+                      (mod (or lispm-desktop-app-ui--page-focused 0) count)
+                    0))
+         (index -1)
+         (centre (lambda (string)
+                   (concat (propertize " " 'display
+                                       `(space :align-to (- center (0.5 . (,(string-pixel-width string))))))
+                           string "\n"))))
     (concat (propertize " " 'display '(space :height (60))) "\n"
             (mapconcat (lambda (line) (funcall centre (propertize line 'face 'lispm-ui-list)))
                        (split-string (lispm-desktop-tr text) "\n") "")
             (propertize " " 'display '(space :height (16))) "\n"
             (funcall centre (mapconcat (pcase-lambda (`(,label ,command))
-                                         (lispm-desktop-app-ui--page-button (lispm-desktop-tr label) command))
+                                         (cl-incf index)
+                                         (lispm-desktop-app-ui--page-button
+                                          (lispm-desktop-tr label) command
+                                          (= index focused)
+                                          (and (> count 1) (= index focused))))
                                        buttons
                                        (propertize " " 'display '(space :width (12))))))))
+
+(defun lispm-desktop-app-ui-page-press ()
+  "Activate the focused push button on the current buffer's `:empty' page."
+  (interactive)
+  (when-let* ((buttons (lispm-desktop-app-ui--empty-buttons))
+              (count (length buttons))
+              ((> count 0))
+              (entry (nth (mod (or lispm-desktop-app-ui--page-focused 0) count) buttons))
+              (command (nth 1 entry)))
+    (if-let* ((window (get-buffer-window (current-buffer) t)))
+        (lispm-desktop-app-ui-call window command)
+      (let ((lispm-ui-in-gui-action t))
+        (if (commandp command) (call-interactively command) (funcall command))))))
+
+(defun lispm-desktop-app-ui-page-next-button (&optional step)
+  "Move keyboard focus across the current buffer's `:empty' page buttons by STEP."
+  (interactive)
+  (when-let* ((buttons (lispm-desktop-app-ui--empty-buttons))
+              (count (length buttons))
+              ((> count 0)))
+    (setq lispm-desktop-app-ui--page-focused
+          (mod (+ (or lispm-desktop-app-ui--page-focused 0) (or step 1)) count))
+    (lispm-desktop-app-ui--refresh-page)))
+
+(defun lispm-desktop-app-ui-page-previous-button ()
+  "Move keyboard focus to the previous button on the current `:empty' page."
+  (interactive)
+  (lispm-desktop-app-ui-page-next-button -1))
+
+(defun lispm-desktop-app-ui-actions ()
+  "Trigger or pop up a keyboard menu of the window's strip or `:empty' buttons."
+  (interactive)
+  (let* ((window (selected-window))
+         (empty (mapcar (pcase-lambda (`(,label ,command))
+                          (list (lispm-desktop-tr label) command t))
+                        (lispm-desktop-app-ui--empty-buttons)))
+         (buttons (seq-filter (lambda (btn) (nth 2 btn))
+                              (or empty (lispm-desktop-app-ui-buttons)))))
+    (cond
+     ((null buttons)
+      (user-error "No actions in this window"))
+     ((null (cdr buttons))
+      (lispm-desktop-app-ui-call window (nth 1 (car buttons))))
+     (t
+      (let ((items (mapcar (pcase-lambda (`(,label ,command ,_))
+                             (list :label label
+                                   :key (lispm-desktop-app-ui--key command window)
+                                   :action (lambda () (lispm-desktop-app-ui-call window command))))
+                           buttons)))
+        (lispm-ui-menu items 24 24))))))
 
 (defun lispm-desktop-app-ui--refresh-page ()
   "Show the current buffer's page while its application has nothing to
@@ -955,9 +1032,14 @@ controls on bottom placards."
   '(forward-char backward-char next-line previous-line right-char left-char)
   "Emacs's own commands of the arrows and their letters.")
 
+(defun lispm-desktop-app-ui--page-binding (command)
+  "Return a conditional key binding running COMMAND only on an `:empty' page."
+  `(menu-item "" ,command :filter ,(lambda (cmd) (and (lispm-desktop-app-ui--page-active-p) cmd))))
+
 (defun lispm-desktop-app-ui--letters-map ()
   "Return a keymap giving C-b, C-f, C-p and C-n the commands the current
-buffer's application gives the arrows, where it gives none to the letters."
+buffer's application gives the arrows, where it gives none to the letters,
+plus `:empty' page button keys and strip actions."
   (let ((map (make-sparse-keymap))
         (local (current-local-map)))
     (when local
@@ -968,6 +1050,14 @@ buffer's application gives the arrows, where it gives none to the letters."
                      (not (memq command lispm-desktop-app-ui--emacs-motions))
                      (or (null own) (memq own lispm-desktop-app-ui--emacs-motions)))
             (keymap-set map letter command)))))
+    (keymap-set map "RET" (lispm-desktop-app-ui--page-binding #'lispm-desktop-app-ui-page-press))
+    (keymap-set map "SPC" (lispm-desktop-app-ui--page-binding #'lispm-desktop-app-ui-page-press))
+    (keymap-set map "TAB" (lispm-desktop-app-ui--page-binding #'lispm-desktop-app-ui-page-next-button))
+    (keymap-set map "<backtab>" (lispm-desktop-app-ui--page-binding #'lispm-desktop-app-ui-page-previous-button))
+    (keymap-set map "<right>" (lispm-desktop-app-ui--page-binding #'lispm-desktop-app-ui-page-next-button))
+    (keymap-set map "<left>" (lispm-desktop-app-ui--page-binding #'lispm-desktop-app-ui-page-previous-button))
+    (keymap-set map "C-c RET" #'lispm-desktop-app-ui-actions)
+    (keymap-set map "M-RET" #'lispm-desktop-app-ui-actions)
     map))
 
 (define-minor-mode lispm-desktop-app-ui-mode

@@ -86,6 +86,7 @@
  :icon-side :left
  :floating-apps nil
  :title-double-click 'zoom
+ :background-menu #'lispm-desktop-pc-task-menu
  :background-double-click #'lispm-desktop-pc-mouse-task-menu
  :box-help (list (lispm-desktop-tr-noop "System menu: restore, minimize, maximize, close")
                  (lispm-desktop-tr-noop "Minimize: roll up to the title bar")

@@ -757,20 +757,31 @@ INDEX): the item chosen, or nil, and the module whose menu closed."
       (setq index (mod (+ index step) (length modules))))
     (cons chosen index)))
 
+(defun lispm-desktop-strip--menu-items ()
+  "Return the Control Strip's modules as a menu of submenus."
+  (mapcar (lambda (key)
+            (let* ((module (alist-get key lispm-desktop-strip-module-alist))
+                   (help (plist-get module :help))
+                   (label (if (functionp help) (funcall help) (lispm-desktop-tr help))))
+              (list :label label :submenu (plist-get module :items))))
+          (lispm-desktop-strip--modules)))
+
 (defun lispm-desktop-strip-select ()
   "Go to the Control Strip from the keyboard.
 The first module is ringed: C-f and C-b move between the modules, Return
 or Space pops the ringed one's menu up, C-p and C-n move the strip up and
 down its edge, C-a and C-e to the left and the right edge, and C-g or
 Escape leaves.  A collapsed strip shows whole meanwhile.  Any other key
-leaves the strip and does what it does."
+leaves the strip and does what it does.  In looks or terminals without a
+graphical Control Strip frame, pop up its modules as a menu."
   (interactive)
   (unless (lispm-desktop-strip--live-p)
     (lispm-desktop-strip-show))
   (let ((collapsed lispm-desktop-strip-collapsed)
         (modules (lispm-desktop-strip--modules))
         (index 0))
-    (when (and modules (lispm-desktop-strip--live-p))
+    (cond
+     ((and modules (lispm-desktop-strip--live-p))
       (unwind-protect
           (progn
             (setq lispm-desktop-strip-collapsed nil)
@@ -798,7 +809,9 @@ leaves the strip and does what it does."
                            (throw 'done nil)))))))
         (setq lispm-desktop-strip--focus nil
               lispm-desktop-strip-collapsed collapsed)
-        (lispm-desktop-strip--render)))))
+        (lispm-desktop-strip--render)))
+     (modules
+      (lispm-ui-menu (lispm-desktop-strip--menu-items))))))
 
 ;;;; Setup
 

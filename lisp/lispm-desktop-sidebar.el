@@ -664,6 +664,21 @@ out, so its list keys are reached this way; a hidden sidebar shows
              (when-let* ((window (lispm-desktop-sidebar--window)))
                (select-window window))))))
 
+(defun lispm-desktop-sidebar-next-view (&optional backward)
+  "Switch to the next view in the left sidebar (Files, Agents, Shells)."
+  (interactive "P")
+  (let* ((views (mapcar #'car lispm-desktop-sidebar-views))
+         (current (lispm-desktop-sidebar-current-view))
+         (index (seq-position views current))
+         (next (if index
+                   (nth (mod (+ index (if backward -1 1)) (length views)) views)
+                 (or (car (member lispm-desktop-sidebar-focus-view views))
+                     (car views)))))
+    (when next
+      (lispm-desktop-sidebar-select next)
+      (when-let* ((window (lispm-desktop-sidebar--window)))
+        (select-window window)))))
+
 (defun lispm-desktop-sidebar--close-side-window (_window)
   "Hide the sidebar's view, from a side window's close box.
 This is `lispm-desktop-platinum-side-window-close-function'."
@@ -678,13 +693,15 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
 (defun lispm-desktop-setup-sidebar ()
   "Let the sidebar's views close from their windows' close boxes, its lists
 scroll as Finder's did and follow a change of language, and the project
-tree wear a list's toolbar; C-c s goes into the sidebar and back."
+tree wear a list's toolbar; C-c s goes into the sidebar and back, and
+C-c S cycles between sidebar views."
   (setq lispm-desktop-platinum-side-window-close-function #'lispm-desktop-sidebar--close-side-window)
   (add-hook 'lispm-desktop-platinum-scroll-bar-functions #'lispm-desktop-sidebar--scroll-bar)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-sidebar--refresh-lists)
   (add-hook 'treemacs-mode-hook #'lispm-desktop-sidebar--files-toolbar)
   ;; Into the sidebar and back: C-x o leaves side windows out.
-  (global-set-key (kbd "C-c s") #'lispm-desktop-sidebar-focus))
+  (global-set-key (kbd "C-c s") #'lispm-desktop-sidebar-focus)
+  (global-set-key (kbd "C-c S") #'lispm-desktop-sidebar-next-view))
 
 (provide 'lispm-desktop-sidebar)
 ;;; lispm-desktop-sidebar.el ends here

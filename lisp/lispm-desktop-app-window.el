@@ -513,6 +513,15 @@ This is the frame parameter `lispm-desktop-close-function' of the windows."
                  (lispm-desktop-app-ui-close-window window))
       (lispm-desktop-app-window-close (lispm-desktop-app-window-id frame)))))
 
+(defun lispm-desktop-app-window-quit (&optional window)
+  "Close WINDOW's floating application window, or `quit-window' if not in one."
+  (interactive)
+  (let* ((window (or window (selected-window)))
+         (frame (window-frame window)))
+    (if (lispm-desktop-app-window-id frame)
+        (lispm-desktop-app-window-close-box window)
+      (quit-window nil window))))
+
 (defun lispm-desktop-app-window--forget (frame)
   "Forget FRAME once deleted otherwise than by its close box, as with
 \\[delete-frame], as its close box would.
@@ -561,6 +570,12 @@ and the application stays in front."
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
 
+(defvar-keymap lispm-desktop-app-window-mode-map
+  :doc "Keymap of `lispm-desktop-app-window-mode'."
+  :parent special-mode-map
+  "q" #'lispm-desktop-app-window-quit
+  "M-w" #'lispm-desktop-app-window-quit)
+
 (define-derived-mode lispm-desktop-app-window-mode special-mode "Window"
   "Major mode a floating window's own buffer derives from, as the Finder
 window's and Control Panels': no cursor, no fringes, no wrapped or
@@ -601,6 +616,7 @@ LispM now speaks.  This is one of `lispm-desktop-language-changed-hook'."
 language spoken."
   (add-hook 'lispm-desktop-apps-frontmost-functions #'lispm-desktop-app-window--follow-frontmost)
   (add-hook 'lispm-desktop-platinum-menu-closed-hook #'lispm-desktop-app-window--refocus)
+  (add-hook 'lispm-desktop-activate-hook #'lispm-desktop-app-window--refocus)
   (add-hook 'delete-frame-functions #'lispm-desktop-app-window--forget)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-app-window--rename))
 

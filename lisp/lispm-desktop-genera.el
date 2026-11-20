@@ -357,35 +357,41 @@ Derived from `lispm-desktop-platinum-window-controls' and floating frame state."
              (list :label "Refresh"
                    :action #'redraw-display))))))
 
-(defun lispm-desktop-genera-window-menu (window &optional x y)
+(defun lispm-desktop-genera-window-menu (&optional window x y)
   "Pop up Genera's Pane Command Menu for WINDOW at X, Y (or under its label)."
-  (pcase-let* ((`(,left ,top ,_ ,_) (window-pixel-edges window))
-               (margins (lispm-desktop-platinum-window-box-margins window))
-               (`(,sx . ,sy)
-                (if (and x y)
-                    (lispm-desktop-genera--window-screen-xy window x y)
-                  (lispm-desktop-genera--window-screen-xy
-                   window
-                   (+ left (lispm-desktop-look-box-margin (car margins)))
-                   (+ top (window-tab-line-height window)))))
-               (frame (window-frame window))
-               (app-menus (lispm-desktop-genera-app-menu-items))
-               (select-items (and (not noninteractive)
-                                  (lispm-desktop-genera-select-items))))
-    (let ((lispm-ui-menu-parent
-           (or (lispm-desktop-platinum-window-parent frame) frame)))
-      (lispm-ui-menu
-       (lispm-desktop-genera--active-items
-        (append
-         (lispm-desktop-genera-window-operation-items window)
-         (when app-menus (cons 'separator app-menus))
-         (list 'separator
-               (list :label "Select"
-                     :submenu #'lispm-desktop-genera-select-items)
-               (list :label "Create"
-                     :submenu (lambda () (lispm-desktop-genera-create-items t))))
-         (when select-items (cons 'separator select-items))))
-       sx sy))))
+  (interactive (list (selected-window)))
+  (let ((window (if (window-live-p window) window (selected-window))))
+    (pcase-let* ((`(,left ,top ,_ ,_) (window-pixel-edges window))
+                 (margins (lispm-desktop-platinum-window-box-margins window))
+                 (`(,sx . ,sy)
+                  (if (and x y)
+                      (lispm-desktop-genera--window-screen-xy window x y)
+                    (lispm-desktop-genera--window-screen-xy
+                     window
+                     (+ left (lispm-desktop-look-box-margin (car margins)))
+                     (+ top (window-tab-line-height window)))))
+                 (frame (window-frame window))
+                 (app-menus (lispm-desktop-genera-app-menu-items))
+                 (select-items (and (not noninteractive)
+                                    (lispm-desktop-genera-select-items))))
+      (let ((lispm-ui-menu-parent
+             (or (lispm-desktop-platinum-window-parent frame) frame)))
+        (lispm-ui-menu
+         (lispm-desktop-genera--active-items
+          (append
+           (lispm-desktop-genera-window-operation-items window)
+           (when app-menus (cons 'separator app-menus))
+           (list 'separator
+                 (list :label "Select"
+                       :submenu #'lispm-desktop-genera-select-items)
+                 (list :label "Create"
+                       :submenu (lambda () (lispm-desktop-genera-create-items t))))
+           (when select-items (cons 'separator select-items))))
+         sx sy)))))
+
+(cl-defmethod lispm-desktop-platinum-window-menu (window &context (lispm-desktop-look (lispm-desktop-genera-look genera)))
+  "Pop up WINDOW's Genera Pane Command Menu."
+  (lispm-desktop-genera-window-menu window))
 
 (defun lispm-desktop-genera-mouse-window-menu (event)
   "Pop up Genera's Pane Command Menu where EVENT right-clicked a pane label."
@@ -2236,20 +2242,24 @@ or answer an inline AI approval prompt with `y' or `n' when input is empty."
           lispm-desktop-genera--listener-output "Ready.")))
   (lispm-desktop-genera--refresh-listener))
 
-(defun lispm-desktop-genera-listener-yank ()
-  "Yank the latest kill or clipboard text into `Command: █'."
+(defun lispm-desktop-genera-listener-yank (&optional text)
+  "Yank TEXT (or the latest kill or clipboard text) into `Command: █'."
   (interactive)
-  (when-let* ((text (ignore-errors (current-kill 0 t))))
+  (when-let* ((text (or text (ignore-errors (current-kill 0 t)))))
     (let ((line (car (split-string (substring-no-properties text) "[\r\n]+"))))
       (when (stringp line)
         (setq lispm-desktop-genera--listener-input
               (concat lispm-desktop-genera--listener-input line))
         (lispm-desktop-genera--refresh-listener)))))
 
+(defvar lispm-desktop-editor--splash-focused)
+
 (defun lispm-desktop-genera-listener-history-previous ()
   "Cycle to the previous command in `lispm-desktop-genera--listener-history'."
   (interactive)
   (when lispm-desktop-genera--listener-history
+    (when (boundp 'lispm-desktop-editor--splash-focused)
+      (setq lispm-desktop-editor--splash-focused nil))
     (let* ((len (length lispm-desktop-genera--listener-history))
            (idx (if (null lispm-desktop-genera--listener-history-index)
                     0
@@ -2263,6 +2273,8 @@ or answer an inline AI approval prompt with `y' or `n' when input is empty."
   "Cycle to the next command in `lispm-desktop-genera--listener-history'."
   (interactive)
   (when lispm-desktop-genera--listener-history-index
+    (when (boundp 'lispm-desktop-editor--splash-focused)
+      (setq lispm-desktop-editor--splash-focused nil))
     (if (<= lispm-desktop-genera--listener-history-index 0)
         (setq lispm-desktop-genera--listener-history-index nil
               lispm-desktop-genera--listener-input "")
@@ -2314,8 +2326,8 @@ or answer an inline AI approval prompt with `y' or `n' when input is empty."
 
 (defun lispm-desktop-genera-listener-ret ()
   "Execute the live input at `Command: █' on `Dynamic Lisp Listener 1'.
-When `Command: █' is empty on the Listener surface, keep the prompt ready
-without opening a minibuffer completion list that could preselect a command."
+When `Command: █' is empty on the Listener surface, display available commands
+inline without opening a minibuffer completion list that could preselect one."
   (interactive)
   (let ((combined (string-trim (concat (or lispm-desktop-genera--listener-input "")
                                        (or lispm-desktop-genera--listener-working-text "")))))
@@ -2325,7 +2337,9 @@ without opening a minibuffer completion list that could preselect a command."
     (lispm-desktop-genera--clear-ns-working-overlay)
     (if (not (string-empty-p combined))
         (lispm-desktop-genera-command combined)
-      (lispm-desktop-genera--refresh-listener))))
+      (if (not lispm-desktop-genera--listener-ai-active)
+          (lispm-desktop-genera-listener-complete)
+        (lispm-desktop-genera--refresh-listener)))))
 
 (defun lispm-desktop-genera-system-menu (&optional x y window)
   "Pop up LispM's Genera System Menu at X, Y on the root screen for WINDOW."
