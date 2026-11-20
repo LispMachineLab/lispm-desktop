@@ -59,6 +59,9 @@ label, or nil.  A terminal says what its program last said it does.")
 though they are no process of Emacs's: a terminal's runs in a thread of
 its own.")
 
+(defvar lispm-desktop-platinum-next-window-function #'other-frame
+  "Function cycling to the next floating window or frame.")
+
 (defvar lispm-desktop-platinum-window-kind-function #'ignore
   "Function of a window of the main area returning its kind: a window
 dropped on another by its title bar trades places with it only when
@@ -591,7 +594,6 @@ See `lispm-desktop-platinum--title-bar'."
 
 (declare-function lispm-desktop-platinum-move-window-interactively "lispm-desktop-platinum-frames" (&optional frame))
 (declare-function lispm-desktop-platinum-resize-window-interactively "lispm-desktop-platinum-frames" (&optional frame))
-(declare-function lispm-desktop-apps-next-window "lispm-desktop-apps" ())
 
 (defun lispm-desktop-platinum-close-window (&optional window)
   "Close WINDOW as Mac OS closed a window: put its document away.
@@ -945,7 +947,9 @@ from the keyboard, for the selected window."
              'separator
              (list :label "Next Floating Window"
                    :key "C-c O"
-                   :action #'lispm-desktop-apps-next-window))
+                   :action (lambda ()
+                              (when (functionp lispm-desktop-platinum-next-window-function)
+                                (funcall lispm-desktop-platinum-next-window-function)))))
        x y))))
 
 (defun lispm-desktop-window-menu (&optional window)

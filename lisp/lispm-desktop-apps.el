@@ -650,7 +650,8 @@ This is `lispm-desktop-platinum-window-area-function'."
         lispm-desktop-platinum-application-function #'lispm-desktop-apps-application
         lispm-desktop-platinum-applications-function #'lispm-desktop-apps-application-items
         lispm-desktop-platinum-licence-function #'lispm-desktop-apps-show-licence
-        lispm-desktop-platinum-window-area-function #'lispm-desktop-apps-window-area)
+        lispm-desktop-platinum-window-area-function #'lispm-desktop-apps-window-area
+        lispm-desktop-platinum-next-window-function #'lispm-desktop-apps-next-window)
   (add-hook 'tab-bar-tab-post-select-functions #'lispm-desktop-apps--follow-workspace)
   (add-hook 'window-selection-change-functions #'lispm-desktop-apps--follow-window)
   (add-hook 'window-size-change-functions #'lispm-desktop-apps--screen-resized)
