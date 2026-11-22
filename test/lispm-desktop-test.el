@@ -20753,18 +20753,21 @@ floating windows, Control Strip fallback, sidebar views, Finder, and Term."
 0px left fringe and 1px right fringe without a scroll bar, and restore buffer
 fringes when a Platinum scroll bar is dropped."
   (with-temp-buffer
-    (lispm-desktop-sidebar-setup-buffer)
-    (should (eq truncate-lines t))
-    (should-not bidi-display-reordering)
-    (should (= left-fringe-width 0))
-    (should (= right-fringe-width 1))
-    (should (equal (assq 'truncation fringe-indicator-alist) '(truncation)))
-    (should (assq 'fringe face-remapping-alist)))
+    (let ((fringe-indicator-alist '((truncation left-arrow right-arrow)
+                                    (continuation left-curly-arrow right-curly-arrow))))
+      (lispm-desktop-sidebar-setup-buffer)
+      (should (eq truncate-lines t))
+      (should-not bidi-display-reordering)
+      (should (= left-fringe-width 0))
+      (should (= right-fringe-width 1))
+      (should (equal fringe-indicator-alist '((truncation) (continuation))))
+      (should (assq 'fringe face-remapping-alist))))
   (with-temp-buffer
-    (let ((lispm-desktop-sidebar-views '((files :title "Files" :icon "disk"))))
+    (let ((fringe-indicator-alist '((truncation left-arrow right-arrow)))
+          (lispm-desktop-sidebar-views '((files :title "Files" :icon "disk"))))
       (lispm-desktop-sidebar--files-toolbar)
       (should (= right-fringe-width 1))
-      (should (equal (assq 'truncation fringe-indicator-alist) '(truncation)))))
+      (should (equal fringe-indicator-alist '((truncation))))))
   (save-window-excursion
     (delete-other-windows)
     (let ((buffer (generate-new-buffer " *sidebar fringe test*"))
