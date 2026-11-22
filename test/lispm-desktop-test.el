@@ -20748,6 +20748,50 @@ floating windows, Control Strip fallback, sidebar views, Finder, and Term."
   (should (eq (keymap-lookup lispm-finder-choose-mode-map "M-w")
               #'lispm-finder-choose-cancel)))
 
+(ert-deftest lispm-desktop-test-sidebar-suppresses-fringe-truncation-arrows ()
+  "Sidebar list and files buffers disable fringe truncation indicators, keep a
+0px left fringe and 1px right fringe without a scroll bar, and restore buffer
+fringes when a Platinum scroll bar is dropped."
+  (with-temp-buffer
+    (let ((fringe-indicator-alist '((truncation left-arrow right-arrow)
+                                    (continuation left-curly-arrow right-curly-arrow))))
+      (lispm-desktop-sidebar-setup-buffer)
+      (should (eq truncate-lines t))
+      (should-not bidi-display-reordering)
+      (should (= left-fringe-width 0))
+      (should (= right-fringe-width 1))
+      (should (equal fringe-indicator-alist '((truncation) (continuation))))
+      (should (assq 'fringe face-remapping-alist))))
+  (with-temp-buffer
+    (let ((fringe-indicator-alist '((truncation left-arrow right-arrow)))
+          (lispm-desktop-sidebar-views '((files :title "Files" :icon "disk"))))
+      (lispm-desktop-sidebar--files-toolbar)
+      (should (= right-fringe-width 1))
+      (should (equal fringe-indicator-alist '((truncation))))))
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((buffer (generate-new-buffer " *sidebar fringe test*"))
+          (calls nil))
+      (unwind-protect
+          (progn
+            (with-current-buffer buffer
+              (lispm-desktop-sidebar-setup-buffer))
+            (cl-letf (((symbol-function 'set-window-fringes)
+                       (lambda (window left &optional right outside persistent)
+                         (push (list (window-live-p window) left right outside persistent)
+                               calls))))
+              (let ((window (lispm-desktop-sidebar--display buffer)))
+                (should (equal (car calls) '(t 0 1 nil t)))
+                (cl-letf (((symbol-function 'frame-live-p) (lambda (f) (eq f 'live-scroll))))
+                  (set-window-parameter window 'lispm-desktop-platinum-scroll-frame 'live-scroll)
+                  (should (= (lispm-desktop-sidebar--right-fringe window)
+                             lispm-ui-scroll-width)))
+                (setq calls nil)
+                (lispm-desktop-platinum--scroll-drop window nil)
+                (should-not (window-parameter window 'lispm-desktop-platinum-scroll-frame))
+                (should (equal (car calls) '(t 0 1 nil nil))))))
+        (kill-buffer buffer)))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 
