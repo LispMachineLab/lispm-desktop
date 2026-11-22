@@ -208,8 +208,12 @@ It takes no focus and hooks run for new frames do not see it."
       (delete-frame frame t)
       (kill-buffer buffer)))
   (when (window-live-p window)
-    (set-window-parameter window 'lispm-desktop-platinum-scroll-frame nil)
-    (set-window-fringes window nil nil nil t)))
+    (let ((buffer (window-buffer window)))
+      (set-window-parameter window 'lispm-desktop-platinum-scroll-frame nil)
+      (set-window-fringes window
+                          (buffer-local-value 'left-fringe-width buffer)
+                          (buffer-local-value 'right-fringe-width buffer)
+                          (buffer-local-value 'fringes-outside-margins buffer)))))
 
 (defun lispm-desktop-platinum-scroll-sync ()
   "Give every window that wants a scroll bar its own, up to date, and

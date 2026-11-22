@@ -215,6 +215,23 @@ translated where shown, see `lispm-desktop-sidebar--toolbar-buttons'."
   (setq-local lispm-desktop-sidebar--header (list actions refresh title-actions)
               header-line-format '(:eval (lispm-desktop-sidebar--header-line))))
 
+(defun lispm-desktop-sidebar--fringe-indicators ()
+  "Return `fringe-indicator-alist' stripped of all indicator bitmaps."
+  (mapcar (lambda (entry) (list (car entry))) fringe-indicator-alist))
+
+(defun lispm-desktop-sidebar--scroll-frame-live-p (window)
+  "Return non-nil when WINDOW has a live Platinum scroll bar child frame."
+  (frame-live-p (window-parameter window 'lispm-desktop-platinum-scroll-frame)))
+
+(defun lispm-desktop-sidebar--right-fringe (window)
+  "Return the pixel width of sidebar WINDOW's right fringe.
+A window with a live scroll bar child frame keeps `lispm-ui-scroll-width';
+otherwise a 1-pixel fringe prevents Emacs from reserving the last text
+column for a truncation glyph."
+  (if (lispm-desktop-sidebar--scroll-frame-live-p window)
+      lispm-ui-scroll-width
+    1))
+
 (defun lispm-desktop-sidebar-setup-buffer ()
   "Set up the current buffer as sidebar content.
 Visual line mode is turned off explicitly, so `global-visual-line-mode'
@@ -227,11 +244,18 @@ A list shows no text cursor, whatever state Evil is in: the row at point
 is highlighted in the selection colour instead, as Finder showed the
 selected item."
   (visual-line-mode -1)
+  ;; A 0px left fringe with a 1px body-coloured right fringe and bidi
+  ;; reordering disabled keeps `xdisp.c' from subtracting a truncation
+  ;; glyph width from `last_visible_x' while hiding all fringe arrows.
   (setq-local truncate-lines t
+              bidi-display-reordering nil
               left-fringe-width 0
+              right-fringe-width 1
+              fringe-indicator-alist (lispm-desktop-sidebar--fringe-indicators)
               cursor-type nil
               line-spacing 3)
   (face-remap-add-relative 'default 'lispm-desktop-platinum-list-body)
+  (face-remap-add-relative 'fringe 'lispm-desktop-platinum-list-body)
   (dolist (cursor '(evil-emacs-state-cursor evil-normal-state-cursor
                     evil-motion-state-cursor))
     (set (make-local-variable cursor) '(nil)))
@@ -268,7 +292,7 @@ resizes it, see `lispm-desktop-sidebar--keep-width'."
                           (window-parameters . ((no-delete-other-windows . t)
                                                 (no-other-window . t)))))))
     (when (window-live-p window)
-      (set-window-fringes window 0 (cadr (window-fringes window)) nil t))
+      (set-window-fringes window 0 (lispm-desktop-sidebar--right-fringe window) nil t))
     window))
 
 (defun lispm-desktop-sidebar-buffer-view (buffer)
@@ -308,10 +332,14 @@ it is shown in the sidebar, never in the main area."
          (buffer (get-buffer-create (plist-get props :buffer))))
     (with-current-buffer buffer
       (unless (derived-mode-p (plist-get props :mode))
-        (funcall (plist-get props :mode)))
-      (funcall (plist-get props :render))
-      (goto-char (point-min)))
-    (lispm-desktop-sidebar--display buffer)))
+        (funcall (plist-get props :mode))))
+    (let ((window (lispm-desktop-sidebar--display buffer)))
+      (with-current-buffer buffer
+        (funcall (plist-get props :render))
+        (goto-char (point-min))
+        (when (window-live-p window)
+          (set-window-point window (point-min))))
+      window)))
 
 (defun lispm-desktop-sidebar--hide-list (view)
   "Hide list VIEW in the selected frame."
@@ -572,6 +600,8 @@ OPEN-HELP.  Without OPEN-ACTION that part of the row is not a button."
 
 (defun lispm-desktop-sidebar--files-toolbar ()
   "Give the project tree buffer its sidebar toolbar and bottom edge."
+  (setq-local right-fringe-width 1
+              fringe-indicator-alist (lispm-desktop-sidebar--fringe-indicators))
   (setq lispm-desktop-platinum-info #'lispm-desktop-sidebar--files-info)
   (lispm-desktop-sidebar-set-toolbar
    'files #'treemacs-refresh
@@ -591,7 +621,10 @@ Outside any project treemacs falls back to the buffer's directory."
   (require 'treemacs)
   (save-selected-window
     (with-current-buffer (window-buffer (lispm-desktop-platinum-main-window))
-      (treemacs-add-and-display-current-project-exclusively))))
+      (treemacs-add-and-display-current-project-exclusively)))
+  (when-let* ((window (treemacs-get-local-window)))
+    (set-window-fringes window (car (window-fringes window))
+                        (lispm-desktop-sidebar--right-fringe window) nil t)))
 
 (defun lispm-desktop-sidebar--files-hide ()
   "Hide the project tree in the selected frame."
