@@ -111,12 +111,55 @@ The shell is the user's, run as an independent process in a terminal, see
 \\{lispm-desktop-shell-list-mode-map}"
   (lispm-desktop-sidebar-setup-buffer))
 
+(defconst lispm-desktop-shell-empty-buffer-name "*Shells Workspace*"
+  "Placeholder buffer shown in the main area when no user shell is running.")
+
+(define-derived-mode lispm-desktop-shell-empty-mode special-mode "Shells"
+  "Placeholder main-area buffer in pure user-shell mode."
+  (display-line-numbers-mode -1)
+  (visual-line-mode -1)
+  (setq-local cursor-type nil
+              lispm-desktop-conversation-buffer t))
+
+(defun lispm-desktop-shell--empty-buffer ()
+  "Return the placeholder buffer for user-shell mode when no shell runs."
+  (let ((buf (get-buffer-create lispm-desktop-shell-empty-buffer-name)))
+    (with-current-buffer buf
+      (unless (derived-mode-p 'lispm-desktop-shell-empty-mode)
+        (lispm-desktop-shell-empty-mode))
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "\n  "
+                (propertize (lispm-desktop-tr "No running shells")
+                            'face 'shadow)
+                "\n\n  ")
+        (lispm-ui-insert-push-button
+         (lispm-desktop-tr "New Shell") #'lispm-desktop-shell-new :default t)
+        (insert "\n")
+        (goto-char (point-min))))
+    buf))
+
+(defun lispm-desktop-shell--main-buffer-p (buffer)
+  "Return non-nil when BUFFER belongs in the main area of Shells mode."
+  (and (buffer-live-p buffer)
+       (or (lispm-desktop-shell--buffer-p buffer)
+           (eq (buffer-local-value 'major-mode buffer)
+               'lispm-desktop-shell-empty-mode))))
+
+(defun lispm-desktop-shell--main-fallback ()
+  "Return the most recent running user shell, or the Shells placeholder."
+  (or (seq-find #'lispm-desktop-shell--buffer-p (buffer-list (selected-frame)))
+      (seq-find #'lispm-desktop-shell--buffer-p (buffer-list))
+      (lispm-desktop-shell--empty-buffer)))
+
 (lispm-desktop-sidebar-define-view
  'shells :title (lispm-desktop-tr-noop "Shells") :icon "computer" :command 'lispm-desktop-sidebar-shells
  :help (lispm-desktop-tr-noop "Shells")
  :buffer lispm-desktop-shell-list-buffer-name
  :mode #'lispm-desktop-shell-list-mode
- :render #'lispm-desktop-shell-list--render)
+ :render #'lispm-desktop-shell-list--render
+ :main-predicate #'lispm-desktop-shell--main-buffer-p
+ :main-fallback #'lispm-desktop-shell--main-fallback)
 
 (defun lispm-desktop-sidebar-shells ()
   "Show the running shells in the left sidebar, or hide them when shown."

@@ -177,6 +177,16 @@ This is a `tab-bar-tab-post-select-functions' function."
     (when (and (window-live-p window) (integer-or-marker-p point))
       (get-text-property point 'lispm-desktop-editor-view (window-buffer window)))))
 
+(defun lispm-desktop-editor--read-tab-release ()
+  "Read events until the mouse button releases, handling frame switches."
+  (let ((ev (lispm-ui-modal-read-event)))
+    (while (and (consp ev)
+                (memq (car ev) '(switch-frame mouse-movement select-window)))
+      (when (eq (car ev) 'switch-frame)
+        (handle-switch-frame ev))
+      (setq ev (lispm-ui-modal-read-event)))
+    ev))
+
 (defun lispm-desktop-editor-tab-press (event)
   "Switch sidebar tabs when EVENT is released over the same tab.
 Moving within a label still chooses it; releasing outside it cancels."
@@ -184,7 +194,7 @@ Moving within a label still chooses it; releasing outside it cancels."
   (let* ((start (event-start event))
          (window (posn-window start))
          (view (lispm-desktop-editor--tab-at start))
-         (release (when view (lispm-ui-modal-read-event))))
+         (release (when view (lispm-desktop-editor--read-tab-release))))
     (when (and (consp release)
                (eq (event-basic-type release) 'mouse-1)
                (window-live-p window)

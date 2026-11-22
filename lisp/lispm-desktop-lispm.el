@@ -103,10 +103,22 @@
 (declare-function lispm-terminal "lispm-terminal" (&optional agent))
 (declare-function lispm-terminal-soon "lispm-terminal" (function))
 (declare-function lispm-terminal-quit "lispm-terminal" ())
+(declare-function lispm-stage-set-enabled "lispm-stage" (enabled))
+(declare-function lispm-ui-effect "lispm-ui-frp" (source fn &optional immediate))
+(declare-function lispm-ui-effect-p "lispm-ui-frp" (obj))
+(declare-function lispm-ui-signal-p "lispm-ui-frp" (obj))
 (defvar lispm-terminal-mode)
 (defvar lispm-terminal-keys-mode)
 (defvar lispm-terminal-enter-function)
 (defvar lispm-terminal-leave-function)
+(defvar lispm-desktop-sidebar-view-signal)
+(defvar lispm-stage-enabled-predicate)
+(defvar lispm-stage-conversation-buffer-predicate)
+(defvar lispm-stage-excluded-window-predicate)
+(defvar lispm-stage-frame-function)
+
+(defvar lispm-desktop-lispm--stage-effect nil
+  "Reactive `lispm-ui-effect' syncing sidebar view into `lispm-stage'.")
 
 ;;;; Sessions as lispm-desktop-ai sees them
 
@@ -588,10 +600,51 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
             "Introspection tools: Use the \"desktop\" skill (desktop_apps, desktop_windows, desktop_open, desktop_folder, desktop_window) or \"settings\" skill via search_tools/skill, or inspect live Emacs state directly with eval_elisp and describe_symbol."))
      "\n")))
 
+(defun lispm-desktop-lispm--stage-conversation-p (buffer)
+  "Return non-nil when BUFFER is a desktop conversation or terminal buffer."
+  (and (buffer-live-p buffer)
+       (or (and (local-variable-p 'lispm-desktop-conversation-buffer buffer)
+                (buffer-local-value 'lispm-desktop-conversation-buffer buffer))
+           (lispm-desktop-terminal-p buffer))))
+
+(defun lispm-desktop-lispm--stage-backdrop-p (window)
+  "Return non-nil when WINDOW displays the desktop root backdrop."
+  (and (window-live-p window)
+       (provided-mode-derived-p
+        (buffer-local-value 'major-mode (window-buffer window))
+        'lispm-desktop-mode)))
+
+(defun lispm-desktop-lispm--setup-stage ()
+  "Connect `lispm-stage' host predicates and sidebar FRP signal on the desktop."
+  (when (featurep 'lispm-stage)
+    (setq lispm-stage-enabled-predicate
+          (lambda ()
+            (not (memq (lispm-desktop-sidebar-current-view) '(files shells))))
+          lispm-stage-conversation-buffer-predicate
+          #'lispm-desktop-lispm--stage-conversation-p
+          lispm-stage-excluded-window-predicate
+          #'lispm-desktop-lispm--stage-backdrop-p
+          lispm-stage-frame-function
+          (lambda ()
+            (and (fboundp 'lispm-desktop-editor-frame)
+                 (lispm-desktop-editor-frame))))
+    (when (and (boundp 'lispm-desktop-sidebar-view-signal)
+               (fboundp 'lispm-ui-signal-p)
+               (lispm-ui-signal-p lispm-desktop-sidebar-view-signal)
+               (not (and (fboundp 'lispm-ui-effect-p)
+                         (lispm-ui-effect-p lispm-desktop-lispm--stage-effect))))
+      (setq lispm-desktop-lispm--stage-effect
+            (lispm-ui-effect
+             lispm-desktop-sidebar-view-signal
+             (lambda (view)
+               (lispm-stage-set-enabled (not (memq view '(files shells)))))
+             t)))))
+
 (defun lispm-desktop-setup-lispm ()
   "Load LispM and register its agents with the agent tools."
   (lispm-desktop-deps-ensure 'lispm)
   (require 'lispm)
+  (lispm-desktop-lispm--setup-stage)
   ;; LispM's agents find the desktop's skills, and those the App Store
   ;; installed with its applications; LispM knows nothing of the desktop,
   ;; so the desktop tells it.  The desktop's come last: a skill of a later

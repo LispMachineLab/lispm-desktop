@@ -20792,6 +20792,78 @@ fringes when a Platinum scroll bar is dropped."
                 (should (equal (car calls) '(t 0 1 nil nil))))))
         (kill-buffer buffer)))))
 
+(ert-deftest lispm-desktop-test-sidebar-mode-separation-and-frp-signal ()
+  "Files, Shells, and Agents tabs strictly isolate main-area buffers and emit FRP view signals."
+  (let* ((tmp-file (make-temp-file "lispm-desktop-mode-sep-" nil ".el"))
+         (file-buf (find-file-noselect tmp-file))
+         (decoy-agent (generate-new-buffer "*lispm decoy-agent*"))
+         (agent-buf (generate-new-buffer "*lispm mode-agent*"))
+         (stage-buf (generate-new-buffer "*lispm-stage-shell: mode-agent*"))
+         (files-shown nil)
+         (observed nil)
+         (lispm-desktop-sidebar-prepare-function nil)
+         (lispm-desktop-sidebar-change-hook nil)
+         (lispm-desktop-sidebar--main-memory (make-hash-table :test #'equal))
+         effect)
+    (with-current-buffer decoy-agent
+      (setq-local lispm-desktop-conversation-buffer t))
+    (with-current-buffer agent-buf
+      (setq-local lispm-desktop-conversation-buffer t))
+    (with-current-buffer stage-buf
+      (setq-local lispm-ui-stage-managed t))
+    (unwind-protect
+        (save-window-excursion
+          (set-frame-size (selected-frame) 180 44)
+          (delete-other-windows)
+          (set-window-buffer (selected-window) file-buf)
+          (select-window (selected-window))
+          (setq effect (lispm-ui-effect
+                        lispm-desktop-sidebar-view-signal
+                        (lambda (v) (push v observed))))
+          (cl-letf (((symbol-function 'lispm-desktop-sidebar--files-visible-p)
+                     (lambda () files-shown))
+                    ((symbol-function 'lispm-desktop-sidebar--files-show)
+                     (lambda () (setq files-shown t)))
+                    ((symbol-function 'lispm-desktop-sidebar--files-hide)
+                     (lambda () (setq files-shown nil)))
+                    ((symbol-function 'lispm-desktop-agent-list--render) #'ignore)
+                    ((symbol-function 'lispm-desktop-shell-list--render) #'ignore))
+            ;; Start in Agents view with agent conversation + stage split.
+            (lispm-desktop-sidebar-select 'agents)
+            (let* ((main (lispm-desktop-platinum-main-window))
+                   (stage-win (split-window main nil 'right)))
+              (set-window-buffer main agent-buf)
+              (set-window-parameter stage-win 'lispm-stage t)
+              (set-window-buffer stage-win stage-buf)
+              (select-window stage-win)
+              (with-current-buffer decoy-agent (bury-buffer stage-buf))
+              (should (= (length (lispm-desktop-platinum-main-windows)) 2))
+              ;; 1. Switch to Files: hides agent & stage windows, enters file mode.
+              (lispm-desktop-sidebar-select 'files)
+              (should (eq (lispm-ui-signal-get lispm-desktop-sidebar-view-signal) 'files))
+              (should (= (length (lispm-desktop-platinum-main-windows)) 1))
+              (should (eq (window-buffer (lispm-desktop-platinum-main-window)) file-buf))
+              (should-not (get-buffer-window agent-buf))
+              (should-not (get-buffer-window stage-buf))
+              ;; 2. Switch to Shells: hides file & agent buffers, enters shell mode.
+              (lispm-desktop-sidebar-select 'shells)
+              (should (eq (lispm-ui-signal-get lispm-desktop-sidebar-view-signal) 'shells))
+              (should (= (length (lispm-desktop-platinum-main-windows)) 1))
+              (should-not (get-buffer-window file-buf))
+              (should-not (get-buffer-window agent-buf))
+              (should (lispm-desktop-shell--main-buffer-p
+                       (window-buffer (lispm-desktop-platinum-main-window))))
+              ;; 3. Switch back to Agents: restores agent conversation buffer.
+              (lispm-desktop-sidebar-select 'agents)
+              (should (eq (lispm-ui-signal-get lispm-desktop-sidebar-view-signal) 'agents))
+              (should (eq (window-buffer (lispm-desktop-platinum-main-window)) agent-buf))
+              (should (equal (nreverse observed) '(agents files shells agents))))))
+      (when effect (lispm-ui-effect-dispose effect))
+      (dolist (b (list file-buf decoy-agent agent-buf stage-buf
+                       (get-buffer lispm-desktop-shell-empty-buffer-name)))
+        (when (buffer-live-p b) (kill-buffer b)))
+      (delete-file tmp-file))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

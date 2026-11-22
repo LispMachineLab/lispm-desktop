@@ -430,6 +430,9 @@ sessions are still being read."
                               (when reading (lispm-desktop-tr "still reading…"))))
               (lispm-desktop-tr-n "%d session" "%d sessions" sessions)))
 
+(defvar lispm-desktop-agent-list--rendering nil
+  "Non-nil while `lispm-desktop-agent-list--render' reads snapshot sessions.")
+
 (defun lispm-desktop-agent-list--render ()
   "Render the agent sidebar, grouped by working directory, into this buffer.
 Archived sessions are left out unless `lispm-desktop-agent-list--show-archived',
@@ -438,16 +441,15 @@ The sessions are those known now, see `lispm-agents-sessions-snapshot':
 while a session reader has none yet, the window's bottom edge says the
 sessions are still being read."
   (let* ((inhibit-read-only t)
+         (lispm-desktop-agent-list--rendering t)
          (now (float-time))
          (snapshot (lispm-agents-sessions-snapshot))
          (all (car snapshot))
          (reading (cdr snapshot))
-         ;; Terminals claim their sessions first, so a session a new
-         ;; terminal just claimed already counts as live below.
-         (_ (lispm-agents-refresh-buffer-titles all))
          (archived (seq-count #'lispm-agents-archived-p all))
          (sessions (if lispm-desktop-agent-list--show-archived all
                      (seq-remove #'lispm-agents-archived-p all)))
+         (all-live (lispm-agents-live-buffers))
          ;; The agents talked to, idle or running; an archived session's
          ;; is hidden with the session.
          (live (seq-remove (lambda (buffer)
@@ -456,7 +458,7 @@ sessions are still being read."
                                    (list :agent (lispm-agents-of-buffer buffer)
                                          :id (buffer-local-value 'lispm-agents-buffer-session-id
                                                                  buffer)))))
-                           (lispm-agents-live-buffers)))
+                           all-live))
          (live-ids (lispm-agents-running-ids live))
          (running (seq-filter #'lispm-agents-running-p live)))
     ;; The agents' icons are Nerd Font glyphs where nerd-icons is; text
@@ -466,7 +468,7 @@ sessions are still being read."
     (lispm-desktop-sidebar-set-toolbar
      'agents #'lispm-desktop-agent-list-refresh
      (lispm-desktop-agent-list--toolbar-actions (lispm-agents-available)
-                                                all (lispm-agents-live-buffers))
+                                                all all-live)
      ;; The archive toggle shows the archived count, pressed while archived
      ;; sessions are listed.
      (when (> archived 0)
@@ -671,12 +673,34 @@ Each agent adds the key starting it, see `lispm-agents-define'.
 \\{lispm-desktop-agent-list-mode-map}"
   (lispm-desktop-sidebar-setup-buffer))
 
+(defun lispm-desktop-agent-list--main-buffer-p (buffer)
+  "Return non-nil when BUFFER is an agent session or work view."
+  (and (buffer-live-p buffer)
+       (not (eq (buffer-local-value 'major-mode buffer)
+                'lispm-desktop-shell-empty-mode))
+       (or (lispm-agents-buffer-p buffer)
+           (and (local-variable-p 'lispm-desktop-conversation-buffer buffer)
+                (buffer-local-value 'lispm-desktop-conversation-buffer buffer))
+           (with-current-buffer buffer
+             (derived-mode-p 'lispm-chat-mode
+                             'lispm-agents-work-mode
+                             'lispm-office-mode)))))
+
+(defun lispm-desktop-agent-list--main-fallback ()
+  "Return the most recent agent session buffer in this frame, if any."
+  (or (seq-find #'lispm-desktop-agent-list--main-buffer-p
+                (buffer-list (selected-frame)))
+      (seq-find #'lispm-desktop-agent-list--main-buffer-p
+                (buffer-list))))
+
 (lispm-desktop-sidebar-define-view
  'agents :title (lispm-desktop-tr-noop "Agents") :icon "robot" :command 'lispm-desktop-sidebar-agents
  :help (lispm-desktop-tr-noop "Agent sessions")
  :buffer lispm-desktop-agent-list-buffer-name
  :mode #'lispm-desktop-agent-list-mode
- :render #'lispm-desktop-agent-list--render)
+ :render #'lispm-desktop-agent-list--render
+ :main-predicate #'lispm-desktop-agent-list--main-buffer-p
+ :main-fallback #'lispm-desktop-agent-list--main-fallback)
 
 (defun lispm-desktop-sidebar-agents ()
   "Show the agent sessions in the left sidebar, or hide them when shown."
@@ -685,6 +709,25 @@ Each agent adds the key starting it, see `lispm-agents-define'.
 
 (keymap-set lispm-agents-map "a" #'lispm-desktop-sidebar-agents)
 
+(defvar lispm-desktop-agent-list--session-cache (make-hash-table :test #'eq)
+  "Short-TTL cache `(TIMESTAMP . SESSIONS)' for reader-less agents.")
+
+(defun lispm-desktop-agent-list--clear-session-cache (&rest _)
+  "Invalidate cached sessions of reader-less agents on explicit reread."
+  (clrhash lispm-desktop-agent-list--session-cache))
+
+(defun lispm-desktop-agent-list--cached-read-sessions (orig agent sessions &optional recent)
+  "Reuse reader-less AGENT's SESSIONS within 15s during sidebar rendering.
+Delegates to ORIG otherwise; RECENT is passed through."
+  (if (or noninteractive (not lispm-desktop-agent-list--rendering))
+      (funcall orig agent sessions recent)
+    (let* ((now (float-time))
+           (entry (gethash agent lispm-desktop-agent-list--session-cache)))
+      (if (and entry (< (- now (car entry)) 15.0))
+          (cdr entry)
+        (let ((fresh (funcall orig agent sessions recent)))
+          (puthash agent (cons now fresh) lispm-desktop-agent-list--session-cache)
+          fresh)))))
 (defun lispm-desktop-agent-list--agents-changed ()
   "Show the agents anew once Emacs is idle, where the sidebar lists them,
 shown or not.  This is on `lispm-agents-changed-hook' and
@@ -696,6 +739,12 @@ shown or not.  This is on `lispm-agents-changed-hook' and
   "Keep the agents sidebar current: as agents and sessions change, as
 session readers get newer sessions, as agent terminals exit or say
 what they are doing, and as the user turns to another session."
+  (add-function :around lispm-agents-read-sessions-function
+                #'lispm-desktop-agent-list--cached-read-sessions)
+  (add-hook 'lispm-agents-reread-sessions-hook
+            #'lispm-desktop-agent-list--clear-session-cache)
+  (add-hook 'lispm-agents-sessions-changed-hook
+            #'lispm-desktop-agent-list--clear-session-cache)
   (add-hook 'window-selection-change-functions #'lispm-desktop-agent-list--follow-work)
   (add-hook 'window-buffer-change-functions #'lispm-desktop-agent-list--follow-work)
   (add-hook 'lispm-agents-changed-hook #'lispm-desktop-agent-list--agents-changed)
