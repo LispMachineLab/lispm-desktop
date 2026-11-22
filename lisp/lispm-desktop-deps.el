@@ -87,11 +87,11 @@ while LispM Kit, which translates them, is being installed."
 (defconst lispm-desktop-deps
   '((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
               ;; Its palette, drawing, icons, alerts, menus, fields, Kit, Finder, and Prebuilt.
-              :needs "lispm-finder" :version "0.8.0")
+              :needs "lispm-finder" :version "0.10.0")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.
-           :needs "lispm-agents-work" :version "0.17.3")
+           :needs "lispm-agents-work" :version "0.21.0")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"
@@ -673,9 +673,18 @@ otherwise run them asynchronously in the background."
 (defvar lispm-desktop-deps--refresh-failed nil
   "Non-nil when an archive failed during the current refresh.")
 
+(defun lispm-desktop-deps--clear-archive-prefetch ()
+  "Remove cached `archive-contents' files so a retry fetches fresh metadata."
+  (when lispm-desktop-deps--prefetch-dir
+    (let ((arch-root (expand-file-name "archives" lispm-desktop-deps--prefetch-dir)))
+      (when (file-directory-p arch-root)
+        (ignore-errors (delete-directory arch-root t))))))
+
 (defun lispm-desktop-deps--before-refresh (&rest _)
   "Prefetch archive indices via curl before `package-refresh-contents'."
   (when lispm-desktop-deps--fast-install-active
+    (unless lispm-desktop-deps--refreshed
+      (lispm-desktop-deps--clear-archive-prefetch))
     (lispm-desktop-deps-prefetch-archives)))
 
 (defun lispm-desktop-deps--after-refresh (&rest _)
@@ -839,12 +848,14 @@ anything else is an error saying what to update."
                            missing))
       (setq lispm-desktop-deps--refreshed nil)
       (when lispm-desktop-deps--fast-install-active
+        (lispm-desktop-deps--clear-archive-prefetch)
         (lispm-desktop-deps-prefetch-archives))
       (let ((lispm-desktop-deps--refresh-failed nil))
         (advice-add 'package--download-one-archive :around #'lispm-desktop-deps--watch-archive)
         (unwind-protect (package-refresh-contents)
           (advice-remove 'package--download-one-archive #'lispm-desktop-deps--watch-archive))
-        (unless lispm-desktop-deps--refresh-failed
+        (if lispm-desktop-deps--refresh-failed
+            (lispm-desktop-deps--clear-archive-prefetch)
           (setq lispm-desktop-deps--refreshed
                 (cons settings (copy-tree package-archive-contents))))))))
 

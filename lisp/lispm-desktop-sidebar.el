@@ -31,12 +31,17 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'project)
+(require 'seq)
+(require 'lispm-ui-frp)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-i18n)
 
 (declare-function lispm-desktop-main-area-show-terminal "lispm-desktop-interface" (buffer))
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
+(declare-function treemacs-get-local-buffer "treemacs-scope" ())
 (declare-function treemacs-get-local-window "treemacs-scope" ())
+(declare-function treemacs-select-window "treemacs" (&optional arg))
 
 ;;;; Left sidebar views
 ;;
@@ -274,26 +279,45 @@ main area.  This is a buffer-local `window-size-change-functions' function."
   (when (window-parameter window 'window-side)
     (window-preserve-size window t t)))
 
+(defvar-local lispm-desktop-sidebar--dirty t
+  "Non-nil when this sidebar list buffer needs a fresh `:render' pass.")
+
+(defvar-local lispm-desktop-sidebar--rendered-at 0.0
+  "Timestamp when this sidebar list buffer was last rendered.")
+
+(defvar-local lispm-desktop-sidebar--age-timer nil
+  "Idle timer refreshing stale relative timestamps after showing a list.")
+
+(defun lispm-desktop-sidebar--swap-into-window (window buffer)
+  "Place sidebar BUFFER into existing side WINDOW without resizing main panes."
+  (set-window-dedicated-p window nil)
+  (set-window-buffer window buffer)
+  (set-window-dedicated-p window t)
+  (set-window-fringes window 0 (lispm-desktop-sidebar--right-fringe window) nil t)
+  window)
+
 (defun lispm-desktop-sidebar--display (buffer)
   "Show BUFFER as the left sidebar of this frame and return its window.
-The window is dedicated to BUFFER, so nothing else is ever shown in it:
-switching buffers there goes to the main area instead.  It keeps its
-width while the frame changes size, the main area taking the difference
-as long as the frame is wide enough for both; a drag of its edge still
-resizes it, see `lispm-desktop-sidebar--keep-width'."
+Reuses the existing left side window in place when one is already open,
+avoiding main-area resize thrashing and scroll-bar child-frame churn."
   (with-current-buffer buffer
     (add-hook 'window-size-change-functions #'lispm-desktop-sidebar--keep-width nil t))
-  (let ((window (display-buffer-in-side-window
-                 buffer `((side . left)
-                          (slot . -1)
-                          (window-width . ,(lispm-desktop-sidebar-columns))
-                          (preserve-size . (t . nil))
-                          (dedicated . t)
-                          (window-parameters . ((no-delete-other-windows . t)
-                                                (no-other-window . t)))))))
-    (when (window-live-p window)
-      (set-window-fringes window 0 (lispm-desktop-sidebar--right-fringe window) nil t))
-    window))
+  (let ((existing (window-with-parameter 'window-side 'left)))
+    (if (window-live-p existing)
+        (lispm-desktop-sidebar--swap-into-window existing buffer)
+      (let ((window (display-buffer-in-side-window
+                     buffer `((side . left)
+                              (slot . -1)
+                              (window-width . ,(lispm-desktop-sidebar-columns))
+                              (preserve-size . (t . nil))
+                              (dedicated . t)
+                              (window-parameters . ((no-delete-other-windows . t)
+                                                    (no-other-window . t)))))))
+        (when (window-live-p window)
+          (set-window-fringes window 0
+                              (lispm-desktop-sidebar--right-fringe window)
+                              nil t))
+        window))))
 
 (defun lispm-desktop-sidebar-buffer-view (buffer)
   "Return the sidebar view BUFFER is the list of, or nil.
@@ -326,8 +350,23 @@ it is shown in the sidebar, never in the main area."
   "Return non-nil when list VIEW is shown in the selected frame."
   (and (get-buffer-window (lispm-desktop-sidebar--list-buffer view)) t))
 
+(defun lispm-desktop-sidebar--schedule-age-refresh (view buffer &optional delay)
+  "Refresh VIEW's BUFFER once idle after DELAY seconds (default 0.4)."
+  (with-current-buffer buffer
+    (unless (timerp lispm-desktop-sidebar--age-timer)
+      (setq lispm-desktop-sidebar--age-timer
+            (run-with-idle-timer
+             (or delay 0.4) nil
+             (lambda (v b)
+               (when (buffer-live-p b)
+                 (with-current-buffer b
+                   (setq lispm-desktop-sidebar--age-timer nil))
+                 (when (get-buffer-window b t)
+                   (lispm-desktop-sidebar-refresh-list v))))
+             view buffer)))))
+
 (defun lispm-desktop-sidebar--show-list (view)
-  "Show list VIEW, drawn anew, on the left of this frame and return its window."
+  "Show list VIEW on the left of this frame without blocking tab switches."
   (let* ((props (alist-get view lispm-desktop-sidebar-views))
          (buffer (get-buffer-create (plist-get props :buffer))))
     (with-current-buffer buffer
@@ -335,10 +374,18 @@ it is shown in the sidebar, never in the main area."
         (funcall (plist-get props :mode))))
     (let ((window (lispm-desktop-sidebar--display buffer)))
       (with-current-buffer buffer
-        (funcall (plist-get props :render))
-        (goto-char (point-min))
-        (when (window-live-p window)
-          (set-window-point window (point-min))))
+        (cond
+         ((or noninteractive (= (buffer-size) 0))
+          (funcall (plist-get props :render))
+          (setq-local lispm-desktop-sidebar--dirty nil
+                      lispm-desktop-sidebar--rendered-at (float-time))
+          (goto-char (point-min))
+          (when (window-live-p window)
+            (set-window-point window (point-min))))
+         (lispm-desktop-sidebar--dirty
+          (lispm-desktop-sidebar--schedule-age-refresh view buffer 0.03))
+         ((> (- (float-time) lispm-desktop-sidebar--rendered-at) 60.0)
+          (lispm-desktop-sidebar--schedule-age-refresh view buffer 0.4))))
       window)))
 
 (defun lispm-desktop-sidebar--hide-list (view)
@@ -347,15 +394,19 @@ it is shown in the sidebar, never in the main area."
     (delete-window window)))
 
 (defun lispm-desktop-sidebar-refresh-list (view)
-  "Draw list VIEW anew when it exists, point staying on the same line."
+  "Draw list VIEW anew when visible (or mark dirty when hidden)."
   (when-let* ((buffer (get-buffer (lispm-desktop-sidebar--list-buffer view))))
     (with-current-buffer buffer
-      (let ((line (line-number-at-pos))
-            (window (get-buffer-window buffer)))
-        (funcall (plist-get (alist-get view lispm-desktop-sidebar-views) :render))
-        (goto-char (point-min))
-        (forward-line (1- line))
-        (when window (set-window-point window (point)))))))
+      (let ((window (get-buffer-window buffer t)))
+        (if (not (or noninteractive window))
+            (setq-local lispm-desktop-sidebar--dirty t)
+          (let ((line (line-number-at-pos)))
+            (funcall (plist-get (alist-get view lispm-desktop-sidebar-views) :render))
+            (setq-local lispm-desktop-sidebar--dirty nil
+                        lispm-desktop-sidebar--rendered-at (float-time))
+            (goto-char (point-min))
+            (forward-line (1- line))
+            (when window (set-window-point window (point)))))))))
 
 (defun lispm-desktop-sidebar--refresh-lists ()
   "Draw every list view anew where it exists, as in another language."
@@ -615,16 +666,83 @@ OPEN-HELP.  Without OPEN-ACTION that part of the row is not a button."
   "Return non-nil when the project tree is shown in the selected frame."
   (and (featurep 'treemacs) (eq (treemacs-current-visibility) 'visible)))
 
+(defun lispm-desktop-sidebar--editable-buffer-p (buffer)
+  "Return non-nil when BUFFER belongs in pure file-editing mode."
+  (and (buffer-live-p buffer)
+       (let ((name (buffer-name buffer)))
+         (and (not (string-prefix-p " " name))
+              (not (minibufferp buffer))
+              (not (lispm-desktop-sidebar-buffer-view buffer))
+              (not (and (fboundp 'lispm-desktop-terminal-buffer-p)
+                        (lispm-desktop-terminal-buffer-p buffer)))
+              (not (and (local-variable-p 'lispm-ui-stage-managed buffer)
+                        (buffer-local-value 'lispm-ui-stage-managed buffer)))
+              (not (string-prefix-p "*lispm" name))
+              (not (member name '("*Welcome to LispM*" "*LispM*"
+                                  "*AI History*" "*Tasks*"
+                                  "*Messages*" "*Warnings*"
+                                  "*Completions*")))
+              (with-current-buffer buffer
+                (not (derived-mode-p 'treemacs-mode
+                                     'lispm-desktop-surface-mode)))))))
+
+(defun lispm-desktop-sidebar--files-fallback ()
+  "Return the most recent editable file buffer, or `*scratch*'."
+  (or (seq-find (lambda (b)
+                  (and (buffer-file-name b)
+                       (lispm-desktop-sidebar--editable-buffer-p b)))
+                (buffer-list (selected-frame)))
+      (seq-find #'lispm-desktop-sidebar--editable-buffer-p
+                (buffer-list (selected-frame)))
+      (get-buffer-create "*scratch*")))
+
+(defun lispm-desktop-sidebar--treemacs-matches-main-p ()
+  "Return non-nil when this frame's Treemacs buffer already matches main."
+  (and (featurep 'treemacs)
+       (fboundp 'treemacs-get-local-buffer)
+       (buffer-live-p (treemacs-get-local-buffer))
+       (let* ((projects (treemacs-workspace->projects (treemacs-current-workspace)))
+              (shown-root (and projects
+                               (file-name-as-directory
+                                (expand-file-name
+                                 (treemacs-project->path (car projects))))))
+              (main-buf (window-buffer (lispm-desktop-platinum-main-window)))
+              (main-dir (file-name-as-directory
+                         (expand-file-name
+                          (buffer-local-value 'default-directory main-buf)))))
+         (and shown-root
+              (or (string-prefix-p shown-root main-dir)
+                  (let* ((proj (with-current-buffer main-buf
+                                 (project-current nil main-dir)))
+                         (want-root (and proj
+                                         (file-name-as-directory
+                                          (expand-file-name
+                                           (project-root proj))))))
+                    (or (null want-root) (equal shown-root want-root))))))))
+
 (defun lispm-desktop-sidebar--files-show ()
-  "Show the project tree of the main window's buffer, keeping the selection.
-Outside any project treemacs falls back to the buffer's directory."
+  "Show the project tree of the main window's buffer, keeping selection.
+Reuses an existing left side window and matching Treemacs buffer in place."
   (require 'treemacs)
-  (save-selected-window
-    (with-current-buffer (window-buffer (lispm-desktop-platinum-main-window))
-      (treemacs-add-and-display-current-project-exclusively)))
-  (when-let* ((window (treemacs-get-local-window)))
-    (set-window-fringes window (car (window-fringes window))
-                        (lispm-desktop-sidebar--right-fringe window) nil t)))
+  (let ((existing (window-with-parameter 'window-side 'left)))
+    (if (and (window-live-p existing)
+             (lispm-desktop-sidebar--treemacs-matches-main-p))
+        (lispm-desktop-sidebar--swap-into-window existing
+                                                 (treemacs-get-local-buffer))
+      (when (window-live-p existing)
+        (delete-window existing))
+      (save-selected-window
+        (with-current-buffer (window-buffer (lispm-desktop-platinum-main-window))
+          (if (or buffer-file-name (project-current nil default-directory))
+              (treemacs-add-and-display-current-project-exclusively)
+            (if (treemacs-workspace->projects (treemacs-current-workspace))
+                (unless (eq (treemacs-current-visibility) 'visible)
+                  (treemacs-select-window))
+              (treemacs-add-and-display-current-project-exclusively)))))
+      (when-let* ((window (treemacs-get-local-window)))
+        (set-window-fringes window (car (window-fringes window))
+                            (lispm-desktop-sidebar--right-fringe window)
+                            nil t)))))
 
 (defun lispm-desktop-sidebar--files-hide ()
   "Hide the project tree in the selected frame."
@@ -636,12 +754,85 @@ Outside any project treemacs falls back to the buffer's directory."
  :help (lispm-desktop-tr-noop "Project files")
  :visible #'lispm-desktop-sidebar--files-visible-p
  :show #'lispm-desktop-sidebar--files-show
- :hide #'lispm-desktop-sidebar--files-hide)
+ :hide #'lispm-desktop-sidebar--files-hide
+ :main-predicate #'lispm-desktop-sidebar--editable-buffer-p
+ :main-fallback #'lispm-desktop-sidebar--files-fallback)
 
 (defun lispm-desktop-sidebar-current-view ()
   "Return the view the left sidebar shows, or nil when it is hidden."
   (car (seq-find (lambda (view) (lispm-desktop-sidebar--call (car view) :visible))
                  lispm-desktop-sidebar-views)))
+
+(defvar lispm-desktop-sidebar-view-signal (lispm-ui-signal nil #'eq)
+  "Reactive signal holding the active left sidebar view symbol, or nil.")
+
+(defvar lispm-desktop-sidebar--main-memory (make-hash-table :test #'equal)
+  "Saved primary buffer per `(WORKSPACE-KEY . VIEW)' across mode switches.")
+
+(defun lispm-desktop-sidebar--workspace-key ()
+  "Return a stable key identifying the current frame and tab-bar workspace."
+  (let ((tab (and (fboundp 'tab-bar--current-tab) (tab-bar--current-tab))))
+    (cons (selected-frame)
+          (if (alist-get 'explicit-name tab)
+              (alist-get 'name tab)
+            (and (fboundp 'tab-bar--current-tab-index)
+                 (tab-bar--current-tab-index))))))
+
+(defun lispm-desktop-sidebar--remember-view-buffer (ws from-view)
+  "Save the primary non-stage buffer of FROM-VIEW on workspace WS."
+  (when from-view
+    (let* ((from-spec (alist-get from-view lispm-desktop-sidebar-views))
+           (from-pred (plist-get from-spec :main-predicate))
+           (mru (lispm-desktop-platinum-main-window))
+           (candidates (if (window-live-p mru)
+                           (cons mru (delq mru (lispm-desktop-platinum-main-windows)))
+                         (lispm-desktop-platinum-main-windows)))
+           (chosen (seq-find
+                    (lambda (w)
+                      (and (window-live-p w)
+                           (not (window-parameter w 'lispm-ui-stage))
+                           (not (window-parameter w 'lispm-stage))
+                           (or (not from-pred)
+                               (funcall from-pred (window-buffer w)))))
+                    candidates)))
+      (when chosen
+        (puthash (cons ws from-view) (window-buffer chosen)
+                 lispm-desktop-sidebar--main-memory)))))
+
+(defun lispm-desktop-sidebar--sync-main (from-view to-view)
+  "Switch the main area out of FROM-VIEW buffers into TO-VIEW's mode."
+  (let* ((spec (alist-get to-view lispm-desktop-sidebar-views))
+         (pred (plist-get spec :main-predicate))
+         (fallback (plist-get spec :main-fallback))
+         (ws (lispm-desktop-sidebar--workspace-key)))
+    (when pred
+      (lispm-desktop-sidebar--remember-view-buffer ws from-view)
+      (let ((wins (lispm-desktop-platinum-main-windows)))
+        (dolist (win wins)
+          (when (and (> (length (lispm-desktop-platinum-main-windows)) 1)
+                     (or (window-parameter win 'lispm-ui-stage)
+                         (window-parameter win 'lispm-stage)
+                         (not (funcall pred (window-buffer win)))))
+            (condition-case nil (delete-window win) (error nil))))
+        (setq wins (lispm-desktop-platinum-main-windows))
+        (unless (seq-some (lambda (w) (funcall pred (window-buffer w))) wins)
+          (let* ((primary (or (car wins) (lispm-desktop-platinum-main-window)))
+                 (saved (gethash (cons ws to-view)
+                                 lispm-desktop-sidebar--main-memory))
+                 (target (cond
+                          ((and (buffer-live-p saved) (funcall pred saved))
+                           saved)
+                          ((and fallback
+                                (let ((fb (funcall fallback)))
+                                  (and (buffer-live-p fb) fb))))
+                          ((seq-find pred (buffer-list (selected-frame))))
+                          (t (get-buffer-create "*scratch*")))))
+            (dolist (other (cdr wins))
+              (condition-case nil (delete-window other) (error nil)))
+            (when (and (window-live-p primary) (buffer-live-p target))
+              (set-window-parameter primary 'lispm-ui-stage nil)
+              (set-window-parameter primary 'lispm-stage nil)
+              (set-window-buffer primary target))))))))
 
 (defvar lispm-desktop-sidebar-prepare-function nil
   "Function called before a view is shown or hidden, or nil.
@@ -650,6 +841,21 @@ view is asked for elsewhere, as on the desktop.")
 
 (defvar lispm-desktop-sidebar-change-hook nil
   "Hook run after the sidebar's view changed.")
+
+(defun lispm-desktop-sidebar--in-place-p (from-view to-view)
+  "Return non-nil when FROM-VIEW and TO-VIEW can swap inside the left window."
+  (and from-view to-view
+       (not (eq from-view to-view))
+       (window-live-p (window-with-parameter 'window-side 'left))
+       (or (plist-get (alist-get from-view lispm-desktop-sidebar-views) :buffer)
+           (and (eq from-view 'files)
+                (eq (plist-get (alist-get 'files lispm-desktop-sidebar-views) :show)
+                    #'lispm-desktop-sidebar--files-show)))
+       (or (plist-get (alist-get to-view lispm-desktop-sidebar-views) :buffer)
+           (and (eq to-view 'files)
+                (eq (plist-get (alist-get 'files lispm-desktop-sidebar-views) :show)
+                    #'lispm-desktop-sidebar--files-show)
+                (lispm-desktop-sidebar--treemacs-matches-main-p)))))
 
 (defun lispm-desktop-sidebar-select (view)
   "Show VIEW in the left sidebar, or hide the sidebar when VIEW is shown.
@@ -662,11 +868,21 @@ VIEW is shown, whatever the editor showed out of sight."
   (let ((current (lispm-desktop-sidebar-current-view)))
     (when lispm-desktop-sidebar-prepare-function
       (funcall lispm-desktop-sidebar-prepare-function))
-    (dolist (entry lispm-desktop-sidebar-views)
-      (when (lispm-desktop-sidebar--call (car entry) :visible)
-        (lispm-desktop-sidebar--call (car entry) :hide)))
-    (unless (eq view current)
-      (lispm-desktop-sidebar--call view :show)))
+    (let ((shown-now (lispm-desktop-sidebar-current-view)))
+      (lispm-ui-frp-batch
+        (if (eq view current)
+            (progn
+              (dolist (entry lispm-desktop-sidebar-views)
+                (when (lispm-desktop-sidebar--call (car entry) :visible)
+                  (lispm-desktop-sidebar--call (car entry) :hide)))
+              (lispm-ui-signal-set lispm-desktop-sidebar-view-signal nil))
+          (lispm-ui-signal-set lispm-desktop-sidebar-view-signal view)
+          (lispm-desktop-sidebar--sync-main shown-now view)
+          (unless (lispm-desktop-sidebar--in-place-p shown-now view)
+            (dolist (entry lispm-desktop-sidebar-views)
+              (when (lispm-desktop-sidebar--call (car entry) :visible)
+                (lispm-desktop-sidebar--call (car entry) :hide))))
+          (lispm-desktop-sidebar--call view :show)))))
   (run-hooks 'lispm-desktop-sidebar-change-hook)
   (force-mode-line-update t))
 
