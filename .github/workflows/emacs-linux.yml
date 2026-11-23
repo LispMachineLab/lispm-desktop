@@ -12,6 +12,7 @@ on:
   pull_request:
     paths:
       - linux/build-emacs.sh
+      - linux/*.patch
       - .github/workflows/emacs-linux.yml
   workflow_dispatch:
 
@@ -80,6 +81,9 @@ jobs:
               (unless (treesit-available-p) (error "No tree-sitter"))
               (unless (native-comp-available-p) (error "No native compilation"))
               (unless (subrp (native-compile (quote (lambda (x) (* x 2))))) (error "Native compilation failed"))
+              (unless (and (fboundp (quote set-auto-mode--from-matching-alist-entry))
+                           (not (fboundp (quote set-auto-mode--find-matching-alist-entry))))
+                (error "CVE-2026-131959 fix missing"))
               (message "GNU Emacs %s: xwidgets, tree-sitter, native compilation" emacs-version))'
 
       # It draws pages: WebKit, in an xwidget on a virtual display, loads

@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-desktop
-;; Version: 0.24.27
+;; Version: 0.24.28
 ;; Package-Requires: ((emacs "30.1") (avy "0") (cape "0") (consult "0")
 ;;                    (corfu "0") (dirvish "0") (dracula-theme "0")
 ;;                    (eat "0") (embark "0") (embark-consult "0")
@@ -137,6 +137,8 @@
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-coherence)
+(require 'lispm-desktop-dir-locals)
+(lispm-desktop-dir-locals-mend)
 (require 'lispm-desktop-standalone)
 (require 'lispm-desktop-browser)
 (require 'lispm-desktop-browser-places)

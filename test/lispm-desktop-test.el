@@ -14416,7 +14416,7 @@ property list names it; return it."
     app))
 
 (defconst lispm-desktop-test--emacs-builds
-  '("Emacs.2026-08-24.a360712.emacs-31-1.macOS-11" . "Emacs.2026-10-21.3354d07.master.macOS-11")
+  '("Emacs.2026-08-24.a360712.emacs-31-1.macOS-11" . "Emacs.2026-11-22.6522098.master.macOS-11")
   "The builds install.sh pins for Emacs 31 and 32.")
 
 (defmacro lispm-desktop-test--with-emacs-home (&rest body)
@@ -14451,7 +14451,7 @@ Emacs 32 in development."
     (should (equal (plist-get (lispm-desktop-emacs-build 32 builds) :build) (cdr lispm-desktop-test--emacs-builds)))
     (should-not (plist-get (lispm-desktop-emacs-build 31 builds) :development))
     (should (plist-get (lispm-desktop-emacs-build 32 builds) :development))
-    (should (equal (lispm-desktop-emacs-build-date (lispm-desktop-emacs-build 32 builds)) "2026-10-21"))
+    (should (equal (lispm-desktop-emacs-build-date (lispm-desktop-emacs-build 32 builds)) "2026-11-22"))
     (should (equal (lispm-desktop-emacs-name 31 "31.1") "GNU Emacs 31.1"))
     (should (equal (lispm-desktop-emacs-name 32 "32.0.50") "GNU Emacs 32, in development"))
     (should (eql (lispm-desktop-emacs-build-major (concat (cdr lispm-desktop-test--emacs-builds) ".arm64")) 32))
@@ -20863,6 +20863,56 @@ fringes when a Platinum scroll bar is dropped."
                        (get-buffer lispm-desktop-shell-empty-buffer-name)))
         (when (buffer-live-p b) (kill-buffer b)))
       (delete-file tmp-file))))
+
+;;;; CVE-2026-131959 (.dir-locals.el auto-mode-alist)
+
+(defvar lispm-desktop-test--cve-2026-131959-ran nil
+  "Flag set if a crafted `.dir-locals.el' mode function ever runs.")
+
+(ert-deftest lispm-desktop-test-dir-locals-mend-blocks-cve-2026-131959 ()
+  "Visiting a file under a crafted `.dir-locals.el' never runs an invalid
+`auto-mode-alist' function, while valid modes still apply."
+  (lispm-desktop-dir-locals-mend)
+  (let ((dir (make-temp-file "lispm-desktop-cve-2026-131959-" t))
+        (buffers nil))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (insert "((auto-mode-alist . ((\"\" . fundamental-mode)\n"
+                    "                     (\"\\\\.txt\\\\'\" . text-mode)\n"
+                    "                     (\"\\\\.md\\\\'\" (lambda () (setq lispm-desktop-test--cve-2026-131959-ran 'lambda)) t)\n"
+                    "                     (\"\\\\.org\\\\'\" eval-buffer t))))\n"))
+          (with-temp-file (expand-file-name "README.md" dir)
+            (insert "# Readme\n"))
+          (with-temp-file (expand-file-name "note.org" dir)
+            (insert "(setq lispm-desktop-test--cve-2026-131959-ran 'eval-buffer)\n"))
+          (with-temp-file (expand-file-name "plain.txt" dir)
+            (insert "plain\n"))
+          (setq lispm-desktop-test--cve-2026-131959-ran nil)
+          (let ((md (find-file-noselect (expand-file-name "README.md" dir) t))
+                (org (find-file-noselect (expand-file-name "note.org" dir) t))
+                (txt (find-file-noselect (expand-file-name "plain.txt" dir) t)))
+            (setq buffers (list md org txt))
+            (should-not lispm-desktop-test--cve-2026-131959-ran)
+            (should (eq (buffer-local-value 'major-mode md) 'fundamental-mode))
+            (should (eq (buffer-local-value 'major-mode org) 'fundamental-mode))
+            (should (eq (buffer-local-value 'major-mode txt) 'text-mode))))
+      (dolist (buf buffers)
+        (when (buffer-live-p buf)
+          (kill-buffer buf)))
+      (delete-directory dir t))))
+
+(ert-deftest lispm-desktop-test-linux-cve-2026-131959-patch-wired ()
+  "The GNU/Linux Emacs builder applies `linux/cve-2026-131959.patch'."
+  (let ((patch (expand-file-name "linux/cve-2026-131959.patch" lispm-desktop-directory))
+        (script (expand-file-name "linux/build-emacs.sh" lispm-desktop-directory)))
+    (should (file-readable-p patch))
+    (with-temp-buffer
+      (insert-file-contents patch)
+      (should (search-forward "set-auto-mode--from-matching-alist-entry" nil t)))
+    (with-temp-buffer
+      (insert-file-contents script)
+      (should (search-forward "cve-2026-131959.patch" nil t)))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here

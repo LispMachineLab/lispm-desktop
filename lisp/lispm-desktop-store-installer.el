@@ -92,6 +92,7 @@
 (defvar lispm-desktop-installer-screen--status)
 (declare-function lispm-desktop-installer-screen-report "lispm-desktop-installer-screen" (status))
 (declare-function lispm-desktop-native-comp-mend "lispm-desktop-native-comp" ())
+(declare-function lispm-desktop-dir-locals-mend "lispm-desktop-dir-locals" ())
 
 (defvar lispm-desktop-store-installer--update-observer nil
   "When non-nil, a function receiving NAME, FROM and TO before an update.
@@ -764,6 +765,8 @@ nothing, and keep no customization, which the App Store's Emacs keeps."
   ;; runs with -Q, so LispM.app's mending of native compilation is not done.
   (when (require 'lispm-desktop-native-comp nil t)
     (lispm-desktop-native-comp-mend))
+  (when (require 'lispm-desktop-dir-locals nil t)
+    (lispm-desktop-dir-locals-mend))
   ;; The App Store's Emacs remembers the clone as a project, if it does:
   ;; this one's list of projects would be written over by that one's.
   (setq package-vc-register-as-project nil)
