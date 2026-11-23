@@ -125,6 +125,9 @@ jobs:
       # LispM's Emacs, but checking out the change takes it first.
       - name: Install curl and git
         run: |
+          if [ -f /etc/apt/sources.list ]; then
+            sed -i -E 's|http://(archive\|security)\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
+          fi
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -y -q curl ca-certificates git
       - uses: actions/checkout@v7
