@@ -59,10 +59,16 @@
       native-comp-async-jobs-number 2)
 
 ;; Native compilation mended for LispM.app's Emacs, before anything is
-;; compiled; lisp/ is not on the load path yet.
+;; compiled; and `.dir-locals.el' `auto-mode-alist' mended against
+;; CVE-2026-131959 before any file is visited; lisp/ is not on the load
+;; path yet.
 (declare-function lispm-desktop-native-comp-mend "lispm-desktop-native-comp" ())
-(load (expand-file-name "lispm-desktop-native-comp" (file-name-directory load-file-name)) nil t)
-(lispm-desktop-native-comp-mend)
+(declare-function lispm-desktop-dir-locals-mend "lispm-desktop-dir-locals" ())
+(let ((here (file-name-directory load-file-name)))
+  (load (expand-file-name "lispm-desktop-native-comp" here) nil t)
+  (lispm-desktop-native-comp-mend)
+  (load (expand-file-name "lispm-desktop-dir-locals" here) nil t)
+  (lispm-desktop-dir-locals-mend))
 
 ;; Frames stay fully opaque: on macOS any transparency makes every redraw
 ;; composite the whole window, which made scrolling a terminal stutter.

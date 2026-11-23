@@ -26,8 +26,9 @@ EMACS_VERSION=31.1
 EMACS_SHA256=1da5790d9580c81932b5bf700633114468da7b3412d69faa767daebf974f4586
 # Counts the builds of one Emacs version: raised when this script builds
 # it differently.
-REVISION=1
+REVISION=2
 PREFIX=/opt/lispm/emacs
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 fail() {
   printf 'build-emacs: %s\n' "$*" >&2
@@ -57,7 +58,7 @@ case $ID in
 esac
 
 $SUDO apt-get update -q
-apt_install ca-certificates curl xz-utils file dpkg-dev build-essential autoconf texinfo pkg-config
+apt_install ca-certificates curl xz-utils file patch dpkg-dev build-essential autoconf texinfo pkg-config
 # Native compilation uses the libgccjit of the system's own GCC.
 GCC=$(gcc -dumpversion | cut -d. -f1)
 apt_install "libgccjit-$GCC-dev" \
@@ -81,6 +82,7 @@ echo "$EMACS_SHA256  emacs-$EMACS_VERSION.tar.xz" | sha256sum -c - >/dev/null ||
   fail "emacs-$EMACS_VERSION.tar.xz is not the one expected"
 tar xJf "emacs-$EMACS_VERSION.tar.xz"
 cd "emacs-$EMACS_VERSION"
+patch -p1 <"$SCRIPT_DIR/cve-2026-131959.patch"
 
 ./configure --prefix="$PREFIX" --with-x-toolkit=gtk3 --with-xwidgets --with-cairo \
   --with-native-compilation=aot --with-tree-sitter --with-rsvg --with-modules \
@@ -97,8 +99,8 @@ make -j"$(nproc)" >"$OUT/make-$SYSTEM.log" 2>&1 || {
   tail -n 30 "$OUT/make-$SYSTEM.log" >&2
   fail "make failed"
 }
-src/emacs --batch --eval '(unless (and (featurep (quote xwidget-internal)) (native-comp-available-p)) (kill-emacs 1))' ||
-  fail "the Emacs built has no xwidgets or no native compilation"
+src/emacs --batch --eval '(unless (and (featurep (quote xwidget-internal)) (native-comp-available-p) (fboundp (quote set-auto-mode--from-matching-alist-entry)) (not (fboundp (quote set-auto-mode--find-matching-alist-entry)))) (kill-emacs 1))' ||
+  fail "the Emacs built lacks xwidgets, native compilation, or the CVE-2026-131959 fix"
 
 ROOT=$WORK/root
 make install-strip DESTDIR="$ROOT" >>"$OUT/make-$SYSTEM.log" 2>&1

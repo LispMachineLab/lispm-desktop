@@ -77,9 +77,9 @@ EMACS_31_VERSION=31.1
 # its development branch, master, as of the day it was tried with LispM.
 # What only Emacs 32 can do, as OpenGL drawn in a buffer, is LispM's on it
 # alone.
-EMACS_32_RELEASE=Emacs.2026-10-21.3354d07.master
-EMACS_32_BUILD=Emacs.2026-10-21.3354d07.master.macOS-11
-EMACS_32_SHA256_ARM64=28c58868313880b16d483da8534ec983d6ac60c5a8532e5a0f3ef3c16d222ba7
+EMACS_32_RELEASE=Emacs.2026-11-22.6522098.master
+EMACS_32_BUILD=Emacs.2026-11-22.6522098.master.macOS-11
+EMACS_32_SHA256_ARM64=18bdc1dc164e80af47d291ea437f4ad912ef3fc2bb26666cfbd72c4f04c7d25b
 EMACS_32_VERSION=32.0.50
 
 # The Developer ID both are signed with.
