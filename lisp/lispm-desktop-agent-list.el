@@ -495,8 +495,8 @@ sessions are still being read."
            :reading reading
            :archived archived
            :show-archived lispm-desktop-agent-list--show-archived
-           :folds lispm-desktop-agent-list--folds
-           :expanded lispm-desktop-agent-list--expanded))
+           :folds (copy-alist lispm-desktop-agent-list--folds)
+           :expanded (copy-sequence lispm-desktop-agent-list--expanded)))
     (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
     (dolist (group (lispm-agents-group-by-directory sessions live))
       (lispm-desktop-agent-list--insert-project group now live-ids))
