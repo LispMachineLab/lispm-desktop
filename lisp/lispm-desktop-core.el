@@ -362,7 +362,7 @@ third of a second on the desktop."
                                   (mapcar (lambda (entry) (symbol-name (car entry)))
                                           lispm-desktop-themes)
                                   nil t))))
-  (lispm-ui-frp-batch
+  (lispm-desktop-core--frp-batch
     (let* ((look (lispm-desktop-theme-look theme))
            (look-changed (and (boundp 'lispm-desktop-look)
                               (not (eq lispm-desktop-look look)))))
@@ -370,11 +370,9 @@ third of a second on the desktop."
       (when look-changed
         (let ((lispm-desktop--set-up nil))
           (customize-save-variable 'lispm-desktop-look look))
-        (when (and (boundp 'lispm-desktop-look-signal)
-                   (lispm-ui-signal-p (symbol-value 'lispm-desktop-look-signal)))
-          (lispm-ui-signal-set (symbol-value 'lispm-desktop-look-signal) look)))
+        (lispm-desktop-core--set-signal 'lispm-desktop-look-signal look))
       (customize-save-variable 'lispm-desktop-theme theme)
-      (lispm-ui-signal-set lispm-desktop-theme-signal theme)
+      (lispm-desktop-core--set-signal 'lispm-desktop-theme-signal theme)
       (lispm-desktop-load-theme theme)
       (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
         (run-hooks 'lispm-desktop-look-changed-hook)))))
