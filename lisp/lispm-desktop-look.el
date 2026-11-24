@@ -131,6 +131,9 @@ personal.el: once Emacs is set up, a new value is drawn at once."
 (lispm-ui-signal-set lispm-ui-look-signal lispm-desktop-look)
 (with-no-warnings
   (defvaralias 'lispm-desktop-look-signal 'lispm-ui-look-signal))
+(unless (lispm-ui-signal-p lispm-desktop-theme-signal)
+  (setq lispm-desktop-theme-signal (lispm-ui-signal lispm-desktop-theme #'eq)))
+(lispm-ui-signal-set lispm-desktop-theme-signal lispm-desktop-theme)
 
 (defvar lispm-desktop-look-changed-hook nil
   "Hook run once the chrome is drawn in another look.")

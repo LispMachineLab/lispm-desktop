@@ -30,7 +30,30 @@
 ;;; Code:
 
 (require 'lispm-desktop-i18n)
-(require 'lispm-ui-frp)
+
+(declare-function lispm-ui-signal-p "lispm-ui-frp" (object))
+(declare-function lispm-ui-signal-set "lispm-ui-frp" (signal value))
+(declare-function lispm-ui-frp--begin-batch "lispm-ui-frp" ())
+(declare-function lispm-ui-frp--end-batch "lispm-ui-frp" (&optional commit))
+
+(defmacro lispm-desktop-core--frp-batch (&rest body)
+  "Run BODY inside an FRP batch transaction when the FRP runtime is loaded."
+  (declare (indent 0) (debug t))
+  `(if (fboundp 'lispm-ui-frp--begin-batch)
+       (let ((committed nil))
+         (lispm-ui-frp--begin-batch)
+         (unwind-protect
+             (prog1 (progn ,@body)
+               (setq committed t))
+           (lispm-ui-frp--end-batch committed)))
+     (progn ,@body)))
+
+(defun lispm-desktop-core--set-signal (sym value)
+  "Update reactive signal stored in symbol SYM to VALUE when initialized."
+  (when (and (boundp sym)
+             (fboundp 'lispm-ui-signal-p)
+             (lispm-ui-signal-p (symbol-value sym)))
+    (lispm-ui-signal-set (symbol-value sym) value)))
 
 (defconst lispm-desktop-directory
   (file-name-directory
@@ -133,7 +156,7 @@ loaded at once."
                            lispm-desktop-themes)
                  (const :tag "Ask at the next start" nil)))
 
-(defvar lispm-desktop-theme-signal (lispm-ui-signal lispm-desktop-theme #'eq)
+(defvar lispm-desktop-theme-signal nil
   "Reactive FRP source signal tracking `lispm-desktop-theme'.")
 
 (defvar lispm-desktop--loading-theme nil
@@ -249,8 +272,8 @@ new one.  This is a variable watcher."
 (defun lispm-desktop--follow-theme ()
   "Load `lispm-desktop-theme' unless it is already the only theme enabled."
   (when lispm-desktop-theme
-    (lispm-ui-frp-batch
-      (lispm-ui-signal-set lispm-desktop-theme-signal lispm-desktop-theme)
+    (lispm-desktop-core--frp-batch
+      (lispm-desktop-core--set-signal 'lispm-desktop-theme-signal lispm-desktop-theme)
       (let* ((look (lispm-desktop-theme-look lispm-desktop-theme))
              (emacs-theme (lispm-desktop-theme-emacs-theme lispm-desktop-theme))
              (has-colors (and (lispm-desktop-theme-get :colors lispm-desktop-theme) t))
@@ -261,9 +284,7 @@ new one.  This is a variable watcher."
           (let ((lispm-desktop--set-up nil))
             (set-default 'lispm-desktop-look look)
             (setq lispm-desktop-look look))
-          (when (and (boundp 'lispm-desktop-look-signal)
-                     (lispm-ui-signal-p (symbol-value 'lispm-desktop-look-signal)))
-            (lispm-ui-signal-set (symbol-value 'lispm-desktop-look-signal) look)))
+          (lispm-desktop-core--set-signal 'lispm-desktop-look-signal look))
         (when (or has-colors
                   (not (equal custom-enabled-themes (list emacs-theme))))
           (lispm-desktop-load-theme lispm-desktop-theme))
@@ -272,8 +293,8 @@ new one.  This is a variable watcher."
 
 (defun lispm-desktop--load-theme-now (theme)
   "Make THEME, by default Platinum, the only colour theme enabled."
-  (lispm-ui-frp-batch
-    (lispm-ui-signal-set lispm-desktop-theme-signal theme)
+  (lispm-desktop-core--frp-batch
+    (lispm-desktop-core--set-signal 'lispm-desktop-theme-signal theme)
     (when (and (boundp 'lispm-desktop-look)
                (assq theme lispm-desktop-themes))
       (let ((look (lispm-desktop-theme-look theme))
@@ -281,9 +302,7 @@ new one.  This is a variable watcher."
         (unless (eq lispm-desktop-look look)
           (set-default 'lispm-desktop-look look)
           (setq lispm-desktop-look look)
-          (when (and (boundp 'lispm-desktop-look-signal)
-                     (lispm-ui-signal-p (symbol-value 'lispm-desktop-look-signal)))
-            (lispm-ui-signal-set (symbol-value 'lispm-desktop-look-signal) look)))))
+          (lispm-desktop-core--set-signal 'lispm-desktop-look-signal look))))
     (let* ((target (or theme 'platinum))
            (lispm-desktop--loading-theme target)
            (chosen lispm-desktop-theme)
