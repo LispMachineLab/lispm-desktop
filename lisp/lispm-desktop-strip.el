@@ -484,6 +484,9 @@ above the bottom: (X . Y), kept within the bounds."
 (defvar lispm-desktop-strip--raising nil
   "Non-nil while the strip is being raised, so raising it raises nothing more.")
 
+(defvar lispm-desktop-strip--raise-scheduled nil
+  "Non-nil while a coalesced strip raise is scheduled for the end of this turn.")
+
 (defun lispm-desktop-strip--popup-up-p ()
   "Return non-nil while a menu or an alert is up, which stays over the strip."
   (seq-some (lambda (frame)
@@ -492,13 +495,23 @@ above the bottom: (X . Y), kept within the bounds."
                                     (buffer-name (window-buffer (frame-root-window frame))))))
             (frame-list)))
 
-(defun lispm-desktop-strip--keep-above ()
-  "Raise the strip over the floating windows, though not over a menu."
+(defun lispm-desktop-strip--do-keep-above ()
+  "Perform a single coalesced `raise-frame' on the Control Strip."
+  (setq lispm-desktop-strip--raise-scheduled nil)
   (when (and (lispm-desktop-strip--live-p) (not lispm-desktop-strip--raising)
              (frame-visible-p lispm-desktop-strip--frame)
              (not (lispm-desktop-strip--popup-up-p)))
     (let ((lispm-desktop-strip--raising t))
       (raise-frame lispm-desktop-strip--frame))))
+
+(defun lispm-desktop-strip--keep-above ()
+  "Raise the strip over the floating windows, coalesced within the current turn."
+  (when (and (lispm-desktop-strip--live-p) (not lispm-desktop-strip--raising)
+             (not lispm-desktop-strip--raise-scheduled)
+             (frame-visible-p lispm-desktop-strip--frame)
+             (not (lispm-desktop-strip--popup-up-p)))
+    (setq lispm-desktop-strip--raise-scheduled t)
+    (run-at-time 0 nil #'lispm-desktop-strip--do-keep-above)))
 
 (defun lispm-desktop-strip--selected (&rest _)
   "Keep the strip above the floating window just selected, which macOS

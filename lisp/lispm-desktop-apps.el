@@ -184,7 +184,8 @@ and those of its windows that are out.  They carry the frame parameter
   (let ((screen (or screen (lispm-desktop-apps-screen))))
     (seq-filter (lambda (frame)
                   (and (eq (lispm-desktop-apps-window-screen frame) screen)
-                       (frame-parameter frame 'lispm-desktop-window)))
+                       (frame-parameter frame 'lispm-desktop-window)
+                       (not (frame-parameter frame 'lispm-desktop-pooled))))
                 (frame-list))))
 
 (defun lispm-desktop-apps--screen-origin (screen)

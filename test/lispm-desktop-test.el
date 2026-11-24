@@ -10145,7 +10145,10 @@ point after a line of its grid."
   "The close box of an application's window returns a non-default buffer
 to the application's default buffer, and closes the floating window when
 already on the default buffer."
-  (let ((closed nil))
+  (let ((closed nil)
+        (win (selected-window))
+        (old-header (window-parameter (selected-window) 'header-line-format))
+        (old-mode (window-parameter (selected-window) 'mode-line-format)))
     (cl-letf (((symbol-function 'lispm-desktop-app-window-close) (lambda (id) (setq closed id)))
               ((symbol-function 'lispm-desktop-platinum-confirm-close) (lambda (_buf) t)))
       (save-window-excursion
@@ -10174,6 +10177,8 @@ already on the default buffer."
                 (should (eq closed 'elfeed)))
             (set-frame-parameter frame 'lispm-desktop-window-kind nil)
             (set-frame-parameter frame 'lispm-desktop-app-window nil)
+            (set-window-parameter win 'header-line-format old-header)
+            (set-window-parameter win 'mode-line-format old-mode)
             (when (buffer-live-p default-buf) (kill-buffer default-buf))
             (when (buffer-live-p sub-buf) (kill-buffer sub-buf))))))))
 
@@ -10189,6 +10194,7 @@ Dock.  A window is at (1 2 300 200), or at its parameter `geometry'."
   (declare (indent 1))
   `(lispm-desktop-test--with-frames ,frames
        (let ((lispm-desktop-app-window--frames nil)
+             (lispm-desktop-app-window--pool nil)
              (lispm-desktop-app-window--geometry nil)
              (lispm-desktop-apps--frontmost nil)
              (lispm-desktop-apps-frontmost-functions (list #'lispm-desktop-app-window--follow-frontmost))
@@ -21084,13 +21090,54 @@ all three paired suites and verifies work-unit reductions."
         (imperative (funcall (intern "lispm-desktop-bench--run-list-case") 20 nil))
         (reactive (funcall (intern "lispm-desktop-bench--run-list-case") 20 t))
         (unsuperseded (funcall (intern "lispm-desktop-bench--run-csp-case") 5 nil))
-        (superseded (funcall (intern "lispm-desktop-bench--run-csp-case") 5 t)))
+        (superseded (funcall (intern "lispm-desktop-bench--run-csp-case") 5 t))
+        (win-recreate (funcall (intern "lispm-desktop-bench--run-window-case") 5 nil))
+        (win-pooled (funcall (intern "lispm-desktop-bench--run-window-case") 5 t)))
     (should (= (plist-get batched :work_units) 10))
     (should (> (plist-get unbatched :work_units) (plist-get batched :work_units)))
     (should (= (plist-get imperative :rows) (plist-get reactive :rows)))
     (should (< (plist-get reactive :work_units) (plist-get imperative :work_units)))
     (should (= (plist-get unsuperseded :work_units) 5))
-    (should (= (plist-get superseded :work_units) 1))))
+    (should (= (plist-get superseded :work_units) 1))
+    (should (> (plist-get win-recreate :work_units) (plist-get win-pooled :work_units)))
+    (should (= (plist-get win-pooled :frame_allocs) 0))
+    (should (= (plist-get win-pooled :render_rebuilds) 1))))
+
+(ert-deftest lispm-desktop-test-app-window-frame-pool ()
+  "Verify floating windows closed on a graphic display park in `lispm-desktop-app-window--pool',
+reuse the pooled frame on reopen without `make-frame', exclude pooled frames from
+`lispm-desktop-apps-windows', and destroy them on `lispm-desktop-app-window-kill'."
+  (lispm-desktop-test--with-window-kinds lispm-desktop-test--window-kinds
+    (let ((lispm-desktop-app-window-pool t)
+          (make-frame-calls 0))
+      (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _f) t))
+                ((symbol-function 'lispm-desktop-apps-window-screen) (lambda (_f) 'screen))
+                ((symbol-function 'lispm-desktop-apps--put) #'ignore)
+                ((symbol-function 'set-face-attribute) #'ignore)
+                ((symbol-function 'make-frame)
+                 (lambda (_params)
+                   (setq make-frame-calls (1+ make-frame-calls))
+                   'created)))
+        ;; Close store: it is retired from `--frames' and parked in `--pool'
+        (lispm-desktop-app-window-close 'store)
+        (should-not (lispm-desktop-app-window-open-p 'store))
+        (should (eq (alist-get 'store lispm-desktop-app-window--pool) 'store))
+        (should (frame-parameter 'store 'lispm-desktop-pooled))
+        (should-not (frame-visible-p 'store))
+        ;; Reopen store: reuses pooled frame without calling `make-frame'
+        (let ((reopened (lispm-desktop-app-window-make-frame 'store 'screen)))
+          (should (eq reopened 'store))
+          (should (= make-frame-calls 0))
+          (should (lispm-desktop-app-window-open-p 'store))
+          (should-not (alist-get 'store lispm-desktop-app-window--pool))
+          (should-not (frame-parameter 'store 'lispm-desktop-pooled)))
+        ;; Close and kill: destroys the pooled frame
+        (lispm-desktop-app-window-close 'store)
+        (should (eq (alist-get 'store lispm-desktop-app-window--pool) 'store))
+        (cl-letf (((symbol-function 'window-list) (lambda (&rest _) nil)))
+          (lispm-desktop-app-window-kill 'store))
+        (should-not (alist-get 'store lispm-desktop-app-window--pool))
+        (should-not (frame-live-p 'store))))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
