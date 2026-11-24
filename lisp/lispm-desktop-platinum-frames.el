@@ -672,14 +672,25 @@ active while FRAME is selected."
       (unless (equal key (frame-parameter outer 'lispm-desktop-platinum-key))
         (set-frame-parameter outer 'lispm-desktop-platinum-key key)
         (lispm-desktop-platinum-set-background outer (lispm-ui-color :chrome))
-        (let ((root (frame-root-window outer)))
+        (let* ((cache (or (frame-parameter outer 'lispm-desktop-platinum-text-cache)
+                          (let ((ht (make-hash-table :test #'equal)))
+                            (set-frame-parameter outer 'lispm-desktop-platinum-text-cache ht)
+                            ht)))
+               (text (or (gethash key cache)
+                         (progn
+                           (when (> (hash-table-count cache) 4)
+                             (clrhash cache))
+                           (puthash key
+                                    (lispm-desktop-platinum--frame-text
+                                     (lispm-desktop-platinum-draw-window-frame
+                                      lispm-ui-current-palette width height :active active)
+                                     width height)
+                                    cache))))
+               (root (frame-root-window outer)))
           (with-current-buffer (window-buffer root)
             (let ((inhibit-read-only t))
               (erase-buffer)
-              (insert (lispm-desktop-platinum--frame-text
-                       (lispm-desktop-platinum-draw-window-frame
-                        lispm-ui-current-palette width height :active active)
-                       width height))))
+              (insert text)))
           (set-window-start root 1))))))
 
 (defun lispm-desktop-platinum-frames-sync (&optional frame &rest _)
