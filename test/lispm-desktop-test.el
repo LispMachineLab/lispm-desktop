@@ -7305,6 +7305,7 @@ the desktop is hidden, then raised, with the keyboard, its application in
 front."
   (let ((done nil))
     (cl-letf (((symbol-function 'lispm-desktop-app-window-frame) (lambda (_) 'window))
+              ((symbol-function 'set-frame-parameter) #'ignore)
               ((symbol-function 'lispm-desktop-app-window--app) (lambda (id) id))
               ((symbol-function 'lispm-desktop-apps-show-window) (lambda (frame) (push (list 'show frame) done)))
               ((symbol-function 'lispm-desktop-platinum-raise-window) (lambda (frame) (push (list 'raise frame) done)))

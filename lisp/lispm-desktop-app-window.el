@@ -325,7 +325,8 @@ for the kind's :name and :size."
   "Show the window of kind ID, kept on the desktop, over the others and
 with the keyboard; put its application in front.  Return the window."
   (when-let* ((frame (lispm-desktop-app-window-frame id)))
-    (set-frame-parameter frame 'lispm-desktop-warm-pooled nil)
+    (when (framep frame)
+      (set-frame-parameter frame 'lispm-desktop-warm-pooled nil))
     (lispm-desktop-apps-show-window frame)
     (lispm-desktop-platinum-raise-window frame)
     (select-frame-set-input-focus frame)
