@@ -181,12 +181,22 @@ that what was worked out before is not kept after.")
 (defvar lispm-desktop-update--timer nil
   "The timer of the checks Software Update makes by itself.")
 
-(defvar lispm-desktop-update-changed-hook nil
+(defvar lispm-desktop-update-changed-hook '(lispm-desktop-update--sync-state-signal)
   "Hook run once what Software Update knows changed: a check started or
 ended, updates installed.  Its control panel draws itself again.")
 
 (defvar lispm-desktop-update-state-signal (lispm-ui-signal nil #'equal)
   "Reactive FRP signal tracking Software Update state.")
+
+(defun lispm-desktop-update--sync-state-signal ()
+  "Sync `lispm-desktop-update-state-signal' with current Software Update state."
+  (lispm-ui-signal-set
+   lispm-desktop-update-state-signal
+   (list :checking (and (bound-and-true-p lispm-desktop-update--checking) t)
+         :results (and (boundp 'lispm-desktop-update--results)
+                       lispm-desktop-update--results)
+         :installed (and (boundp 'lispm-desktop-update--installed)
+                         lispm-desktop-update--installed))))
 
 (defvar lispm-desktop-update-check-hook nil
   "Hook run as Software Update begins a check, by itself or asked: what

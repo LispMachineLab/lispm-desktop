@@ -622,8 +622,14 @@ requests of OWNER are cancelled in the kernel and on the Emacs side.
 Falls back transparently to `lispm-exec' when the kernel is off or stubbed."
   (let* ((owner-id (lispm-desktop-kernel-owner-id owner))
          (gen (if supersede
-                  (lispm-desktop-kernel-next-generation owner-id)
+                  (lispm-desktop-kernel-supersede owner-id)
                 (lispm-desktop-kernel-generation owner-id)))
+         (wrapped-output
+          (and on-output
+               (lambda (chunk)
+                 (when (= gen (lispm-desktop-kernel-generation owner-id))
+                   (lispm-ui-frp-batch
+                     (funcall on-output chunk))))))
          (wrapped-callback
           (lambda (exit output errors)
             (when (= gen (lispm-desktop-kernel-generation owner-id))
@@ -633,10 +639,10 @@ Falls back transparently to `lispm-exec' when the kernel is off or stubbed."
          program args wrapped-callback
          :owner owner-id :generation gen :priority priority
          :input input :timeout timeout
-         :on-output on-output :combine-error combine-error)
+         :on-output wrapped-output :combine-error combine-error)
         (lispm-desktop-kernel--fallback-exec
          program args wrapped-callback
-         input timeout on-output combine-error))))
+         input timeout wrapped-output combine-error))))
 
 (cl-defun lispm-desktop-kernel-effect-signal (request-signal
                                               &key (owner 4) (priority 0)
@@ -657,18 +663,28 @@ states.  Return `(CONS STATE-SIGNAL EFFECT)' where STATE-SIGNAL holds
                           (args (plist-get req :args))
                           (dir (or (plist-get req :directory) default-directory))
                           (prev (lispm-ui-signal-peek state-sig))
+                          (settled nil)
                           (default-directory dir))
                      (lispm-desktop-kernel-exec
                       prog args
                       (lambda (exit output errors)
+                        (setq settled t)
                         (let ((gen (lispm-desktop-kernel-generation owner-id)))
                           (if (eql exit 0)
-                              (let ((val (if transform
-                                             (funcall transform output)
-                                           output)))
-                                (lispm-ui-signal-set
-                                 state-sig
-                                 (list :status 'ready :value val :generation gen)))
+                              (condition-case err
+                                  (let ((val (if transform
+                                                 (funcall transform output)
+                                               output)))
+                                    (lispm-ui-signal-set
+                                     state-sig
+                                     (list :status 'ready :value val :generation gen)))
+                                (error
+                                 (lispm-ui-signal-set
+                                  state-sig
+                                  (list :status 'error
+                                        :value (plist-get prev :value)
+                                        :error (error-message-string err)
+                                        :generation gen))))
                             (lispm-ui-signal-set
                              state-sig
                              (list :status 'error
@@ -676,11 +692,12 @@ states.  Return `(CONS STATE-SIGNAL EFFECT)' where STATE-SIGNAL holds
                                    :error (or errors exit)
                                    :generation gen)))))
                       :owner owner-id :supersede t :priority priority)
-                     (lispm-ui-signal-set
-                      state-sig
-                      (list :status 'pending
-                            :value (plist-get prev :value)
-                            :generation (lispm-desktop-kernel-generation owner-id))))))
+                     (unless settled
+                       (lispm-ui-signal-set
+                        state-sig
+                        (list :status 'pending
+                              :value (plist-get prev :value)
+                              :generation (lispm-desktop-kernel-generation owner-id)))))))
                t)))
     (cons state-sig eff)))
 

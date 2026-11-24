@@ -20983,6 +20983,36 @@ supersede stale in-flight requests per subsystem owner."
       ;; The current generation's callback is delivered:
       (funcall (nth 2 (car ran)) 0 "abc1234" "")
       (should (equal results '((second 0 "abc1234"))))))
+  ;; Streaming `on-output' callbacks of superseded requests are also dropped:
+  (let* ((chunks nil)
+         (outputs nil)
+         (lispm-exec-function
+          (lambda (_program _args _callback &rest keys)
+            (push (plist-get keys :on-output) outputs))))
+    (lispm-desktop-kernel-exec
+     "git" '("log") #'ignore
+     :owner 'update :on-output (lambda (c) (push (cons 'first c) chunks)))
+    (lispm-desktop-kernel-exec
+     "git" '("log") #'ignore
+     :owner 'update :supersede t :on-output (lambda (c) (push (cons 'second c) chunks)))
+    (funcall (cadr outputs) "old-chunk")
+    (should-not chunks)
+    (funcall (car outputs) "new-chunk")
+    (should (equal chunks '((second . "new-chunk")))))
+  ;; Synchronous completion in `lispm-desktop-kernel-effect-signal' is never overwritten by `pending':
+  (let* ((lispm-exec-function
+          (lambda (_program _args callback &rest _)
+            (funcall callback 0 "sync-done\n" "")))
+         (req-sig (lispm-ui-signal '(:program "echo" :args ("ok"))))
+         (pair (lispm-desktop-kernel-effect-signal
+                req-sig :owner 'buffer-manager :transform #'string-trim))
+         (state-sig (car pair))
+         (eff (cdr pair)))
+    (unwind-protect
+        (progn
+          (should (eq (plist-get (lispm-ui-signal-get state-sig) :status) 'ready))
+          (should (equal (plist-get (lispm-ui-signal-get state-sig) :value) "sync-done")))
+      (lispm-ui-effect-dispose eff)))
   ;; Reactive `lispm-desktop-kernel-effect-signal' pipeline:
   (lispm-desktop-test--with-exec ran
     (let* ((req-sig (lispm-ui-signal nil))
