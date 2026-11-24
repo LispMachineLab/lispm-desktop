@@ -17,8 +17,10 @@ LISPM_AUTH ?= ../lispm-auth
 STICKIES = $(if $(wildcard $(LISPM_STICKIES)/lispm-stickies.el),-L $(LISPM_STICKIES))
 # Package workflow tests must never discover the user's installed packages.
 TEST_PROFILE = --eval '(setq user-emacs-directory (file-name-as-directory (make-temp-file "lispm-desktop-test-profile-" t)) package-user-dir (expand-file-name "elpa" user-emacs-directory) package-directory-list nil package-alist nil)'
+BENCH_REPEATS ?= 4
+BENCH_OUTPUT ?= docs/frp-csp-benchmark.json
 
-.PHONY: test compile i18n native native-test pin
+.PHONY: test compile i18n native native-test pin bench
 
 # Tests stub a few primitives; the code they test runs uncompiled, so the
 # native compiler need not build trampolines for them, which takes seconds.
@@ -48,8 +50,12 @@ i18n:
 # sources of a checkout Emacs loads from.
 compile:
 	$(EMACS) -Q --batch --eval '(package-initialize)' --eval '(setq byte-compile-error-on-warn t)' -L lisp -L $(LISPM_UI) -L $(LISPM_BROWSER) -L $(LISPM_AGENT) -L $(LISPM_AUTH) \
-	  -f batch-byte-compile lisp/*.el; \
-	status=$$?; rm -f lisp/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
+	  -f batch-byte-compile lisp/*.el bench/*.el; \
+	status=$$?; rm -f lisp/*.elc bench/*.elc $(LISPM_UI)/*.elc $(LISPM_BROWSER)/*.elc $(LISPM_AGENT)/*.elc; exit $$status
+
+bench:
+	python3 scripts/bench-frp-csp.py --emacs $(EMACS) --repeats $(BENCH_REPEATS) \
+	  --ui $(LISPM_UI) --agent $(LISPM_AGENT) --output $(BENCH_OUTPUT)
 
 # lispm-desktop-term's module: terminals emulated off Emacs's thread, in Rust.
 # lispm-desktop downloads it, checked, unless lispm-desktop-term-module-source
