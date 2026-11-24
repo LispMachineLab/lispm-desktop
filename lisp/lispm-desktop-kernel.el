@@ -579,7 +579,8 @@ or nil when no eligible kernel runtime is active."
                        :timeout (and effective-timeout (+ effective-timeout 10))
                        :on-result
                        (lambda (kind value)
-                         (unless aborted
+                         (when (and (not aborted)
+                                    (= gen (lispm-desktop-kernel-generation owner-id)))
                            (pcase kind
                              ('chunk
                               (push value chunks)
