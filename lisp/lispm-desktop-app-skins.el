@@ -657,5 +657,27 @@ buttons and keys window show them.")
 lispm-kit, in English: the desktop's catalogs translate them, where its
 buttons and menus show them.")
 
+;;;; ComfyUI
+
+(declare-function lispm-comfyui "lispm-comfyui" ())
+(declare-function lispm-comfyui-title "lispm-comfyui" ())
+(declare-function lispm-comfyui-status "lispm-comfyui" ())
+
+(lispm-desktop-app-ui-define 'lispm-comfyui-workflows-mode
+  :app 'comfyui
+  :title "ComfyUI"
+  :list t
+  :buttons nil
+  :bottom nil
+  :cursor nil)
+
+(lispm-desktop-app-ui-define 'lispm-comfyui-mode
+  :app 'comfyui
+  :title (lambda () (and (fboundp 'lispm-comfyui-title) (lispm-comfyui-title)))
+  :status (lambda () (and (fboundp 'lispm-comfyui-status) (lispm-comfyui-status)))
+  :size '(1080 . 720)
+  :restore (lambda () (lispm-comfyui))
+  :cursor nil)
+
 (provide 'lispm-desktop-app-skins)
 ;;; lispm-desktop-app-skins.el ends here

@@ -14714,7 +14714,19 @@ pausing and undoing, and its score on its status, found by their names."
                      '(("New Game" lispm-desktop-test-app-start-game t)
                        ("Pause" lispm-desktop-test-app-pause-game t)
                        ("Undo" lispm-desktop-test-app-undo t))))
-      (should (equal (lispm-desktop-app-ui-status) '("Score 1,234"))))))
+      (should (equal (lispm-desktop-app-ui-status) '("Score 1,234"))))
+    (with-temp-buffer
+      (let ((map (make-sparse-keymap)))
+        (defalias 'lispm-desktop-test-app-new (lambda () (interactive)))
+        (unwind-protect
+            (progn
+              (keymap-set map "N" #'lispm-desktop-test-app-new)
+              (lispm-desktop-test-app-mode)
+              (use-local-map map)
+              (should (equal (lispm-desktop-app-ui-buttons)
+                             '(("New" lispm-desktop-test-app-new t))))
+              (should (eq (lispm-desktop-app-ui--new-command) #'lispm-desktop-test-app-new)))
+          (fmakunbound 'lispm-desktop-test-app-new))))))
 
 (ert-deftest lispm-desktop-test-app-ui-skins ()
   "A skin says what is not found out; a mode derived from its mode takes it,
@@ -15811,7 +15823,8 @@ found out of it is not enough, each board's functions defined."
                  telega-root-mode telega-chat-mode lispm-desktop-app-erc-list-mode
                  lispm-desktop-app-slack-list-mode lispm-desktop-app-telega-setup-mode lispm-rotom-mode
                  lispm-1password-mode lispm-1password-item-mode lispm-security-mode
-                 lispm-security-finding-mode lispm-mycin-mode lispm-shrdlu-mode lispm-shrdlu-world-mode))
+                 lispm-security-finding-mode lispm-mycin-mode lispm-shrdlu-mode lispm-shrdlu-world-mode
+                 lispm-comfyui-mode lispm-comfyui-workflows-mode))
     (let ((skin (alist-get key lispm-desktop-app-ui-skins)))
       (should skin)
       (when-let* ((board (plist-get skin :board)))
@@ -16006,12 +16019,13 @@ model at its bottom; while Rotom is missing, its page installs it."
       (should-not (lispm-desktop-app-skins--rotom-status)))))
 
 (ert-deftest lispm-desktop-test-app-skins-of-packages-standing-alone ()
-  "The skins of 1Password, Security, MYCIN and SHRDLU are the desktop's,
+  "The skins of 1Password, Security, MYCIN, SHRDLU and ComfyUI are the desktop's,
 made of what the packages say of themselves with public functions: their
 buttons run commands and are enabled by functions, their status and
 page are functions too, none of them private."
   (dolist (mode '(lispm-1password-mode lispm-1password-item-mode lispm-security-mode
-                  lispm-security-finding-mode lispm-mycin-mode lispm-shrdlu-mode lispm-shrdlu-world-mode))
+                  lispm-security-finding-mode lispm-mycin-mode lispm-shrdlu-mode lispm-shrdlu-world-mode
+                  lispm-comfyui-mode lispm-comfyui-workflows-mode))
     (let ((skin (alist-get mode lispm-desktop-app-ui-skins)))
       (dolist (button (plist-get skin :buttons))
         (should (symbolp (nth 1 button)))
@@ -16028,7 +16042,9 @@ page are functions too, none of them private."
                  '(lispm-1password-page-p lispm-1password-page-text lispm-1password-page-buttons)))
   (should (eq (plist-get (alist-get 'lispm-mycin-mode lispm-desktop-app-ui-skins) :status) #'lispm-mycin-status))
   (should (eq (plist-get (alist-get 'lispm-shrdlu-world-mode lispm-desktop-app-ui-skins) :status)
-              #'lispm-shrdlu-status)))
+              #'lispm-shrdlu-status))
+  (should (plist-member (alist-get 'lispm-comfyui-workflows-mode lispm-desktop-app-ui-skins) :buttons))
+  (should-not (plist-get (alist-get 'lispm-comfyui-workflows-mode lispm-desktop-app-ui-skins) :buttons)))
 
 (ert-deftest lispm-desktop-test-app-ui-display-home ()
   "A buffer of an installed application shown from outside its window, as
