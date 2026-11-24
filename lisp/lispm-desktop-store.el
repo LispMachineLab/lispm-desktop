@@ -4899,9 +4899,11 @@ The catalogs are fetched the first time it opens after Emacs starts."
   (interactive)
   (unless lispm-desktop-store--catalogs
     (lispm-desktop-store--sync-skills-at-start))
-  (let ((buffer (lispm-desktop-store--buffer)))
+  (let* ((buffer (lispm-desktop-store--buffer))
+         (empty (zerop (buffer-size buffer))))
     (lispm-desktop-app-window-show 'store :buffer buffer)
-    (lispm-desktop-store--render)
+    (when empty
+      (lispm-desktop-store--render))
     (unless (or lispm-desktop-store--checked lispm-desktop-store--checking)
       (lispm-desktop-store-check-for-updates))))
 

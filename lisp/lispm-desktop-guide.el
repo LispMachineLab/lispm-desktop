@@ -756,8 +756,9 @@ a full-screen editor or browser in front gives way to it."
          (frame (lispm-desktop-app-window-ensure 'guide)))
     (lispm-desktop-platinum-show-window frame)
     ;; Opening, it stands in the middle of the desktop, wherever it was.
-    (unless open
+    (unless (or open (frame-parameter frame 'lispm-desktop-guide-fitted))
       (lispm-desktop-guide--fit frame)
+      (set-frame-parameter frame 'lispm-desktop-guide-fitted t)
       (lispm-desktop-guide--place frame))
     (lispm-desktop-app-window-present 'guide)
     (lispm-desktop-guide--go lispm-desktop-guide--index)
@@ -800,8 +801,13 @@ Strip.  This is one of `lispm-desktop-platinum-frame-moved-functions'."
   "Make the guide's window as tall as its steps are in the language now
 spoken, and draw it again.  This is one of
 `lispm-desktop-language-changed-hook'."
+  (when-let* ((pooled (alist-get 'guide lispm-desktop-app-window--pool)))
+    (when (frame-live-p pooled)
+      (set-frame-parameter pooled 'lispm-desktop-guide-fitted nil)))
   (when-let* ((frame (lispm-desktop-guide--frame)))
-    (lispm-desktop-guide--fit frame)))
+    (set-frame-parameter frame 'lispm-desktop-guide-fitted nil)
+    (lispm-desktop-guide--fit frame)
+    (set-frame-parameter frame 'lispm-desktop-guide-fitted t)))
 
 ;;;; The application
 

@@ -225,9 +225,10 @@ else its kind's :name in the language LispM speaks, else ID's name."
              (not (lispm-desktop-apps-out-p pooled)))
         (progn
           (set-frame-parameter pooled 'lispm-desktop-pooled nil)
-          (set-frame-parameter pooled 'lispm-desktop-app-ui-fitted nil)
-          (set-frame-parameter pooled 'name (lispm-desktop-app-window--name id name))
-          (set-face-attribute 'internal-border pooled :background (lispm-ui-color :chrome))
+          (set-frame-parameter pooled 'lispm-desktop-warm-pooled t)
+          (let ((title (lispm-desktop-app-window--name id name)))
+            (unless (equal (frame-parameter pooled 'name) title)
+              (set-frame-parameter pooled 'name title)))
           (lispm-desktop-apps--put pooled place)
           (setf (alist-get id lispm-desktop-app-window--frames) pooled)
           pooled)
@@ -324,6 +325,7 @@ for the kind's :name and :size."
   "Show the window of kind ID, kept on the desktop, over the others and
 with the keyboard; put its application in front.  Return the window."
   (when-let* ((frame (lispm-desktop-app-window-frame id)))
+    (set-frame-parameter frame 'lispm-desktop-warm-pooled nil)
     (lispm-desktop-apps-show-window frame)
     (lispm-desktop-platinum-raise-window frame)
     (select-frame-set-input-focus frame)
@@ -347,9 +349,27 @@ runs with the window selected to fill it, as an application's command
 does; SIZE, (WIDTH . HEIGHT) in pixels, sizes it, by default the kind's
 :size or `lispm-desktop-app-window-size'."
   (let* ((open (lispm-desktop-app-window-frame id))
-         (frame (lispm-desktop-app-window-ensure id name size)))
-    (unless open
+         (frame (lispm-desktop-app-window-ensure id name size))
+         (warm (and (not open)
+                    (frame-parameter frame 'lispm-desktop-warm-pooled)))
+         (windows (and warm (ignore-errors (window-list frame 'never))))
+         (has-content (and windows
+                           (if buffer
+                               (and (null (cdr windows))
+                                    (eq (window-buffer (car windows)) buffer))
+                             (seq-every-p
+                              (lambda (w)
+                                (and (buffer-live-p (window-buffer w))
+                                     (not (eq (window-buffer w)
+                                              (lispm-desktop-app-window-blank)))))
+                              windows)))))
+    (set-frame-parameter frame 'lispm-desktop-warm-pooled nil)
+    (unless (or open has-content)
+      (when (cdr (ignore-errors (window-list frame 'never)))
+        (let ((ignore-window-parameters t))
+          (delete-other-windows (frame-selected-window frame))))
       (let ((window (frame-root-window frame)))
+        (set-window-dedicated-p window nil)
         (cond (buffer
                (set-window-buffer window buffer)
                (set-window-dedicated-p window t))

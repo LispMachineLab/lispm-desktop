@@ -1038,7 +1038,8 @@ Where images cannot be shown, it is drawn in text, see
               (width (window-body-width window t))
               (height (1- (window-body-height window t)))
               (cursor-pt nil))
-          (setq-local lispm-desktop-genera--welcome-cursor-xy nil)
+          (setq-local lispm-desktop-genera--welcome-cursor-xy nil
+                      lispm-desktop--drawn-coach-mark lispm-desktop-platinum-coach-mark)
           (erase-buffer)
           (if (display-images-p)
               (let* ((in-use (lispm-desktop--picture-in-use))
@@ -1676,6 +1677,9 @@ stay where they are."
 (defvar-local lispm-desktop--background nil
   "Face remapping cookies colouring a desktop buffer.")
 
+(defvar-local lispm-desktop--drawn-coach-mark nil
+  "The coach mark drawn on the desktop the last time it was rendered.")
+
 (defun lispm-desktop--paint-buffer (buffer)
   "Colour BUFFER as the desktop, its fringes included."
   (with-current-buffer buffer
@@ -1836,17 +1840,22 @@ or the desktop's bare colour."
   "Select the desktop's workspace in FRAME, made when missing: the desktop
 alone, filling the frame."
   (with-selected-frame (or frame (selected-frame))
-    (if-let* ((index (tab-bar--tab-index-by-name lispm-desktop-tab-name)))
-        (unless (lispm-desktop--tab-p)
-          (tab-bar-select-tab (1+ index)))
-      (let ((tab-bar-new-tab-choice #'lispm-desktop--new-tab-desktop))
-        (tab-bar-new-tab))
-      (tab-bar-rename-tab lispm-desktop-tab-name))
-    (let ((window (car (lispm-desktop-main-area--windows))))
-      (when (or (cdr (window-list nil 'no-mini)) (not (lispm-desktop-p window)))
-        (let ((ignore-window-parameters t))
-          (delete-other-windows window)))
-      (lispm-desktop-show window))))
+    (let ((already (lispm-desktop--tab-p)))
+      (if-let* ((index (tab-bar--tab-index-by-name lispm-desktop-tab-name)))
+          (unless already
+            (tab-bar-select-tab (1+ index)))
+        (let ((tab-bar-new-tab-choice #'lispm-desktop--new-tab-desktop))
+          (tab-bar-new-tab))
+        (tab-bar-rename-tab lispm-desktop-tab-name))
+      (let ((window (car (lispm-desktop-main-area--windows))))
+        (when (or (not already)
+                  (cdr (window-list nil 'no-mini))
+                  (not (eq (window-buffer window) (get-buffer lispm-desktop-buffer-name)))
+                  (zerop (buffer-size (window-buffer window))))
+          (when (or (cdr (window-list nil 'no-mini)) (not (lispm-desktop-p window)))
+            (let ((ignore-window-parameters t))
+              (delete-other-windows window)))
+          (lispm-desktop-show window))))))
 
 (defvar lispm-desktop-activate-hook nil
   "Hook run when the desktop comes in front, as windows left over it show.")
@@ -1944,6 +1953,12 @@ This is one of `lispm-desktop-platinum-scroll-bar-functions'."
              (provided-mode-derived-p mode 'lispm-desktop-empty-mode))
          'no)))
 
+(defun lispm-desktop--coach-mark-changed (mark)
+  "Redraw the desktop only when the coach mark changed or was present."
+  (let ((buf (get-buffer lispm-desktop-buffer-name)))
+    (when (or mark (and buf (buffer-local-value 'lispm-desktop--drawn-coach-mark buf)))
+      (lispm-desktop--render))))
+
 (defun lispm-desktop-setup-desktop ()
   "Put the desktop behind every window, and start Emacs on it.
 Its settings take effect when changed however they are, a `setq' in
@@ -1968,7 +1983,7 @@ the Trash is looked at every few seconds."
   ;; layout follows the look.
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop--paint)
   (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop--paint)
-  (add-hook 'lispm-desktop-platinum-coach-mark-functions (lambda (_) (lispm-desktop--render)))
+  (add-hook 'lispm-desktop-platinum-coach-mark-functions #'lispm-desktop--coach-mark-changed)
   (add-hook 'window-setup-hook #'lispm-desktop-activate 95))
 
 (provide 'lispm-desktop-surface)
