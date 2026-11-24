@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-25T04:43:39+0800",
+  "generated_at": "2026-11-25T04:48:20+0800",
   "repeats": 4,
   "host": {
     "system": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
@@ -24,74 +24,74 @@
   },
   "summary": {
     "frame-unbatched": {
-      "elapsed_ms": 231.262,
+      "elapsed_ms": 276.213,
       "work_units": 1998,
       "p50_ms": 0.0,
       "p95_ms": 0.0,
       "p99_ms": 0.0,
       "max_ms": 0.0,
       "gcs": 5.0,
-      "gc_ms": 70.701
+      "gc_ms": 79.612
     },
     "frame-batched": {
-      "elapsed_ms": 59.898,
+      "elapsed_ms": 59.045,
       "work_units": 500,
       "p50_ms": 0.0,
       "p95_ms": 0.0,
       "p99_ms": 0.0,
       "max_ms": 0.0,
       "gcs": 1.0,
-      "gc_ms": 13.872
+      "gc_ms": 14.252
     },
     "list-imperative": {
-      "elapsed_ms": 829.666,
+      "elapsed_ms": 820.157,
       "work_units": 1000000,
       "p50_ms": 0.0,
       "p95_ms": 0.0,
       "p99_ms": 0.0,
       "max_ms": 0.0,
       "gcs": 17.0,
-      "gc_ms": 258.962
+      "gc_ms": 249.369
     },
     "list-reactive": {
-      "elapsed_ms": 77.116,
+      "elapsed_ms": 71.688,
       "work_units": 101000,
       "p50_ms": 0.0,
       "p95_ms": 0.0,
       "p99_ms": 0.0,
       "max_ms": 0.0,
       "gcs": 1.0,
-      "gc_ms": 16.437
+      "gc_ms": 13.588
     },
     "csp-unsuperseded": {
-      "elapsed_ms": 111.628,
+      "elapsed_ms": 106.458,
       "work_units": 20,
-      "p50_ms": 0.0,
-      "p95_ms": 14.719,
-      "p99_ms": 25.95,
-      "max_ms": 25.95,
+      "p50_ms": 3.509,
+      "p95_ms": 22.177,
+      "p99_ms": 24.737,
+      "max_ms": 24.737,
       "gcs": 2.0,
-      "gc_ms": 26.897
+      "gc_ms": 27.174
     },
     "csp-superseded": {
-      "elapsed_ms": 87.16,
+      "elapsed_ms": 86.227,
       "work_units": 1,
-      "p50_ms": 0.006,
-      "p95_ms": 0.319,
-      "p99_ms": 3.175,
-      "max_ms": 3.175,
+      "p50_ms": 0.153,
+      "p95_ms": 0.305,
+      "p99_ms": 2.837,
+      "max_ms": 2.837,
       "gcs": 0.0,
       "gc_ms": 0.0
     }
   },
   "comparison": {
-    "frame_batch_speedup": 3.86,
+    "frame_batch_speedup": 4.68,
     "frame_effect_reduction": 4.0,
-    "list_derive_speedup": 10.76,
+    "list_derive_speedup": 11.44,
     "list_predicate_reduction": 9.9,
-    "csp_supersede_speedup": 1.28,
+    "csp_supersede_speedup": 1.23,
     "csp_parse_reduction": 20.0,
-    "csp_p95_lateness_reduction": 46.14
+    "csp_p95_lateness_reduction": 72.71
   },
   "runs": [
     {
@@ -106,9 +106,9 @@
       "results": [
         {
           "mode": "frame-unbatched",
-          "elapsed_ms": 238.17706108093262,
+          "elapsed_ms": 265.34414291381836,
           "gcs": 5,
-          "gc_ms": 70.75799999999998,
+          "gc_ms": 82.556,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -118,13 +118,13 @@
           },
           "ticks": 500,
           "work_units": 1998,
-          "checksum": 443940057425881295904
+          "checksum": 443916658300423990304
         },
         {
           "mode": "frame-batched",
-          "elapsed_ms": 60.11605262756348,
+          "elapsed_ms": 60.0130558013916,
           "gcs": 1,
-          "gc_ms": 13.071,
+          "gc_ms": 14.573000000000002,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -134,13 +134,13 @@
           },
           "ticks": 500,
           "work_units": 500,
-          "checksum": 399913276416
+          "checksum": 657478656
         },
         {
           "mode": "list-imperative",
-          "elapsed_ms": 1030.3030014038086,
+          "elapsed_ms": 813.3571147918701,
           "gcs": 17,
-          "gc_ms": 280.34400000000005,
+          "gc_ms": 247.149,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -154,9 +154,9 @@
         },
         {
           "mode": "list-reactive",
-          "elapsed_ms": 95.7651138305664,
+          "elapsed_ms": 66.3151741027832,
           "gcs": 1,
-          "gc_ms": 19.888000000000016,
+          "gc_ms": 12.697000000000013,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -170,15 +170,15 @@
         },
         {
           "mode": "csp-unsuperseded",
-          "elapsed_ms": 136.185884475708,
+          "elapsed_ms": 105.82685470581055,
           "gcs": 2,
-          "gc_ms": 34.82099999999999,
+          "gc_ms": 27.264999999999983,
           "probe": {
-            "samples": 29,
-            "p50": 0.0,
-            "p95": 26.395891189575195,
-            "p99": 52.77786064147949,
-            "max": 52.77786064147949
+            "samples": 41,
+            "p50": 3.5309791564941406,
+            "p95": 23.63443374633789,
+            "p99": 27.14228630065918,
+            "max": 27.14228630065918
           },
           "ticks": 20,
           "work_units": 20,
@@ -186,15 +186,15 @@
         },
         {
           "mode": "csp-superseded",
-          "elapsed_ms": 88.56701850891113,
+          "elapsed_ms": 86.33613586425781,
           "gcs": 0,
           "gc_ms": 0.0,
           "probe": {
-            "samples": 43,
-            "p50": 0.0,
-            "p95": 0.40898132324218744,
-            "p99": 2.9178600311279297,
-            "max": 2.9178600311279297
+            "samples": 42,
+            "p50": 0.09799003601074219,
+            "p95": 0.30422210693359375,
+            "p99": 3.0753612518310547,
+            "max": 3.0753612518310547
           },
           "ticks": 20,
           "work_units": 1,
@@ -202,9 +202,9 @@
         }
       ],
       "process_resources": {
-        "wall_seconds": 2.322,
-        "user_cpu_seconds": 1.664,
-        "system_cpu_seconds": 0.127
+        "wall_seconds": 2.073,
+        "user_cpu_seconds": 1.659,
+        "system_cpu_seconds": 0.12
       }
     },
     {
@@ -219,9 +219,9 @@
       "results": [
         {
           "mode": "frame-batched",
-          "elapsed_ms": 99.93600845336914,
+          "elapsed_ms": 58.077096939086914,
           "gcs": 1,
-          "gc_ms": 23.275,
+          "gc_ms": 13.931,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -231,13 +231,13 @@
           },
           "ticks": 500,
           "work_units": 500,
-          "checksum": 7234147328
+          "checksum": 576738304
         },
         {
           "mode": "frame-unbatched",
-          "elapsed_ms": 234.2841625213623,
+          "elapsed_ms": 222.0449447631836,
           "gcs": 5,
-          "gc_ms": 72.20300000000002,
+          "gc_ms": 68.71100000000001,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -247,13 +247,13 @@
           },
           "ticks": 500,
           "work_units": 1998,
-          "checksum": 443941474017706994720
+          "checksum": 443912529731585272864
         },
         {
           "mode": "list-reactive",
-          "elapsed_ms": 76.81107521057129,
+          "elapsed_ms": 74.5089054107666,
           "gcs": 1,
-          "gc_ms": 14.641999999999989,
+          "gc_ms": 14.047000000000004,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -267,9 +267,9 @@
         },
         {
           "mode": "list-imperative",
-          "elapsed_ms": 799.976110458374,
+          "elapsed_ms": 826.9569873809814,
           "gcs": 17,
-          "gc_ms": 241.96499999999997,
+          "gc_ms": 251.589,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -283,15 +283,15 @@
         },
         {
           "mode": "csp-superseded",
-          "elapsed_ms": 85.73317527770996,
+          "elapsed_ms": 85.48903465270996,
           "gcs": 0,
           "gc_ms": 0.0,
           "probe": {
             "samples": 42,
-            "p50": 0.011060714721679646,
-            "p95": 0.2280216217041015,
-            "p99": 3.1169395446777344,
-            "max": 3.1169395446777344
+            "p50": 0.13971328735351562,
+            "p95": 0.30159950256347656,
+            "p99": 3.0851364135742188,
+            "max": 3.0851364135742188
           },
           "ticks": 20,
           "work_units": 1,
@@ -299,15 +299,15 @@
         },
         {
           "mode": "csp-unsuperseded",
-          "elapsed_ms": 115.54408073425293,
+          "elapsed_ms": 110.62407493591309,
           "gcs": 2,
-          "gc_ms": 26.795000000000012,
+          "gc_ms": 28.125999999999983,
           "probe": {
-            "samples": 43,
-            "p50": 0.0,
-            "p95": 17.599199295043945,
-            "p99": 28.933141708374023,
-            "max": 28.933141708374023
+            "samples": 44,
+            "p50": 3.501415252685547,
+            "p95": 17.01521873474121,
+            "p99": 23.292064666748047,
+            "max": 23.292064666748047
           },
           "ticks": 20,
           "work_units": 20,
@@ -315,9 +315,9 @@
         }
       ],
       "process_resources": {
-        "wall_seconds": 2.066,
-        "user_cpu_seconds": 1.643,
-        "system_cpu_seconds": 0.118
+        "wall_seconds": 1.938,
+        "user_cpu_seconds": 1.62,
+        "system_cpu_seconds": 0.095
       }
     },
     {
@@ -332,9 +332,9 @@
       "results": [
         {
           "mode": "frame-unbatched",
-          "elapsed_ms": 228.2400131225586,
+          "elapsed_ms": 287.0810031890869,
           "gcs": 5,
-          "gc_ms": 70.64399999999999,
+          "gc_ms": 76.66799999999999,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -344,13 +344,13 @@
           },
           "ticks": 500,
           "work_units": 1998,
-          "checksum": 443939845437427248160
+          "checksum": 443917690147290442784
         },
         {
           "mode": "frame-batched",
-          "elapsed_ms": 58.53700637817383,
+          "elapsed_ms": 56.6411018371582,
           "gcs": 1,
-          "gc_ms": 13.94999999999999,
+          "gc_ms": 13.627,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -360,13 +360,13 @@
           },
           "ticks": 500,
           "work_units": 500,
-          "checksum": 2008044544
+          "checksum": 2019578880
         },
         {
           "mode": "list-imperative",
-          "elapsed_ms": 859.3568801879883,
+          "elapsed_ms": 807.0600032806396,
           "gcs": 17,
-          "gc_ms": 275.95899999999995,
+          "gc_ms": 239.03400000000002,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -380,9 +380,9 @@
         },
         {
           "mode": "list-reactive",
-          "elapsed_ms": 77.41999626159668,
+          "elapsed_ms": 68.86696815490723,
           "gcs": 1,
-          "gc_ms": 18.233,
+          "gc_ms": 13.129000000000001,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -396,15 +396,15 @@
         },
         {
           "mode": "csp-unsuperseded",
-          "elapsed_ms": 107.58805274963379,
+          "elapsed_ms": 104.9649715423584,
           "gcs": 2,
-          "gc_ms": 26.440999999999992,
+          "gc_ms": 26.33599999999997,
           "probe": {
-            "samples": 42,
-            "p50": 0.0,
-            "p95": 11.839006423950195,
-            "p99": 22.966001510620117,
-            "max": 22.966001510620117
+            "samples": 41,
+            "p50": 3.4961700439453125,
+            "p95": 22.679567337036133,
+            "p99": 25.804519653320312,
+            "max": 25.804519653320312
           },
           "ticks": 20,
           "work_units": 20,
@@ -412,15 +412,15 @@
         },
         {
           "mode": "csp-superseded",
-          "elapsed_ms": 88.17696571350098,
+          "elapsed_ms": 87.83483505249023,
           "gcs": 0,
           "gc_ms": 0.0,
           "probe": {
             "samples": 43,
-            "p50": 0.0,
-            "p95": 0.7699470520019531,
-            "p99": 3.2330493927001953,
-            "max": 3.2330493927001953
+            "p50": 0.16641616821289062,
+            "p95": 0.30612945556640625,
+            "p99": 2.599000930786133,
+            "max": 2.599000930786133
           },
           "ticks": 20,
           "work_units": 1,
@@ -428,9 +428,9 @@
         }
       ],
       "process_resources": {
-        "wall_seconds": 2.036,
-        "user_cpu_seconds": 1.637,
-        "system_cpu_seconds": 0.11
+        "wall_seconds": 1.966,
+        "user_cpu_seconds": 1.614,
+        "system_cpu_seconds": 0.095
       }
     },
     {
@@ -445,9 +445,9 @@
       "results": [
         {
           "mode": "frame-batched",
-          "elapsed_ms": 59.67998504638672,
+          "elapsed_ms": 91.67599678039551,
           "gcs": 1,
-          "gc_ms": 13.794,
+          "gc_ms": 21.498000000000005,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -457,13 +457,13 @@
           },
           "ticks": 500,
           "work_units": 500,
-          "checksum": 5777675264
+          "checksum": 1731220480
         },
         {
           "mode": "frame-unbatched",
-          "elapsed_ms": 216.93801879882812,
+          "elapsed_ms": 345.9799289703369,
           "gcs": 5,
-          "gc_ms": 68.678,
+          "gc_ms": 110.701,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -473,13 +473,13 @@
           },
           "ticks": 500,
           "work_units": 1998,
-          "checksum": 443919763399408053280
+          "checksum": 443913041595437116448
         },
         {
           "mode": "list-reactive",
-          "elapsed_ms": 69.69094276428223,
+          "elapsed_ms": 100.26097297668457,
           "gcs": 1,
-          "gc_ms": 13.445999999999986,
+          "gc_ms": 25.2,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -493,9 +493,9 @@
         },
         {
           "mode": "list-imperative",
-          "elapsed_ms": 794.8610782623291,
+          "elapsed_ms": 925.1749515533447,
           "gcs": 17,
-          "gc_ms": 238.84199999999998,
+          "gc_ms": 304.923,
           "probe": {
             "samples": 0,
             "p50": 0.0,
@@ -509,15 +509,15 @@
         },
         {
           "mode": "csp-superseded",
-          "elapsed_ms": 86.14206314086914,
+          "elapsed_ms": 86.11702919006348,
           "gcs": 0,
           "gc_ms": 0.0,
           "probe": {
             "samples": 42,
-            "p50": 0.011060714721679646,
-            "p95": 0.2211074829101562,
-            "p99": 3.5620670318603516,
-            "max": 3.5620670318603516
+            "p50": 0.17213821411132812,
+            "p95": 0.45228004455566406,
+            "p99": 1.959085464477539,
+            "max": 1.959085464477539
           },
           "ticks": 20,
           "work_units": 1,
@@ -525,15 +525,15 @@
         },
         {
           "mode": "csp-unsuperseded",
-          "elapsed_ms": 107.7110767364502,
+          "elapsed_ms": 107.08904266357422,
           "gcs": 2,
-          "gc_ms": 26.999000000000052,
+          "gc_ms": 27.083999999999996,
           "probe": {
-            "samples": 43,
-            "p50": 0.0,
-            "p95": 11.792037963867188,
-            "p99": 21.754119873046875,
-            "max": 21.754119873046875
+            "samples": 42,
+            "p50": 3.51715087890625,
+            "p95": 21.673917770385742,
+            "p99": 23.669004440307617,
+            "max": 23.669004440307617
           },
           "ticks": 20,
           "work_units": 20,
@@ -541,9 +541,9 @@
         }
       ],
       "process_resources": {
-        "wall_seconds": 1.912,
-        "user_cpu_seconds": 1.612,
-        "system_cpu_seconds": 0.106
+        "wall_seconds": 2.316,
+        "user_cpu_seconds": 1.671,
+        "system_cpu_seconds": 0.116
       }
     }
   ]

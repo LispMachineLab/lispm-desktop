@@ -86,15 +86,16 @@
 (defun lispm-desktop-bench--start-probe ()
   "Start timing how late a timer of `lispm-desktop-bench--interval' runs."
   (setq lispm-desktop-bench--samples nil)
-  (let ((last (float-time)))
+  (let ((expected (+ (float-time) lispm-desktop-bench--interval)))
     (setq lispm-desktop-bench--timer
           (run-at-time lispm-desktop-bench--interval
                        lispm-desktop-bench--interval
                        (lambda ()
                          (let ((now (float-time)))
-                           (push (max 0.0 (* 1000.0 (- now last lispm-desktop-bench--interval)))
+                           (push (max 0.0 (* 1000.0 (- now expected)))
                                  lispm-desktop-bench--samples)
-                           (setq last now)))))))
+                           (setq expected (+ expected
+                                             lispm-desktop-bench--interval))))))))
 
 (defun lispm-desktop-bench--stop-probe ()
   "Stop the probe timer and return its sample count and lateness quantiles."
@@ -297,16 +298,26 @@
   ;; Deliver the queued completions across timers so the 2 ms probe timer
     ;; measures main-thread responsiveness during callback bursts:
     (let ((queue (nreverse pending))
+          (timers nil)
           (idx 0))
-      (dolist (cb queue)
-        (setq idx (1+ idx))
-        (run-at-time (* idx 0.004) nil
-                     (lambda (fn)
-                       (funcall fn 0 payload ""))
-                     cb))
-      (let ((deadline (+ (float-time) 5.0)))
-        (while (and (not done) (< (float-time) deadline))
-          (accept-process-output nil 0.001))))
+      (unwind-protect
+          (progn
+            (dolist (cb queue)
+              (setq idx (1+ idx))
+              (push (run-at-time (* idx 0.004) nil
+                                 (lambda (fn)
+                                   (funcall fn 0 payload ""))
+                                 cb)
+                    timers))
+            (let ((deadline (+ (float-time) (max 5.0 (+ 2.0 (* burst-size 0.05))))))
+              (while (and (not done) (< (float-time) deadline))
+                (accept-process-output nil 0.001)))
+            (unless (or done (<= burst-size 0))
+              (error "CSP benchmark timed out before completing %d burst requests"
+                     burst-size)))
+        (dolist (tm timers)
+          (when (timerp tm)
+            (cancel-timer tm)))))
     (list :ticks burst-size
           :work_units parsed-callbacks
           :rows total-fields)))

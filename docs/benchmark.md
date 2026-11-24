@@ -64,20 +64,20 @@ Medians of 4 runs, milliseconds. Raw data is recorded in
 
 | mode | elapsed (ms) | work units | p50 (ms) | p95 (ms) | p99 (ms) | max (ms) | Emacs GCs | GC time (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `frame-unbatched` | 231.26 | 1,998 renders | 0.00 | 0.00 | 0.00 | 0.00 | 5.0 | 70.70 |
-| `frame-batched` | **59.90** | **500 renders** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **13.87** |
-| `list-imperative` | 829.67 | 1,000,000 predicates | 0.00 | 0.00 | 0.00 | 0.00 | 17.0 | 258.96 |
-| `list-reactive` | **77.12** | **101,000 predicates** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **16.44** |
-| `csp-unsuperseded` | 111.63 | 20 callback parses | 0.00 | 14.72 | 25.95 | 25.95 | 2.0 | 26.90 |
-| `csp-superseded` | **87.16** | **1 callback parse** | 0.01 | **0.32** | **3.18** | **3.18** | **0.0** | **0.00** |
+| `frame-unbatched` | 276.21 | 1,998 renders | 0.00 | 0.00 | 0.00 | 0.00 | 5.0 | 79.61 |
+| `frame-batched` | **59.05** | **500 renders** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **14.25** |
+| `list-imperative` | 820.16 | 1,000,000 predicates | 0.00 | 0.00 | 0.00 | 0.00 | 17.0 | 249.37 |
+| `list-reactive` | **71.69** | **101,000 predicates** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **13.59** |
+| `csp-unsuperseded` | 106.46 | 20 callback parses | 3.51 | 22.18 | 24.74 | 24.74 | 2.0 | 27.17 |
+| `csp-superseded` | **86.23** | **1 callback parse** | **0.15** | **0.31** | **2.84** | **2.84** | **0.0** | **0.00** |
 
 ### Summary of Speedups
 
 | Architectural Mechanism | Wall-Clock Speedup | Work Reduction | GC Reduction | Responsiveness (p95 Lateness) |
 |---|---:|---:|---:|---:|
-| **Frame-Synced FRP Batching** (`lispm-desktop-frame--tick`) | **3.86x faster** (231.3 ms → 59.9 ms) | **4.0x fewer** renders (1,998 → 500) | **5.0x fewer GCs** (70.7 ms → 13.9 ms) | Glitch-free single commit per frame |
-| **Relational List Derivation** (`lispm-ui-list-derive`) | **10.76x faster** (829.7 ms → 77.1 ms) | **9.9x fewer** predicate evaluations | **17.0x fewer GCs** (259.0 ms → 16.4 ms) | $O(1)$ signal read when unchanged |
-| **Generational CSP Preemption** (`lispm-desktop-kernel-exec :supersede t`) | **1.28x faster** (111.6 ms → 87.2 ms) | **20.0x fewer** callback parses (20 → 1) | **Eliminated GCs** (2.0 → 0.0) | **46.14x lower p95 wait** (14.72 ms → 0.32 ms) |
+| **Frame-Synced FRP Batching** (`lispm-desktop-frame--tick`) | **4.68x faster** (276.2 ms → 59.0 ms) | **4.0x fewer** renders (1,998 → 500) | **5.0x fewer GCs** (79.6 ms → 14.3 ms) | Glitch-free single commit per frame |
+| **Relational List Derivation** (`lispm-ui-list-derive`) | **11.44x faster** (820.2 ms → 71.7 ms) | **9.9x fewer** predicate evaluations | **17.0x fewer GCs** (249.4 ms → 13.6 ms) | $O(1)$ signal read when unchanged |
+| **Generational CSP Preemption** (`lispm-desktop-kernel-exec :supersede t`) | **1.23x faster** (106.5 ms → 86.2 ms) | **20.0x fewer** callback parses (20 → 1) | **Eliminated GCs** (2.0 → 0.0) | **72.71x lower p95 wait** (22.18 ms → 0.31 ms) |
 
 ## Reproducing
 
