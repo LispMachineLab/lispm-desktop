@@ -675,7 +675,49 @@ setup progress window; Focus Mode uses y-or-n-p; setup buffers omit scroll bars.
       (should (equal "pw"
                      (lispm-desktop-auth--around-page-read
                       (lambda (&rest _) "pw") "Prompt: " nil nil)))
+      (should dialog-called)))
+  ;; 4. Desktop Mode resolves `lispm-desktop-apps-screen' when `lispm-desktop--screen' is nil
+  (let ((noninteractive nil)
+        (lispm-auth-page-windowed nil)
+        (lispm-desktop-auth-started-hidden nil)
+        (lispm-desktop--set-up t)
+        (lispm-desktop-setup--in-progress nil)
+        (lispm-desktop--screen nil)
+        (dialog-called nil))
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+              ((symbol-function 'lispm-desktop-apps-screen) #'selected-frame)
+              ((symbol-function 'lispm-desktop-apps-hidden-p) (lambda (&rest _) nil))
+              ((symbol-function 'lispm-desktop-started-as-terminal-p) (lambda () nil))
+              ((symbol-function 'lispm-terminal-p) (lambda (&rest _) nil))
+              ((symbol-function 'frame-parameter) (lambda (&rest _) nil))
+              ((symbol-function 'lispm-desktop-auth--call-in-dialog)
+               (lambda (fn) (setq dialog-called t) (funcall fn))))
+      (should (equal "pw"
+                     (lispm-desktop-auth--around-page-read
+                      (lambda (&rest _) "pw") "Prompt: " nil nil)))
       (should dialog-called))))
+
+(ert-deftest lispm-desktop-auth-test-auto-lock-triggers-lock-screen ()
+  "When auto-lock locks the store in an interactive Desktop session, the lock screen opens."
+  (let ((noninteractive nil)
+        (lispm-desktop--set-up t)
+        (lispm-desktop-setup--in-progress nil)
+        (lispm-desktop-auth--locking nil)
+        (locked t)
+        (requires-pw t)
+        (lock-screen-shown 0))
+    (cl-letf (((symbol-function 'lispm-desktop-auth-started-hidden-p) (lambda () nil))
+              ((symbol-function 'lispm-auth-locked-p) (lambda () locked))
+              ((symbol-function 'lispm-auth-app-requires-password-p) (lambda (_) requires-pw))
+              ((symbol-function 'lispm-desktop-auth--lock-screen)
+               (lambda () (setq lock-screen-shown (1+ lock-screen-shown)))))
+      (lispm-desktop-auth--on-auto-lock)
+      (should (= lock-screen-shown 1))
+      ;; If desktop does not require password, auto-lock leaves the UI unlocked
+      ;; (on-demand prompts will use the floating dialog via `lispm-desktop-auth--around-page-read').
+      (setq requires-pw nil)
+      (lispm-desktop-auth--on-auto-lock)
+      (should (= lock-screen-shown 1)))))
 
 (provide 'lispm-desktop-auth-test)
 ;;; lispm-desktop-auth-test.el ends here

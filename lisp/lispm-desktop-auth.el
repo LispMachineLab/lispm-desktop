@@ -64,6 +64,7 @@
 (declare-function lispm-auth-unlock-window "lispm-auth" ())
 (declare-function lispm-auth-unlock-fullscreen "lispm-auth" ())
 (declare-function lispm-auth-lock "lispm-auth" ())
+(declare-function lispm-auth--auto-lock "lispm-auth" ())
 (declare-function lispm-auth-change-password "lispm-auth" (&optional new-password))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 (declare-function lispm-auth--page-logo-file "lispm-auth" ())
@@ -93,8 +94,11 @@
 (defvar lispm-auth-page-windowed)
 (defvar lispm-auth-password-function)
 (defvar lispm-auth-translate-function)
+(defvar lispm-auth-auto-lock-hook)
 (defvar lispm--auth-started)
 (defvar lispm-desktop--screen)
+(defvar lispm-desktop-auth--locking nil
+  "Non-nil while `lispm-desktop-auth--lock-screen' is active.")
 (defconst lispm-desktop-auth--directory
   (file-name-directory
    (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
@@ -261,6 +265,12 @@ non-nil when LispM Auth is loaded."
     (when (fboundp 'lispm-auth--ensure-process)
       (advice-add 'lispm-auth--ensure-process :before
                   #'lispm-desktop-auth--before-ensure-process))
+    (if (boundp 'lispm-auth-auto-lock-hook)
+        (add-hook 'lispm-auth-auto-lock-hook
+                  #'lispm-desktop-auth--on-auto-lock)
+      (when (fboundp 'lispm-auth--auto-lock)
+        (advice-add 'lispm-auth--auto-lock :after
+                    #'lispm-desktop-auth--on-auto-lock)))
     (when (fboundp 'lispm-auth-store-exists-p)
       (setq lispm-auth-page-window-draw-function
             #'lispm-desktop-auth--setup-page-draw
@@ -270,15 +280,22 @@ non-nil when LispM Auth is loaded."
             (and (lispm-desktop-auth-started-hidden-p) t)))
     t))
 
+(defun lispm-desktop-auth--screen ()
+  "Return the desktop's main screen frame, or nil."
+  (or (bound-and-true-p lispm-desktop--screen)
+      (and (fboundp 'lispm-desktop-apps-screen)
+           (lispm-desktop-apps-screen))))
+
 (defun lispm-desktop-auth-started-hidden-p ()
   "Return non-nil when LispM was started with its desktop out of sight,
 as for an application opened on its own."
-  (if (and (not noninteractive)
-           (bound-and-true-p lispm-desktop--screen)
-           (frame-live-p lispm-desktop--screen)
-           (fboundp 'lispm-desktop-apps-hidden-p))
-      (lispm-desktop-apps-hidden-p lispm-desktop--screen)
-    (and (member lispm-desktop-auth-hidden-switch command-line-args) t)))
+  (let ((screen (lispm-desktop-auth--screen)))
+    (if (and (not noninteractive)
+             screen
+             (frame-live-p screen)
+             (fboundp 'lispm-desktop-apps-hidden-p))
+        (lispm-desktop-apps-hidden-p screen)
+      (and (member lispm-desktop-auth-hidden-switch command-line-args) t))))
 
 (defun lispm-desktop-auth-command-line-app ()
   "Return the application key this start was given with --lispm-app, or nil."
@@ -622,8 +639,8 @@ when the desktop has finished setting up and prompts on demand."
                (frame-parameter (selected-frame) 'lispm-desktop-window)
                (and (bound-and-true-p lispm-desktop--set-up)
                     (not (bound-and-true-p lispm-desktop-setup--in-progress))
-                    (bound-and-true-p lispm-desktop--screen)
-                    (eq (selected-frame) lispm-desktop--screen))))
+                    (let ((screen (lispm-desktop-auth--screen)))
+                      (and screen (eq (selected-frame) screen))))))
       (lispm-desktop-auth--call-in-dialog
        (lambda () (funcall orig prompt confirm message)))
     (funcall orig prompt confirm message)))
@@ -1094,45 +1111,58 @@ password when a store exists, then asks for the new one twice.  Return
      (message "%s" (error-message-string err))
      'failed))))
 
+(defun lispm-desktop-auth--on-auto-lock ()
+  "Show the lock screen when an idle timer locks the store on the desktop."
+  (when (and (not noninteractive)
+             (not lispm-desktop-auth--locking)
+             (bound-and-true-p lispm-desktop--set-up)
+             (not (bound-and-true-p lispm-desktop-setup--in-progress))
+             (not (lispm-desktop-auth-started-hidden-p))
+             (fboundp 'lispm-auth-locked-p)
+             (lispm-auth-locked-p)
+             (fboundp 'lispm-auth-app-requires-password-p)
+             (lispm-auth-app-requires-password-p 'desktop))
+    (lispm-desktop-auth--lock-screen)))
+
 (defun lispm-desktop-auth--lock-screen ()
   "Show the lock screen until the store is opened again.
 Hide the desktop's visible application windows during authentication."
-  (unless noninteractive
-    (message "%s" (lispm-desktop-tr "LispM is locked."))
-    (let* ((echo-keystrokes 0)
-           (lispm-desktop-console--quiet t)
-           (previous (selected-frame))
-           (screen (if (fboundp 'lispm-desktop-apps-screen)
-                       (lispm-desktop-apps-screen) previous))
-           (windows (when (and (display-graphic-p)
-                               (fboundp 'lispm-desktop-apps-windows))
-                      (seq-filter #'frame-visible-p
-                                  (lispm-desktop-apps-windows screen))))
-           (lispm-auth-page-windowed nil)
-           (lispm-auth-password-function
-            (if (or (and (fboundp 'lispm-desktop-started-as-terminal-p)
-                         (lispm-desktop-started-as-terminal-p))
-                    (and (fboundp 'lispm-terminal-p) (lispm-terminal-p)))
-                #'read-passwd #'lispm-auth--read-password)))
-      (dolist (frame windows)
-        (lispm-desktop-platinum-hide-window frame))
-      (unwind-protect
-          (with-selected-frame screen
-            (select-frame-set-input-focus screen)
-            (while (lispm-auth-locked-p)
-              (condition-case nil
-                  (if (fboundp 'lispm-auth-unlock-fullscreen)
-                      (lispm-auth-unlock-fullscreen)
-                    (lispm-auth-unlock))
-                (quit nil)
-                (user-error nil))))
-        ;; Never reveal the application windows after a failed unlock.
-        (unless (lispm-auth-locked-p)
-          (dolist (frame windows)
-            (when (frame-live-p frame)
-              (lispm-desktop-platinum-show-window frame)))
-          (when (frame-live-p previous)
-            (select-frame-set-input-focus previous)))))))
+  (when (and (not noninteractive) (not lispm-desktop-auth--locking))
+    (let ((lispm-desktop-auth--locking t))
+      (message "%s" (lispm-desktop-tr "LispM is locked."))
+      (let* ((echo-keystrokes 0)
+             (lispm-desktop-console--quiet t)
+             (previous (selected-frame))
+             (screen (or (lispm-desktop-auth--screen) previous))
+             (windows (when (and (display-graphic-p)
+                                 (fboundp 'lispm-desktop-apps-windows))
+                        (seq-filter #'frame-visible-p
+                                    (lispm-desktop-apps-windows screen))))
+             (lispm-auth-page-windowed nil)
+             (lispm-auth-password-function
+              (if (or (and (fboundp 'lispm-desktop-started-as-terminal-p)
+                           (lispm-desktop-started-as-terminal-p))
+                      (and (fboundp 'lispm-terminal-p) (lispm-terminal-p)))
+                  #'read-passwd #'lispm-auth--read-password)))
+        (dolist (frame windows)
+          (lispm-desktop-platinum-hide-window frame))
+        (unwind-protect
+            (with-selected-frame screen
+              (select-frame-set-input-focus screen)
+              (while (lispm-auth-locked-p)
+                (condition-case nil
+                    (if (fboundp 'lispm-auth-unlock-fullscreen)
+                        (lispm-auth-unlock-fullscreen)
+                      (lispm-auth-unlock))
+                  (quit nil)
+                  (user-error nil))))
+          ;; Never reveal the application windows after a failed unlock.
+          (unless (lispm-auth-locked-p)
+            (dolist (frame windows)
+              (when (frame-live-p frame)
+                (lispm-desktop-platinum-show-window frame)))
+            (when (frame-live-p previous)
+              (select-frame-set-input-focus previous))))))))
 
 (defun lispm-desktop-auth-lock ()
   "Lock LispM's store now, forgetting its keys until the password is given.
