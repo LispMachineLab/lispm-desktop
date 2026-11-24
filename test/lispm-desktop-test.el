@@ -20930,6 +20930,118 @@ fringes when a Platinum scroll bar is dropped."
       (insert-file-contents script)
       (should (search-forward "cve-2026-131959.patch" nil t)))))
 
+;;;; Frame-Synced FRP & Generational CSP Kernel Architecture (#223)
+
+(ert-deftest lispm-desktop-test-frame-tick-batches-frp-effects ()
+  "A frame tick runs all due clients inside a single `lispm-ui-frp-batch'
+transaction so diamond signal updates made across clients trigger downstream
+effects at most once at the end of the frame slice."
+  (lispm-desktop-test--with-frame-clock
+    (let* ((sig-a (lispm-ui-signal 1))
+           (sig-b (lispm-ui-signal 10))
+           (sum-sig (lispm-ui-signal-combine #'+ (list sig-a sig-b)))
+           (effect-runs 0)
+           (observed nil)
+           (eff (lispm-ui-effect sum-sig
+                                 (lambda (val)
+                                   (setq effect-runs (1+ effect-runs))
+                                   (push val observed)))))
+      (unwind-protect
+          (progn
+            (lispm-desktop-frame-add-client
+             'client-1 (lambda (_) (lispm-ui-signal-set sig-a 2) nil) 0)
+            (lispm-desktop-frame-add-client
+             'client-2 (lambda (_) (lispm-ui-signal-set sig-b 20) nil) 10)
+            (lispm-desktop-frame-request 'client-1)
+            (lispm-desktop-frame-request 'client-2)
+            (cl-letf (((symbol-function 'input-pending-p) #'ignore))
+              (lispm-desktop-frame--tick))
+            (should (= (lispm-ui-signal-get sum-sig) 22))
+            (should (= effect-runs 1))
+            (should (equal observed '(22))))
+        (lispm-ui-effect-dispose eff)))))
+
+(ert-deftest lispm-desktop-test-kernel-csp-generation-supersede-and-effect-signal ()
+  "Generational `lispm-desktop-kernel-exec' and `lispm-desktop-kernel-effect-signal'
+supersede stale in-flight requests per subsystem owner."
+  (lispm-desktop-test--with-exec ran
+    (let ((results nil))
+      (lispm-desktop-kernel-exec
+       "git" '("status" "--short")
+       (lambda (exit output _) (push (list 'first exit output) results))
+       :owner 'update :supersede t :priority -20)
+      (lispm-desktop-kernel-exec
+       "git" '("rev-parse" "HEAD")
+       (lambda (exit output _) (push (list 'second exit output) results))
+       :owner 'update :supersede t :priority 20)
+      (should (= (length ran) 2))
+      ;; When the stale first request finishes after being superseded, its callback is dropped:
+      (funcall (nth 2 (cadr ran)) 0 "stale" "")
+      (should-not results)
+      ;; The current generation's callback is delivered:
+      (funcall (nth 2 (car ran)) 0 "abc1234" "")
+      (should (equal results '((second 0 "abc1234"))))))
+  ;; Reactive `lispm-desktop-kernel-effect-signal' pipeline:
+  (lispm-desktop-test--with-exec ran
+    (let* ((req-sig (lispm-ui-signal nil))
+           (pair (lispm-desktop-kernel-effect-signal
+                  req-sig
+                  :owner 'buffer-manager
+                  :priority 10
+                  :transform #'string-trim
+                  :initial "none"))
+           (state-sig (car pair))
+           (eff (cdr pair)))
+      (unwind-protect
+          (progn
+            (should (eq (plist-get (lispm-ui-signal-get state-sig) :status) 'idle))
+            (lispm-ui-signal-set req-sig '(:program "ps" :args ("-axo" "pid=")))
+            (should (eq (plist-get (lispm-ui-signal-get state-sig) :status) 'pending))
+            (should (= (length ran) 1))
+            (funcall (nth 2 (car ran)) 0 "  42 \n" "")
+            (should (eq (plist-get (lispm-ui-signal-get state-sig) :status) 'ready))
+            (should (equal (plist-get (lispm-ui-signal-get state-sig) :value) "42")))
+        (lispm-ui-effect-dispose eff)))))
+
+(ert-deftest lispm-desktop-test-appearance-and-console-frp-dag ()
+  "Appearance signals (`lispm-desktop-look-signal', `lispm-desktop-glass-gain-signal')
+and Console reactive list derivation (`lispm-desktop-console-shown-signal')
+propagate deterministically."
+  (let ((saved-glass lispm-desktop-glass)
+        (saved-look lispm-desktop-look))
+    (unwind-protect
+        (progn
+          (lispm-ui-frp-batch
+            (lispm-ui-signal-set lispm-desktop-glass-signal t)
+            (lispm-ui-signal-set lispm-desktop-look-signal 'platinum))
+          (should-not (lispm-ui-signal-get lispm-desktop-glass-gain-signal))
+          (lispm-ui-signal-set lispm-desktop-look-signal 'phosphor)
+          (should (numberp (lispm-ui-signal-get lispm-desktop-glass-gain-signal)))
+          (lispm-ui-signal-set lispm-desktop-glass-signal nil)
+          (should-not (lispm-ui-signal-get lispm-desktop-glass-gain-signal)))
+      (lispm-ui-frp-batch
+        (lispm-ui-signal-set lispm-desktop-glass-signal saved-glass)
+        (lispm-ui-signal-set lispm-desktop-look-signal saved-look))))
+  ;; Console reactive stream and list derivation:
+  (let ((lispm-desktop-console--events nil)
+        (lispm-desktop-console--next-id 0)
+        (lispm-desktop-console--severity nil)
+        (lispm-desktop-console--source nil)
+        (emitted nil))
+    (let ((unsub (lispm-ui-stream-subscribe
+                  lispm-desktop-console-event-stream
+                  (lambda (ev) (push (lispm-desktop-console-event-message ev) emitted)))))
+      (unwind-protect
+          (progn
+            (lispm-desktop-console-report 'error "Kernel" "boom")
+            (lispm-desktop-console-report 'note "Store" "installed")
+            (should (equal emitted '("installed" "boom")))
+            (setq lispm-desktop-console--severity 'error)
+            (should (equal (mapcar #'lispm-desktop-console-event-message
+                                   (lispm-desktop-console--events-shown))
+                           '("boom"))))
+        (funcall unsub)))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

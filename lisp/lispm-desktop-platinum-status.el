@@ -34,7 +34,10 @@
 (require 'svg)
 (require 'lispm-desktop-platinum-menubar)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-frp)
 (require 'lispm-exec)
+
+(declare-function lispm-desktop-kernel-exec "lispm-desktop-kernel" (program args callback &rest keys))
 
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function battery-format "battery" (format alist))
@@ -81,11 +84,20 @@
 (defvar lispm-desktop-platinum--load ""
   "The load average `display-time-mode' last showed, \"\" below its threshold.")
 
+(defvar lispm-desktop-platinum-load-signal (lispm-ui-signal "" #'equal)
+  "Reactive FRP signal holding the current load average string.")
+
 (defvar lispm-desktop-platinum--mail nil
   "Non-nil when `display-time-mode' last found new mail.")
 
+(defvar lispm-desktop-platinum-mail-signal (lispm-ui-signal nil #'eq)
+  "Reactive FRP signal holding non-nil when new mail is present.")
+
 (defvar lispm-desktop-platinum--battery nil
   "The battery status `display-battery-mode' last read, an alist.")
+
+(defvar lispm-desktop-platinum-battery-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP signal holding the latest battery status alist.")
 
 (defun lispm-desktop-platinum-battery ()
   "Return what the battery reported last, as `battery-status-function' does,
@@ -104,12 +116,18 @@ threshold."
 (defun lispm-desktop-platinum--note-time ()
   "Note the load average and the mail flag Emacs has just computed.
 Run from `display-time-hook', inside `display-time-update'."
-  (setq lispm-desktop-platinum--load (string-trim (substring-no-properties load))
-        lispm-desktop-platinum--mail (and mail t)))
+  (let ((trimmed (string-trim (substring-no-properties load)))
+        (has-mail (and mail t)))
+    (setq lispm-desktop-platinum--load trimmed
+          lispm-desktop-platinum--mail has-mail)
+    (lispm-ui-frp-batch
+      (lispm-ui-signal-set lispm-desktop-platinum-load-signal trimmed)
+      (lispm-ui-signal-set lispm-desktop-platinum-mail-signal has-mail))))
 
 (defun lispm-desktop-platinum--note-battery (data)
   "Note the battery status DATA Emacs has just read."
-  (setq lispm-desktop-platinum--battery data))
+  (setq lispm-desktop-platinum--battery data)
+  (lispm-ui-signal-set lispm-desktop-platinum-battery-signal data))
 
 (defvar lispm-desktop-platinum--pmset nil
   "What pmset -g ps answered last, asked in the background, or nil.")
@@ -131,14 +149,19 @@ pmset -g ps printed, as it would read it from pmset itself."
 with what it answered."
   (unless lispm-desktop-platinum--pmset-asked
     (setq lispm-desktop-platinum--pmset-asked t)
-    (lispm-exec "pmset" '("-g" "ps")
-                (lambda (exit output _errors)
-                  (setq lispm-desktop-platinum--pmset-asked nil)
-                  (when (eql exit 0)
-                    (setq lispm-desktop-platinum--pmset output)
-                    (when (bound-and-true-p display-battery-mode)
-                      (let ((lispm-desktop-platinum--pmset-answered t))
-                        (battery-update))))))))
+    (let ((runner (if (fboundp 'lispm-desktop-kernel-exec)
+                      (lambda (prog args cb)
+                        (lispm-desktop-kernel-exec
+                         prog args cb :owner 'status-pmset :priority -30))
+                    #'lispm-exec)))
+      (funcall runner "pmset" '("-g" "ps")
+               (lambda (exit output _errors)
+                 (setq lispm-desktop-platinum--pmset-asked nil)
+                 (when (eql exit 0)
+                   (setq lispm-desktop-platinum--pmset output)
+                   (when (bound-and-true-p display-battery-mode)
+                     (let ((lispm-desktop-platinum--pmset-answered t))
+                       (battery-update)))))))))
 
 (defun lispm-desktop-platinum--battery-pmset (pmset)
   "Return the battery status as PMSET, `battery-pmset', reads it, without

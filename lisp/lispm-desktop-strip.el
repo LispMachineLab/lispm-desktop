@@ -71,6 +71,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-settings)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-frp)
 
 (defvar lispm-desktop-color)
 (defvar lispm-desktop-picture)
@@ -815,6 +816,9 @@ graphical Control Strip frame, pop up its modules as a menu."
 
 ;;;; Setup
 
+(defvar lispm-desktop-strip--telemetry-effect nil
+  "Managed FRP effect refreshing the Control Strip when status signals settle.")
+
 (defun lispm-desktop-setup-strip ()
   "Show the Control Strip once the first frame is up, keep it above the
 floating windows and on its edge, its Balloon Help in the language
@@ -830,6 +834,15 @@ C-c keys, which terminals leave to Emacs too."
   (add-hook 'display-time-hook #'lispm-desktop-strip-refresh 90)
   (add-hook 'battery-update-functions #'lispm-desktop-strip-refresh 90)
   (add-variable-watcher 'lispm-desktop-color #'lispm-desktop-strip--desktop-changed)
+  (unless (lispm-ui-effect-p lispm-desktop-strip--telemetry-effect)
+    (setq lispm-desktop-strip--telemetry-effect
+          (lispm-ui-effect
+           (list lispm-desktop-platinum-load-signal
+                 lispm-desktop-platinum-mail-signal
+                 lispm-desktop-platinum-battery-signal)
+           (lambda (&rest _)
+             (when (lispm-desktop-strip--live-p)
+               (lispm-desktop-strip-refresh))))))
   (keymap-global-set "C-c b" #'lispm-desktop-strip-select)
   (keymap-global-set "C-c B" #'lispm-desktop-strip-toggle)
   (when lispm-desktop-strip-shown

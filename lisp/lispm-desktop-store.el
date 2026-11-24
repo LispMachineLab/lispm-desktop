@@ -146,7 +146,10 @@
 (require 'lispm-desktop-catalog)
 (require 'lispm-desktop-markdown)
 (require 'lispm-desktop-tty-images)
+(require 'lispm-ui-frp)
 (require 'lispm-exec)
+
+(declare-function lispm-desktop-kernel-exec "lispm-desktop-kernel" (program args callback &rest keys))
 
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
@@ -297,6 +300,12 @@ for; a category holding nothing is left out.")
   "The catalogs as read, in `lispm-desktop-store-catalogs' order: plists of
 :url, :directory, :name, :commit and :items.")
 
+(defvar lispm-desktop-store-catalogs-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP signal holding `lispm-desktop-store--catalogs'.")
+
+(defvar lispm-desktop-store-view-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP signal holding the App Store's current view state.")
+
 (defvar lispm-desktop-store--checking nil
   "Non-nil while the catalogs are fetched.")
 
@@ -318,9 +327,14 @@ git; then call CALLBACK with nil, or with what the step that failed said."
       (funcall callback nil)
     (pcase-let* ((`(,directory . ,args) (car steps))
                  (default-directory (file-name-as-directory directory))
-                 (process-environment (lispm-desktop-store--git-environment)))
-      (lispm-exec
-       "git" args
+                 (process-environment (lispm-desktop-store--git-environment))
+                 (runner (if (fboundp 'lispm-desktop-kernel-exec)
+                             (lambda (prog a cb)
+                               (lispm-desktop-kernel-exec
+                                prog a cb :owner 'store :priority -10))
+                           #'lispm-exec)))
+      (funcall
+       runner "git" args
        (lambda (exit output errors)
          (if (eql exit 0)
              (lispm-desktop-store--git-steps (cdr steps) callback)
@@ -3987,6 +4001,14 @@ the composing ends."
           (unless (assq lispm-desktop-store--category (lispm-desktop-store--categories))
             (setq lispm-desktop-store--category 'all))
           (lispm-desktop-store--keep-selection)
+          (lispm-ui-frp-batch
+            (lispm-ui-signal-set lispm-desktop-store-catalogs-signal lispm-desktop-store--catalogs)
+            (lispm-ui-signal-set lispm-desktop-store-view-signal
+                                 (list :view lispm-desktop-store--view
+                                       :category lispm-desktop-store--category
+                                       :filter lispm-desktop-store--filter
+                                       :selected lispm-desktop-store--selected
+                                       :page lispm-desktop-store--grid-page)))
           (setq same (equal (lispm-desktop-store--page) lispm-desktop-store--drawn))
           (unless same
             (setq lispm-desktop-store--page-number 0))

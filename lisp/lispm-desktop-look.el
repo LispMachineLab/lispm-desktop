@@ -94,6 +94,7 @@
 (require 'subr-x)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-frp)
 (require 'lispm-ui-look)
 (require 'lispm-ui-text)
 
@@ -125,6 +126,9 @@ personal.el: once Emacs is set up, a new value is drawn at once."
 (set-default 'lispm-ui-look lispm-desktop-look)
 (with-no-warnings
   (defvaralias 'lispm-ui-look 'lispm-desktop-look))
+(lispm-ui-signal-set lispm-ui-look-signal lispm-desktop-look)
+(with-no-warnings
+  (defvaralias 'lispm-desktop-look-signal 'lispm-ui-look-signal))
 
 (defvar lispm-desktop-look-changed-hook nil
   "Hook run once the chrome is drawn in another look.")
@@ -167,10 +171,12 @@ run now, for the theme in use."
 The colour theme follows, see `lispm-desktop-look-theme-to-follow'; a
 theme loaded draws everything again, else it is drawn again in the
 theme in use."
-  (if-let* ((theme (lispm-desktop-look-theme-to-follow from lispm-desktop-look)))
-      (progn (lispm-desktop-set-theme theme)
-             (run-hooks 'lispm-desktop-look-changed-hook))
-    (lispm-desktop-look-redraw)))
+  (lispm-ui-frp-batch
+    (lispm-ui-signal-set lispm-desktop-look-signal lispm-desktop-look)
+    (if-let* ((theme (lispm-desktop-look-theme-to-follow from lispm-desktop-look)))
+        (progn (lispm-desktop-set-theme theme)
+               (run-hooks 'lispm-desktop-look-changed-hook))
+      (lispm-desktop-look-redraw))))
 
 (defun lispm-desktop-look--changed (_symbol look operation _where)
   "Draw the chrome in LOOK when `lispm-desktop-look' is set to it once
@@ -206,7 +212,9 @@ draw the chrome again in a new language as it is chosen."
       (unless (eq lispm-desktop-look look)
         (set-default 'lispm-desktop-look look)
         (setq lispm-desktop-look look)
+        (lispm-ui-signal-set lispm-desktop-look-signal look)
         (lispm-desktop-look-redraw))))
+  (lispm-ui-signal-set lispm-desktop-look-signal lispm-desktop-look)
   (add-variable-watcher 'lispm-desktop-look #'lispm-desktop-look--changed)
   (add-hook 'lispm-desktop-language-changed-hook #'lispm-desktop-look-redraw))
 

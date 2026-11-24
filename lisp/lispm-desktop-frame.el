@@ -46,6 +46,7 @@
 (require 'seq)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-frp)
 
 (defgroup lispm-desktop-frame nil
   "One frame clock for the work done in pieces, giving way to the keyboard."
@@ -154,6 +155,10 @@ NAME is then not due, so that it does not fail again every frame."
 
 (defun lispm-desktop-frame--tick ()
   "Run a frame: call each due client, by depth, with the frame's deadline.
+The entire frame executes inside a single `lispm-ui-frp-batch' reactive
+transaction so all signal mutations made by due clients (terminals,
+kernel message slices, and reactive timers) propagate in topological
+order once at the end of the frame slice.
 The first due client always runs, as it gives way to the keyboard itself;
 each after it runs only while no key is waiting and the deadline is
 ahead, and stays due otherwise, for the next frame.  A client is no
@@ -167,15 +172,16 @@ longer due once called, unless it returns non-nil or asks again."
           (first t))
       (unwind-protect
           (let ((lispm-desktop-frame--running t))
-            (pcase-dolist (`(,name ,function ,_) lispm-desktop-frame--clients)
-              (when (and (memq name lispm-desktop-frame--due)
-                         (or first (not (or (input-pending-p) (> (float-time) deadline)))))
-                (setq first nil
-                      lispm-desktop-frame--due (delq name lispm-desktop-frame--due))
-                ;; A client that removed itself while it ran stays removed.
-                (when (and (lispm-desktop-frame--run name function deadline)
-                           (assq name lispm-desktop-frame--clients))
-                  (cl-pushnew name lispm-desktop-frame--due)))))
+            (lispm-ui-frp-batch
+              (pcase-dolist (`(,name ,function ,_) lispm-desktop-frame--clients)
+                (when (and (memq name lispm-desktop-frame--due)
+                           (or first (not (or (input-pending-p) (> (float-time) deadline)))))
+                  (setq first nil
+                        lispm-desktop-frame--due (delq name lispm-desktop-frame--due))
+                  ;; A client that removed itself while it ran stays removed.
+                  (when (and (lispm-desktop-frame--run name function deadline)
+                             (assq name lispm-desktop-frame--clients))
+                    (cl-pushnew name lispm-desktop-frame--due))))))
         (lispm-desktop-frame--schedule)))))
 
 (provide 'lispm-desktop-frame)

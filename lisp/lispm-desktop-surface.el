@@ -69,6 +69,7 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-tty-images)
+(require 'lispm-ui-frp)
 (require 'lispm-exec)
 
 (declare-function lispm-desktop-browser-show "lispm-desktop-browser" ())
@@ -183,6 +184,12 @@ Finder window."
 (defvar lispm-desktop--trash-full nil
   "Non-nil when the Trash was last found holding something.")
 
+(defvar lispm-desktop-trash-full-signal (lispm-ui-signal nil #'eq)
+  "Reactive FRP signal holding non-nil when the Trash holds items.")
+
+(defvar lispm-desktop--trash-watch nil
+  "File-notify descriptor watching the Trash directory when readable.")
+
 (defun lispm-desktop-trash-full-p ()
   "Return non-nil when the Trash holds something.
 Where Emacs may read the Trash its items are counted.  macOS lets only
@@ -210,6 +217,7 @@ changed, as Mac OS 9's Trash bulged once something was thrown away."
   (let ((full (lispm-desktop-trash-full-p)))
     (unless (eq full lispm-desktop--trash-full)
       (setq lispm-desktop--trash-full full)
+      (lispm-ui-signal-set lispm-desktop-trash-full-signal full)
       (when (get-buffer lispm-desktop-buffer-name)
         (lispm-desktop--render)))))
 
@@ -225,9 +233,28 @@ or with an application out on its own, its icon is nowhere to be seen."
 
 ;;;; Settings
 
+(defvar lispm-desktop-surface-settings-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP signal snapshotting desktop surface appearance settings.")
+
+(defun lispm-desktop--sync-settings-signal ()
+  "Update `lispm-desktop-surface-settings-signal' with current surface settings."
+  (when (and (boundp 'lispm-desktop-color)
+             (boundp 'lispm-desktop-picture)
+             (boundp 'lispm-desktop-picture-position)
+             (boundp 'lispm-desktop-icon-places)
+             (boundp 'lispm-desktop-aliases))
+    (lispm-ui-signal-set
+     lispm-desktop-surface-settings-signal
+     (list lispm-desktop-color lispm-desktop-picture lispm-desktop-picture-position
+           lispm-desktop-icon-places lispm-desktop-aliases))))
+
 (defun lispm-desktop--setting-changed (&rest _)
   "Redraw the desktop once one of its settings changed."
-  (run-at-time 0 nil #'lispm-desktop--paint))
+  (run-at-time 0 nil
+               (lambda ()
+                 (lispm-ui-frp-batch
+                   (lispm-desktop--sync-settings-signal)
+                   (lispm-desktop--paint)))))
 
 (defcustom lispm-desktop-color nil
   "Colour of the desktop, or nil for the theme's background tinted with its
