@@ -92,6 +92,7 @@
 (declare-function lispm-kernel-supersede "ext:lispm-kernel" (runtime owner generation))
 (declare-function lispm-kernel-package-mode "ext:lispm-kernel-package" (&optional arg))
 (declare-function lispm-kernel-exec-mode "ext:lispm-kernel-exec" (&optional arg))
+(declare-function lispm-kernel-exec-locally "ext:lispm-kernel-exec" (program args callback &rest keys))
 (declare-function lispm-kernel-exec--runtime "ext:lispm-kernel-exec" (&optional job directory))
 (declare-function lispm-kernel-exec--environment "ext:lispm-kernel-exec" (directory))
 (declare-function lispm-kernel-exec--remote-environment "ext:lispm-kernel-exec" (local-directory))
@@ -497,6 +498,37 @@ DIRECTORY defaults to `default-directory' for resolving the target runtime."
                                   (expand-file-name found))))))))
     (and file (list :file file :cwd local-cwd :remote remote :search search))))
 
+(defun lispm-desktop-kernel--fallback-exec (program args callback
+                                            &optional input timeout on-output combine-error)
+  "Run PROGRAM with ARGS via fallback executor, preserving streaming options."
+  (let ((custom-exec (and (boundp 'lispm-exec-function)
+                          (functionp lispm-exec-function)
+                          (not (eq lispm-exec-function #'lispm-exec-locally))
+                          (not (advice-function-member-p 'lispm-kernel-exec--around
+                                                         lispm-exec-function)))))
+    (if (and (not custom-exec)
+             (or on-output combine-error)
+             (fboundp 'lispm-kernel-exec-locally))
+        (lispm-kernel-exec-locally
+         program args callback
+         :input input :timeout timeout
+         :on-output on-output :combine-error combine-error)
+      (let ((keys nil))
+        (when combine-error (setq keys (plist-put keys :combine-error combine-error)))
+        (when on-output (setq keys (plist-put keys :on-output on-output)))
+        (when timeout (setq keys (plist-put keys :timeout timeout)))
+        (when input (setq keys (plist-put keys :input input)))
+        (if (or on-output combine-error)
+            (condition-case nil
+                (apply lispm-exec-function program args callback keys)
+              (wrong-number-of-arguments
+               (if timeout
+                   (lispm-exec program args callback :input input :timeout timeout)
+                 (lispm-exec program args callback :input input))))
+          (if timeout
+              (lispm-exec program args callback :input input :timeout timeout)
+            (lispm-exec program args callback :input input)))))))
+
 (cl-defun lispm-desktop-kernel--submit-exec (program args callback
                                              &key owner generation (priority 0)
                                              input timeout on-output combine-error)
@@ -525,6 +557,7 @@ or nil when no eligible kernel runtime is active."
                (effective-timeout (or timeout (bound-and-true-p lispm-kernel-exec-timeout) 300))
                (chunks nil)
                (aborted nil)
+               (fallback-handle nil)
                id)
           (condition-case nil
               (progn
@@ -554,11 +587,19 @@ or nil when no eligible kernel runtime is active."
                                 (lispm-kernel-exec--call on-output value)))
                              ('rejected
                               (let ((default-directory directory)
-                                    (process-environment environment)
-                                    (keys nil))
-                                (when timeout (setq keys (plist-put keys :timeout timeout)))
-                                (when input (setq keys (plist-put keys :input input)))
-                                (apply #'lispm-exec program args callback keys)))
+                                    (process-environment environment))
+                                (setq fallback-handle
+                                      (lispm-desktop-kernel--fallback-exec
+                                       program args
+                                       (lambda (exit out err)
+                                         (unless aborted
+                                           (funcall callback exit out err)))
+                                       input timeout
+                                       (and on-output
+                                            (lambda (chunk)
+                                              (unless aborted
+                                                (funcall on-output chunk))))
+                                       combine-error))))
                              (_
                               (lispm-ui-frp-batch
                                 (lispm-kernel-exec--finish
@@ -566,7 +607,9 @@ or nil when no eligible kernel runtime is active."
                                  (apply #'concat (nreverse chunks))))))))))
                 (lambda ()
                   (setq aborted t)
-                  (lispm-kernel-cancel runtime id)))
+                  (if fallback-handle
+                      (lispm-exec-kill fallback-handle)
+                    (lispm-kernel-cancel runtime id))))
             (error nil)))))))
 
 (cl-defun lispm-desktop-kernel-exec (program args callback
@@ -583,8 +626,7 @@ Falls back transparently to `lispm-exec' when the kernel is off or stubbed."
                 (lispm-desktop-kernel-generation owner-id)))
          (wrapped-callback
           (lambda (exit output errors)
-            (when (or (not supersede)
-                      (= gen (lispm-desktop-kernel-generation owner-id)))
+            (when (= gen (lispm-desktop-kernel-generation owner-id))
               (lispm-ui-frp-batch
                 (funcall callback exit output errors))))))
     (or (lispm-desktop-kernel--submit-exec
@@ -592,9 +634,9 @@ Falls back transparently to `lispm-exec' when the kernel is off or stubbed."
          :owner owner-id :generation gen :priority priority
          :input input :timeout timeout
          :on-output on-output :combine-error combine-error)
-        (if timeout
-            (lispm-exec program args wrapped-callback :input input :timeout timeout)
-          (lispm-exec program args wrapped-callback :input input)))))
+        (lispm-desktop-kernel--fallback-exec
+         program args wrapped-callback
+         input timeout on-output combine-error))))
 
 (cl-defun lispm-desktop-kernel-effect-signal (request-signal
                                               &key (owner 4) (priority 0)

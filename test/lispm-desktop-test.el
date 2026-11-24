@@ -20966,10 +20966,12 @@ effects at most once at the end of the frame slice."
 supersede stale in-flight requests per subsystem owner."
   (lispm-desktop-test--with-exec ran
     (let ((results nil))
+      ;; Even when the first request did not pass `:supersede t', a subsequent
+      ;; `:supersede t' request for the same owner invalidates the earlier generation:
       (lispm-desktop-kernel-exec
        "git" '("status" "--short")
        (lambda (exit output _) (push (list 'first exit output) results))
-       :owner 'update :supersede t :priority -20)
+       :owner 'update :priority -20)
       (lispm-desktop-kernel-exec
        "git" '("rev-parse" "HEAD")
        (lambda (exit output _) (push (list 'second exit output) results))
