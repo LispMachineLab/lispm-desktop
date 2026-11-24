@@ -325,6 +325,7 @@ for the kind's :name and :size."
   "Show the window of kind ID, kept on the desktop, over the others and
 with the keyboard; put its application in front.  Return the window."
   (when-let* ((frame (lispm-desktop-app-window-frame id)))
+    (set-frame-parameter frame 'lispm-desktop-warm-pooled nil)
     (lispm-desktop-apps-show-window frame)
     (lispm-desktop-platinum-raise-window frame)
     (select-frame-set-input-focus frame)
@@ -353,16 +354,20 @@ does; SIZE, (WIDTH . HEIGHT) in pixels, sizes it, by default the kind's
                     (frame-parameter frame 'lispm-desktop-warm-pooled)))
          (windows (and warm (ignore-errors (window-list frame 'never))))
          (has-content (and windows
-                           (seq-every-p
-                            (lambda (w)
-                              (and (buffer-live-p (window-buffer w))
-                                   (not (eq (window-buffer w)
-                                            (lispm-desktop-app-window-blank)))))
-                            windows))))
+                           (if buffer
+                               (and (null (cdr windows))
+                                    (eq (window-buffer (car windows)) buffer))
+                             (seq-every-p
+                              (lambda (w)
+                                (and (buffer-live-p (window-buffer w))
+                                     (not (eq (window-buffer w)
+                                              (lispm-desktop-app-window-blank)))))
+                              windows)))))
     (set-frame-parameter frame 'lispm-desktop-warm-pooled nil)
     (unless (or open has-content)
       (when (cdr (ignore-errors (window-list frame 'never)))
-        (delete-other-windows (frame-selected-window frame)))
+        (let ((ignore-window-parameters t))
+          (delete-other-windows (frame-selected-window frame))))
       (let ((window (frame-root-window frame)))
         (set-window-dedicated-p window nil)
         (cond (buffer

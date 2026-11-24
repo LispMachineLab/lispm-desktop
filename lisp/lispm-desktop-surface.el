@@ -1850,7 +1850,7 @@ alone, filling the frame."
       (let ((window (car (lispm-desktop-main-area--windows))))
         (when (or (not already)
                   (cdr (window-list nil 'no-mini))
-                  (not (lispm-desktop-p window))
+                  (not (eq (window-buffer window) (get-buffer lispm-desktop-buffer-name)))
                   (zerop (buffer-size (window-buffer window))))
           (when (or (cdr (window-list nil 'no-mini)) (not (lispm-desktop-p window)))
             (let ((ignore-window-parameters t))
