@@ -58,12 +58,15 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-deps)
 (require 'lispm-desktop-frame)
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-loading)
 (require 'lispm-desktop-needs)
+(require 'lispm-ui-frp)
+(require 'lispm-exec)
 
 (defvar lispm-kernel-sessions-mode)
 (defvar lispm-kernel-desktop-mode)
@@ -78,9 +81,23 @@
 (defvar lispm-kernel-program-source)
 (defvar lispm-kernel-program-obtained-functions)
 (defvar lispm-kernel-program-progress-functions)
+(defvar lispm-kernel-exec-timeout)
 (declare-function lispm-kernel-dispatch "ext:lispm-kernel" (runtime))
+(declare-function lispm-kernel-live-p "ext:lispm-kernel" (runtime))
+(declare-function lispm-kernel-runtime-hello "ext:lispm-kernel" (runtime))
+(declare-function lispm-kernel-same-host-p "ext:lispm-kernel" (runtime path))
+(declare-function lispm-kernel-local-path "ext:lispm-kernel" (path))
+(declare-function lispm-kernel-submit "ext:lispm-kernel" (runtime job input &rest keys))
+(declare-function lispm-kernel-cancel "ext:lispm-kernel" (runtime id))
+(declare-function lispm-kernel-supersede "ext:lispm-kernel" (runtime owner generation))
 (declare-function lispm-kernel-package-mode "ext:lispm-kernel-package" (&optional arg))
 (declare-function lispm-kernel-exec-mode "ext:lispm-kernel-exec" (&optional arg))
+(declare-function lispm-kernel-exec-locally "ext:lispm-kernel-exec" (program args callback &rest keys))
+(declare-function lispm-kernel-exec--runtime "ext:lispm-kernel-exec" (&optional job directory))
+(declare-function lispm-kernel-exec--environment "ext:lispm-kernel-exec" (directory))
+(declare-function lispm-kernel-exec--remote-environment "ext:lispm-kernel-exec" (local-directory))
+(declare-function lispm-kernel-exec--finish "ext:lispm-kernel-exec" (program callback status value output))
+(declare-function lispm-kernel-exec--call "ext:lispm-kernel-exec" (callback &rest arguments))
 (declare-function lispm-kernel-desktop-status "ext:lispm-kernel-desktop" ())
 (declare-function lispm-kernel-desktop-restart "ext:lispm-kernel-desktop" ())
 (declare-function lispm-kernel-program-file "ext:lispm-kernel-program" ())
@@ -411,6 +428,279 @@ While it is nil nothing is loaded, nor turned off."
   (when lispm-desktop-kernel
     (lispm-desktop-kernel-apply t))
   (add-variable-watcher 'lispm-desktop-kernel #'lispm-desktop-kernel--changed))
+
+;;;; CSP-to-FRP Kernel Bridge (Owner, Generation Supersede & Priority)
+
+(defconst lispm-desktop-kernel-owners
+  '((buffer-manager . 10)
+    (status-pmset   . 11)
+    (update         . 12)
+    (store          . 13)
+    (surface        . 14)
+    (standalone     . 15)
+    (emms           . 16)
+    (display        . 17))
+  "Canonical CSP owner IDs for desktop subsystems submitting to `lispm-kernel'.
+Owners 1..4 are reserved by `lispm-kernel-desktop', `lispm-kernel-package',
+and `lispm-kernel-exec'.")
+
+(defvar lispm-desktop-kernel--owner-generations (make-hash-table :test #'eql)
+  "Monotonically increasing CSP generation counter per integer owner ID.")
+
+(defun lispm-desktop-kernel-owner-id (owner)
+  "Resolve symbolic or integer OWNER to an integer CSP owner ID in [0, 255]."
+  (cond ((integerp owner) owner)
+        ((and (symbolp owner) (alist-get owner lispm-desktop-kernel-owners)))
+        (t 4)))
+
+(defun lispm-desktop-kernel-generation (owner)
+  "Return the current generation of OWNER without advancing it."
+  (gethash (lispm-desktop-kernel-owner-id owner)
+           lispm-desktop-kernel--owner-generations 0))
+
+(defun lispm-desktop-kernel-next-generation (owner)
+  "Advance and return the next generation for OWNER."
+  (let* ((id (lispm-desktop-kernel-owner-id owner))
+         (next (1+ (gethash id lispm-desktop-kernel--owner-generations 0))))
+    (puthash id next lispm-desktop-kernel--owner-generations)
+    next))
+
+(defun lispm-desktop-kernel-supersede (owner &optional directory)
+  "Advance OWNER's generation and supersede any in-flight kernel requests.
+DIRECTORY defaults to `default-directory' for resolving the target runtime."
+  (let* ((id (lispm-desktop-kernel-owner-id owner))
+         (gen (lispm-desktop-kernel-next-generation id))
+         (runtime (and (fboundp 'lispm-kernel-exec--runtime)
+                       (lispm-kernel-exec--runtime :exec (or directory default-directory)))))
+    (when (and runtime (fboundp 'lispm-kernel-supersede))
+      (ignore-errors (lispm-kernel-supersede runtime id gen)))
+    gen))
+
+(defun lispm-desktop-kernel--resolve-exec-file (runtime program directory)
+  "Resolve executable file for PROGRAM in DIRECTORY on RUNTIME, or nil."
+  (let* ((remote (file-remote-p directory))
+         (local-cwd (and runtime (directory-file-name (lispm-kernel-local-path directory))))
+         (local-program (and runtime (stringp program)
+                             (or (not (file-remote-p program))
+                                 (equal (file-remote-p program) remote))
+                             (lispm-kernel-local-path program)))
+         (search (and remote local-program (not (string-search "/" local-program)) t))
+         (file (and runtime
+                    (if remote
+                        (and (stringp local-program)
+                             (not (string-empty-p local-program))
+                             (if search
+                                 local-program
+                               (expand-file-name local-program local-cwd)))
+                      (and (file-directory-p directory)
+                           (when-let* ((found (executable-find program)))
+                             (and (file-name-absolute-p found)
+                                  (expand-file-name found))))))))
+    (and file (list :file file :cwd local-cwd :remote remote :search search))))
+
+(defun lispm-desktop-kernel--fallback-exec (program args callback
+                                            &optional input timeout on-output combine-error)
+  "Run PROGRAM with ARGS via fallback executor, preserving streaming options."
+  (let ((custom-exec (and (boundp 'lispm-exec-function)
+                          (functionp lispm-exec-function)
+                          (not (eq lispm-exec-function #'lispm-exec-locally))
+                          (not (advice-function-member-p 'lispm-kernel-exec--around
+                                                         lispm-exec-function)))))
+    (if (and (not custom-exec)
+             (or on-output combine-error)
+             (fboundp 'lispm-kernel-exec-locally))
+        (lispm-kernel-exec-locally
+         program args callback
+         :input input :timeout timeout
+         :on-output on-output :combine-error combine-error)
+      (let ((keys nil))
+        (when combine-error (setq keys (plist-put keys :combine-error combine-error)))
+        (when on-output (setq keys (plist-put keys :on-output on-output)))
+        (when timeout (setq keys (plist-put keys :timeout timeout)))
+        (when input (setq keys (plist-put keys :input input)))
+        (if (or on-output combine-error)
+            (condition-case nil
+                (apply lispm-exec-function program args callback keys)
+              (wrong-number-of-arguments
+               (if timeout
+                   (lispm-exec program args callback :input input :timeout timeout)
+                 (lispm-exec program args callback :input input))))
+          (if timeout
+              (lispm-exec program args callback :input input :timeout timeout)
+            (lispm-exec program args callback :input input)))))))
+
+(cl-defun lispm-desktop-kernel--submit-exec (program args callback
+                                             &key owner generation (priority 0)
+                                             input timeout on-output combine-error)
+  "Submit PROGRAM with ARGS to `lispm-kernel' with OWNER, GENERATION, and PRIORITY.
+CALLBACK, INPUT, TIMEOUT, ON-OUTPUT, and COMBINE-ERROR follow `lispm-exec'.
+Return a zero-argument cancellation function when accepted by the kernel,
+or nil when no eligible kernel runtime is active."
+  (when (and (bound-and-true-p lispm-kernel-exec-mode)
+             (fboundp 'lispm-kernel-exec--runtime)
+             (fboundp 'lispm-kernel-submit)
+             (or (not (boundp 'lispm-exec-function))
+                 (not (functionp lispm-exec-function))
+                 (advice-function-member-p 'lispm-kernel-exec--around lispm-exec-function)))
+    (let* ((directory (expand-file-name default-directory))
+           (runtime (lispm-kernel-exec--runtime :exec directory))
+           (resolved (and runtime (lispm-desktop-kernel--resolve-exec-file runtime program directory))))
+      (when resolved
+        (let* ((file (plist-get resolved :file))
+               (local-cwd (plist-get resolved :cwd))
+               (remote (plist-get resolved :remote))
+               (search (plist-get resolved :search))
+               (owner-id (lispm-desktop-kernel-owner-id owner))
+               (gen (or generation (lispm-desktop-kernel-generation owner-id)))
+               (prio (max -100 (min 100 (or priority 0))))
+               (environment process-environment)
+               (effective-timeout (or timeout (bound-and-true-p lispm-kernel-exec-timeout) 300))
+               (chunks nil)
+               (aborted nil)
+               (fallback-handle nil)
+               id)
+          (condition-case nil
+              (progn
+                (setq id
+                      (lispm-kernel-submit
+                       runtime 'exec
+                       (list :program file :args args :cwd local-cwd
+                             :env (if remote
+                                      (lispm-kernel-exec--remote-environment local-cwd)
+                                    (lispm-kernel-exec--environment directory))
+                             :env-inherit (and remote t)
+                             :search search
+                             :stdin input
+                             :timeout effective-timeout
+                             :combine-error (and combine-error t))
+                       :owner owner-id
+                       :generation gen
+                       :priority prio
+                       :timeout (and effective-timeout (+ effective-timeout 10))
+                       :on-result
+                       (lambda (kind value)
+                         (when (and (not aborted)
+                                    (= gen (lispm-desktop-kernel-generation owner-id)))
+                           (pcase kind
+                             ('chunk
+                              (push value chunks)
+                              (when on-output
+                                (lispm-kernel-exec--call on-output value)))
+                             ('rejected
+                              (let ((default-directory directory)
+                                    (process-environment environment))
+                                (setq fallback-handle
+                                      (lispm-desktop-kernel--fallback-exec
+                                       program args
+                                       (lambda (exit out err)
+                                         (unless aborted
+                                           (funcall callback exit out err)))
+                                       input timeout
+                                       (and on-output
+                                            (lambda (chunk)
+                                              (unless aborted
+                                                (funcall on-output chunk))))
+                                       combine-error))))
+                             (_
+                              (lispm-ui-frp-batch
+                                (lispm-kernel-exec--finish
+                                 program callback kind value
+                                 (apply #'concat (nreverse chunks))))))))))
+                (lambda ()
+                  (setq aborted t)
+                  (if fallback-handle
+                      (lispm-exec-kill fallback-handle)
+                    (lispm-kernel-cancel runtime id))))
+            (error nil)))))))
+
+(cl-defun lispm-desktop-kernel-exec (program args callback
+                                     &key (owner 4) supersede (priority 0)
+                                     input timeout on-output combine-error)
+  "Run PROGRAM with ARGS in `lispm-kernel' using OWNER, SUPERSEDE and PRIORITY.
+CALLBACK, INPUT, TIMEOUT, ON-OUTPUT, and COMBINE-ERROR follow `lispm-exec'.
+When SUPERSEDE is non-nil, advances OWNER's generation so older in-flight
+requests of OWNER are cancelled in the kernel and on the Emacs side.
+Falls back transparently to `lispm-exec' when the kernel is off or stubbed."
+  (let* ((owner-id (lispm-desktop-kernel-owner-id owner))
+         (gen (if supersede
+                  (lispm-desktop-kernel-supersede owner-id)
+                (lispm-desktop-kernel-generation owner-id)))
+         (wrapped-output
+          (and on-output
+               (lambda (chunk)
+                 (when (= gen (lispm-desktop-kernel-generation owner-id))
+                   (lispm-ui-frp-batch
+                     (funcall on-output chunk))))))
+         (wrapped-callback
+          (lambda (exit output errors)
+            (when (= gen (lispm-desktop-kernel-generation owner-id))
+              (lispm-ui-frp-batch
+                (funcall callback exit output errors))))))
+    (or (lispm-desktop-kernel--submit-exec
+         program args wrapped-callback
+         :owner owner-id :generation gen :priority priority
+         :input input :timeout timeout
+         :on-output wrapped-output :combine-error combine-error)
+        (lispm-desktop-kernel--fallback-exec
+         program args wrapped-callback
+         input timeout wrapped-output combine-error))))
+
+(cl-defun lispm-desktop-kernel-effect-signal (request-signal
+                                              &key (owner 4) (priority 0)
+                                              transform initial (test #'equal))
+  "Create a reactive state signal driven by REQUEST-SIGNAL in `lispm-kernel'.
+When REQUEST-SIGNAL emits a non-nil plist `(:program PROG :args ARGS)',
+a generational request is submitted for OWNER at PRIORITY.  INITIAL sets
+the initial value, TRANSFORM maps successful stdout, and TEST compares
+states.  Return `(CONS STATE-SIGNAL EFFECT)' where STATE-SIGNAL holds
+`(:status pending|ready|error :value VAL :generation GEN)'."
+  (let* ((owner-id (lispm-desktop-kernel-owner-id owner))
+         (state-sig (lispm-ui-signal (list :status 'idle :value initial :generation 0) test))
+         (eff (lispm-ui-effect
+               request-signal
+               (lambda (req)
+                 (when (and (consp req) (stringp (plist-get req :program)))
+                   (let* ((prog (plist-get req :program))
+                          (args (plist-get req :args))
+                          (dir (or (plist-get req :directory) default-directory))
+                          (prev (lispm-ui-signal-peek state-sig))
+                          (settled nil)
+                          (default-directory dir))
+                     (lispm-desktop-kernel-exec
+                      prog args
+                      (lambda (exit output errors)
+                        (setq settled t)
+                        (let ((gen (lispm-desktop-kernel-generation owner-id)))
+                          (if (eql exit 0)
+                              (condition-case err
+                                  (let ((val (if transform
+                                                 (funcall transform output)
+                                               output)))
+                                    (lispm-ui-signal-set
+                                     state-sig
+                                     (list :status 'ready :value val :generation gen)))
+                                (error
+                                 (lispm-ui-signal-set
+                                  state-sig
+                                  (list :status 'error
+                                        :value (plist-get prev :value)
+                                        :error (error-message-string err)
+                                        :generation gen))))
+                            (lispm-ui-signal-set
+                             state-sig
+                             (list :status 'error
+                                   :value (plist-get prev :value)
+                                   :error (or errors exit)
+                                   :generation gen)))))
+                      :owner owner-id :supersede t :priority priority)
+                     (unless settled
+                       (lispm-ui-signal-set
+                        state-sig
+                        (list :status 'pending
+                              :value (plist-get prev :value)
+                              :generation (lispm-desktop-kernel-generation owner-id)))))))
+               t)))
+    (cons state-sig eff)))
 
 (provide 'lispm-desktop-kernel)
 ;;; lispm-desktop-kernel.el ends here

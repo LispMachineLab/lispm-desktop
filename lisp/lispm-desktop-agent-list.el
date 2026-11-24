@@ -40,6 +40,7 @@
 (require 'lispm-desktop-sidebar)
 (require 'lispm-desktop-popup)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-frp)
 (require 'lispm-agents-work)
 
 (declare-function lispm-desktop-term-status "lispm-desktop-term" (&optional buffer))
@@ -64,6 +65,12 @@ Directories absent from it use `lispm-desktop-agent-list--default-folded-p'.")
 
 (defvar-local lispm-desktop-agent-list--expanded nil
   "Directory keys whose groups list every session instead of a preview.")
+
+(defvar lispm-desktop-agent-list-state-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP signal snapshotting the agent sidebar's view and session state.")
+
+(defvar lispm-desktop-agent-list-event-stream (lispm-ui-stream)
+  "Reactive discrete event stream emitting agent session and status events.")
 
 (defun lispm-desktop-agent-list--default-folded-p (group now)
   "Return non-nil when GROUP starts folded at time NOW.
@@ -481,6 +488,15 @@ sessions are still being read."
     (setq lispm-desktop-platinum-info
           (lispm-desktop-agent-list--info (length sessions) (length running) reading
                                           (seq-count #'lispm-agents-buffer-waiting-p running)))
+    (lispm-ui-signal-set
+     lispm-desktop-agent-list-state-signal
+     (list :sessions (length sessions)
+           :running (length running)
+           :reading reading
+           :archived archived
+           :show-archived lispm-desktop-agent-list--show-archived
+           :folds (copy-alist lispm-desktop-agent-list--folds)
+           :expanded (copy-sequence lispm-desktop-agent-list--expanded)))
     (lispm-desktop-sidebar-insert-columns (lispm-desktop-tr "Name") (lispm-desktop-tr "Modified"))
     (dolist (group (lispm-agents-group-by-directory sessions live))
       (lispm-desktop-agent-list--insert-project group now live-ids))
@@ -552,6 +568,7 @@ TERMINAL is the exited terminal's buffer or process; other terminals
 leave the sidebar alone."
   (let ((buffer (if (processp terminal) (process-buffer terminal) terminal)))
     (when (lispm-agents-buffer-p buffer)
+      (lispm-ui-stream-emit lispm-desktop-agent-list-event-stream (list :exit buffer))
       (lispm-desktop-agent-list--refresh-when-idle))))
 
 (defvar-local lispm-desktop-agent-list--status-shown nil
@@ -566,6 +583,7 @@ Progress alone changes no label, so it never re-renders the sidebar."
       (unless (equal label (buffer-local-value 'lispm-desktop-agent-list--status-shown buffer))
         (with-current-buffer buffer
           (setq lispm-desktop-agent-list--status-shown label))
+        (lispm-ui-stream-emit lispm-desktop-agent-list-event-stream (list :status buffer label))
         (lispm-desktop-agent-list--refresh-when-idle)))))
 
 ;;;; Acting on the session at point

@@ -49,6 +49,7 @@
 ;;; Code:
 
 (require 'lispm-desktop-look)
+(require 'lispm-ui-frp)
 
 (declare-function lispm-desktop-term-load "lispm-desktop-term" ())
 (declare-function lispm-desktop-term-module-glass-apply "lispm-desktop-term-module" (address gain))
@@ -60,6 +61,20 @@ are dark, see lispm-desktop-glass.el.  Glass needs macOS and
 lispm-desktop-term's module; nil keeps every window opaque."
   :type 'boolean
   :group 'lispm-desktop)
+
+(defvar lispm-desktop-glass-signal (lispm-ui-signal lispm-desktop-glass #'eq)
+  "Reactive FRP source signal tracking `lispm-desktop-glass'.")
+
+(defvar lispm-desktop-glass-gain-signal
+  (lispm-ui-signal-derived
+   (list lispm-desktop-glass-signal lispm-desktop-look-signal)
+   (lambda (enabled look)
+     (and enabled (lispm-ui-look-get :glass look)))
+   #'equal)
+  "Derived FRP signal computing the active glass gain.")
+
+(defvar lispm-desktop-glass--effect nil
+  "Managed FRP effect synchronizing glass opacity across frames.")
 
 (defconst lispm-desktop-glass-idle 2
   "Seconds Emacs stays idle before the frames are looked over again, while
@@ -116,9 +131,12 @@ which draws the desktop, and the outlines a window moves by stay opaque."
   "Look the frames over a moment from now, once Emacs made their windows."
   (run-at-time 0.1 nil #'lispm-desktop-glass-update))
 
-(defun lispm-desktop-glass--follow ()
+(defun lispm-desktop-glass--follow (&rest _)
   "Look the frames over now, and while Emacs is idle as long as a look of
 glass is in use."
+  (lispm-ui-frp-batch
+    (lispm-ui-signal-set lispm-desktop-glass-signal lispm-desktop-glass)
+    (lispm-ui-signal-set lispm-desktop-look-signal lispm-desktop-look))
   (when (timerp lispm-desktop-glass--timer)
     (cancel-timer lispm-desktop-glass--timer)
     (setq lispm-desktop-glass--timer nil))
@@ -135,6 +153,10 @@ glass is in use."
 (defun lispm-desktop-setup-glass ()
   "Make the windows of a look of glass see-through, as looks and themes
 change and frames are made."
+  (unless (lispm-ui-effect-p lispm-desktop-glass--effect)
+    (setq lispm-desktop-glass--effect
+          (lispm-ui-effect lispm-desktop-glass-gain-signal
+                           (lambda (_gain) (lispm-desktop-glass-update)))))
   (add-hook 'lispm-desktop-look-changed-hook #'lispm-desktop-glass--follow)
   (add-hook 'enable-theme-functions #'lispm-desktop-glass--soon 95)
   (add-hook 'after-make-frame-functions #'lispm-desktop-glass--soon)

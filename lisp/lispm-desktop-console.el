@@ -56,6 +56,8 @@
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
 (require 'lispm-desktop-app-ui)
+(require 'lispm-ui-frp)
+(require 'lispm-ui-list)
 
 (defconst lispm-desktop-console-buffer-name " *Console*"
   "Name of the buffer of the Console's list.")
@@ -97,6 +99,40 @@ DETAILS more about it, or nil."
 (defvar lispm-desktop-console--events nil
   "The events the Console holds, newest first.")
 
+(defvar lispm-desktop-console-events-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP source signal holding `lispm-desktop-console--events'.")
+
+(defvar lispm-desktop-console-event-stream (lispm-ui-stream)
+  "Reactive stream emitting each recorded `lispm-desktop-console-event'.")
+
+(defvar lispm-desktop-console-filter-signal (lispm-ui-signal '(nil . nil) #'equal)
+  "Reactive FRP signal holding `(SEVERITY . SOURCE)' filter criteria.")
+
+(defun lispm-desktop-console--filter-event-p (event filter)
+  "Return non-nil when EVENT matches `(SEVERITY . SOURCE)' FILTER."
+  (let ((sev (car-safe filter))
+        (src (cdr-safe filter)))
+    (and (or (null sev)
+             (eq (lispm-desktop-console-event-severity event) sev))
+         (or (null src)
+             (equal (lispm-desktop-console-event-source event) src)))))
+
+(defvar lispm-desktop-console-shown-signal
+  (if (fboundp 'lispm-ui-list-derive)
+      (lispm-ui-list-derive
+       lispm-desktop-console-events-signal
+       :filter-signal lispm-desktop-console-filter-signal
+       :predicate #'lispm-desktop-console--filter-event-p)
+    (lispm-ui-signal-combine
+     (lambda (events filter)
+       (seq-filter (lambda (ev)
+                     (lispm-desktop-console--filter-event-p ev filter))
+                   events))
+     (list lispm-desktop-console-events-signal
+           lispm-desktop-console-filter-signal)
+     #'equal))
+  "Derived FRP signal computing the filtered Console events.")
+
 (defvar lispm-desktop-console--next-id 0
   "The id the next event gets.")
 
@@ -133,6 +169,9 @@ Nothing is shown; see `lispm-desktop-console-say'.  Return the event."
                                     (1- lispm-desktop-console-limit))))
       (setq lispm-desktop-console--events nil))
     (setq lispm-desktop-console--dirty t)
+    (lispm-ui-frp-batch
+      (lispm-ui-signal-set lispm-desktop-console-events-signal lispm-desktop-console--events)
+      (lispm-ui-stream-emit lispm-desktop-console-event-stream event))
     event))
 
 (defun lispm-desktop-console--show (message)
@@ -238,14 +277,11 @@ so the echo area stays quiet; keyboard operations return nil."
 
 (defun lispm-desktop-console--events-shown ()
   "Return the events the Console shows now, newest first."
-  (seq-filter (lambda (event)
-                (and (or (null lispm-desktop-console--severity)
-                         (eq (lispm-desktop-console-event-severity event)
-                             lispm-desktop-console--severity))
-                     (or (null lispm-desktop-console--source)
-                         (equal (lispm-desktop-console-event-source event)
-                                lispm-desktop-console--source))))
-              lispm-desktop-console--events))
+  (lispm-ui-frp-batch
+    (lispm-ui-signal-set lispm-desktop-console-events-signal lispm-desktop-console--events)
+    (lispm-ui-signal-set lispm-desktop-console-filter-signal
+                         (cons lispm-desktop-console--severity lispm-desktop-console--source)))
+  (lispm-ui-signal-get lispm-desktop-console-shown-signal))
 
 (defun lispm-desktop-console--entries ()
   "Return the Console's rows, as `tabulated-list-entries' takes them."
@@ -428,6 +464,7 @@ text terminal and once the details page takes its place."
   (when (or (null lispm-desktop-console--events)
             (y-or-n-p (lispm-desktop-tr "Clear the console? ")))
     (setq lispm-desktop-console--events nil)
+    (lispm-ui-signal-set lispm-desktop-console-events-signal nil)
     (lispm-desktop-console-refresh)))
 
 ;;;; The list's interface

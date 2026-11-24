@@ -76,7 +76,10 @@
 (require 'lispm-desktop-i18n)
 (require 'lispm-desktop-store-installer)
 (require 'lispm-desktop-update-safety)
+(require 'lispm-ui-frp)
 (require 'lispm-exec)
+
+(declare-function lispm-desktop-kernel-exec "lispm-desktop-kernel" (program args callback &rest keys))
 
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-popup-available-p "lispm-ui-popup" ())
@@ -178,9 +181,22 @@ that what was worked out before is not kept after.")
 (defvar lispm-desktop-update--timer nil
   "The timer of the checks Software Update makes by itself.")
 
-(defvar lispm-desktop-update-changed-hook nil
+(defvar lispm-desktop-update-changed-hook '(lispm-desktop-update--sync-state-signal)
   "Hook run once what Software Update knows changed: a check started or
 ended, updates installed.  Its control panel draws itself again.")
+
+(defvar lispm-desktop-update-state-signal (lispm-ui-signal nil #'equal)
+  "Reactive FRP signal tracking Software Update state.")
+
+(defun lispm-desktop-update--sync-state-signal ()
+  "Sync `lispm-desktop-update-state-signal' with current Software Update state."
+  (lispm-ui-signal-set
+   lispm-desktop-update-state-signal
+   (list :checking (and (bound-and-true-p lispm-desktop-update--checking) t)
+         :results (and (boundp 'lispm-desktop-update--results)
+                       lispm-desktop-update--results)
+         :installed (and (boundp 'lispm-desktop-update--installed)
+                         lispm-desktop-update--installed))))
 
 (defvar lispm-desktop-update-check-hook nil
   "Hook run as Software Update begins a check, by itself or asked: what
@@ -208,15 +224,20 @@ or nil when it failed."
 what it printed, trimmed, or nil when it failed, and what it said then.
 lispm-kernel runs it when it runs, see `lispm-exec'."
   (let ((default-directory (file-name-as-directory directory))
-        (process-environment (lispm-desktop-update--environment)))
-    (lispm-exec "git" args
-                (lambda (exit output errors)
-                  (if (eql exit 0)
-                      (funcall callback (string-trim output) nil)
-                    (let ((said (string-trim (concat errors (if (string-empty-p errors) output "")))))
-                      (funcall callback nil (cond ((stringp exit) exit)
-                                                  ((string-empty-p said) (lispm-desktop-tr-noop "git failed"))
-                                                  (t said)))))))))
+        (process-environment (lispm-desktop-update--environment))
+        (runner (if (fboundp 'lispm-desktop-kernel-exec)
+                    (lambda (prog a cb)
+                      (lispm-desktop-kernel-exec
+                       prog a cb :owner 'update :priority -20))
+                  #'lispm-exec)))
+    (funcall runner "git" args
+             (lambda (exit output errors)
+               (if (eql exit 0)
+                   (funcall callback (string-trim output) nil)
+                 (let ((said (string-trim (concat errors (if (string-empty-p errors) output "")))))
+                   (funcall callback nil (cond ((stringp exit) exit)
+                                               ((string-empty-p said) (lispm-desktop-tr-noop "git failed"))
+                                               (t said)))))))))
 
 (defun lispm-desktop-update--git-steps (directory steps callback)
   "Run STEPS of git in DIRECTORY in the background, one after another.

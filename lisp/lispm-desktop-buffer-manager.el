@@ -43,7 +43,10 @@
 (require 'tabulated-list)
 (require 'lispm-desktop-platinum)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-frp)
 (require 'lispm-exec)
+
+(declare-function lispm-desktop-kernel-exec "lispm-desktop-kernel" (program args callback &rest keys))
 
 (declare-function lispm-desktop-terminal-buffer-p "lispm-desktop-interface" (buffer))
 (declare-function lispm-agents-buffer-p "lispm-agents" (buffer))
@@ -63,6 +66,9 @@
 (defvar lispm-desktop-buffer-manager--processes nil
   "The table of `lispm-desktop-buffer-manager--processes' as ps last
 listed them, or nil before it did.")
+
+(defvar lispm-desktop-buffer-manager-processes-signal (lispm-ui-signal nil #'eq)
+  "Reactive FRP signal holding the latest parsed process table hash-table.")
 
 (defvar lispm-desktop-buffer-manager--listing nil
   "Non-nil while ps lists the processes in the background.")
@@ -86,9 +92,11 @@ read from ps in one go: as it listed them last, in the background, see
 `lispm-desktop-buffer-manager--list-processes', and the first time,
 waiting for it.  Where ps is missing the table is empty."
   (or lispm-desktop-buffer-manager--processes
-      (setq lispm-desktop-buffer-manager--processes
-            (lispm-desktop-buffer-manager--table
-             (ignore-errors (apply #'process-lines "ps" lispm-desktop-buffer-manager--ps-arguments))))))
+      (let ((table (lispm-desktop-buffer-manager--table
+                    (ignore-errors (apply #'process-lines "ps" lispm-desktop-buffer-manager--ps-arguments)))))
+        (setq lispm-desktop-buffer-manager--processes table)
+        (lispm-ui-signal-set lispm-desktop-buffer-manager-processes-signal table)
+        table)))
 
 (defun lispm-desktop-buffer-manager--list-processes (then)
   "Have ps list the system's processes in the background, then call THEN.
@@ -97,13 +105,19 @@ not wait for; lispm-kernel runs ps when it runs, see `lispm-exec'.  While
 a listing is under way, another is not started, nor THEN called."
   (unless lispm-desktop-buffer-manager--listing
     (setq lispm-desktop-buffer-manager--listing t)
-    (lispm-exec "ps" lispm-desktop-buffer-manager--ps-arguments
-                (lambda (exit output _errors)
-                  (setq lispm-desktop-buffer-manager--listing nil)
-                  (when (eql exit 0)
-                    (setq lispm-desktop-buffer-manager--processes
-                          (lispm-desktop-buffer-manager--table (split-string output "\n" t))))
-                  (funcall then)))))
+    (let ((runner (if (fboundp 'lispm-desktop-kernel-exec)
+                      (lambda (prog args cb)
+                        (lispm-desktop-kernel-exec
+                         prog args cb :owner 'buffer-manager :priority 10))
+                    #'lispm-exec)))
+      (funcall runner "ps" lispm-desktop-buffer-manager--ps-arguments
+               (lambda (exit output _errors)
+                 (setq lispm-desktop-buffer-manager--listing nil)
+                 (when (eql exit 0)
+                   (let ((table (lispm-desktop-buffer-manager--table (split-string output "\n" t))))
+                     (setq lispm-desktop-buffer-manager--processes table)
+                     (lispm-ui-signal-set lispm-desktop-buffer-manager-processes-signal table)))
+                 (funcall then))))))
 
 (defun lispm-desktop-buffer-manager--children (processes)
   "Return a table of pid to the pids of its children, from PROCESSES."

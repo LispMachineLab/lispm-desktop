@@ -31,6 +31,30 @@
 
 (require 'lispm-desktop-i18n)
 
+(declare-function lispm-ui-signal-p "lispm-ui-frp" (object))
+(declare-function lispm-ui-signal-set "lispm-ui-frp" (signal value))
+(declare-function lispm-ui-frp--begin-batch "lispm-ui-frp" ())
+(declare-function lispm-ui-frp--end-batch "lispm-ui-frp" (&optional commit))
+
+(defmacro lispm-desktop-core--frp-batch (&rest body)
+  "Run BODY inside an FRP batch transaction when the FRP runtime is loaded."
+  (declare (indent 0) (debug t))
+  `(if (fboundp 'lispm-ui-frp--begin-batch)
+       (let ((committed nil))
+         (lispm-ui-frp--begin-batch)
+         (unwind-protect
+             (prog1 (progn ,@body)
+               (setq committed t))
+           (lispm-ui-frp--end-batch committed)))
+     (progn ,@body)))
+
+(defun lispm-desktop-core--set-signal (sym value)
+  "Update reactive signal stored in symbol SYM to VALUE when initialized."
+  (when (and (boundp sym)
+             (fboundp 'lispm-ui-signal-p)
+             (lispm-ui-signal-p (symbol-value sym)))
+    (lispm-ui-signal-set (symbol-value sym) value)))
+
 (defconst lispm-desktop-directory
   (file-name-directory
    (directory-file-name (file-name-directory (or load-file-name buffer-file-name))))
@@ -131,6 +155,9 @@ loaded at once."
                              `(const :tag ,(or (plist-get props :label) (symbol-name theme)) ,theme))
                            lispm-desktop-themes)
                  (const :tag "Ask at the next start" nil)))
+
+(defvar lispm-desktop-theme-signal nil
+  "Reactive FRP source signal tracking `lispm-desktop-theme'.")
 
 (defvar lispm-desktop--loading-theme nil
   "Non-nil while `lispm-desktop--load-theme-now' loads a theme.")
@@ -245,45 +272,51 @@ new one.  This is a variable watcher."
 (defun lispm-desktop--follow-theme ()
   "Load `lispm-desktop-theme' unless it is already the only theme enabled."
   (when lispm-desktop-theme
-    (let* ((look (lispm-desktop-theme-look lispm-desktop-theme))
-           (emacs-theme (lispm-desktop-theme-emacs-theme lispm-desktop-theme))
-           (has-colors (and (lispm-desktop-theme-get :colors lispm-desktop-theme) t))
-           (look-changed (and (boundp 'lispm-desktop-look)
-                              (assq lispm-desktop-theme lispm-desktop-themes)
-                              (not (eq lispm-desktop-look look)))))
-      (when look-changed
-        (let ((lispm-desktop--set-up nil))
-          (set-default 'lispm-desktop-look look)
-          (setq lispm-desktop-look look)))
-      (when (or has-colors
-                (not (equal custom-enabled-themes (list emacs-theme))))
-        (lispm-desktop-load-theme lispm-desktop-theme))
-      (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
-        (run-hooks 'lispm-desktop-look-changed-hook)))))
+    (lispm-desktop-core--frp-batch
+      (lispm-desktop-core--set-signal 'lispm-desktop-theme-signal lispm-desktop-theme)
+      (let* ((look (lispm-desktop-theme-look lispm-desktop-theme))
+             (emacs-theme (lispm-desktop-theme-emacs-theme lispm-desktop-theme))
+             (has-colors (and (lispm-desktop-theme-get :colors lispm-desktop-theme) t))
+             (look-changed (and (boundp 'lispm-desktop-look)
+                                (assq lispm-desktop-theme lispm-desktop-themes)
+                                (not (eq lispm-desktop-look look)))))
+        (when look-changed
+          (let ((lispm-desktop--set-up nil))
+            (set-default 'lispm-desktop-look look)
+            (setq lispm-desktop-look look))
+          (lispm-desktop-core--set-signal 'lispm-desktop-look-signal look))
+        (when (or has-colors
+                  (not (equal custom-enabled-themes (list emacs-theme))))
+          (lispm-desktop-load-theme lispm-desktop-theme))
+        (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
+          (run-hooks 'lispm-desktop-look-changed-hook))))))
 
 (defun lispm-desktop--load-theme-now (theme)
   "Make THEME, by default Platinum, the only colour theme enabled."
-  (when (and (boundp 'lispm-desktop-look)
-             (assq theme lispm-desktop-themes))
-    (let ((look (lispm-desktop-theme-look theme))
-          (lispm-desktop--set-up nil))
-      (unless (eq lispm-desktop-look look)
-        (set-default 'lispm-desktop-look look)
-        (setq lispm-desktop-look look))))
-  (let* ((target (or theme 'platinum))
-         (lispm-desktop--loading-theme target)
-         (chosen lispm-desktop-theme)
-         (emacs-theme (lispm-desktop-theme-emacs-theme target))
-         (colors (lispm-desktop-theme-get :colors target)))
-    (lispm-desktop--reset-theme-color-faces)
-    (mapc #'disable-theme custom-enabled-themes)
-    (load-theme emacs-theme t)
-    ;; The `user' theme enabled again set the variable back to the value
-    ;; saved with Customize; it keeps the one it had.
-    (unless (eq lispm-desktop-theme chosen)
-      (set-default 'lispm-desktop-theme chosen))
-    (when colors
-      (lispm-desktop--apply-theme-colors colors))))
+  (lispm-desktop-core--frp-batch
+    (lispm-desktop-core--set-signal 'lispm-desktop-theme-signal theme)
+    (when (and (boundp 'lispm-desktop-look)
+               (assq theme lispm-desktop-themes))
+      (let ((look (lispm-desktop-theme-look theme))
+            (lispm-desktop--set-up nil))
+        (unless (eq lispm-desktop-look look)
+          (set-default 'lispm-desktop-look look)
+          (setq lispm-desktop-look look)
+          (lispm-desktop-core--set-signal 'lispm-desktop-look-signal look))))
+    (let* ((target (or theme 'platinum))
+           (lispm-desktop--loading-theme target)
+           (chosen lispm-desktop-theme)
+           (emacs-theme (lispm-desktop-theme-emacs-theme target))
+           (colors (lispm-desktop-theme-get :colors target)))
+      (lispm-desktop--reset-theme-color-faces)
+      (mapc #'disable-theme custom-enabled-themes)
+      (load-theme emacs-theme t)
+      ;; The `user' theme enabled again set the variable back to the value
+      ;; saved with Customize; it keeps the one it had.
+      (unless (eq lispm-desktop-theme chosen)
+        (set-default 'lispm-desktop-theme chosen))
+      (when colors
+        (lispm-desktop--apply-theme-colors colors)))))
 
 (defun lispm-desktop--load-pending-theme (&rest _)
   "Load the theme left for this redisplay, before it draws anything.
@@ -329,17 +362,20 @@ third of a second on the desktop."
                                   (mapcar (lambda (entry) (symbol-name (car entry)))
                                           lispm-desktop-themes)
                                   nil t))))
-  (let* ((look (lispm-desktop-theme-look theme))
-         (look-changed (and (boundp 'lispm-desktop-look)
-                            (not (eq lispm-desktop-look look)))))
-    ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
-    (when look-changed
-      (let ((lispm-desktop--set-up nil))
-        (customize-save-variable 'lispm-desktop-look look)))
-    (customize-save-variable 'lispm-desktop-theme theme)
-    (lispm-desktop-load-theme theme)
-    (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
-      (run-hooks 'lispm-desktop-look-changed-hook))))
+  (lispm-desktop-core--frp-batch
+    (let* ((look (lispm-desktop-theme-look theme))
+           (look-changed (and (boundp 'lispm-desktop-look)
+                              (not (eq lispm-desktop-look look)))))
+      ;; Saved first, so what the theme draws, as Control Panels, shows it chosen.
+      (when look-changed
+        (let ((lispm-desktop--set-up nil))
+          (customize-save-variable 'lispm-desktop-look look))
+        (lispm-desktop-core--set-signal 'lispm-desktop-look-signal look))
+      (customize-save-variable 'lispm-desktop-theme theme)
+      (lispm-desktop-core--set-signal 'lispm-desktop-theme-signal theme)
+      (lispm-desktop-load-theme theme)
+      (when (and look-changed (boundp 'lispm-desktop-look-changed-hook))
+        (run-hooks 'lispm-desktop-look-changed-hook)))))
 
 (defcustom lispm-desktop-user-file (locate-user-emacs-file "personal.el")
   "The user's own configuration, loaded after lispm-desktop is set up."
