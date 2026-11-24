@@ -108,17 +108,29 @@ DETAILS more about it, or nil."
 (defvar lispm-desktop-console-filter-signal (lispm-ui-signal '(nil . nil) #'equal)
   "Reactive FRP signal holding `(SEVERITY . SOURCE)' filter criteria.")
 
+(defun lispm-desktop-console--filter-event-p (event filter)
+  "Return non-nil when EVENT matches `(SEVERITY . SOURCE)' FILTER."
+  (let ((sev (car-safe filter))
+        (src (cdr-safe filter)))
+    (and (or (null sev)
+             (eq (lispm-desktop-console-event-severity event) sev))
+         (or (null src)
+             (equal (lispm-desktop-console-event-source event) src)))))
+
 (defvar lispm-desktop-console-shown-signal
-  (lispm-ui-list-derive
-   lispm-desktop-console-events-signal
-   :filter-signal lispm-desktop-console-filter-signal
-   :predicate (lambda (event filter)
-                (let ((sev (car-safe filter))
-                      (src (cdr-safe filter)))
-                  (and (or (null sev)
-                           (eq (lispm-desktop-console-event-severity event) sev))
-                       (or (null src)
-                           (equal (lispm-desktop-console-event-source event) src))))))
+  (if (fboundp 'lispm-ui-list-derive)
+      (lispm-ui-list-derive
+       lispm-desktop-console-events-signal
+       :filter-signal lispm-desktop-console-filter-signal
+       :predicate #'lispm-desktop-console--filter-event-p)
+    (lispm-ui-signal-combine
+     (lambda (events filter)
+       (seq-filter (lambda (ev)
+                     (lispm-desktop-console--filter-event-p ev filter))
+                   events))
+     (list lispm-desktop-console-events-signal
+           lispm-desktop-console-filter-signal)
+     #'equal))
   "Derived FRP signal computing the filtered Console events.")
 
 (defvar lispm-desktop-console--next-id 0

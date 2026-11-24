@@ -126,6 +126,8 @@ personal.el: once Emacs is set up, a new value is drawn at once."
 (set-default 'lispm-ui-look lispm-desktop-look)
 (with-no-warnings
   (defvaralias 'lispm-ui-look 'lispm-desktop-look))
+(unless (boundp 'lispm-ui-look-signal)
+  (set 'lispm-ui-look-signal (lispm-ui-signal lispm-desktop-look #'eq)))
 (lispm-ui-signal-set lispm-ui-look-signal lispm-desktop-look)
 (with-no-warnings
   (defvaralias 'lispm-desktop-look-signal 'lispm-ui-look-signal))
