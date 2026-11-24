@@ -404,13 +404,20 @@ translated where shown.")
   "Return the push buttons found among the current buffer's commands."
   (let* ((prefixes (lispm-desktop-app-ui--prefixes))
          (definitions (lispm-desktop-app-ui--mode-definitions))
+         (game (lispm-desktop-app-ui-game-p))
          (names (mapcar (pcase-lambda (`(,command . ,_))
                           (cons command (lispm-desktop-app-ui--bare-name command prefixes definitions)))
                         (lispm-desktop-app-ui-commands))))
     (delq nil (mapcar (pcase-lambda (`(,label . ,regexp))
-                        (when-let* ((command (car (seq-find (lambda (name) (string-match-p regexp (cdr name)))
-                                                            names))))
-                          (list label command)))
+                        (when-let* ((entry (seq-find (lambda (name) (string-match-p regexp (cdr name)))
+                                                     names))
+                                    (command (car entry)))
+                          (list (if (and (equal label "New Game")
+                                         (not game)
+                                         (not (string-suffix-p "-game" (cdr entry))))
+                                    (lispm-desktop-tr-noop "New")
+                                  label)
+                                command)))
                       lispm-desktop-app-ui-button-commands))))
 
 (defun lispm-desktop-app-ui-buttons ()
@@ -431,7 +438,7 @@ ENABLED non-nil or nil."
 
 (defun lispm-desktop-app-ui--new-command ()
   "Return the current buffer's command starting anew, or nil."
-  (nth 1 (seq-find (lambda (button) (equal (car button) "New Game"))
+  (nth 1 (seq-find (lambda (button) (member (car button) '("New Game" "New")))
                    (lispm-desktop-app-ui--found-buttons))))
 
 ;;;; Running commands in an application's window
