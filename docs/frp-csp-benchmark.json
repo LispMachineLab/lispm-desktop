@@ -1,0 +1,550 @@
+{
+  "generated_at": "2026-11-25T04:48:20+0800",
+  "repeats": 4,
+  "host": {
+    "system": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processor": "Apple M1 Max",
+    "cpus": 10,
+    "python": "3.15.0"
+  },
+  "orders": [
+    "baseline-first",
+    "optimized-first",
+    "baseline-first",
+    "optimized-first"
+  ],
+  "environment": {
+    "emacs_version": "31.1",
+    "system_type": "darwin",
+    "order": "baseline-first",
+    "ticks": 500,
+    "cycles": 1000,
+    "burst": 20
+  },
+  "summary": {
+    "frame-unbatched": {
+      "elapsed_ms": 276.213,
+      "work_units": 1998,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "max_ms": 0.0,
+      "gcs": 5.0,
+      "gc_ms": 79.612
+    },
+    "frame-batched": {
+      "elapsed_ms": 59.045,
+      "work_units": 500,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "max_ms": 0.0,
+      "gcs": 1.0,
+      "gc_ms": 14.252
+    },
+    "list-imperative": {
+      "elapsed_ms": 820.157,
+      "work_units": 1000000,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "max_ms": 0.0,
+      "gcs": 17.0,
+      "gc_ms": 249.369
+    },
+    "list-reactive": {
+      "elapsed_ms": 71.688,
+      "work_units": 101000,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "max_ms": 0.0,
+      "gcs": 1.0,
+      "gc_ms": 13.588
+    },
+    "csp-unsuperseded": {
+      "elapsed_ms": 106.458,
+      "work_units": 20,
+      "p50_ms": 3.509,
+      "p95_ms": 22.177,
+      "p99_ms": 24.737,
+      "max_ms": 24.737,
+      "gcs": 2.0,
+      "gc_ms": 27.174
+    },
+    "csp-superseded": {
+      "elapsed_ms": 86.227,
+      "work_units": 1,
+      "p50_ms": 0.153,
+      "p95_ms": 0.305,
+      "p99_ms": 2.837,
+      "max_ms": 2.837,
+      "gcs": 0.0,
+      "gc_ms": 0.0
+    }
+  },
+  "comparison": {
+    "frame_batch_speedup": 4.68,
+    "frame_effect_reduction": 4.0,
+    "list_derive_speedup": 11.44,
+    "list_predicate_reduction": 9.9,
+    "csp_supersede_speedup": 1.23,
+    "csp_parse_reduction": 20.0,
+    "csp_p95_lateness_reduction": 72.71
+  },
+  "runs": [
+    {
+      "environment": {
+        "emacs_version": "31.1",
+        "system_type": "darwin",
+        "order": "baseline-first",
+        "ticks": 500,
+        "cycles": 1000,
+        "burst": 20
+      },
+      "results": [
+        {
+          "mode": "frame-unbatched",
+          "elapsed_ms": 265.34414291381836,
+          "gcs": 5,
+          "gc_ms": 82.556,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 1998,
+          "checksum": 443916658300423990304
+        },
+        {
+          "mode": "frame-batched",
+          "elapsed_ms": 60.0130558013916,
+          "gcs": 1,
+          "gc_ms": 14.573000000000002,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 500,
+          "checksum": 657478656
+        },
+        {
+          "mode": "list-imperative",
+          "elapsed_ms": 813.3571147918701,
+          "gcs": 17,
+          "gc_ms": 247.149,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 1000000,
+          "rows": 84000
+        },
+        {
+          "mode": "list-reactive",
+          "elapsed_ms": 66.3151741027832,
+          "gcs": 1,
+          "gc_ms": 12.697000000000013,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 101000,
+          "rows": 84000
+        },
+        {
+          "mode": "csp-unsuperseded",
+          "elapsed_ms": 105.82685470581055,
+          "gcs": 2,
+          "gc_ms": 27.264999999999983,
+          "probe": {
+            "samples": 41,
+            "p50": 3.5309791564941406,
+            "p95": 23.63443374633789,
+            "p99": 27.14228630065918,
+            "max": 27.14228630065918
+          },
+          "ticks": 20,
+          "work_units": 20,
+          "rows": 240000
+        },
+        {
+          "mode": "csp-superseded",
+          "elapsed_ms": 86.33613586425781,
+          "gcs": 0,
+          "gc_ms": 0.0,
+          "probe": {
+            "samples": 42,
+            "p50": 0.09799003601074219,
+            "p95": 0.30422210693359375,
+            "p99": 3.0753612518310547,
+            "max": 3.0753612518310547
+          },
+          "ticks": 20,
+          "work_units": 1,
+          "rows": 12000
+        }
+      ],
+      "process_resources": {
+        "wall_seconds": 2.073,
+        "user_cpu_seconds": 1.659,
+        "system_cpu_seconds": 0.12
+      }
+    },
+    {
+      "environment": {
+        "emacs_version": "31.1",
+        "system_type": "darwin",
+        "order": "optimized-first",
+        "ticks": 500,
+        "cycles": 1000,
+        "burst": 20
+      },
+      "results": [
+        {
+          "mode": "frame-batched",
+          "elapsed_ms": 58.077096939086914,
+          "gcs": 1,
+          "gc_ms": 13.931,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 500,
+          "checksum": 576738304
+        },
+        {
+          "mode": "frame-unbatched",
+          "elapsed_ms": 222.0449447631836,
+          "gcs": 5,
+          "gc_ms": 68.71100000000001,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 1998,
+          "checksum": 443912529731585272864
+        },
+        {
+          "mode": "list-reactive",
+          "elapsed_ms": 74.5089054107666,
+          "gcs": 1,
+          "gc_ms": 14.047000000000004,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 101000,
+          "rows": 84000
+        },
+        {
+          "mode": "list-imperative",
+          "elapsed_ms": 826.9569873809814,
+          "gcs": 17,
+          "gc_ms": 251.589,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 1000000,
+          "rows": 84000
+        },
+        {
+          "mode": "csp-superseded",
+          "elapsed_ms": 85.48903465270996,
+          "gcs": 0,
+          "gc_ms": 0.0,
+          "probe": {
+            "samples": 42,
+            "p50": 0.13971328735351562,
+            "p95": 0.30159950256347656,
+            "p99": 3.0851364135742188,
+            "max": 3.0851364135742188
+          },
+          "ticks": 20,
+          "work_units": 1,
+          "rows": 12000
+        },
+        {
+          "mode": "csp-unsuperseded",
+          "elapsed_ms": 110.62407493591309,
+          "gcs": 2,
+          "gc_ms": 28.125999999999983,
+          "probe": {
+            "samples": 44,
+            "p50": 3.501415252685547,
+            "p95": 17.01521873474121,
+            "p99": 23.292064666748047,
+            "max": 23.292064666748047
+          },
+          "ticks": 20,
+          "work_units": 20,
+          "rows": 240000
+        }
+      ],
+      "process_resources": {
+        "wall_seconds": 1.938,
+        "user_cpu_seconds": 1.62,
+        "system_cpu_seconds": 0.095
+      }
+    },
+    {
+      "environment": {
+        "emacs_version": "31.1",
+        "system_type": "darwin",
+        "order": "baseline-first",
+        "ticks": 500,
+        "cycles": 1000,
+        "burst": 20
+      },
+      "results": [
+        {
+          "mode": "frame-unbatched",
+          "elapsed_ms": 287.0810031890869,
+          "gcs": 5,
+          "gc_ms": 76.66799999999999,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 1998,
+          "checksum": 443917690147290442784
+        },
+        {
+          "mode": "frame-batched",
+          "elapsed_ms": 56.6411018371582,
+          "gcs": 1,
+          "gc_ms": 13.627,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 500,
+          "checksum": 2019578880
+        },
+        {
+          "mode": "list-imperative",
+          "elapsed_ms": 807.0600032806396,
+          "gcs": 17,
+          "gc_ms": 239.03400000000002,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 1000000,
+          "rows": 84000
+        },
+        {
+          "mode": "list-reactive",
+          "elapsed_ms": 68.86696815490723,
+          "gcs": 1,
+          "gc_ms": 13.129000000000001,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 101000,
+          "rows": 84000
+        },
+        {
+          "mode": "csp-unsuperseded",
+          "elapsed_ms": 104.9649715423584,
+          "gcs": 2,
+          "gc_ms": 26.33599999999997,
+          "probe": {
+            "samples": 41,
+            "p50": 3.4961700439453125,
+            "p95": 22.679567337036133,
+            "p99": 25.804519653320312,
+            "max": 25.804519653320312
+          },
+          "ticks": 20,
+          "work_units": 20,
+          "rows": 240000
+        },
+        {
+          "mode": "csp-superseded",
+          "elapsed_ms": 87.83483505249023,
+          "gcs": 0,
+          "gc_ms": 0.0,
+          "probe": {
+            "samples": 43,
+            "p50": 0.16641616821289062,
+            "p95": 0.30612945556640625,
+            "p99": 2.599000930786133,
+            "max": 2.599000930786133
+          },
+          "ticks": 20,
+          "work_units": 1,
+          "rows": 12000
+        }
+      ],
+      "process_resources": {
+        "wall_seconds": 1.966,
+        "user_cpu_seconds": 1.614,
+        "system_cpu_seconds": 0.095
+      }
+    },
+    {
+      "environment": {
+        "emacs_version": "31.1",
+        "system_type": "darwin",
+        "order": "optimized-first",
+        "ticks": 500,
+        "cycles": 1000,
+        "burst": 20
+      },
+      "results": [
+        {
+          "mode": "frame-batched",
+          "elapsed_ms": 91.67599678039551,
+          "gcs": 1,
+          "gc_ms": 21.498000000000005,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 500,
+          "checksum": 1731220480
+        },
+        {
+          "mode": "frame-unbatched",
+          "elapsed_ms": 345.9799289703369,
+          "gcs": 5,
+          "gc_ms": 110.701,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 500,
+          "work_units": 1998,
+          "checksum": 443913041595437116448
+        },
+        {
+          "mode": "list-reactive",
+          "elapsed_ms": 100.26097297668457,
+          "gcs": 1,
+          "gc_ms": 25.2,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 101000,
+          "rows": 84000
+        },
+        {
+          "mode": "list-imperative",
+          "elapsed_ms": 925.1749515533447,
+          "gcs": 17,
+          "gc_ms": 304.923,
+          "probe": {
+            "samples": 0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "ticks": 1000,
+          "work_units": 1000000,
+          "rows": 84000
+        },
+        {
+          "mode": "csp-superseded",
+          "elapsed_ms": 86.11702919006348,
+          "gcs": 0,
+          "gc_ms": 0.0,
+          "probe": {
+            "samples": 42,
+            "p50": 0.17213821411132812,
+            "p95": 0.45228004455566406,
+            "p99": 1.959085464477539,
+            "max": 1.959085464477539
+          },
+          "ticks": 20,
+          "work_units": 1,
+          "rows": 12000
+        },
+        {
+          "mode": "csp-unsuperseded",
+          "elapsed_ms": 107.08904266357422,
+          "gcs": 2,
+          "gc_ms": 27.083999999999996,
+          "probe": {
+            "samples": 42,
+            "p50": 3.51715087890625,
+            "p95": 21.673917770385742,
+            "p99": 23.669004440307617,
+            "max": 23.669004440307617
+          },
+          "ticks": 20,
+          "work_units": 20,
+          "rows": 240000
+        }
+      ],
+      "process_resources": {
+        "wall_seconds": 2.316,
+        "user_cpu_seconds": 1.671,
+        "system_cpu_seconds": 0.116
+      }
+    }
+  ]
+}

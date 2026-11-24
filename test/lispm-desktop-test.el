@@ -21074,6 +21074,24 @@ propagate deterministically."
                            '("boom"))))
         (funcall unsub)))))
 
+(ert-deftest lispm-desktop-test-frp-csp-benchmark-harness ()
+  "The FRP + CSP benchmark harness (`bench/frp-csp-benchmark.el') runs
+all three paired suites and verifies work-unit reductions."
+  (let ((lispm-desktop-bench-inhibit-autorun t))
+    (load (expand-file-name "bench/frp-csp-benchmark.el" lispm-desktop-directory) nil t))
+  (let ((unbatched (funcall (intern "lispm-desktop-bench--run-frame-case") 10 nil))
+        (batched (funcall (intern "lispm-desktop-bench--run-frame-case") 10 t))
+        (imperative (funcall (intern "lispm-desktop-bench--run-list-case") 20 nil))
+        (reactive (funcall (intern "lispm-desktop-bench--run-list-case") 20 t))
+        (unsuperseded (funcall (intern "lispm-desktop-bench--run-csp-case") 5 nil))
+        (superseded (funcall (intern "lispm-desktop-bench--run-csp-case") 5 t)))
+    (should (= (plist-get batched :work_units) 10))
+    (should (> (plist-get unbatched :work_units) (plist-get batched :work_units)))
+    (should (= (plist-get imperative :rows) (plist-get reactive :rows)))
+    (should (< (plist-get reactive :work_units) (plist-get imperative :work_units)))
+    (should (= (plist-get unsuperseded :work_units) 5))
+    (should (= (plist-get superseded :work_units) 1))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 
