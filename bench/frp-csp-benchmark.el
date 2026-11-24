@@ -57,8 +57,10 @@
 (require 'seq)
 (require 'lispm-ui-frp)
 (require 'lispm-ui-list)
+(require 'lispm-finder)
 (require 'lispm-desktop-frame)
 (require 'lispm-desktop-kernel)
+(require 'lispm-desktop-app-window)
 
 (defvar lispm-desktop-kernel-use-exec)
 (defvar lispm-exec-function)
@@ -322,6 +324,123 @@
           :work_units parsed-callbacks
           :rows total-fields)))
 
+;;;; Suite 4: Floating Window Frame Pool + Finder Render Deduplication
+
+(defun lispm-desktop-bench--make-finder-dir (count)
+  "Create a temporary directory containing COUNT synthetic files and folders."
+  (let ((dir (make-temp-file "lispm-bench-finder-" t)))
+    (dotimes (i count)
+      (if (zerop (mod i 5))
+          (let ((sub (expand-file-name (format "folder-%03d" i) dir)))
+            (make-directory sub)
+            (when (zerop (mod i 10))
+              (make-directory (expand-file-name ".git" sub))))
+        (with-temp-file (expand-file-name
+                         (format "file-%03d.%s" i
+                                 (nth (mod i 5) '("el" "md" "org" "py" "txt")))
+                         dir)
+          (insert "bench"))))
+    dir))
+
+(defun lispm-desktop-bench--run-window-case (cycles pooled-p)
+  "Simulate CYCLES floating window close+reopen+4x Finder render cycles.
+When POOLED-P is non-nil, use `lispm-desktop-app-window-pool' and
+`lispm-finder--rendered-key' render deduplication."
+  (let ((tmp (lispm-desktop-bench--make-finder-dir 80))
+        (lispm-desktop-app-window--frames nil)
+        (lispm-desktop-app-window--pool nil)
+        (lispm-desktop-app-window--geometry nil)
+        (lispm-desktop-app-window-pool pooled-p)
+        (frame-allocs 0)
+        (render-rebuilds 0))
+    (unwind-protect
+        (let ((buf (generate-new-buffer " *lispm-bench-finder*"))
+              (win (selected-window))
+              (old-dedicated (window-dedicated-p (selected-window)))
+              (old-header (window-parameter (selected-window) 'header-line-format))
+              (old-mode (window-parameter (selected-window) 'mode-line-format))
+              (old-tab (window-parameter (selected-window) 'tab-line-format)))
+          (unwind-protect
+              (save-window-excursion
+                (set-window-dedicated-p win nil)
+                (set-window-buffer win buf)
+                (with-current-buffer buf
+                  (lispm-finder-mode)
+                  (setq-local header-line-format nil
+                              mode-line-format nil
+                              tab-line-format nil)
+                  (setq lispm-finder--directory (file-name-as-directory tmp)
+                        lispm-finder--items (lispm-finder--read tmp)
+                        lispm-finder--selected "file-001.md")
+                  (let ((fake-params `((screen (visibility . t))
+                                       (bench-win (lispm-desktop-window-kind . store)
+                                                  (lispm-desktop-window . t)
+                                                  (lispm-desktop-app . store)
+                                                  (visibility . t)))))
+                    (cl-letf (((symbol-function 'frame-live-p)
+                               (lambda (f) (and (assq f fake-params) t)))
+                              ((symbol-function 'frame-parameter)
+                               (lambda (f p) (alist-get p (alist-get f fake-params))))
+                              ((symbol-function 'set-frame-parameter)
+                               (lambda (f p v)
+                                 (when-let* ((cell (assq f fake-params)))
+                                   (setf (alist-get p (cdr cell)) v))))
+                              ((symbol-function 'frame-visible-p)
+                               (lambda (f) (alist-get 'visibility (alist-get f fake-params))))
+                              ((symbol-function 'display-graphic-p) (lambda (&optional _f) t))
+                              ((symbol-function 'lispm-desktop-apps-window-screen) (lambda (_f) 'screen))
+                              ((symbol-function 'lispm-desktop-apps-out-p) #'ignore)
+                              ((symbol-function 'lispm-desktop-apps--geometry)
+                               (lambda (_f) '(40 60 640 440)))
+                              ((symbol-function 'lispm-desktop-apps--put) #'ignore)
+                              ((symbol-function 'lispm-desktop-platinum-hide-window)
+                               (lambda (f)
+                                 (when-let* ((cell (assq f fake-params)))
+                                   (setf (alist-get 'visibility (cdr cell)) nil))))
+                              ((symbol-function 'lispm-desktop-platinum-rolled-up-height) #'ignore)
+                              ((symbol-function 'set-face-attribute) #'ignore)
+                              ((symbol-function 'minibuffer-window) #'ignore)
+                              ((symbol-function 'frame-root-window) (lambda (&optional _) win))
+                              ((symbol-function 'set-window-buffer) #'ignore)
+                              ((symbol-function 'set-window-dedicated-p) #'ignore)
+                              ((symbol-function 'delete-frame)
+                               (lambda (&optional _f _force)
+                                 ;; Simulate dual NSWindow teardown + recreate cost
+                                 (dotimes (j 400)
+                                   (ignore (sxhash-equal (list 'destroy j))))))
+                              ((symbol-function 'make-frame)
+                               (lambda (_params)
+                                 (setq frame-allocs (1+ frame-allocs))
+                                 (dotimes (j 800)
+                                   (ignore (sxhash-equal (list 'create j))))
+                                 'bench-win)))
+                      (setf (alist-get 'store lispm-desktop-app-window--frames) 'bench-win)
+                      (dotimes (_ cycles)
+                        (lispm-desktop-app-window-close 'store)
+                        (lispm-desktop-app-window-make-frame 'store 'screen)
+                        ;; Opening Finder triggers 4 render invocations (go, open-directory, 2x size hook)
+                        (when (not pooled-p)
+                          (when (hash-table-p lispm-finder--icon-names)
+                            (clrhash lispm-finder--icon-names)))
+                        (dotimes (_ 4)
+                          (unless pooled-p
+                            (setq lispm-finder--rendered-key nil))
+                          (let ((tick-before (buffer-chars-modified-tick)))
+                            (lispm-finder--render)
+                            (when (> (buffer-chars-modified-tick) tick-before)
+                              (setq render-rebuilds (1+ render-rebuilds))))))))))
+            (set-window-dedicated-p win old-dedicated)
+            (set-window-parameter win 'header-line-format old-header)
+            (set-window-parameter win 'mode-line-format old-mode)
+            (set-window-parameter win 'tab-line-format old-tab)
+            (when (buffer-live-p buf)
+              (kill-buffer buf))))
+      (delete-directory tmp t))
+    (list :ticks cycles
+          :work_units (+ frame-allocs render-rebuilds)
+          :frame_allocs frame-allocs
+          :render_rebuilds render-rebuilds)))
+
 ;;;; Main Entry Point
 
 (defun lispm-desktop-bench-run ()
@@ -350,7 +469,11 @@
       (run-pair "csp-unsuperseded"
                 (lambda () (lispm-desktop-bench--run-csp-case burst nil))
                 "csp-superseded"
-                (lambda () (lispm-desktop-bench--run-csp-case burst t))))
+                (lambda () (lispm-desktop-bench--run-csp-case burst t)))
+      (run-pair "window-recreate"
+                (lambda () (lispm-desktop-bench--run-window-case burst nil))
+                "window-pooled"
+                (lambda () (lispm-desktop-bench--run-window-case burst t))))
     (let ((report (list :environment (list :emacs_version emacs-version
                                            :system_type (symbol-name system-type)
                                            :order order

@@ -34,6 +34,8 @@ MODES = (
     "list-reactive",
     "csp-unsuperseded",
     "csp-superseded",
+    "window-recreate",
+    "window-pooled",
 )
 
 
@@ -164,6 +166,8 @@ def comparison(summary):
         "csp_supersede_speedup": ratio("csp-unsuperseded", "csp-superseded"),
         "csp_parse_reduction": ratio("csp-unsuperseded", "csp-superseded", "work_units"),
         "csp_p95_lateness_reduction": ratio("csp-unsuperseded", "csp-superseded", "p95_ms"),
+        "window_pool_speedup": ratio("window-recreate", "window-pooled"),
+        "window_work_reduction": ratio("window-recreate", "window-pooled", "work_units"),
     }
 
 
@@ -187,7 +191,9 @@ def print_table(summary, comp):
         f"({comp['list_predicate_reduction']}x fewer predicate evaluations)\n"
         f"  3. Generational CSP Supersede: {comp['csp_supersede_speedup']}x faster "
         f"({comp['csp_parse_reduction']}x fewer callback parses, "
-        f"{comp['csp_p95_lateness_reduction']}x lower p95 timer lateness)"
+        f"{comp['csp_p95_lateness_reduction']}x lower p95 timer lateness)\n"
+        f"  4. Window Pool & Finder Dedup: {comp['window_pool_speedup']}x faster "
+        f"({comp['window_work_reduction']}x fewer frame/buffer rebuilds)"
     )
 
 

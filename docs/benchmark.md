@@ -51,6 +51,20 @@ quantiles.
      `lispm-desktop-kernel-exec` advances the owner's generation on each new
      request and drops stale in-flight completions in $O(1)$ before parsing.
 
+4. **Suite 4 — Floating Window Frame Pooling & Finder Render Deduplication
+   (`window-recreate` vs. `window-pooled`)**:
+   - **Workload.** 20 window close/reopen cycles over an 80-item Finder folder
+     where each window open invokes `lispm-finder--render` 4 times (initial
+     `lispm-finder--go`, `lispm-desktop-finder-open-directory`, and 2
+     `window-size-change-functions` callbacks as child and outer frames settle).
+   - **Invariant tested.** Without frame pooling and render deduplication,
+     closing and reopening a window destroys and recreates the frame 20 times
+     and rebuilds the Finder buffer 80 times (100 total rebuilds). With
+     `lispm-desktop-app-window-pool`, `lispm-finder--rendered-key`,
+     `lispm-finder--icon-names`, and `lispm-finder--fit-cache`, the pooled frame
+     is reused without `make-frame` (`0` frame allocations) and the Finder
+     buffer renders once (`1` work unit vs. `100`).
+
 - **Repetition & Order Alternation.** Four batch Emacs runs (`BENCH_REPEATS=4`),
   alternating `baseline-first` and `optimized-first` so neither variant benefits
   from warm allocator state more often. All figures below are the medians across
@@ -64,20 +78,23 @@ Medians of 4 runs, milliseconds. Raw data is recorded in
 
 | mode | elapsed (ms) | work units | p50 (ms) | p95 (ms) | p99 (ms) | max (ms) | Emacs GCs | GC time (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `frame-unbatched` | 276.21 | 1,998 renders | 0.00 | 0.00 | 0.00 | 0.00 | 5.0 | 79.61 |
-| `frame-batched` | **59.05** | **500 renders** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **14.25** |
-| `list-imperative` | 820.16 | 1,000,000 predicates | 0.00 | 0.00 | 0.00 | 0.00 | 17.0 | 249.37 |
-| `list-reactive` | **71.69** | **101,000 predicates** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **13.59** |
-| `csp-unsuperseded` | 106.46 | 20 callback parses | 3.51 | 22.18 | 24.74 | 24.74 | 2.0 | 27.17 |
-| `csp-superseded` | **86.23** | **1 callback parse** | **0.15** | **0.31** | **2.84** | **2.84** | **0.0** | **0.00** |
+| `frame-unbatched` | 202.87 | 1,998 renders | 0.00 | 0.00 | 0.00 | 0.00 | 4.0 | 53.30 |
+| `frame-batched` | **57.59** | **500 renders** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **13.56** |
+| `list-imperative` | 679.65 | 1,000,000 predicates | 0.00 | 0.00 | 0.00 | 0.00 | 13.0 | 175.60 |
+| `list-reactive` | **66.31** | **101,000 predicates** | 0.00 | 0.00 | 0.00 | 0.00 | **1.0** | **13.21** |
+| `csp-unsuperseded` | 93.20 | 20 callback parses | 3.21 | 13.83 | 17.55 | 17.55 | 1.0 | 13.38 |
+| `csp-superseded` | **85.76** | **1 callback parse** | **0.11** | **0.30** | **3.12** | **3.12** | **0.0** | **0.00** |
+| `window-recreate` | 676.61 | 100 frame/buffer rebuilds | 0.00 | 0.00 | 0.00 | 0.00 | 7.0 | 102.77 |
+| `window-pooled` | **90.26** | **1 buffer build (0 frame allocs)** | 0.00 | 0.00 | 0.00 | 0.00 | **0.0** | **0.00** |
 
 ### Summary of Speedups
 
 | Architectural Mechanism | Wall-Clock Speedup | Work Reduction | GC Reduction | Responsiveness (p95 Lateness) |
 |---|---:|---:|---:|---:|
-| **Frame-Synced FRP Batching** (`lispm-desktop-frame--tick`) | **4.68x faster** (276.2 ms → 59.0 ms) | **4.0x fewer** renders (1,998 → 500) | **5.0x fewer GCs** (79.6 ms → 14.3 ms) | Glitch-free single commit per frame |
-| **Relational List Derivation** (`lispm-ui-list-derive`) | **11.44x faster** (820.2 ms → 71.7 ms) | **9.9x fewer** predicate evaluations | **17.0x fewer GCs** (249.4 ms → 13.6 ms) | $O(1)$ signal read when unchanged |
-| **Generational CSP Preemption** (`lispm-desktop-kernel-exec :supersede t`) | **1.23x faster** (106.5 ms → 86.2 ms) | **20.0x fewer** callback parses (20 → 1) | **Eliminated GCs** (2.0 → 0.0) | **72.71x lower p95 wait** (22.18 ms → 0.31 ms) |
+| **Frame-Synced FRP Batching** (`lispm-desktop-frame--tick`) | **3.52x faster** (202.9 ms → 57.6 ms) | **4.0x fewer** renders (1,998 → 500) | **4.0x fewer GCs** (53.3 ms → 13.6 ms) | Glitch-free single commit per frame |
+| **Relational List Derivation** (`lispm-ui-list-derive`) | **10.25x faster** (679.7 ms → 66.3 ms) | **9.9x fewer** predicate evaluations | **13.0x fewer GCs** (175.6 ms → 13.2 ms) | $O(1)$ signal read when unchanged |
+| **Generational CSP Preemption** (`lispm-desktop-kernel-exec :supersede t`) | **1.09x faster** (93.2 ms → 85.8 ms) | **20.0x fewer** callback parses (20 → 1) | **Eliminated GCs** (1.0 → 0.0) | **46.56x lower p95 wait** (13.83 ms → 0.30 ms) |
+| **Window Frame Pool & Finder Render Dedup** (`lispm-desktop-app-window-pool`) | **7.50x faster** in batch (**13x–46x faster** in live AppKit GUI: 220–430 ms → 7–16 ms) | **100.0x fewer** frame/buffer rebuilds (100 → 1) | **Eliminated GCs** (7.0 → 0.0) | Zero `NSWindow` teardown/recreate on reopen |
 
 ## Reproducing
 

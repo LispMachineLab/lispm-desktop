@@ -62,6 +62,16 @@ See `lispm-desktop-app-window-define'.")
 (defvar lispm-desktop-app-window--frames nil
   "The floating windows open: (ID . FRAME).")
 
+(defvar lispm-desktop-app-window--pool nil
+  "Hidden floating windows kept warm for instant reopen: (ID . FRAME).")
+
+(defcustom lispm-desktop-app-window-pool t
+  "Non-nil keeps closed floating application windows in a hidden frame pool.
+Reopening a pooled window reuses its existing graphical child frame and
+Platinum border frame instead of destroying and recreating `NSWindow's."
+  :type 'boolean
+  :group 'lispm-desktop)
+
 (defvar lispm-desktop-app-window--geometry nil
   "Where each kind's window was last: (ID LEFT TOP WIDTH HEIGHT).")
 
@@ -196,13 +206,42 @@ else its kind's :name in the language LispM speaks, else ID's name."
         (lispm-desktop-tr english))
       (symbol-name id)))
 
+(defun lispm-desktop-app-window--poolable-p (id frame)
+  "Return non-nil when FRAME of kind ID can be parked in the hidden frame pool."
+  (and lispm-desktop-app-window-pool
+       id
+       (not (memq id '(editor browser)))
+       (frame-live-p frame)
+       (ignore-errors (display-graphic-p frame))
+       (not (lispm-desktop-apps-out-p frame))))
+
+(defun lispm-desktop-app-window--take-pooled (id screen name place)
+  "Pop and reconfigure a pooled frame for kind ID on SCREEN at PLACE, or nil."
+  (when-let* ((pooled (alist-get id lispm-desktop-app-window--pool)))
+    (setq lispm-desktop-app-window--pool
+          (assq-delete-all id lispm-desktop-app-window--pool))
+    (if (and (frame-live-p pooled)
+             (eq (lispm-desktop-apps-window-screen pooled) screen)
+             (not (lispm-desktop-apps-out-p pooled)))
+        (progn
+          (set-frame-parameter pooled 'lispm-desktop-pooled nil)
+          (set-frame-parameter pooled 'lispm-desktop-app-ui-fitted nil)
+          (set-frame-parameter pooled 'name (lispm-desktop-app-window--name id name))
+          (set-face-attribute 'internal-border pooled :background (lispm-ui-color :chrome))
+          (lispm-desktop-apps--put pooled place)
+          (setf (alist-get id lispm-desktop-app-window--frames) pooled)
+          pooled)
+      (when (frame-live-p pooled)
+        (delete-frame pooled))
+      nil)))
+
 (defun lispm-desktop-app-window-make-frame (id screen &optional name size)
   "Return a new window of kind ID over SCREEN's desktop, not yet shown.
 It opens where the window of its kind was last, else where its kind puts
 it first.  NAME and SIZE stand in for the kind's :name and :size."
   (pcase-let* ((given (or size (lispm-desktop-app-window--get id :size)))
                (size (or given lispm-desktop-app-window-size))
-               (`(,left ,top ,width ,height)
+               (place
                 (or (alist-get id lispm-desktop-app-window--geometry)
                     ;; A kind's place is reckoned in pixels.
                     (and (lispm-desktop-tty-p screen)
@@ -210,44 +249,46 @@ it first.  NAME and SIZE stand in for the kind's :name and :size."
                     (if-let* ((geometry (lispm-desktop-app-window--get id :geometry)))
                         (funcall geometry screen)
                       (lispm-desktop-app-window--cascade screen (car size) (cdr size)))))
-               (frame (let ((after-make-frame-functions nil)
-                            (before-make-frame-hook nil))
-                        (make-frame
-                         `((parent-frame . ,screen)
-                           (minibuffer . ,(minibuffer-window screen))
-                           (name . ,(lispm-desktop-app-window--name id name))
-                           (lispm-desktop-app . ,(lispm-desktop-app-window--app id))
-                           (lispm-desktop-window-kind . ,id)
-                           ,@(when (eq (lispm-desktop-app-window--get id :documents) 'keep)
-                               `((lispm-desktop-app-window . ,id)))
-                           ,@(when-let* ((close (lispm-desktop-app-window--get id :close)))
-                               `((lispm-desktop-close-function . ,close)))
-                           ,@(lispm-desktop-app-window--get id :params)
-                           (lispm-desktop-window . t) (top-visible . 30)
-                           (undecorated . t) (visibility . nil)
-                           (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
-                           (menu-bar-lines . 0) (tool-bar-lines . 0)
-                           (internal-border-width . 0)
-                           (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
-                           (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
-                           (user-position . t)
-                           (left . ,left) (top . ,top)
-                           (width . (text-pixels . ,width))
-                           (height . (text-pixels . ,height)))))))
-    (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
-    (setf (alist-get id lispm-desktop-app-window--frames) frame)
-    (let ((window (frame-root-window frame)))
-      (cond ((lispm-desktop-app-window--get id :buffer)
-             (set-window-buffer window (funcall (lispm-desktop-app-window--get id :buffer)))
-             (set-window-dedicated-p window t))
-            ;; A new frame shows some buffer of before, of another
-            ;; application perhaps: an application's shows the blank one
-            ;; until it is filled.
-            ((eq (lispm-desktop-app-window--get id :documents) 'keep)
-             (set-window-buffer window (lispm-desktop-app-window-blank)))))
-    (when-let* ((after-make (lispm-desktop-app-window--get id :after-make)))
-      (funcall after-make frame))
-    frame))
+               (`(,left ,top ,width ,height) place))
+    (or (lispm-desktop-app-window--take-pooled id screen name place)
+        (let ((frame (let ((after-make-frame-functions nil)
+                           (before-make-frame-hook nil))
+                       (make-frame
+                        `((parent-frame . ,screen)
+                          (minibuffer . ,(minibuffer-window screen))
+                          (name . ,(lispm-desktop-app-window--name id name))
+                          (lispm-desktop-app . ,(lispm-desktop-app-window--app id))
+                          (lispm-desktop-window-kind . ,id)
+                          ,@(when (eq (lispm-desktop-app-window--get id :documents) 'keep)
+                              `((lispm-desktop-app-window . ,id)))
+                          ,@(when-let* ((close (lispm-desktop-app-window--get id :close)))
+                              `((lispm-desktop-close-function . ,close)))
+                          ,@(lispm-desktop-app-window--get id :params)
+                          (lispm-desktop-window . t) (top-visible . 30)
+                          (undecorated . t) (visibility . nil)
+                          (tab-bar-lines . 0) (tab-bar-lines-keep-state . t)
+                          (menu-bar-lines . 0) (tool-bar-lines . 0)
+                          (internal-border-width . 0)
+                          (child-frame-border-width . ,(lispm-desktop-platinum-window-border))
+                          (no-other-frame . t) (skip-taskbar . t) (desktop-dont-save . t)
+                          (user-position . t)
+                          (left . ,left) (top . ,top)
+                          (width . (text-pixels . ,width))
+                          (height . (text-pixels . ,height)))))))
+          (set-face-attribute 'internal-border frame :background (lispm-ui-color :chrome))
+          (setf (alist-get id lispm-desktop-app-window--frames) frame)
+          (let ((window (frame-root-window frame)))
+            (cond ((lispm-desktop-app-window--get id :buffer)
+                   (set-window-buffer window (funcall (lispm-desktop-app-window--get id :buffer)))
+                   (set-window-dedicated-p window t))
+                  ;; A new frame shows some buffer of before, of another
+                  ;; application perhaps: an application's shows the blank one
+                  ;; until it is filled.
+                  ((eq (lispm-desktop-app-window--get id :documents) 'keep)
+                   (set-window-buffer window (lispm-desktop-app-window-blank)))))
+          (when-let* ((after-make (lispm-desktop-app-window--get id :after-make)))
+            (funcall after-make frame))
+          frame))))
 
 (defun lispm-desktop-app-window-blank ()
   "Return the blank buffer a new window opens on, before it is filled."
@@ -420,7 +461,14 @@ passes on only when the window had it, and the desktop comes in front
 only when ID's application was."
   (when-let* ((frame (lispm-desktop-app-window-frame id)))
     (lispm-desktop-app-window--retire frame)
-    (delete-frame frame)))
+    (if (lispm-desktop-app-window--poolable-p id frame)
+        (let ((old (alist-get id lispm-desktop-app-window--pool)))
+          (when (and (frame-live-p old) (not (eq old frame)))
+            (delete-frame old))
+          (set-frame-parameter frame 'lispm-desktop-pooled t)
+          (setf (alist-get id lispm-desktop-app-window--pool) frame)
+          (lispm-desktop-platinum-hide-window frame))
+      (delete-frame frame))))
 
 (defvar lispm-desktop-app-ui--app)
 (defvar lispm-desktop-app-ui--buffers)
@@ -435,12 +483,13 @@ only when ID's application was."
 Unlike `lispm-desktop-app-window-close', which remembers the window's geometry
 and keeps its buffers alive for the next open, this destroys the frame, clears
 its saved geometry, and kills its buffers so reopening starts fresh."
-  (let* ((frame (if (framep id-or-frame)
-                    id-or-frame
-                  (lispm-desktop-app-window-frame id-or-frame)))
-         (id (if (framep id-or-frame)
+  (let* ((id (if (framep id-or-frame)
                  (lispm-desktop-app-window-id id-or-frame)
                id-or-frame))
+         (pooled (and id (alist-get id lispm-desktop-app-window--pool)))
+         (frame (cond ((framep id-or-frame) id-or-frame)
+                      ((lispm-desktop-app-window-frame id-or-frame))
+                      ((and (frame-live-p pooled) pooled))))
          (app (and id (lispm-desktop-app-window--app id)))
          (keep (list (bound-and-true-p lispm-desktop-buffer-name)
                      (bound-and-true-p lispm-desktop-empty-buffer-name)
@@ -483,6 +532,11 @@ its saved geometry, and kills its buffers so reopening starts fresh."
             (when (frame-live-p frame)
               (delete-frame frame)))
           (when id
+            (when-let* ((parked (alist-get id lispm-desktop-app-window--pool)))
+              (setq lispm-desktop-app-window--pool
+                    (assq-delete-all id lispm-desktop-app-window--pool))
+              (when (frame-live-p parked)
+                (delete-frame parked)))
             (setq lispm-desktop-app-window--geometry
                   (assq-delete-all id lispm-desktop-app-window--geometry)))
           (when (and app (boundp 'lispm-desktop-app-ui--buffers))
@@ -526,6 +580,10 @@ This is the frame parameter `lispm-desktop-close-function' of the windows."
   "Forget FRAME once deleted otherwise than by its close box, as with
 \\[delete-frame], as its close box would.
 This is one of `delete-frame-functions'."
+  (when-let* ((id (lispm-desktop-app-window-id frame))
+              ((eq (alist-get id lispm-desktop-app-window--pool) frame)))
+    (setq lispm-desktop-app-window--pool
+          (assq-delete-all id lispm-desktop-app-window--pool)))
   (lispm-desktop-app-window--retire frame))
 
 ;;;; With the application in front

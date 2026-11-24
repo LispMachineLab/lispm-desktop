@@ -696,7 +696,8 @@ enabled or a frame was deleted, every floating window is."
   (if (and (framep frame) (frame-live-p frame))
       (when-let* ((window (if (frame-parameter frame 'lispm-desktop-window)
                               frame
-                            (lispm-desktop-platinum-window-frame-p frame))))
+                            (lispm-desktop-platinum-window-frame-p frame)))
+                  ((not (frame-parameter window 'lispm-desktop-pooled))))
         (lispm-desktop-platinum-frame-update window))
     (dolist (frame (frame-list))
       (cond ((frame-parameter frame 'lispm-desktop-platinum-frames)
@@ -704,7 +705,8 @@ enabled or a frame was deleted, every floating window is."
                (let ((buffer (window-buffer (frame-root-window frame))))
                  (delete-frame frame t)
                  (kill-buffer buffer))))
-            ((frame-parameter frame 'lispm-desktop-window)
+            ((and (frame-parameter frame 'lispm-desktop-window)
+                  (not (frame-parameter frame 'lispm-desktop-pooled)))
              (lispm-desktop-platinum-frame-update frame))))))
 
 (defun lispm-desktop-platinum--frame-moved (frame)

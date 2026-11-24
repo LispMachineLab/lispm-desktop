@@ -253,8 +253,9 @@
 (defun lispm-desktop-finder--closed ()
   "Forget the Finder window once it closed."
   (setq lispm-finder--had-focus nil)
-  (when-let* ((buffer (get-buffer lispm-finder-buffer-name)))
-    (kill-buffer buffer)))
+  (unless (and lispm-desktop-app-window-pool (display-graphic-p))
+    (when-let* ((buffer (get-buffer lispm-finder-buffer-name)))
+      (kill-buffer buffer))))
 
 (lispm-desktop-app-window-define 'finder
   :app 'desktop :name "Finder" :geometry #'lispm-desktop-finder--default-geometry

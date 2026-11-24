@@ -1355,7 +1355,7 @@ held several panes runs its :restore, :run or COMMAND so all of its
 panes come back.  What it needs and lacks is offered first."
   (lispm-desktop-needs-refresh (lispm-desktop-app-ui-needs app))
   (unless noninteractive
-    (lispm-desktop-app-ui--offer-missing app))
+    (run-at-time 0 nil #'lispm-desktop-app-ui--offer-missing app))
   (when (eq app 'comfyui)
     (dolist (buf (buffer-list))
       (when (and (buffer-live-p buf)
