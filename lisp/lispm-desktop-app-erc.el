@@ -55,6 +55,8 @@
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-app-chat)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-ask)
+(require 'lispm-ui-form)
 
 ;; ERC's own variables and functions, read once it runs.
 (defvar erc-server-process)
@@ -296,11 +298,14 @@ current ERC buffer, or the only one connected; nil when it cannot tell."
 where the line point is on does not say."
   (or (when-let* ((server (lispm-desktop-app-erc--server-here)))
         (and (erc-server-process-alive server) server))
-      (let ((live (mapcar (lambda (server) (cons (lispm-desktop-app-erc-network-name server) server))
+      (let ((live (mapcar (lambda (server) (cons server (lispm-desktop-app-erc-network-name server)))
                           (lispm-desktop-app-erc--live-servers))))
         (unless live
           (user-error (lispm-desktop-tr "ERC is connected to no network")))
-        (cdr (assoc (completing-read prompt live nil t) live)))))
+        (if-let* ((chosen (lispm-ui-choose live nil nil
+                                           (string-trim-right prompt "[ \t]*:?[ \t]*"))))
+            (car chosen)
+          (signal 'quit nil)))))
 
 ;;;; Commands
 
@@ -328,19 +333,44 @@ its buffer opened but not shown, nor left current, as ERC leaves it."
              :server (plist-get network :server) :port (plist-get network :port)
              :nick (plist-get network :nick) nil))))
 
+(defun lispm-desktop-app-erc--read-connect ()
+  "Ask server, port and nick for `lispm-desktop-app-erc-connect'."
+  (let* ((default-server (car lispm-desktop-app-erc-servers))
+         (kept (lispm-desktop-app-erc--network default-server))
+         (default-port (or (plist-get kept :port) 6697))
+         (default-nick (or (plist-get kept :nick) (bound-and-true-p erc-nick) (user-login-name))))
+    (if (or (bound-and-true-p lispm-ui-form-modal-function)
+            (lispm-ui-popup-available-p))
+        (let* ((port-label (string-trim-right (lispm-desktop-tr "Port: ") "[ \t]*:?[ \t]*"))
+               (values (lispm-ui-form-modal
+                        (lispm-desktop-tr "Connect to the IRC server")
+                        `((server :type text :label ,(lispm-desktop-tr "Connect to the IRC server")
+                                  :value ,default-server :required t)
+                          (port :type text :label ,port-label
+                                :value ,(number-to-string default-port) :required t
+                                :validate ,(lambda (val)
+                                             (unless (string-match-p "\\`[0-9]+\\'" (or val ""))
+                                               port-label)))
+                          (nick :type text :label ,(lispm-desktop-tr "Nickname")
+                                :value ,default-nick :required t))
+                        :submit (lispm-desktop-tr "Connect"))))
+          (list (string-trim (or (alist-get 'server values) ""))
+                (string-to-number (or (alist-get 'port values) (number-to-string default-port)))
+                (string-trim (or (alist-get 'nick values) ""))))
+      (let* ((server (string-trim (lispm-ui-read-string
+                                    (lispm-desktop-tr "Connect to the IRC server")
+                                    :default default-server
+                                    :choices lispm-desktop-app-erc-servers)))
+             (kept (lispm-desktop-app-erc--network server))
+             (port (lispm-ui-read-number (lispm-desktop-tr "Port: ") (or (plist-get kept :port) 6697)))
+             (default (or (plist-get kept :nick) (bound-and-true-p erc-nick) (user-login-name)))
+             (nick (string-trim (lispm-ui-read-string (lispm-desktop-tr "Nickname") :default default))))
+        (list server port nick)))))
+
 (defun lispm-desktop-app-erc-connect (server port nick)
   "Connect to the IRC SERVER at PORT, with TLS but on 6667, as NICK; and
 keep them, to connect again as ERC's window opens."
-  (interactive
-   (let* ((server (string-trim (completing-read (format-prompt (lispm-desktop-tr "Connect to the IRC server")
-                                                               (car lispm-desktop-app-erc-servers))
-                                                lispm-desktop-app-erc-servers nil nil nil nil
-                                                (car lispm-desktop-app-erc-servers))))
-          (kept (lispm-desktop-app-erc--network server))
-          (port (read-number (lispm-desktop-tr "Port: ") (or (plist-get kept :port) 6697)))
-          (default (or (plist-get kept :nick) (bound-and-true-p erc-nick) (user-login-name)))
-          (nick (string-trim (read-string (format-prompt (lispm-desktop-tr "Nickname") default) nil nil default))))
-     (list server port nick)))
+  (interactive (lispm-desktop-app-erc--read-connect))
   (lispm-desktop-app-erc--set-up)
   (let ((network (list :server server :port port :tls (/= port 6667) :nick nick)))
     (lispm-desktop-app-erc--remember network)
@@ -359,7 +389,7 @@ with a channel's prefix already, as #emacs, &local or ##lispm."
 (defun lispm-desktop-app-erc-join (channel)
   "Join CHANNEL on the network of the line point is on, or of the current
 channel, and show it in this window once joined."
-  (interactive (list (lispm-desktop-app-erc-channel-name (read-string (lispm-desktop-tr "Join the channel: ")))))
+  (interactive (list (lispm-desktop-app-erc-channel-name (lispm-ui-read-string (lispm-desktop-tr "Join the channel: ")))))
   (let ((server (lispm-desktop-app-erc--read-server (lispm-desktop-tr "Join on the network: "))))
     (setq lispm-desktop-app-erc--opening (cons channel (selected-window)))
     (with-current-buffer server
@@ -420,7 +450,7 @@ its channels, and connect to it no more as ERC's window opens."
   (let* ((server (or (lispm-desktop-app-erc--server-here) (user-error (lispm-desktop-tr "No network here"))))
          (name (lispm-desktop-app-erc-network-name server))
          (host (buffer-local-value 'erc-session-server server)))
-    (when (y-or-n-p (lispm-desktop-tr "Forget %s, closing its channels? " name))
+    (when (lispm-ui-confirm (string-trim-right (lispm-desktop-tr "Forget %s, closing its channels? " name)))
       (lispm-desktop-app-erc--keep (seq-remove (lambda (network)
                                                  (string-equal-ignore-case (plist-get network :server) host))
                                                lispm-desktop-app-erc-networks))

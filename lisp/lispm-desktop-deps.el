@@ -87,7 +87,7 @@ while LispM Kit, which translates them, is being installed."
 (defconst lispm-desktop-deps
   '((lispm-ui :url "https://github.com/LispMachineLab/lispm-ui" :checkout "lispm-ui"
               ;; Its palette, drawing, icons, alerts, menus, fields, Kit, Finder, and Prebuilt.
-              :needs "lispm-finder" :version "0.11.0")
+              :needs "lispm-finder" :version "0.12.0")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
            ;; Agent owns project views and their optional renderer dispatch.

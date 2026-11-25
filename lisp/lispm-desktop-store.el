@@ -134,6 +134,7 @@
 (require 'delsel)
 (require 'lispm-desktop-core)
 (require 'lispm-desktop-platinum)
+(require 'lispm-ui-ask)
 (require 'lispm-ui-modal)
 (require 'lispm-desktop-apps)
 (require 'lispm-desktop-app-window)
@@ -151,7 +152,6 @@
 
 (declare-function lispm-desktop-kernel-exec "lispm-desktop-kernel" (program args callback &rest keys))
 
-(declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-ui-menu "lispm-ui-menu" (items &optional x y align))
 (declare-function lispm-desktop-popup-frame-xy "lispm-desktop-popup" (position))
 (declare-function lispm-desktop-finder-open-directory "lispm-desktop-finder" (directory))
@@ -462,7 +462,10 @@ the icons it names, as the App Store reads it and as LispMachineLab's
 lispm-store checks its own, see lispm-desktop-catalog.el; return the
 problems, (SEVERITY . TEXT)s.  An error keeps an item out of the App
 Store; a warning says what the catalog should say besides."
-  (interactive (list (read-directory-name (lispm-desktop-tr "Check the catalog in: ") nil nil t)))
+  (interactive
+   (list (or (lispm-ui-choose-directory
+              :title (string-trim-right (lispm-desktop-tr "Check the catalog in: ") "[ \t]*:?[ \t]*"))
+             (signal 'quit nil))))
   (let ((problems (condition-case err
                       (lispm-desktop-catalog-problems (lispm-desktop-catalog-read directory) directory)
                     (error (list (cons 'error (error-message-string err)))))))
@@ -2273,8 +2276,9 @@ Its command opening it is read; it is pinned to the clone's commit."
          (lisp-dir (let ((directory (file-relative-name (file-name-directory main) repository)))
                      (unless (equal directory "./") (directory-file-name directory))))
          (rev (lispm-desktop-store--git repository "rev-parse" "HEAD"))
-         (command (completing-read (lispm-desktop-tr "Command opening %s: " name)
-                                   (lispm-desktop-store--autoloaded-commands main)))
+         (command (lispm-ui-read-string
+                   (lispm-desktop-tr "Command opening %s: " name)
+                   :choices (lispm-desktop-store--autoloaded-commands main)))
          (props `(:kind app :name ,(capitalize (symbol-name name))
                   :description ,(lispm-desktop-tr "Installed from %s." url)
                   :command ,(intern command)
@@ -2292,7 +2296,7 @@ A repository holding a catalog.eld is a catalog, which joins the App
 Store's; any other is an Emacs package, installed as an application
 pinned to its newest commit.  The repository is looked at in the
 background; what goes wrong is said in an alert."
-  (interactive (list (read-string (lispm-desktop-tr "Install from git URL: "))))
+  (interactive (list (lispm-ui-read-string (lispm-desktop-tr "Install from git URL: "))))
   (when (string-blank-p url)
     (user-error (lispm-desktop-tr "No URL")))
   (let ((directory (make-temp-file "lispm-desktop-store-" t))
@@ -2565,10 +2569,12 @@ Store's window when that is current, else one read with PROMPT."
              (and id (or (null predicate) (funcall predicate id)) id)))
       (let* ((items (seq-filter (lambda (item) (or (null predicate) (funcall predicate (car item))))
                                 (lispm-desktop-store-items)))
-             (names (mapcar (lambda (item) (cons (plist-get (cdr item) :name) (car item))) items)))
-        (unless names
+             (choices (mapcar (lambda (item) (cons (car item) (plist-get (cdr item) :name))) items)))
+        (unless choices
           (user-error (lispm-desktop-tr "There is nothing to choose from")))
-        (cdr (assoc (completing-read prompt names nil t) names)))))
+        (if-let* ((chosen (lispm-ui-choose choices nil nil (string-trim-right prompt "[ \t]*:?[ \t]*"))))
+            (car chosen)
+          (signal 'quit nil)))))
 
 ;;;;; What shows
 
@@ -4397,9 +4403,13 @@ item's page, its next page or its previous one."
 in the grid; the search field empties."
   (interactive (list (lispm-desktop-store--in-window
                       (lambda ()
-                        (let ((names (mapcar (pcase-lambda (`(,category ,name . ,_)) (cons name category))
-                                             (lispm-desktop-store--categories))))
-                          (cdr (assoc (completing-read (lispm-desktop-tr "Category: ") names nil t) names)))))))
+                        (let ((choices (mapcar (pcase-lambda (`(,category ,name . ,_)) (cons category name))
+                                               (lispm-desktop-store--categories))))
+                          (if-let* ((chosen (lispm-ui-choose
+                                             choices lispm-desktop-store--category nil
+                                             (string-trim-right (lispm-desktop-tr "Category: ") "[ \t]*:?[ \t]*"))))
+                              (car chosen)
+                            (signal 'quit nil)))))))
   (lispm-desktop-store--in-window
    (lambda ()
      (setq lispm-desktop-store--category category
@@ -4601,8 +4611,12 @@ one, or the one chosen of them."
                    (user-error (lispm-desktop-tr "This page has no links")))))
     (lispm-desktop-store--open-url
      (if (cdr links)
-         (let ((choices (mapcar (pcase-lambda (`(,words . ,url)) (cons (format "%s  %s" words url) url)) links)))
-           (cdr (assoc (completing-read (lispm-desktop-tr "Open link: ") choices nil t) choices)))
+         (let ((choices (mapcar (pcase-lambda (`(,words . ,url)) (cons url (format "%s  %s" words url))) links)))
+           (if-let* ((chosen (lispm-ui-choose
+                              choices nil nil
+                              (string-trim-right (lispm-desktop-tr "Open link: ") "[ \t]*:?[ \t]*"))))
+               (car chosen)
+             (signal 'quit nil)))
        (cdar links)))))
 
 (defun lispm-desktop-store-install-missing ()

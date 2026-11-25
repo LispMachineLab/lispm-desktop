@@ -83,6 +83,7 @@
 (require 'lispm-desktop-app-board)
 (require 'lispm-desktop-needs)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-ask)
 
 (defvar evil-emacs-state-cursor)
 (defvar evil-normal-state-cursor)
@@ -1298,8 +1299,8 @@ buffer so the application's frame can close."
      ((eq app 'comfyui)
       (with-current-buffer buffer
         (when (or (not (bound-and-true-p lispm-comfyui--modified))
-                  (yes-or-no-p (format "The workflow %s has changes not saved; let them go? "
-                                       (or (bound-and-true-p lispm-comfyui--name) "Untitled"))))
+                  (lispm-ui-confirm (format "The workflow %s has changes not saved; let them go?"
+                                            (or (bound-and-true-p lispm-comfyui--name) "Untitled"))))
           (with-selected-window window
             (let ((old (current-buffer)))
               (dolist (buf (buffer-list))
