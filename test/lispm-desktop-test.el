@@ -100,8 +100,8 @@ local settings, or in its old global configuration other than the default
                              (setq command program)
                              (get-buffer-create " *lispm-desktop-test-launch*"))))
                   (unwind-protect
-                      (lispm-agents--launch 'claude project "lispm-desktop-test-launch"
-                                            '("--session-id" "x"))
+                      (lispm-agents-launch 'claude project "lispm-desktop-test-launch"
+                                           '("--session-id" "x"))
                     (kill-buffer " *lispm-desktop-test-launch*"))))
               (should (equal command `("claude" ,@auto "--session-id" "x")))))
         (delete-directory home t)))))
@@ -8998,7 +8998,7 @@ runs on; showing archived sessions shows it as running again."
               (setq major-mode 'lispm-desktop-term-mode
                     default-directory "/tmp/project/"
                     lispm-agents-buffer-session-id "0199"))
-            (lispm-agents--set-archived '(:agent codex :id "0199") t)
+            (lispm-agents-set-archived '(:agent codex :id "0199") t)
             (with-current-buffer (get-buffer-create lispm-desktop-agent-list-buffer-name)
               (unwind-protect
                   (cl-flet ((text () (buffer-substring-no-properties (point-min) (point-max))))
@@ -9105,7 +9105,7 @@ repeated state changes and transcript updates do not move it."
                                     :state 'idle :attended nil)))
     (unwind-protect
         (dlet ((lispm-agents-changed-hook nil))
-          (lispm-agents--set-archived session t)
+          (lispm-agents-set-archived session t)
           (lispm-desktop-lispm--changed agent)
           (should (lispm-agents-archived-p session))
           (setf (lispm-agent-state agent) 'acting)
@@ -20376,7 +20376,7 @@ application items."
               ((symbol-function 'lispm-system-agent) (lambda () 'fake-system-agent))
               ((symbol-function 'lispm-system-agent-p)
                (lambda (a) (eq a 'fake-system-agent)))
-              ((symbol-function 'lispm-bar--asked-state)
+              ((symbol-function 'lispm-bar-asked-state)
                (lambda (_a) (if fake-reply 'done 'working)))
               ((symbol-function 'lispm-bar--reply-text)
                (lambda (_a) fake-reply))
@@ -20428,7 +20428,7 @@ application items."
         (lispm-bar--asked nil)
         (lispm-bar--reply nil))
     (lispm-bar-ready-p)
-    (lispm-bar--gather)
+    (lispm-bar-gather)
     (lispm-bar--set-text "Browser")
     (should (= lispm-bar--choice 0))
     (let ((rendered (substring-no-properties (lispm-bar--text))))

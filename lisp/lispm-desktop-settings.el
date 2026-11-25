@@ -184,9 +184,9 @@
 (declare-function lispm-mcp-start "lispm-mcp" (&optional server))
 (declare-function lispm-mcp-stop "lispm-mcp" (&optional server))
 (declare-function lispm-mcp-refresh "lispm-mcp" (&optional server))
-(declare-function lispm-mcp-server-get "lispm-settings" (name))
-(declare-function lispm-mcp-server-status "lispm-settings" (name))
-(declare-function lispm-mcp-server-remove "lispm-settings" (name &optional save))
+(declare-function lispm-settings-mcp-get "lispm-settings" (name))
+(declare-function lispm-settings-mcp-status "lispm-settings" (name))
+(declare-function lispm-settings-mcp-remove "lispm-settings" (name &optional save))
 (declare-function lispm-auth-app-requires-password-p "lispm-auth" (app))
 (declare-function lispm-auth-set-app-requires-password "lispm-auth" (app required))
 (declare-function lispm-auth-locked-p "lispm-auth" ())
@@ -314,7 +314,7 @@ Skills panel."
 (defun lispm-desktop-settings--mcp-p ()
   "Return non-nil when LispM Agent says what its MCP servers are, for the
 MCP panel."
-  (and (lispm-desktop-settings--lispm-p) (fboundp 'lispm-mcp-server-status)))
+  (and (lispm-desktop-settings--lispm-p) (fboundp 'lispm-settings-mcp-status)))
 
 (defun lispm-desktop-settings--panels (&optional category)
   "Return the panels that show here; with CATEGORY, a key of
@@ -1486,7 +1486,7 @@ creating, opening and deleting skills, and the directories skills come from."
 
 (defun lispm-desktop-settings--mcp-status-text (name)
   "Return how MCP server NAME stands, in the language spoken."
-  (let* ((status (lispm-mcp-server-status name))
+  (let* ((status (lispm-settings-mcp-status name))
          (state (plist-get status :state))
          (tools (plist-get status :tools)))
     (pcase state
@@ -1519,11 +1519,11 @@ creating, opening and deleting skills, and the directories skills come from."
 (defun lispm-desktop-settings--remove-mcp-server (name)
   "Stop and remove MCP server NAME once confirmed."
   (when (yes-or-no-p (lispm-desktop-tr "Remove the MCP server %s?" name))
-    (lispm-mcp-server-remove name t)))
+    (lispm-settings-mcp-remove name t)))
 
 (defun lispm-desktop-settings--mcp-details (name config)
   "Insert the details and actions of MCP server NAME, of CONFIG."
-  (let* ((status (lispm-mcp-server-status name))
+  (let* ((status (lispm-settings-mcp-status name))
          (state (plist-get status :state))
          (tools (plist-get status :tool-names))
          (deferred (if (plist-member config :defer) (plist-get config :defer) t))

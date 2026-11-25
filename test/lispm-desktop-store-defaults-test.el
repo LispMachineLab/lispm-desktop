@@ -188,6 +188,7 @@
 
 (ert-deftest lispm-desktop-test-store-default-no-defaults-no-fetch ()
   "An explicit empty default list does no catalog or installation work."
+  (should (null (default-value 'lispm-desktop-store-default-items)))
   (lispm-desktop-test--with-default-store
     (let ((lispm-desktop-store-default-items nil))
       (cl-letf (((symbol-function 'lispm-desktop-store-read-catalogs)
