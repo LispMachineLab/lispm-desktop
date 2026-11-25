@@ -205,7 +205,7 @@ package itself, so that it deletes it too."
   :type '(alist :key-type symbol :value-type plist)
   :group 'lispm-desktop-store)
 
-(defcustom lispm-desktop-store-default-items '(office)
+(defcustom lispm-desktop-store-default-items nil
   "Items the distribution installs once, through the App Store.
 Removing one in the App Store keeps it removed at subsequent starts.
 Set this to nil to install no defaults."
