@@ -53,6 +53,8 @@
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-app-chat)
 (require 'lispm-desktop-i18n)
+(require 'lispm-ui-ask)
+(require 'lispm-ui-form)
 
 ;; emacs-slack's own variables and functions, read once it runs.
 (defvar slack-teams-by-token)
@@ -259,14 +261,28 @@ shows, or the only one; nil when it cannot tell."
   (lispm-desktop-app-chat-show-list lispm-desktop-app-slack-list-buffer-name
                                     'lispm-desktop-app-slack-list-mode))
 
+(defun lispm-desktop-app-slack--read-workspace ()
+  "Ask Slack workspace name and email for `lispm-desktop-app-slack-add-workspace'."
+  (let ((name-label (lispm-desktop-tr "Workspace, as in NAME.slack.com: "))
+        (user-label (lispm-desktop-tr "Your email there: ")))
+    (if (or (bound-and-true-p lispm-ui-form-modal-function)
+            (lispm-ui-popup-available-p))
+        (let* ((values (lispm-ui-form-modal
+                        (string-trim-right (lispm-desktop-tr "Add Workspace…") "…")
+                        `((name :type text :label ,(string-trim-right name-label "[ \t]*:?[ \t]*") :required t)
+                          (user :type text :label ,(string-trim-right user-label "[ \t]*:?[ \t]*")
+                                :value ,user-mail-address :required t)))))
+          (list (string-trim (string-remove-suffix ".slack.com" (string-trim (or (alist-get 'name values) ""))))
+                (string-trim (or (alist-get 'user values) ""))))
+      (list (string-trim (string-remove-suffix
+                          ".slack.com" (string-trim (lispm-ui-read-string name-label))))
+            (string-trim (lispm-ui-read-string user-label :initial user-mail-address))))))
+
 (defun lispm-desktop-app-slack-add-workspace (name user)
   "Sign in to the Slack workspace NAME, as in NAME.slack.com, as USER, your
 email there: its token, and its cookie for a token of the web app's, are
 asked for unless auth-source keeps them, and kept with it."
-  (interactive
-   (list (string-trim (string-remove-suffix
-                       ".slack.com" (string-trim (read-string (lispm-desktop-tr "Workspace, as in NAME.slack.com: ")))))
-         (string-trim (read-string (lispm-desktop-tr "Your email there: ") user-mail-address))))
+  (interactive (lispm-desktop-app-slack--read-workspace))
   (when (or (string-empty-p name) (string-empty-p user))
     (user-error (lispm-desktop-tr "A workspace needs its name and your email there")))
   (require 'slack)
@@ -274,11 +290,11 @@ asked for unless auth-source keeps them, and kept with it."
   (let* ((workspace (list :name name :user user))
          (host (lispm-desktop-app-slack--host workspace)))
     (unless (lispm-desktop-app-slack--secret host user)
-      (let ((token (string-trim (read-passwd (lispm-desktop-tr "Token of %s (xoxc-… or xoxp-…): " host)))))
+      (let ((token (string-trim (lispm-ui-read-passwd (lispm-desktop-tr "Token of %s (xoxc-… or xoxp-…): " host)))))
         (when (string-empty-p token)
           (user-error (lispm-desktop-tr "No token")))
         (when (string-prefix-p "xoxc" token)
-          (let ((cookie (string-trim (read-passwd (lispm-desktop-tr "Its cookie d (xoxd-…; d-s=…; lc=…): ")))))
+          (let ((cookie (string-trim (lispm-ui-read-passwd (lispm-desktop-tr "Its cookie d (xoxd-…; d-s=…; lc=…): ")))))
             (when (string-empty-p cookie)
               (user-error (lispm-desktop-tr "A token of the web app's needs its cookie")))
             (lispm-desktop-app-slack--keep-secret host (concat user "^cookie") cookie)))
@@ -310,7 +326,8 @@ more as Slack's window opens.  Its token stays where auth-source keeps it."
   (interactive)
   (let* ((team (or (lispm-desktop-app-slack--team-here) (user-error (lispm-desktop-tr "No workspace here"))))
          (name (slack-team-name team)))
-    (when (y-or-n-p (lispm-desktop-tr "Sign out of %s? " name))
+    (when (lispm-ui-confirm (string-trim-right (lispm-desktop-tr "Sign out of %s? " name))
+                            nil (lispm-desktop-tr "Sign out"))
       (ignore-errors (slack-team-disconnect team))
       (slack-team--delete team)
       (setq lispm-desktop-app-slack--started (delq team lispm-desktop-app-slack--started))

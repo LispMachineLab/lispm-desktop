@@ -64,6 +64,7 @@
 (require 'lispm-desktop-app-ui)
 (require 'lispm-desktop-i18n)
 (require 'lispm-exec)
+(require 'lispm-ui-ask)
 
 ;; EMMS's own variables and functions, read once it runs.
 (defvar emms-player-list)
@@ -469,8 +470,15 @@ the first time; macOS asks once whether it may read the media library."
 (defun lispm-desktop-app-emms-play-music-playlist (name)
   "Play the Music library's playlist NAME, as read by
 `lispm-desktop-app-emms-import-music'."
-  (interactive (list (completing-read (lispm-desktop-tr "Play Music playlist: ")
-                                      (mapcar #'car (lispm-desktop-app-emms-music-playlists)) nil t)))
+  (interactive
+   (let* ((choices (mapcar (lambda (entry) (cons (car entry) (car entry)))
+                           (lispm-desktop-app-emms-music-playlists)))
+          (label (string-trim-right (lispm-desktop-tr "Play Music playlist: ") "[ \t]*:?[ \t]*")))
+     (unless choices
+       (user-error (lispm-desktop-tr "No Music Playlists")))
+     (if-let* ((chosen (lispm-ui-choose choices nil nil label)))
+         (list (car chosen))
+       (signal 'quit nil))))
   (lispm-desktop-app-emms-setup)
   (let ((files (cdr (assoc name (lispm-desktop-app-emms-music-playlists)))))
     (unless files
@@ -496,14 +504,20 @@ the first time; macOS asks once whether it may read the media library."
 (defun lispm-desktop-app-emms-add-folder ()
   "Add a folder of music, and everything in it, to what EMMS knows."
   (interactive)
-  (call-interactively #'emms-add-directory-tree)
-  (lispm-desktop-app-emms--browse-later))
+  (lispm-desktop-app-emms-setup)
+  (when-let* ((dir (lispm-ui-choose-directory
+                    :title (string-trim-right (lispm-desktop-tr "Add Folder…") "…"))))
+    (emms-add-directory-tree dir)
+    (lispm-desktop-app-emms--browse-later)))
 
 (defun lispm-desktop-app-emms-add-file ()
   "Add a file of music to what EMMS knows."
   (interactive)
-  (call-interactively #'emms-add-file)
-  (lispm-desktop-app-emms--browse-later))
+  (lispm-desktop-app-emms-setup)
+  (when-let* ((file (lispm-ui-choose-file
+                     :title (string-trim-right (lispm-desktop-tr "Add File…") "…"))))
+    (emms-add-file file)
+    (lispm-desktop-app-emms--browse-later)))
 
 (defun lispm-desktop-app-emms--library-items ()
   "Return the items of EMMS's Library menu: what adds music, then the
