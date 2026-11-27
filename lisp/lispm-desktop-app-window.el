@@ -72,6 +72,14 @@ Platinum border frame instead of destroying and recreating `NSWindow's."
   :type 'boolean
   :group 'lispm-desktop)
 
+(defcustom lispm-desktop-app-window-pool-max 6
+  "Maximum number of closed floating windows kept in the frame pool."
+  :type 'natnum
+  :group 'lispm-desktop)
+
+(defvar lispm-desktop-app-window--presenting nil
+  "Floating window currently being presented by `lispm-desktop-app-window-present'.")
+
 (defvar lispm-desktop-app-window--geometry nil
   "Where each kind's window was last: (ID LEFT TOP WIDTH HEIGHT).")
 
@@ -330,7 +338,8 @@ with the keyboard; put its application in front.  Return the window."
     (lispm-desktop-apps-show-window frame)
     (lispm-desktop-platinum-raise-window frame)
     (select-frame-set-input-focus frame)
-    (lispm-desktop-apps-set-frontmost (lispm-desktop-app-window--app id))
+    (let ((lispm-desktop-app-window--presenting frame))
+      (lispm-desktop-apps-set-frontmost (lispm-desktop-app-window--app id)))
     frame))
 
 (defun lispm-desktop-app-window--opening-p (id)
@@ -482,13 +491,26 @@ passes on only when the window had it, and the desktop comes in front
 only when ID's application was."
   (when-let* ((frame (lispm-desktop-app-window-frame id)))
     (lispm-desktop-app-window--retire frame)
-    (if (lispm-desktop-app-window--poolable-p id frame)
+    (if (and (lispm-desktop-app-window--poolable-p id frame)
+             (not (and (integerp lispm-desktop-app-window-pool-max)
+                       (<= lispm-desktop-app-window-pool-max 0))))
         (let ((old (alist-get id lispm-desktop-app-window--pool)))
           (when (and (frame-live-p old) (not (eq old frame)))
             (delete-frame old))
+          (setq lispm-desktop-app-window--pool
+                (cons (cons id frame)
+                      (assq-delete-all id lispm-desktop-app-window--pool)))
           (set-frame-parameter frame 'lispm-desktop-pooled t)
-          (setf (alist-get id lispm-desktop-app-window--pool) frame)
-          (lispm-desktop-platinum-hide-window frame))
+          (lispm-desktop-platinum-hide-window frame)
+          (when (integerp lispm-desktop-app-window-pool-max)
+            (while (> (length lispm-desktop-app-window--pool)
+                      lispm-desktop-app-window-pool-max)
+              (let ((oldest (car (last lispm-desktop-app-window--pool))))
+                (setq lispm-desktop-app-window--pool
+                      (butlast lispm-desktop-app-window--pool))
+                (when (and (frame-live-p (cdr oldest))
+                           (not (eq (cdr oldest) frame)))
+                  (delete-frame (cdr oldest)))))))
       (delete-frame frame))))
 
 (defvar lispm-desktop-app-ui--app)
@@ -615,22 +637,25 @@ as the full-screen editor and browser do, which they would cover; hide
 them from it.  The window of the application in front stays over the
 others.  A window out on the computer's screen stays where it is.
 This is one of `lispm-desktop-apps-frontmost-functions'."
-  (pcase-dolist (`(,id . ,frame) (reverse lispm-desktop-app-window--frames))
-    (when (and (frame-live-p frame)
-               (lispm-desktop-app-window--get id :follow t)
-               (not (lispm-desktop-apps-out-p frame)))
-      (let ((shown (not (funcall (lispm-desktop-app-window--get id :hidden-by
-                                                                #'lispm-desktop-apps-full-screen-p)
-                                 app))))
-        (cond ((and shown (not (frame-visible-p frame))
-                    (not (frame-parameter frame 'lispm-desktop-buried)))
-               (lispm-desktop-platinum-show-window frame))
-              ((and (not shown) (frame-visible-p frame))
-               (lispm-desktop-platinum-hide-window frame))))))
-  (when-let* ((front (lispm-desktop-app-window-of-app app))
-              ((lispm-desktop-app-window--get (lispm-desktop-app-window-id front) :raise t))
-              ((frame-visible-p front)))
-    (lispm-desktop-platinum-raise-window front)))
+  (let ((showed-any nil))
+    (pcase-dolist (`(,id . ,frame) (reverse lispm-desktop-app-window--frames))
+      (when (and (frame-live-p frame)
+                 (lispm-desktop-app-window--get id :follow t)
+                 (not (lispm-desktop-apps-out-p frame)))
+        (let ((shown (not (funcall (lispm-desktop-app-window--get id :hidden-by
+                                                                  #'lispm-desktop-apps-full-screen-p)
+                                   app))))
+          (cond ((and shown (not (frame-visible-p frame))
+                      (not (frame-parameter frame 'lispm-desktop-buried)))
+                 (setq showed-any t)
+                 (lispm-desktop-platinum-show-window frame))
+                ((and (not shown) (frame-visible-p frame))
+                 (lispm-desktop-platinum-hide-window frame))))))
+    (when-let* ((front (lispm-desktop-app-window-of-app app))
+                ((lispm-desktop-app-window--get (lispm-desktop-app-window-id front) :raise t))
+                ((frame-visible-p front))
+                ((or showed-any (not (eq front lispm-desktop-app-window--presenting)))))
+      (lispm-desktop-platinum-raise-window front))))
 
 (defun lispm-desktop-app-window--refocus ()
   "Give the window of the application in front the keyboard back after a

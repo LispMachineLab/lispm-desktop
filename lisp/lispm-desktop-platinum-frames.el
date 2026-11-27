@@ -417,14 +417,24 @@ Raised alone, a framed window would come up only within its frame."
   "Show floating window FRAME in its frame, framing it first when it is to
 be framed, see `lispm-desktop-platinum-frame-window'."
   (set-frame-parameter frame 'lispm-desktop-buried nil)
-  (lispm-desktop-platinum-frame-window frame)
-  (let ((outer (lispm-desktop-platinum-window-outer frame)))
-    (unless (eq outer frame)
-      (lispm-desktop-platinum-frame-update frame)
-      (make-frame-visible outer))
-    (make-frame-visible frame)
-    (unless (eq outer frame)
-      (lispm-desktop-platinum-frame-update frame))))
+  (let ((was-framed (lispm-desktop-platinum--framed-p frame)))
+    (lispm-desktop-platinum-frame-window frame)
+    (let ((outer (lispm-desktop-platinum-window-outer frame)))
+      (unless (eq outer frame)
+        (when was-framed
+          (lispm-desktop-platinum-frame-update frame))
+        (unless (frame-visible-p outer)
+          (make-frame-visible outer)))
+      (let ((before (unless (eq outer frame)
+                      (lispm-desktop-platinum--frame-size frame))))
+        (unless (frame-visible-p frame)
+          (make-frame-visible frame))
+        (unless (eq outer frame)
+          (let ((after (lispm-desktop-platinum--frame-size frame)))
+            (when (or (not (equal before after))
+                      (not (= (frame-pixel-width outer) (car after)))
+                      (not (= (frame-pixel-height outer) (cdr after))))
+              (lispm-desktop-platinum-frame-update frame))))))))
 
 (defun lispm-desktop-platinum-hide-window (frame)
   "Hide floating window FRAME, and its frame with it."
@@ -637,6 +647,30 @@ however large the window."
               (when (shown-p bottom)
                 (concat (strip bottom) newline))))))
 
+(defvar lispm-desktop-platinum--frame-text-cache (make-hash-table :test #'equal)
+  "Shared bounded cache of frame strip text by palette, look, size and active.")
+
+(defun lispm-desktop-platinum--frame-text-cache-put (key value)
+  "Store frame strip VALUE for KEY in `lispm-desktop-platinum--frame-text-cache'."
+  (when (>= (hash-table-count lispm-desktop-platinum--frame-text-cache) 64)
+    (let ((gen lispm-ui-palette-generation))
+      (maphash (lambda (k _v)
+                 (when (and (consp k) (integerp (car k)) (not (eql (car k) gen)))
+                   (remhash k lispm-desktop-platinum--frame-text-cache)))
+               lispm-desktop-platinum--frame-text-cache))
+    (let ((count (hash-table-count lispm-desktop-platinum--frame-text-cache)))
+      (when (>= count 64)
+        (let ((drop (/ count 2))
+              (victims nil))
+          (maphash (lambda (k _v)
+                     (when (> drop 0)
+                       (push k victims)
+                       (setq drop (1- drop))))
+                   lispm-desktop-platinum--frame-text-cache)
+          (dolist (k victims)
+            (remhash k lispm-desktop-platinum--frame-text-cache))))))
+  (puthash key value lispm-desktop-platinum--frame-text-cache))
+
 (defun lispm-desktop-platinum-frame-update (frame)
   "Bring the frame of floating window FRAME up to date: as large as FRAME
 and its margins, see `lispm-desktop-platinum-frame-margins', around FRAME
@@ -651,7 +685,7 @@ active while FRAME is selected."
            (width (car size))
            (height (cdr size))
            (active (eq frame (selected-frame)))
-           (key (list lispm-ui-palette-generation width height active)))
+           (key (list lispm-ui-palette-generation lispm-ui-look width height active)))
       (unless (and (equal size (frame-parameter outer 'lispm-desktop-platinum-size))
                    ;; Emacs sizes a frame anew to whole lines as its fonts
                    ;; change, as with a theme.
@@ -672,26 +706,22 @@ active while FRAME is selected."
       (unless (equal key (frame-parameter outer 'lispm-desktop-platinum-key))
         (set-frame-parameter outer 'lispm-desktop-platinum-key key)
         (lispm-desktop-platinum-set-background outer (lispm-ui-color :chrome))
-        (let* ((cache (or (frame-parameter outer 'lispm-desktop-platinum-text-cache)
-                          (let ((ht (make-hash-table :test #'equal)))
-                            (set-frame-parameter outer 'lispm-desktop-platinum-text-cache ht)
-                            ht)))
-               (text (or (gethash key cache)
-                         (progn
-                           (when (> (hash-table-count cache) 4)
-                             (clrhash cache))
-                           (puthash key
-                                    (lispm-desktop-platinum--frame-text
-                                     (lispm-desktop-platinum-draw-window-frame
-                                      lispm-ui-current-palette width height :active active)
-                                     width height)
-                                    cache))))
-               (root (frame-root-window outer)))
+        (let ((text (or (gethash key lispm-desktop-platinum--frame-text-cache)
+                        (lispm-desktop-platinum--frame-text-cache-put
+                         key
+                         (lispm-desktop-platinum--frame-text
+                          (lispm-desktop-platinum-draw-window-frame
+                           lispm-ui-current-palette width height :active active)
+                          width height))))
+              (root (frame-root-window outer)))
           (with-current-buffer (window-buffer root)
             (let ((inhibit-read-only t))
               (erase-buffer)
               (insert text)))
           (set-window-start root 1))))))
+
+(defvar lispm-desktop-platinum--deleting-outer nil
+  "Non-nil while deleting an orphan outer window frame.")
 
 (defun lispm-desktop-platinum-frames-sync (&optional frame &rest _)
   "Bring floating windows' frames up to date, and take away the frames of
@@ -702,23 +732,37 @@ edges: this runs as windows change size, as the selection changes and as
 a theme is enabled.  Given a live FRAME, as the window hooks pass the
 frame whose windows changed, only that window, or the window FRAME
 frames, is brought up to date: the selection hooks pass both the frame
-selected before and the one selected now.  Otherwise, as a theme is
-enabled or a frame was deleted, every floating window is."
-  (if (and (framep frame) (frame-live-p frame))
-      (when-let* ((window (if (frame-parameter frame 'lispm-desktop-window)
-                              frame
-                            (lispm-desktop-platinum-window-frame-p frame)))
-                  ((not (frame-parameter window 'lispm-desktop-pooled))))
-        (lispm-desktop-platinum-frame-update window))
-    (dolist (frame (frame-list))
-      (cond ((frame-parameter frame 'lispm-desktop-platinum-frames)
-             (unless (frame-live-p (frame-parameter frame 'lispm-desktop-platinum-frames))
-               (let ((buffer (window-buffer (frame-root-window frame))))
-                 (delete-frame frame t)
-                 (kill-buffer buffer))))
-            ((and (frame-parameter frame 'lispm-desktop-window)
-                  (not (frame-parameter frame 'lispm-desktop-pooled)))
-             (lispm-desktop-platinum-frame-update frame))))))
+selected before and the one selected now.  On a deleted FRAME, remove its
+orphan outer frame alone without updating unrelated windows.  Otherwise,
+as a theme is enabled, update every floating window."
+  (cond
+   ((and (framep frame) (frame-live-p frame))
+    (when-let* ((window (if (frame-parameter frame 'lispm-desktop-window)
+                            frame
+                          (lispm-desktop-platinum-window-frame-p frame)))
+                ((not (frame-parameter window 'lispm-desktop-pooled))))
+      (lispm-desktop-platinum-frame-update window)))
+   ((framep frame)
+    (unless lispm-desktop-platinum--deleting-outer
+      (let ((lispm-desktop-platinum--deleting-outer t))
+        (dolist (candidate (frame-list))
+          (when (and (frame-live-p candidate)
+                     (frame-parameter candidate 'lispm-desktop-platinum-frames)
+                     (not (frame-live-p (frame-parameter candidate 'lispm-desktop-platinum-frames))))
+            (let ((buffer (window-buffer (frame-root-window candidate))))
+              (delete-frame candidate t)
+              (kill-buffer buffer)))))))
+   (t
+    (let ((lispm-desktop-platinum--deleting-outer t))
+      (dolist (candidate (frame-list))
+        (cond ((frame-parameter candidate 'lispm-desktop-platinum-frames)
+               (unless (frame-live-p (frame-parameter candidate 'lispm-desktop-platinum-frames))
+                 (let ((buffer (window-buffer (frame-root-window candidate))))
+                   (delete-frame candidate t)
+                   (kill-buffer buffer))))
+              ((and (frame-parameter candidate 'lispm-desktop-window)
+                    (not (frame-parameter candidate 'lispm-desktop-pooled)))
+               (lispm-desktop-platinum-frame-update candidate))))))))
 
 (defun lispm-desktop-platinum--frame-moved (frame)
   "Bring the frame of a floating window up to date when FRAME, the window or
@@ -726,7 +770,8 @@ its frame, moved: the window system moves either resizing it from its
 left or top edge.  This is a `move-frame-functions' function."
   (when-let* ((window (if (frame-parameter frame 'lispm-desktop-window)
                           frame
-                        (lispm-desktop-platinum-window-frame-p frame))))
+                        (lispm-desktop-platinum-window-frame-p frame)))
+              ((not (frame-parameter window 'lispm-desktop-pooled))))
     (lispm-desktop-platinum-frame-update window)))
 
 (defun lispm-desktop-platinum--frame-press (event)
@@ -886,33 +931,93 @@ only roughly."
                   (mapcar (lambda (value) (/ value 257)) (color-values color)))))
     (apply #'format "#%02x%02x%02x" (mapcar (lambda (value) (- 255 value)) values))))
 
+(defconst lispm-desktop-platinum--dot-bits-1
+  (vector (bool-vector t) (bool-vector nil))
+  "Precomputed 1-pixel XBM rows for checkerboard phases 0 and 1.")
+
+(defconst lispm-desktop-platinum--dot-bits-2
+  (vector (bool-vector t nil) (bool-vector nil t))
+  "Precomputed 2-pixel XBM rows for checkerboard phases 0 and 1.")
+
+(defvar lispm-desktop-platinum--dot-rows (make-hash-table :test #'equal)
+  "Cached single XBM rows keyed by (WIDTH . PHASE).")
+
+(defun lispm-desktop-platinum--dot-row (width phase)
+  "Return an XBM bool-vector WIDTH wide whose bit COL is set for even PHASE+COL."
+  (cond
+   ((= width 1) (aref lispm-desktop-platinum--dot-bits-1 phase))
+   ((= width 2) (aref lispm-desktop-platinum--dot-bits-2 phase))
+   (t
+    (let ((key (cons width phase)))
+      (or (gethash key lispm-desktop-platinum--dot-rows)
+          (let ((bits (make-bool-vector width nil))
+                (col phase))
+            (while (< col width)
+              (aset bits col t)
+              (setq col (+ col 2)))
+            (when (>= (hash-table-count lispm-desktop-platinum--dot-rows) 256)
+              (let ((drop 128)
+                    (victims nil))
+                (maphash (lambda (k _v)
+                           (when (> drop 0)
+                             (push k victims)
+                             (setq drop (1- drop))))
+                         lispm-desktop-platinum--dot-rows)
+                (dolist (k victims)
+                  (remhash k lispm-desktop-platinum--dot-rows))))
+            (puthash key bits lispm-desktop-platinum--dot-rows)))))))
+
 (defun lispm-desktop-platinum-dots (width height parity)
   "Return the 50% grey pattern WIDTH by HEIGHT pixels as XBM data: a vector
 of rows, each a bool-vector, a pixel set where its column and row, PARITY
 added, sum to an even number.  PARITY is that of the pattern's top left
 corner on the screen, so the dots line up with the screen's pixels as
 Mac OS 9's patterns did, wherever the line is."
-  (let ((rows (make-vector height nil)))
-    (dotimes (row height)
-      (let ((bits (make-bool-vector width nil)))
-        (dotimes (column width)
-          (when (cl-evenp (+ parity row column))
-            (aset bits column t)))
-        (aset rows row bits)))
-    rows))
+  (let* ((p0 (logand parity 1))
+         (row0 (lispm-desktop-platinum--dot-row width p0)))
+    (if (<= height 1)
+        (if (= height 1) (vector row0) (vector))
+      (let ((row1 (lispm-desktop-platinum--dot-row width (logxor 1 p0))))
+        (if (= height 2)
+            (vector row0 row1)
+          (let ((rows (make-vector height row0))
+                (i 1))
+            (while (< i height)
+              (aset rows i row1)
+              (setq i (+ i 2)))
+            rows))))))
 
 (defvar lispm-desktop-platinum--dots (make-hash-table :test #'equal)
   "Images of the outline's lines, by (WIDTH HEIGHT PARITY GENERATION).")
+
+(defun lispm-desktop-platinum--evict-dots-cache ()
+  "Evict stale or oldest-half entries from `lispm-desktop-platinum--dots'."
+  (when (>= (hash-table-count lispm-desktop-platinum--dots) 400)
+    (let ((gen lispm-ui-palette-generation))
+      (maphash (lambda (k _v)
+                 (when (and (consp k) (integerp (car k))
+                            (let ((kgen (nth 3 k)))
+                              (and (integerp kgen) (not (eql kgen gen)))))
+                   (remhash k lispm-desktop-platinum--dots)))
+               lispm-desktop-platinum--dots))
+    (let ((count (hash-table-count lispm-desktop-platinum--dots)))
+      (when (>= count 400)
+        (let ((drop (/ count 2))
+              (victims nil))
+          (maphash (lambda (k _v)
+                     (when (> drop 0)
+                       (push k victims)
+                       (setq drop (1- drop))))
+                   lispm-desktop-platinum--dots)
+          (dolist (k victims)
+            (remhash k lispm-desktop-platinum--dots)))))))
 
 (defun lispm-desktop-platinum--solid-image (width height color)
   "Return an image WIDTH by HEIGHT all in COLOR, for a solid line."
   (let ((key (list 'solid width height color)))
     (or (gethash key lispm-desktop-platinum--dots)
-        (let ((rows (make-vector height nil)))
-          (dotimes (row height)
-            (aset rows row (make-bool-vector width t)))
-          (when (> (hash-table-count lispm-desktop-platinum--dots) 400)
-            (clrhash lispm-desktop-platinum--dots))
+        (let ((rows (make-vector height (make-bool-vector width t))))
+          (lispm-desktop-platinum--evict-dots-cache)
           (puthash key
                    (create-image rows 'xbm t :data-width width :data-height height :ascent 100
                                  :foreground color :background color)
@@ -924,8 +1029,7 @@ Mac OS 9's patterns did, wherever the line is."
   (let ((key (list width height parity lispm-ui-palette-generation)))
     (or (gethash key lispm-desktop-platinum--dots)
         (progn
-          (when (> (hash-table-count lispm-desktop-platinum--dots) 400)
-            (clrhash lispm-desktop-platinum--dots))
+          (lispm-desktop-platinum--evict-dots-cache)
           (puthash key
                    (create-image (lispm-desktop-platinum-dots width height parity) 'xbm t
                                  :data-width width :data-height height :ascent 100
@@ -1022,23 +1126,25 @@ A line with a colour after its five values is drawn solid in it."
                (dims (cons width height))
                (size (list width height parity color lispm-ui-palette-generation)))
     (lispm-desktop-platinum--keep-thin frame)
-    (unless (equal size (frame-parameter frame 'lispm-desktop-platinum-line))
-      (set-frame-parameter frame 'lispm-desktop-platinum-line size)
-      (unless (equal dims (frame-parameter frame 'lispm-desktop-platinum-dims))
-        (set-frame-parameter frame 'lispm-desktop-platinum-dims dims)
-        (let ((window-min-width 1) (window-safe-min-width 1)
-              (window-min-height 1) (window-safe-min-height 1)
-              (frame-resize-pixelwise t))
-          (set-frame-size frame width height t)))
-      (with-current-buffer (window-buffer (frame-root-window frame))
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          (insert (propertize " " 'display
-                              (if color
-                                  (lispm-desktop-platinum--solid-image width height color)
-                                (lispm-desktop-platinum--dots-image width height parity))))))
-      (set-window-start (frame-root-window frame) 1))
-    (set-frame-position frame x y)))
+    (let ((had-line (frame-parameter frame 'lispm-desktop-platinum-line)))
+      (unless (equal size had-line)
+        (set-frame-parameter frame 'lispm-desktop-platinum-line size)
+        (unless (equal dims (frame-parameter frame 'lispm-desktop-platinum-dims))
+          (set-frame-parameter frame 'lispm-desktop-platinum-dims dims)
+          (let ((window-min-width 1) (window-safe-min-width 1)
+                (window-min-height 1) (window-safe-min-height 1)
+                (frame-resize-pixelwise t))
+            (set-frame-size frame width height t)))
+        (with-current-buffer (window-buffer (frame-root-window frame))
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize " " 'display
+                                (if color
+                                    (lispm-desktop-platinum--solid-image width height color)
+                                  (lispm-desktop-platinum--dots-image width height parity))))))
+        (set-window-start (frame-root-window frame) 1))
+      (unless (and had-line (equal (frame-position frame) (cons x y)))
+        (set-frame-position frame x y)))))
 
 (defun lispm-desktop-platinum-keep-in-front (frames parent)
   "Raise FRAMES, children of PARENT, unless one of them is in front of
@@ -1147,6 +1253,9 @@ Return or Space confirms."
             ;; A terminal's keys and mouse reports are sequences, which a
             ;; read given up halfway would lose: there it waits for them.
             (setq event (lispm-ui-modal-read-event (unless tty lispm-desktop-platinum-drag-interval)))
+            (when (and (not tty) (mouse-movement-p event)
+                       (fboundp 'lispm-ui-modal-coalesce-mouse-move))
+              (setq event (lispm-ui-modal-coalesce-mouse-move event)))
             (let ((key-step (lispm-desktop-platinum--track-key-step event tty)))
               (cond ((memq event '(escape ?\e ?\C-g))
                      (setq done t event nil))

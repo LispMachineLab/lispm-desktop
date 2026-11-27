@@ -40,6 +40,16 @@
 (require 'lispm-ui-draw)
 (require 'lispm-ui-text)
 
+(declare-function lispm-ui-sized-image "lispm-ui-draw" (key draw))
+
+(defun lispm-desktop-platinum--sized-image (key draw)
+  "Return cached resize-varying image for KEY built via DRAW.
+Delegates to `lispm-ui-sized-image' when available so chrome resizing
+never evicts steady icons and controls from `lispm-ui--images'."
+  (if (fboundp 'lispm-ui-sized-image)
+      (lispm-ui-sized-image key draw)
+    (lispm-ui-image key draw)))
+
 (defconst lispm-desktop-platinum-title-height 22
   "Height in pixels of a title bar, and of a window's bottom edge.")
 
@@ -124,7 +134,7 @@ See `lispm-desktop-platinum-draw-box'."
   "Return a stretch of title bar WIDTH pixels wide as a string displaying it.
 OPTIONS are those of `lispm-ui-draw-title-part'."
   (propertize " " 'display
-              (lispm-ui-image
+              (lispm-desktop-platinum--sized-image
                (list 'title-part width
                      (plist-get options :active) (plist-get options :ridges)
                      (and (plist-get options :label)
