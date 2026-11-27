@@ -64,6 +64,12 @@ See `lispm-desktop-platinum-scroll-sync'."
 (defvar lispm-desktop-platinum--scroll-timer nil
   "Pending timer bringing the scroll bars up to date, if any.")
 
+(defvar lispm-desktop-platinum-scroll-resize-delay 0.025
+  "Seconds to coalesce scroll bar geometry updates during interactive resize.")
+
+(defvar lispm-desktop-platinum--scroll-images (make-hash-table :test #'equal)
+  "Bounded cache of scroll bar SVG images keyed by look, height, thumb and focus.")
+
 (defvar lispm-desktop-platinum-scroll-bar-functions nil
   "Functions deciding whether a buffer's window gets a scroll bar, tried in
 turn: each is called with the buffer and returns `yes', `no', or nil to
@@ -152,6 +158,39 @@ It takes no focus and hooks run for new frames do not see it."
 (defvar-local lispm-desktop-platinum--scroll-target nil
   "The window whose scroll bar this buffer draws.")
 
+(defun lispm-desktop-platinum--scroll-image (height thumb active)
+  "Return cached scroll bar SVG image for HEIGHT, THUMB and ACTIVE state."
+  (let ((key (list lispm-ui-palette-generation (bound-and-true-p lispm-ui-look)
+                   height thumb active)))
+    (or (gethash key lispm-desktop-platinum--scroll-images)
+        (progn
+          (when (>= (hash-table-count lispm-desktop-platinum--scroll-images) 64)
+            (let ((gen lispm-ui-palette-generation))
+              (maphash (lambda (k _v)
+                         (when (and (consp k) (integerp (car k)) (not (eql (car k) gen)))
+                           (remhash k lispm-desktop-platinum--scroll-images)))
+                       lispm-desktop-platinum--scroll-images))
+            (let ((count (hash-table-count lispm-desktop-platinum--scroll-images)))
+              (when (>= count 64)
+                (let ((drop (/ count 2))
+                      (victims nil))
+                  (maphash (lambda (k _v)
+                             (when (> drop 0)
+                               (push k victims)
+                               (setq drop (1- drop))))
+                           lispm-desktop-platinum--scroll-images)
+                  (dolist (k victims)
+                    (remhash k lispm-desktop-platinum--scroll-images))))))
+          (let ((svg (lispm-ui-draw-scroll-bar
+                      lispm-ui-current-palette height thumb active)))
+            (puthash key
+                     (if (image-type-available-p 'svg)
+                         (svg-image svg :ascent 100 :scale 1)
+                       (list 'image :type 'svg
+                             :data (with-temp-buffer (svg-print svg) (buffer-string))
+                             :ascent 100 :scale 1))
+                     lispm-desktop-platinum--scroll-images))))))
+
 (defun lispm-desktop-platinum--scroll-update (window)
   "Bring WINDOW's scroll bar up to date: place it, size it, draw it."
   (let ((width lispm-ui-scroll-width)
@@ -175,15 +214,19 @@ It takes no focus and hooks run for new frames do not see it."
                                            (point-min) (point-max))))
            (active (eq window (frame-selected-window (window-frame window))))
            (place (list x y height))
-           (key (list lispm-ui-palette-generation height thumb active)))
+           (key (list lispm-ui-palette-generation (bound-and-true-p lispm-ui-look)
+                      height thumb active)))
       (unless (equal place (frame-parameter frame 'lispm-desktop-platinum-scroll-place))
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-place place)
         ;; Sized in pixels, below the width of the ten columns a window
         ;; may otherwise not shrink under.
-        (let ((window-min-width 1)
-              (window-safe-min-width 1))
-          (set-frame-size frame width height t))
-        (set-frame-position frame x y))
+        (unless (and (= (frame-pixel-width frame) width)
+                     (= (frame-pixel-height frame) height))
+          (let ((window-min-width 1)
+                (window-safe-min-width 1))
+            (set-frame-size frame width height t)))
+        (unless (equal (frame-position frame) (cons x y))
+          (set-frame-position frame x y)))
       (unless (equal key (frame-parameter frame 'lispm-desktop-platinum-scroll-key))
         (set-frame-parameter frame 'lispm-desktop-platinum-scroll-key key)
         (set-frame-parameter frame 'lispm-ui-scroll-thumb thumb)
@@ -193,9 +236,7 @@ It takes no focus and hooks run for new frames do not see it."
             (let ((inhibit-read-only t))
               (erase-buffer)
               (insert (propertize " " 'display
-                                  (svg-image (lispm-ui-draw-scroll-bar
-                                              lispm-ui-current-palette height thumb active)
-                                             :ascent 100 :scale 1)))))
+                                  (lispm-desktop-platinum--scroll-image height thumb active)))))
           (set-window-point root 1)
           (set-window-hscroll root 0)))
       (unless (frame-visible-p frame)
@@ -225,6 +266,7 @@ take the bars of windows gone or no longer wanting one away."
         ;; Floating windows out on the computer's screen go without, as
         ;; they do over the desktop, and so do their frames and outlines.
         (when (and (frame-visible-p frame) (not (frame-parent frame))
+                   (not (frame-parameter frame 'lispm-desktop-pooled))
                    (not (frame-parameter frame 'lispm-desktop-window))
                    (not (frame-parameter frame 'lispm-desktop-out))
                    (not (frame-parameter frame 'lispm-desktop-hidden))
@@ -248,6 +290,17 @@ take the bars of windows gone or no longer wanting one away."
   (unless (timerp lispm-desktop-platinum--scroll-timer)
     (setq lispm-desktop-platinum--scroll-timer
           (run-with-idle-timer 0 nil #'lispm-desktop-platinum-scroll-sync))))
+
+(defun lispm-desktop-platinum--scroll-schedule-resize (&rest _)
+  "Coalesce scroll bar sync during interactive resize."
+  (if (and (not noninteractive) (> lispm-desktop-platinum-scroll-resize-delay 0))
+      (progn
+        (when (timerp lispm-desktop-platinum--scroll-timer)
+          (cancel-timer lispm-desktop-platinum--scroll-timer))
+        (setq lispm-desktop-platinum--scroll-timer
+              (run-at-time lispm-desktop-platinum-scroll-resize-delay nil
+                           #'lispm-desktop-platinum-scroll-sync)))
+    (lispm-desktop-platinum--scroll-schedule)))
 
 (defun lispm-desktop-platinum--scroll-in (window step)
   "Call STEP, a function of no arguments, with WINDOW selected; redraw its bar."
@@ -330,7 +383,7 @@ drags the window's text along."
   "Keep the scroll bars in step with windows, scrolling and selection."
   (add-hook 'post-command-hook #'lispm-desktop-platinum--scroll-schedule)
   (add-hook 'window-scroll-functions #'lispm-desktop-platinum--scroll-schedule)
-  (add-hook 'window-size-change-functions #'lispm-desktop-platinum--scroll-schedule)
+  (add-hook 'window-size-change-functions #'lispm-desktop-platinum--scroll-schedule-resize)
   (add-hook 'window-selection-change-functions #'lispm-desktop-platinum--scroll-schedule)
   (add-hook 'window-buffer-change-functions #'lispm-desktop-platinum--scroll-schedule)
   (lispm-desktop-platinum--scroll-schedule))

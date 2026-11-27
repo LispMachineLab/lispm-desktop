@@ -104,7 +104,7 @@ returns one."
                        (concat (make-string before ?\s) label (make-string width ?\s)) width)
                       'face 'lispm-desktop-platinum-toolbar))
       (propertize " " 'display
-                  (lispm-ui-image
+                  (lispm-desktop-platinum--sized-image
                    (list 'header-strip label width left)
                    (lambda () (lispm-desktop-platinum-draw-header-strip lispm-ui-current-palette
                                                                         width label left)))))))
@@ -578,10 +578,12 @@ drawn in the strip's own greys, :strip and its light and shades."
 
 (defun lispm-desktop-platinum--tab-edge (width)
   "Return the pane's edge WIDTH pixels wide, as a string displaying it."
-  (propertize " " 'display
-              (lispm-ui-image
-               (list 'tab-edge width)
-               (lambda () (lispm-desktop-platinum-draw-tab-edge lispm-ui-current-palette width)))))
+  (let ((key (list 'tab-edge width))
+        (draw (lambda () (lispm-desktop-platinum-draw-tab-edge lispm-ui-current-palette width))))
+    (propertize " " 'display
+                (if (> width 16)
+                    (lispm-desktop-platinum--sized-image key draw)
+                  (lispm-ui-image key draw)))))
 
 (defconst lispm-desktop-platinum--tabs-lead 8
   "Pixels of the pane's edge before a row of tabs.")

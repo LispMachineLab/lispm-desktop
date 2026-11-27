@@ -41,6 +41,7 @@
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 
 (declare-function lispm-desktop-platinum-menu-status "lispm-desktop-platinum-status" ())
+(declare-function lispm-desktop-platinum--sized-image "lispm-desktop-platinum-draw" (key draw))
 
 ;;;; Menu bar
 
@@ -73,8 +74,10 @@ window's title bar and bottom too."
   (when (lispm-desktop-platinum-menu-bar-look-p)
     (dolist (frame (frame-list))
       (unless (frame-parent frame)
-        (with-current-buffer (window-buffer (frame-selected-window frame))
-          (force-mode-line-update))))))
+        (when-let* ((window (ignore-errors (frame-selected-window frame)))
+                    (buffer (window-buffer window)))
+          (with-current-buffer buffer
+            (force-mode-line-update)))))))
 
 (defvar lispm-desktop-platinum--open-menu nil
   "The menu bar item whose menu is popped up, drawn highlighted meanwhile.")
@@ -174,8 +177,19 @@ in its `lispm-ui-label' property."
                                                                          :label label :highlighted active
                                                                          :corner corner :marked marked)))
                               'lispm-ui-label label
+                              'lispm-desktop-platinum-width width
                               'lispm-desktop-platinum-highlighted active))))
     `(,key menu-item ,title ,command :help ,help)))
+
+(defun lispm-desktop-platinum--menu-item-width (item)
+  "Return width in pixels (or cells on TTY) of menu bar ITEM."
+  (let ((title (nth 2 item)))
+    (or (and (stringp title)
+             (not (lispm-desktop-tty-p))
+             (display-graphic-p)
+             (display-images-p)
+             (get-text-property 0 'lispm-desktop-platinum-width title))
+        (string-pixel-width title))))
 
 (defun lispm-desktop-platinum--text-menu-title (label active)
   "Return a menu bar title showing LABEL on a text terminal, a cell of the
@@ -196,7 +210,7 @@ or WIDTH columns on a text terminal."
         (if (lispm-desktop-tty-p)
             (propertize (make-string width ?\s) 'face 'lispm-desktop-platinum-menu-title)
           (propertize " " 'display
-                      (lispm-ui-image
+                      (lispm-desktop-platinum--sized-image
                        (list 'menu-title nil width nil nil nil)
                        (lambda () (lispm-desktop-platinum-draw-menu-title lispm-ui-current-palette
                                                                           width)))))
@@ -209,7 +223,7 @@ Application menu at its right, and the bar's own stretch between them,
 so its lines run from edge to edge."
   (let* ((left (lispm-desktop-platinum-menu-bar))
          (right (append (lispm-desktop-platinum-menu-status) (lispm-desktop-platinum-application-menu)))
-         (used (apply #'+ (mapcar (lambda (item) (string-pixel-width (nth 2 item))) (append left right)))))
+         (used (apply #'+ (mapcar #'lispm-desktop-platinum--menu-item-width (append left right)))))
     (append left (list (lispm-desktop-platinum--menu-filler (max 0 (- (frame-inner-width) used)))) right)))
 
 (defun lispm-desktop-platinum--lambda ()
@@ -303,7 +317,7 @@ MENUS is a value of `lispm-desktop-platinum-menus-function'."
             (let ((item (lispm-desktop-platinum--menu-title
                          key title (lispm-desktop-platinum--application-menu-command key items left)
                          title (eq lispm-desktop-platinum--open-menu key))))
-              (setq left (+ left (string-pixel-width (nth 2 item))))
+              (setq left (+ left (lispm-desktop-platinum--menu-item-width item)))
               item))
           menus))
 
@@ -317,7 +331,7 @@ application's menus, see `lispm-desktop-platinum-menus-function'."
      lambda-title
      (when lispm-desktop-platinum-menus-function
        (lispm-desktop-platinum--application-menus (funcall lispm-desktop-platinum-menus-function)
-                                                  (string-pixel-width (nth 2 lambda-title)))))))
+                                                  (lispm-desktop-platinum--menu-item-width lambda-title))))))
 
 (defun lispm-desktop-platinum-workspace-menu ()
   "Pop up the Application menu: the applications, see

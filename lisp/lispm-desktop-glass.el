@@ -107,6 +107,10 @@ menu or an alert, or a window out on the computer's screen.  The screen,
 which draws the desktop, and the outlines a window moves by stay opaque."
   (and (frame-live-p frame)
        (not (frame-parameter frame 'lispm-desktop-platinum-outline))
+       (not (frame-parameter frame 'lispm-desktop-pooled))
+       (not (when-let* ((inner (frame-parameter frame 'lispm-desktop-platinum-frames)))
+              (and (frame-live-p inner)
+                   (frame-parameter inner 'lispm-desktop-pooled))))
        (or (frame-parent frame)
            (frame-parameter frame 'lispm-desktop-window))
        t))

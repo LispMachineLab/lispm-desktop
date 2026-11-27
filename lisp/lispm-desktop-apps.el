@@ -52,6 +52,7 @@
 
 (declare-function lispm-desktop-lispm-terminal-open-p "lispm-desktop-lispm" ())
 (declare-function lispm-desktop-lispm-terminal "lispm-desktop-lispm" (&optional agent))
+(declare-function lispm-desktop-platinum-redraw-menu-bar "lispm-desktop-platinum-menubar" ())
 
 (defvar lispm-desktop-apps
   `((desktop :name ,(lispm-desktop-tr-noop "Desktop") :icon "disk" :menus lispm-desktop-menus
@@ -97,7 +98,9 @@ with the desktop and hides from the full-screen editor.")
   "Put APP, a key of `lispm-desktop-apps', in front; redraw the menu bar."
   (unless (eq app lispm-desktop-apps--frontmost)
     (setq lispm-desktop-apps--frontmost app)
-    (force-mode-line-update t))
+    (if (fboundp 'lispm-desktop-platinum-redraw-menu-bar)
+        (lispm-desktop-platinum-redraw-menu-bar)
+      (force-mode-line-update t)))
   (run-hook-with-args 'lispm-desktop-apps-frontmost-functions app))
 
 (declare-function lispm-desktop-editor-floating-p "lispm-desktop-editor" ())
@@ -129,7 +132,9 @@ list is copied, never changed in place.  Return KEY."
             (mapcar (lambda (app) (if (eq (car app) key) (cons key properties) app))
                     lispm-desktop-apps)
           (append lispm-desktop-apps (list (cons key properties)))))
-  (force-mode-line-update t)
+  (if (fboundp 'lispm-desktop-platinum-redraw-menu-bar)
+      (lispm-desktop-platinum-redraw-menu-bar)
+    (force-mode-line-update t))
   (run-hooks 'lispm-desktop-apps-changed-hook)
   key)
 

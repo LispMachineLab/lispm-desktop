@@ -1027,10 +1027,47 @@ left blank, for the image to lie on."
     ;; A text terminal keeps a window's last column for a long line's sign.
     (mapconcat #'identity (lispm-ui-text-compose (1- width) height pieces) "\n")))
 
+(defvar lispm-desktop-render-debounce 0.03
+  "Seconds to coalesce desktop surface renders during interactive resize.")
+
+(defvar lispm-desktop--render-timer nil
+  "Pending coalescing timer for `lispm-desktop--on-window-change'.")
+
+(defvar-local lispm-desktop--render-key nil
+  "Last desktop state key rendered in this buffer.")
+
+(defun lispm-desktop--compute-render-key (window)
+  "Return comparable key for the rendered state of desktop WINDOW, or nil."
+  (when (and (window-live-p window)
+             (not (and (consp lispm-desktop-platinum-coach-mark)
+                       (eq (car lispm-desktop-platinum-coach-mark) 'area)))
+             (lispm-desktop-icon-side))
+    (let ((width (window-body-width window t))
+          (height (1- (window-body-height window t)))
+          (edges (and (display-images-p) (window-inside-pixel-edges window))))
+      (list width height
+            (and edges (cons (car edges) (cadr edges)))
+            (display-images-p)
+            lispm-ui-palette-generation
+            lispm-desktop-look
+            lispm-desktop-color
+            (and (display-images-p) (lispm-desktop--picture-in-use))
+            lispm-desktop--selected
+            lispm-desktop--trash-full
+            lispm-desktop-platinum-coach-mark
+            lispm-desktop-aliases
+            lispm-desktop-icon-places
+            (lispm-desktop-icon-side)
+            (lispm-desktop--browser-p)
+            lispm-desktop-items))))
+
 (defun lispm-desktop--render (&optional window)
   "Draw the desktop for WINDOW, by default the window showing it.
 Where images cannot be shown, it is drawn in text, see
 `lispm-desktop--text-desktop'."
+  (when (timerp lispm-desktop--render-timer)
+    (cancel-timer lispm-desktop--render-timer)
+    (setq lispm-desktop--render-timer nil))
   (let ((buffer (lispm-desktop-buffer)))
     (when-let* ((window (or window (get-buffer-window buffer t))))
       (with-current-buffer buffer
@@ -1074,11 +1111,35 @@ Where images cannot be shown, it is drawn in text, see
                        width height (and (lispm-desktop-tty-images-p)
                                          (lambda (&rest icon) (push icon icons) t))))
               (lispm-desktop-tty-images-show window icons)))
+          (setq lispm-desktop--render-key (lispm-desktop--compute-render-key window))
           (let ((pt (or cursor-pt (point-min))))
             (goto-char pt)
             (set-window-start window (point-min) t)
             (set-window-point window pt)
             (set-window-hscroll window 0)))))))
+
+(defun lispm-desktop--on-window-change (&optional window-or-frame)
+  "Coalesce desktop renders triggered by WINDOW-OR-FRAME size or buffer changes."
+  (let* ((buf (lispm-desktop-buffer))
+         (win (if (and (windowp window-or-frame)
+                       (eq (window-buffer window-or-frame) buf))
+                  window-or-frame
+                (get-buffer-window buf t))))
+    (when (window-live-p win)
+      (with-current-buffer buf
+        (let ((key (lispm-desktop--compute-render-key win)))
+          (unless (and (> (buffer-size) 0) key (equal key lispm-desktop--render-key))
+            (if (and (not noninteractive) (> (buffer-size) 0) (> lispm-desktop-render-debounce 0))
+                (progn
+                  (when (timerp lispm-desktop--render-timer)
+                    (cancel-timer lispm-desktop--render-timer))
+                  (setq lispm-desktop--render-timer
+                        (run-at-time lispm-desktop-render-debounce nil
+                                     (lambda ()
+                                       (setq lispm-desktop--render-timer nil)
+                                       (when (window-live-p win)
+                                         (lispm-desktop--render win))))))
+              (lispm-desktop--render win))))))))
 
 ;;;; Selecting and opening
 
@@ -1748,8 +1809,8 @@ mode is turned off first: turned off, it restores the lines it found."
   (setq-local revert-buffer-function (lambda (&rest _) (lispm-desktop--render))
               lispm-desktop-paste-function #'lispm-desktop-yank
               lispm-desktop-context-menu-function #'lispm-desktop--keyboard-menu)
-  (add-hook 'window-size-change-functions #'lispm-desktop--render nil t)
-  (add-hook 'window-buffer-change-functions #'lispm-desktop--render nil t)
+  (add-hook 'window-size-change-functions #'lispm-desktop--on-window-change nil t)
+  (add-hook 'window-buffer-change-functions #'lispm-desktop--on-window-change nil t)
   (add-hook 'lispm-desktop-tty-images-ready-hook #'lispm-desktop--render))
 
 (defvar-keymap lispm-desktop-empty-mode-map
