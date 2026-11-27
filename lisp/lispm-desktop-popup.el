@@ -38,6 +38,9 @@
 (require 'lispm-ui-ask)
 (require 'lispm-ui-alert)
 
+(declare-function lispm-agents-populate-region-menu "lispm-agents-actions" (menu &optional buffer beg end))
+(defvar lispm-agents-actions-mode nil)
+
 ;;;; Emacs's menus
 
 (defun lispm-desktop-popup--eval (form)
@@ -147,9 +150,16 @@ left at either end."
                      ((eventp position) (event-start position))))
          (window (or (and posn (windowp (posn-window posn)) (posn-window posn))
                      (selected-window))))
-    (lispm-desktop-popup-augment-items
-     (lispm-desktop-popup-keymap-items keymap)
-     window)))
+    (let ((menu (if (and (bound-and-true-p lispm-agents-actions-mode)
+                         (fboundp 'lispm-agents-populate-region-menu)
+                         (window-live-p window)
+                         (keymapp keymap))
+                    (lispm-agents-populate-region-menu
+                     (copy-keymap keymap) (window-buffer window))
+                  keymap)))
+      (lispm-desktop-popup-augment-items
+       (lispm-desktop-popup-keymap-items menu)
+       window))))
 
 (defun lispm-desktop-popup-keymap-menu (keymap &optional position)
   "Pop up menu KEYMAP at POSITION as a Mac OS 9 menu and run what is chosen.

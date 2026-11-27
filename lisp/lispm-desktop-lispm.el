@@ -95,6 +95,9 @@
 (defvar lispm-desktop-genera--listener-history)
 (defvar lispm-desktop-finder--directory)
 (declare-function lispm-agent-status-record "lispm-runtime" (agent))
+(declare-function lispm-tell "lispm-turns" (agent text &rest args))
+(declare-function lispm-stop-at-condition "lispm-conditions" (agent))
+(declare-function lispm-chat-schedule "lispm-chat-view" (agent))
 (declare-function lispm-read-role "lispm" (prompt))
 (declare-function lispm-mode-line-mode "lispm" (&optional arg))
 (declare-function lispm-desktop-store-skill-sources "lispm-desktop-store" ())
@@ -179,6 +182,19 @@ its session transcript so every live agent appears once."
     (goto-char (point-max))
     (unless (or (bolp) (eq major-mode 'lispm-chat-mode)) (insert "\n"))
     (insert text)))
+
+(defun lispm-desktop-lispm-submit (buffer text)
+  "Submit TEXT immediately as the user's next message to LispM BUFFER."
+  (if-let* ((agent (and (buffer-live-p buffer)
+                        (with-current-buffer buffer
+                          (lispm-desktop-lispm--buffer-agent)))))
+      (progn
+        (when (fboundp 'lispm-stop-at-condition)
+          (lispm-stop-at-condition agent))
+        (lispm-tell agent text)
+        (when (fboundp 'lispm-chat-schedule)
+          (lispm-chat-schedule agent)))
+    (lispm-desktop-lispm-send buffer text)))
 
 (defun lispm-desktop-lispm-rename (session title)
   "Give the LispM SESSION the TITLE shown in session lists."
@@ -699,6 +715,7 @@ Panels and its App Store, `lispm-desktop-skill-directory'."
    :resume #'lispm-desktop-lispm-resume
    :buffer-p #'lispm-desktop-lispm-buffer-p
    :send #'lispm-desktop-lispm-send
+   :submit #'lispm-desktop-lispm-submit
    :rename #'lispm-desktop-lispm-rename
    :files #'lispm-desktop-lispm-files
    ;; Its ids are dated and end in random digits.

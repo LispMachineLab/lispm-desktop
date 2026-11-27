@@ -21332,6 +21332,131 @@ reuse the pooled frame on reopen without `make-frame', exclude pooled frames fro
                      (lispm-desktop-lispm-chat-status)))
       (should (= calls 3)))))
 
+(ert-deftest lispm-desktop-test-lispm-submit-and-region-actions ()
+  "`lispm-desktop-lispm-submit' and region hooks route source selections to LispM."
+  (require 'lispm-desktop-lispm)
+  (let* ((agent (make-symbol "fake-agent"))
+         (stopped nil)
+         (told nil)
+         (scheduled nil)
+         (buf (generate-new-buffer "*lispm-submit-test*")))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () agent))
+                    ((symbol-function 'lispm-stop-at-condition) (lambda (ag) (push ag stopped)))
+                    ((symbol-function 'lispm-tell) (lambda (ag text &rest _) (setq told (list ag text))))
+                    ((symbol-function 'lispm-chat-schedule) (lambda (ag) (push ag scheduled))))
+            (lispm-desktop-lispm-submit buf "Explain\n```elisp\n(+ 1 2)\n```\n")
+            (should (equal stopped (list agent)))
+            (should (equal told (list agent "Explain\n```elisp\n(+ 1 2)\n```\n")))
+            (should (equal scheduled (list agent))))
+          (let ((sent nil))
+            (cl-letf (((symbol-function 'lispm-desktop-lispm--buffer-agent) (lambda () nil))
+                      ((symbol-function 'lispm-desktop-lispm-send)
+                       (lambda (target text) (setq sent (list target text)))))
+              (lispm-desktop-lispm-submit buf "fallback")
+              (should (equal sent (list buf "fallback"))))))
+      (when (buffer-live-p buf) (kill-buffer buf))))
+  ;; Prepare and display hooks switch away from Files/Shells and preserve point.
+  (let ((selected nil)
+        (shown nil)
+        (main-calls nil)
+        (src (generate-new-buffer "region-src.el"))
+        (ag (generate-new-buffer "*region-agent*")))
+    (unwind-protect
+        (with-current-buffer src
+          (insert "line1\nline2\nline3\n")
+          (cl-letf (((symbol-function 'lispm-terminal-p) (lambda (&optional _) nil))
+                    ((symbol-function 'lispm-desktop-sidebar-current-view) (lambda () 'files))
+                    ((symbol-function 'lispm-desktop-sidebar-select)
+                     (lambda (view) (push view selected)))
+                    ((symbol-function 'lispm-agents-show)
+                     (lambda (b) (push b shown)))
+                    ((symbol-function 'lispm-desktop-main-area-display-file)
+                     (lambda (b alist) (push (list b alist) main-calls) (selected-window))))
+            (lispm-desktop-agent--prepare-region-action src)
+            (should (equal selected '(agents)))
+            (save-window-excursion
+              (set-window-buffer (selected-window) src)
+              (lispm-desktop-agent--display-region-action ag src 7)
+              (should (equal shown (list ag)))
+              (should (equal main-calls (list (list src nil))))
+              (should (= (window-point (selected-window)) 7)))))
+      (when (buffer-live-p src) (kill-buffer src))
+      (when (buffer-live-p ag) (kill-buffer ag)))))
+
+(ert-deftest lispm-desktop-test-popup-context-items-does-not-mutate-keymap ()
+  "Context menu building copies KEYMAP before adding region agent entries."
+  (let ((orig (make-sparse-keymap))
+        (seen-menu nil)
+        (lispm-agents-actions-mode t))
+    (keymap-set orig "x" #'ignore)
+    (cl-letf (((symbol-function 'lispm-agents-populate-region-menu)
+               (lambda (menu &optional _buf _beg _end)
+                 (setq seen-menu menu)
+                 (define-key-after menu [lispm-agents-explain]
+                   '(menu-item "Explain" ignore))
+                 menu))
+              ((symbol-function 'lispm-desktop-popup-keymap-items)
+               (lambda (km) (and (lookup-key km [lispm-agents-explain])
+                                 '((:label "Explain" :action ignore)))))
+              ((symbol-function 'lispm-desktop-popup-augment-items)
+               (lambda (items &optional _win) items)))
+      (let ((items (lispm-desktop-popup-context-items orig nil)))
+        (should items)
+        (should seen-menu)
+        (should-not (eq seen-menu orig))
+        (should-not (lookup-key orig [lispm-agents-explain]))))))
+
+(ert-deftest lispm-desktop-test-packages-disables-yas-menu ()
+  "`lispm-desktop-setup-common-packages' disables `yas-use-menu' before activating yasnippet."
+  (let ((stub-dir (make-temp-file "lispm-desktop-yas-stub-" t)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "yasnippet.el" stub-dir)
+            (insert ";;; yasnippet.el --- test stub -*- lexical-binding: t; -*-\n"
+                    "(defvar lispm-desktop-test--yas-menu-at-init 'unset)\n"
+                    "(defgroup yasnippet nil \"Stub.\" :group 'editing)\n"
+                    "(defcustom yas-use-menu 'abbreviate \"Stub.\" :type 'symbol :group 'yasnippet)\n"
+                    "(defun yas-global-mode (&optional _arg)\n"
+                    "  (setq lispm-desktop-test--yas-menu-at-init yas-use-menu))\n"
+                    "(provide 'yasnippet)\n"))
+          (let* ((form
+                  (prin1-to-string
+                   `(progn
+                      (require 'cl-lib)
+                      (setq use-package-always-ensure nil)
+                      (autoload 'yas-global-mode "yasnippet" nil t)
+                      (require 'lispm-desktop-packages)
+                      (cl-letf (((symbol-function 'lispm-desktop-packages--refresh-missing) #'ignore)
+                                ((symbol-function 'lispm-desktop-gui-p) #'ignore)
+                                ((symbol-function 'which-key-mode) #'ignore)
+                                ((symbol-function 'vertico-mode) #'ignore)
+                                ((symbol-function 'savehist-mode) #'ignore)
+                                ((symbol-function 'marginalia-mode) #'ignore)
+                                ((symbol-function 'lispm-desktop-setup-completion-packages) #'ignore)
+                                ((symbol-function 'recentf-mode) #'ignore)
+                                ((symbol-function 'save-place-mode) #'ignore)
+                                ((symbol-function 'lispm-desktop-load-theme) #'ignore)
+                                ((symbol-function 'lispm-desktop-setup-evil-package) #'ignore))
+                        (lispm-desktop-setup-common-packages))
+                      (prin1 (list lispm-desktop-test--yas-menu-at-init yas-use-menu)))))
+                 (out (with-temp-buffer
+                        (should
+                         (= 0 (call-process
+                               (expand-file-name invocation-name invocation-directory)
+                               nil t nil
+                               "-Q" "--batch"
+                               "-L" stub-dir
+                               "-L" (expand-file-name "lisp" lispm-desktop-directory)
+                               "-L" (file-name-directory (locate-library "lispm-kit-i18n"))
+                               "--eval" form)))
+                        (goto-char (point-max))
+                        (backward-sexp)
+                        (read (current-buffer)))))
+            (should (equal out '(nil nil)))))
+      (delete-directory stub-dir t))))
+
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
 

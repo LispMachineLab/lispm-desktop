@@ -45,6 +45,7 @@
 
 (require 'cl-lib)
 (require 'lispm-agents)
+(require 'lispm-agents-actions nil t)
 (require 'lispm-agents-mcp)
 (require 'lispm-agents-ide)
 (require 'lispm-agents-claude)
@@ -60,6 +61,7 @@
 (declare-function lispm-desktop-platinum-main-window "lispm-desktop-platinum-titlebar" (&optional frame))
 (declare-function lispm-desktop-apps-frontmost "lispm-desktop-apps" ())
 (declare-function lispm-desktop-editor-frame "lispm-desktop-editor" ())
+(declare-function lispm-agents-splash-buffer-p "lispm-agents-terminals" (&optional buffer))
 (declare-function lispm-agents--splash-buffer-p "lispm-agents" (&optional buffer))
 (declare-function lispm-desktop-sidebar-show-in-main "lispm-desktop-sidebar" (buffer))
 (declare-function lispm-desktop-sidebar-current-view "lispm-desktop-sidebar" ())
@@ -67,6 +69,8 @@
 (declare-function lispm-desktop-sidebar-select "lispm-desktop-sidebar" (view))
 (declare-function lispm-desktop-workspace-enter "lispm-desktop-interface" (name &optional directory))
 (declare-function lispm-desktop-workspace-show-alone "lispm-desktop-interface" (buffer))
+(declare-function lispm-desktop-main-area-display-file "lispm-desktop-interface" (buffer alist))
+(declare-function lispm-agents-actions-mode "lispm-agents-actions" (&optional arg))
 (declare-function lispm-ui-alert "lispm-ui-ask" (icon message buttons &optional detail))
 (declare-function lispm-terminal-p "lispm-terminal" (&optional frame))
 (defvar tabspaces-default-tab)
@@ -174,19 +178,25 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
 
 (defvar lispm-agents-terminal-send-function)
 (defvar lispm-agents-work-display-function)
+(defvar lispm-agents-region-action-prepare-function nil)
+(defvar lispm-agents-region-action-display-function nil)
 (defvar lispm-agents-default-directory-function nil)
 (defvar lispm-desktop-conversation-modes)
 
 (defun lispm-desktop-agent--splash-buffer-p (&optional buffer)
   "Return non-nil when BUFFER is a splash, welcome, or sidebar list buffer."
-  (if (fboundp 'lispm-agents--splash-buffer-p)
-      (lispm-agents--splash-buffer-p buffer)
+  (cond
+   ((fboundp 'lispm-agents-splash-buffer-p)
+    (lispm-agents-splash-buffer-p buffer))
+   ((fboundp 'lispm-agents--splash-buffer-p)
+    (lispm-agents--splash-buffer-p buffer))
+   (t
     (with-current-buffer (or buffer (current-buffer))
       (and (not buffer-file-name)
            (or (member (buffer-name) '("*Welcome to LispM*" "*LispM*" " *Desktop*"
                                        "*Agents*" "*AI History*" "*Tasks*" "*scratch*"))
                (derived-mode-p 'lispm-welcome-mode 'lispm-desktop-surface-mode
-                               'lispm-agents-roster-mode))))))
+                               'lispm-agents-roster-mode)))))))
 
 (defun lispm-desktop-agent--default-directory ()
   "Return the default directory for a new session on the desktop."
@@ -224,6 +234,27 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
        (t
         (lispm-agents-project-directory))))))
 
+(defun lispm-desktop-agent--prepare-region-action (_source-buffer)
+  "Switch from Files or Shells into the Agents sidebar before a region action."
+  (unless (and (fboundp 'lispm-terminal-p) (lispm-terminal-p))
+    (when (memq (lispm-desktop-sidebar-current-view) '(files shells))
+      (lispm-desktop-sidebar-select 'agents))))
+
+(defun lispm-desktop-agent--display-region-action (agent-buffer source-buffer position)
+  "Show AGENT-BUFFER in the session column and keep SOURCE-BUFFER at POSITION."
+  (if (and (fboundp 'lispm-terminal-p) (lispm-terminal-p))
+      (pop-to-buffer-same-window agent-buffer)
+    (lispm-agents-show agent-buffer)
+    (when (and (buffer-live-p source-buffer)
+               (not (eq source-buffer agent-buffer)))
+      (save-selected-window
+        (let ((win (lispm-desktop-main-area-display-file source-buffer nil)))
+          (when (and (window-live-p win) (integer-or-marker-p position))
+            (set-window-point win
+                              (with-current-buffer source-buffer
+                                (max (point-min)
+                                     (min (point-max) position))))))))))
+
 ;; On the desktop the agents run in its terminals and show in its windows.
 (setq lispm-agents-terminal-make-function #'lispm-desktop-terminal-make
       lispm-agents-terminal-live-p-function #'lispm-desktop-terminal-live-p
@@ -231,6 +262,8 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
       lispm-agents-terminal-send-function #'lispm-desktop-terminal-send
       lispm-agents-show-function #'lispm-desktop-agent--show
       lispm-agents-work-display-function #'lispm-desktop-agent--show-work
+      lispm-agents-region-action-prepare-function #'lispm-desktop-agent--prepare-region-action
+      lispm-agents-region-action-display-function #'lispm-desktop-agent--display-region-action
       lispm-agents-main-window-function #'lispm-desktop-platinum-main-window
       lispm-agents-default-directory-function #'lispm-desktop-agent--default-directory
       lispm-agents-confirm-function #'lispm-desktop-agent--confirm
@@ -251,7 +284,9 @@ This is one of `lispm-desktop-platinum-buffer-icon-functions'."
 the session's title, and \\`C-c a' holds their commands."
   (add-hook 'lispm-desktop-platinum-buffer-icon-functions #'lispm-desktop-agent--buffer-icon)
   (add-hook 'lispm-desktop-platinum-buffer-title-functions #'lispm-agents-buffer-label)
-  (keymap-global-set "C-c a" lispm-agents-map))
+  (keymap-global-set "C-c a" lispm-agents-map)
+  (when (fboundp 'lispm-agents-actions-mode)
+    (lispm-agents-actions-mode 1)))
 
 ;;;; Names of old
 

@@ -42,6 +42,7 @@
 (defvar exec-path-from-shell-check-startup-files)
 (defvar corfu-auto-prefix)
 (defvar corfu-auto-delay)
+(defvar yas-use-menu)
 
 (declare-function lispm-desktop-tab-bar-tab-name "lispm-desktop-interface" (tab _i))
 
@@ -216,7 +217,9 @@
   (lispm-desktop-setup-evil-package)
 
   (use-package yasnippet
-    :init (yas-global-mode 1)))
+    :init
+    (setq yas-use-menu nil)
+    (yas-global-mode 1)))
 
 (defun lispm-desktop-setup-tab-bar ()
   "Set up the tab bar, which the desktop's menu bar is drawn on, and its
