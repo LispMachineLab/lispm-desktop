@@ -90,8 +90,8 @@ while LispM Kit, which translates them, is being installed."
               :needs "lispm-finder" :version "0.13.0")
     (lispm :url "https://github.com/LispMachineLab/lispm-agent" :checkout "lispm-agent"
            :lisp-dir "lisp"
-           ;; Agent owns project views and the built-in spatial Office renderer.
-           :needs "lispm-agents-work" :version "0.23.0")
+           ;; Agent owns project views, built-in spatial Office renderer, and contextual code-region actions.
+           :needs "lispm-agents-work" :version "0.25.0")
     (lispm-browser :url "https://github.com/LispMachineLab/lispm-browser" :checkout "lispm-browser"
                    :lisp-dir "lisp")
     (lispm-kernel :url "https://github.com/LispMachineLab/lispm-kernel" :checkout "lispm-kernel"
