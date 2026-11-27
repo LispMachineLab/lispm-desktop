@@ -404,10 +404,38 @@ Application menu, see `lispm-desktop-apps-application-items'."
     (,(lispm-desktop-tr-noop "Settings…") lispm-desktop-lispm-settings)
     (,(lispm-desktop-tr-noop "Security…") lispm-desktop-lispm-security)))
 
+(defvar lispm-desktop-lispm-status-cache-ttl 2.0
+  "Seconds to reuse cached model status in `lispm-desktop-lispm-chat-status'.")
+
+(defvar lispm-desktop-lispm--status-cache nil
+  "Cached `(TIMESTAMP . STATUS)' returned by `lispm-model-status'.")
+
+(defun lispm-desktop-lispm--invalidate-status-cache (&rest _)
+  "Clear cached model status so the next draw queries `lispm-model-status'."
+  (setq lispm-desktop-lispm--status-cache nil))
+
+(defun lispm-desktop-lispm--model-status ()
+  "Return cached `lispm-model-status' when within TTL, or refresh it."
+  (let ((now (float-time)))
+    (if (and lispm-desktop-lispm--status-cache
+             (< (- now (car lispm-desktop-lispm--status-cache))
+                lispm-desktop-lispm-status-cache-ttl))
+        (cdr lispm-desktop-lispm--status-cache)
+      (let ((status (lispm-model-status)))
+        (setq lispm-desktop-lispm--status-cache (cons now status))
+        status))))
+
+(with-eval-after-load 'lispm-settings
+  (add-hook 'lispm-settings-change-hook #'lispm-desktop-lispm--invalidate-status-cache))
+
+(with-eval-after-load 'lispm-auth
+  (add-hook 'lispm-auth-lock-hook #'lispm-desktop-lispm--invalidate-status-cache)
+  (add-hook 'lispm-auth-auto-lock-hook #'lispm-desktop-lispm--invalidate-status-cache))
+
 (defun lispm-desktop-lispm-chat-status ()
   "Return the status placards at the bottom of LispM Agent's window."
   (when (fboundp 'lispm-model-status)
-    (let* ((status (lispm-model-status))
+    (let* ((status (lispm-desktop-lispm--model-status))
            (backend (plist-get status :backend))
            (model (plist-get status :model))
            (msg (plist-get status :message)))

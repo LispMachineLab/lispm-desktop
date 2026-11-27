@@ -859,11 +859,11 @@ anything else is an error saying what to update."
           (setq lispm-desktop-deps--refreshed
                 (cons settings (copy-tree package-archive-contents))))))))
 
-(defconst lispm-desktop-deps-auth-version "0.2.8")
+(defconst lispm-desktop-deps-auth-version "0.2.10")
 (defconst lispm-desktop-deps-auth-sha256
-  "6fe48147cd8b883c2c11e71eadc151fe44a46e6ebf81aac6998ca77d421f8746")
+  "cbf11be9aff1b83e390a34992269146b4ed0b39df5eec534a571da044133344c")
 (defconst lispm-desktop-deps-auth-source-sha256
-  "3b59cb5d489394a4e0d90f0a151f32dd381301cb28dd375eb4a114df9129bac1")
+  "ef8664cf0616f0b61e2663d012c8cfe9a0bee6feebecc36f80d4f3fbcfe988ed")
 
 (defun lispm-desktop-deps--notify-progress (installer-status &optional assistant-status)
   "Ensure a visible progress UI when an installation or update begins."

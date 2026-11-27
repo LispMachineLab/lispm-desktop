@@ -13775,6 +13775,7 @@ logged, its file a temporary one, installing as LispM quits."
           (lispm-desktop-update--results nil)
           (lispm-desktop-update--log nil)
           (lispm-desktop-update--announced nil)
+          (lispm-desktop-update--announced-kept nil)
           (lispm-desktop-update--requested nil)
           (lispm-desktop-update--reopen nil)
           (lispm-desktop-update--installed nil)
@@ -14234,6 +14235,31 @@ install as LispM quits, else by an alert, once Emacs is idle."
         (lispm-desktop-update--announce updates)
         (should (= (length said) 1))
         (should (equal (cddr (car idle)) '(lispm-desktop-update--offer nil)))))))
+
+(ert-deftest lispm-desktop-test-update-announces-kept-release-once ()
+  "Kept checkouts with a newer release emit a one-time notice without installing."
+  (lispm-desktop-test--with-update
+    (let ((said nil)
+          (idle nil)
+          (kept (list '(:name "LispM Agent" :state kept :reason "has changes of its own"
+                              :release "v0.24.0" :from "old1" :to "new2"))))
+      (cl-letf (((symbol-function 'message) (lambda (fmt &rest args) (push (apply #'format fmt args) said)))
+                ((symbol-function 'run-with-idle-timer) (lambda (&rest args) (push args idle)))
+                ((symbol-function 'lispm-desktop-update--app) #'ignore))
+        (setq lispm-desktop-update--results kept)
+        (lispm-desktop-update--announce nil)
+        (lispm-desktop-update--announce nil)
+        (should (= (length said) 1))
+        (should (string-search "LispM Agent 0.24.0" (car said)))
+        (should-not idle)
+        ;; Current or up-to-date kept checkouts produce no notice.
+        (setq said nil
+              lispm-desktop-update--announced-kept nil
+              lispm-desktop-update--results
+              (list '(:name "LispM UI" :state kept :release "v0.9.0" :from "same" :to "same")
+                    '(:name "LispM Desktop" :state current :release "v0.26.0" :from "x" :to "x")))
+        (lispm-desktop-update--announce nil)
+        (should-not said)))))
 
 (ert-deftest lispm-desktop-test-update-offer ()
   "The alert offering to restart has Restart as its default only when the
@@ -18758,7 +18784,7 @@ saved text-icon option is the value the toolkit reads."
     (should (equal (lispm-ui-icon-file "/tmp/an-app-icon.svg") "/tmp/an-app-icon.svg")))
   (should (eq (indirect-variable 'lispm-ui-text-icons) 'lispm-desktop-platinum-text-icons))
   (let ((lispm-desktop-platinum-text-icons '(("folder" . "F"))))
-    (should (equal (substring-no-properties (lispm-ui-text-icon "folder")) "F"))))
+    (should (equal (substring-no-properties (lispm-ui-text-icon "folder-git")) "F"))))
 
 (ert-deftest lispm-desktop-test-ui-alert-uses-terminal-renderer ()
   "A toolkit alert gives its image and its window to the desktop's
@@ -21276,6 +21302,35 @@ reuse the pooled frame on reopen without `make-frame', exclude pooled frames fro
     (should (= (length prompts) 4))
     (should (= (length modals) 2))
     (should (= (length alerts) 3))))
+
+(ert-deftest lispm-desktop-test-lispm-chat-status-caches-model-status ()
+  "Chat status placards cache `lispm-model-status' within TTL and invalidate on hooks."
+  (require 'lispm-desktop-lispm)
+  (let ((lispm-desktop-lispm--status-cache nil)
+        (lispm-desktop-lispm-status-cache-ttl 10.0)
+        (calls 0)
+        (status '(:backend openai :model "gpt-5" :message "Ready")))
+    (cl-letf (((symbol-function 'lispm-model-status)
+               (lambda ()
+                 (cl-incf calls)
+                 status)))
+      (should (equal '("openai · gpt-5" "Ready")
+                     (lispm-desktop-lispm-chat-status)))
+      (should (= calls 1))
+      (should (equal '("openai · gpt-5" "Ready")
+                     (lispm-desktop-lispm-chat-status)))
+      (should (= calls 1))
+      (setq status '(:backend anthropic :model "claude" :message "Updated"))
+      (lispm-desktop-lispm--invalidate-status-cache)
+      (should (equal '("anthropic · claude" "Updated")
+                     (lispm-desktop-lispm-chat-status)))
+      (should (= calls 2))
+      (setcar lispm-desktop-lispm--status-cache
+              (- (car lispm-desktop-lispm--status-cache)
+                 (+ lispm-desktop-lispm-status-cache-ttl 1.0)))
+      (should (equal '("anthropic · claude" "Updated")
+                     (lispm-desktop-lispm-chat-status)))
+      (should (= calls 3)))))
 
 (provide 'lispm-desktop-test)
 ;;; lispm-desktop-test.el ends here
