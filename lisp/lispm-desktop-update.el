@@ -157,6 +157,9 @@ A tag with more, as v0.3.0-rc1, is no release.")
 (defvar lispm-desktop-update--announced nil
   "The commits the last announcement told of, so that it is made once.")
 
+(defvar lispm-desktop-update--announced-kept nil
+  "Release commits already mentioned once for checkouts kept at their commit.")
+
 (defvar lispm-desktop-update--requested nil
   "Non-nil once installing as LispM quits was asked for, even with
 `lispm-desktop-update-install-automatically' off.")
@@ -671,17 +674,46 @@ LispM speaks."
                                        (lispm-desktop-update-title update) count))))
              updates "; "))
 
+(defun lispm-desktop-update--kept-releases ()
+  "Return kept checkouts from the last check that have a newer release."
+  (seq-filter
+   (lambda (result)
+     (let ((from (plist-get result :from))
+           (to (plist-get result :to)))
+       (and (eq (plist-get result :state) 'kept)
+            (plist-get result :release)
+            from to
+            (not (equal from to)))))
+   lispm-desktop-update--results))
+
 (defun lispm-desktop-update--announce (updates)
   "Tell of UPDATES, found by a check of Software Update's own, once.
 When they install by themselves, as LispM quits, a line says so;
-otherwise an alert asks, once Emacs is idle."
-  (let ((commits (mapcar (lambda (update) (plist-get update :to)) updates)))
-    (when (and updates (not (equal commits lispm-desktop-update--announced)))
-      (setq lispm-desktop-update--announced commits)
-      (if (lispm-desktop-update-installs-on-quit-p)
-          (message (lispm-desktop-tr "Software Update: %s; installed when LispM quits.")
-                   (lispm-desktop-update--summary updates))
-        (run-with-idle-timer 2 nil #'lispm-desktop-update--offer nil)))))
+otherwise an alert asks, once Emacs is idle.  When no automatic update
+can apply because checkouts are kept locally, mention their newer
+releases once."
+  (if updates
+      (let ((commits (mapcar (lambda (update) (plist-get update :to)) updates)))
+        (unless (equal commits lispm-desktop-update--announced)
+          (setq lispm-desktop-update--announced commits)
+          (if (lispm-desktop-update-installs-on-quit-p)
+              (message (lispm-desktop-tr "Software Update: %s; installed when LispM quits.")
+                       (lispm-desktop-update--summary updates))
+            (run-with-idle-timer 2 nil #'lispm-desktop-update--offer nil))))
+    (when-let* ((kept (lispm-desktop-update--kept-releases))
+                (commits (mapcar (lambda (result) (plist-get result :to)) kept)))
+      (unless (equal commits lispm-desktop-update--announced-kept)
+        (setq lispm-desktop-update--announced-kept commits)
+        (message "%s: %s"
+                 (lispm-desktop-tr "Software Update")
+                 (mapconcat (lambda (result)
+                              (let ((reason (plist-get result :reason)))
+                                (if (stringp reason)
+                                    (format "%s (%s)"
+                                            (lispm-desktop-update-title result)
+                                            (lispm-desktop-tr reason))
+                                  (lispm-desktop-update-title result))))
+                            kept "; "))))))
 
 ;;;; Installing
 
